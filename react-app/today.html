@@ -3944,35 +3944,52 @@
       // conviction), so the strip is honest about its cadence.
       // ─────────────────────────────────────────────────────────────
       function IndexDayTradeStrip({ onSelectTicker, embedded }) {
-        const [payload, setPayload] = useState(null);
-        const [loading, setLoading] = useState(true);
+        // TTFetchCache stale-while-revalidate: paint the last-seen response
+        // instantly from sessionStorage on mount, then revalidate in the
+        // background so the tape is never more than one 5-min tick stale.
+        const url = `${API_BASE}/timed/options/all?limit=10`;
+        const CACHE = (typeof window !== "undefined" && window.TTFetchCache) || null;
+        const initial = (CACHE && window._ttIsPro) ? CACHE.peek(url) : null;
+        const [payload, setPayload] = useState(initial);
+        const [loading, setLoading] = useState(!initial);
         const [openCard, setOpenCard] = useState(null); // ticker of expanded card
 
         useEffect(() => {
           let alive = true;
-          const url = `${API_BASE}/timed/options/all?limit=10`;
           const load = async () => {
             // Options plays carry strikes + premiums — proprietary data
             // that follows the same Pro/VIP/Admin gate as scoring.
             if (!window._ttIsPro) {
-              if (alive) setLoading(true);
+              if (alive) setLoading(false);
               return;
             }
             try {
-              if (alive) setLoading(true);
-              const j = await fetchJsonRetry(url);
+              const j = CACHE
+                ? await CACHE.get(url, {
+                    // Freshness budget: 90s (the underlying /timed/options/all
+                    // response is server-cached for 5 min, so 90s here means
+                    // at most a ~5-min tick of staleness).
+                    ttlMs: 90 * 1000,
+                    maxAgeMs: 10 * 60 * 1000,
+                    fetchOpts: { credentials: "include", cache: "no-store" },
+                  })
+                : await fetchJsonRetry(url);
               if (!alive) return;
               if (j?.ok) setPayload(j);
-              else setPayload({ day_trade_plays: [], day_trade_suppressed: [] });
+              else if (!payload) setPayload({ day_trade_plays: [], day_trade_suppressed: [] });
             } catch (_) {
-              if (alive) setPayload({ day_trade_plays: [], day_trade_suppressed: [] });
+              if (alive && !payload) setPayload({ day_trade_plays: [], day_trade_suppressed: [] });
             } finally {
               if (alive) setLoading(false);
             }
           };
           load();
-          // Poll every 5 min while the tab is visible so the tier /
-          // strike / premium update as the underlying moves.
+          // React to background revalidations from the cache so tier /
+          // strike / premium refresh live without a page reload.
+          const unsub = CACHE?.subscribe?.(url, (body) => {
+            if (alive && body?.ok) setPayload(body);
+          });
+          // Poll every 5 min while the tab is visible.
           const iv = setInterval(() => {
             if (document.visibilityState === "visible") load();
           }, 5 * 60 * 1000);
@@ -3984,6 +4001,7 @@
           return () => {
             alive = false;
             clearInterval(iv);
+            if (typeof unsub === "function") unsub();
             window.removeEventListener("tt-auth-bootstrap-updated", onAuth);
           };
         }, []);
@@ -4198,7 +4216,11 @@
                 ...(p.primary || {}),
                 _tier: p.primary_tier || null,
               };
-              return h("div", { key: p.ticker, style: { display: "flex", flexDirection: "column", width: 280, flex: "0 0 280px" } },
+              // Plain block wrapper (NOT flex-column). `.tt-strip-card` uses
+              // `flex: 0 0 280px` as a WIDTH basis — a flex-column parent
+              // would flip that into a fixed HEIGHT and lock the card at
+              // 280px tall (that was the empty-space bug the operator caught).
+              return h("div", { key: p.ticker, style: { display: "block", width: 280, flex: "0 0 280px" } },
                 renderCard(headline, {
                   ticker: p.ticker,
                   spot: p.price,

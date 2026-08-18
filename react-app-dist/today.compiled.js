@@ -1393,27 +1393,35 @@ function IndexDayTradeStrip({
   onSelectTicker,
   embedded
 }) {
-  const [payload, setPayload] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const url = `${API_BASE}/timed/options/all?limit=10`;
+  const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
+  const initial = CACHE && window._ttIsPro ? CACHE.peek(url) : null;
+  const [payload, setPayload] = useState(initial);
+  const [loading, setLoading] = useState(!initial);
   const [openCard, setOpenCard] = useState(null);
   useEffect(() => {
     let alive = true;
-    const url = `${API_BASE}/timed/options/all?limit=10`;
     const load = async () => {
       if (!window._ttIsPro) {
-        if (alive) setLoading(true);
+        if (alive) setLoading(false);
         return;
       }
       try {
-        if (alive) setLoading(true);
-        const j = await fetchJsonRetry(url);
+        const j = CACHE ? await CACHE.get(url, {
+          ttlMs: 90 * 1000,
+          maxAgeMs: 10 * 60 * 1000,
+          fetchOpts: {
+            credentials: "include",
+            cache: "no-store"
+          }
+        }) : await fetchJsonRetry(url);
         if (!alive) return;
-        if (j?.ok) setPayload(j);else setPayload({
+        if (j?.ok) setPayload(j);else if (!payload) setPayload({
           day_trade_plays: [],
           day_trade_suppressed: []
         });
       } catch (_) {
-        if (alive) setPayload({
+        if (alive && !payload) setPayload({
           day_trade_plays: [],
           day_trade_suppressed: []
         });
@@ -1422,6 +1430,9 @@ function IndexDayTradeStrip({
       }
     };
     load();
+    const unsub = CACHE?.subscribe?.(url, body => {
+      if (alive && body?.ok) setPayload(body);
+    });
     const iv = setInterval(() => {
       if (document.visibilityState === "visible") load();
     }, 5 * 60 * 1000);
@@ -1438,6 +1449,7 @@ function IndexDayTradeStrip({
     return () => {
       alive = false;
       clearInterval(iv);
+      if (typeof unsub === "function") unsub();
       window.removeEventListener("tt-auth-bootstrap-updated", onAuth);
     };
   }, []);
@@ -1749,8 +1761,7 @@ function IndexDayTradeStrip({
     return h("div", {
       key: p.ticker,
       style: {
-        display: "flex",
-        flexDirection: "column",
+        display: "block",
         width: 280,
         flex: "0 0 280px"
       }
@@ -7657,6 +7668,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787033852915:279540879
+// cache-bust:1787067079652:595806889
 
-// cache-bust:1787033852915:279540879
+// cache-bust:1787067079652:595806889
