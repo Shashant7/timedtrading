@@ -86,7 +86,11 @@ swapped; FAQ looked "active").
 **Root / Fix:** Mount `shared-nav.js` via `#global-nav-root` + page-local
 `.topnav` CSS (same as Broker Connections). Add `/trade-review` to
 `JOURNEY_PATHS` in `tt-nav-extras.js` so the duplicate strip is not
-injected.
+injected. Wrap the page in `TimedAuthGate` (`requiredTier="admin"`) and
+load `tt-global-search.js` — without AuthGate, extras never sees
+`_ttIsAdmin` / session user so Admin + Discord/bell/avatar never mount.
+`pollForNav` must retry `injectAdminMenu` + `injectRightWidgets`, not
+only the journey strip (extras is in `<head>`, shared-nav is in `<body>`).
 
 ## Broker Connections: double nav, password form, Model KPI, 1D curve [2026-08-13]
 
