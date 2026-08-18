@@ -252,6 +252,44 @@ lane uses — same LEFT_MONEY / CORRECT_LOSS verdict semantics.
 
 ---
 
+## 3.5. Shipping order — one PR, all seven stages, staged activation
+
+Operator direction (this session): build all seven stages in one drop
+so the plumbing is in place. Tune with real data, then flip flags
+one at a time.
+
+Rules for the single-PR drop:
+
+- Every stage lands **default off**. No behaviour changes on merge.
+- Stages have flags in `model_config` (and `REPLAY_DA_KEYS`).
+- Tests per stage — each stage must pass its own unit tests before
+  the next commit is added to the branch.
+- One logical commit per stage. Reviewers (and rollback) can pick
+  individual stages out cleanly.
+
+### Activation ladder (post-merge)
+
+The flag flips are ordered so measurement always lands before any
+capital-facing change.
+
+| Order | Flag | Effect |
+|---|---|---|
+| 1 | `options_marks_enabled=true` | Stage 1 snapshot cron + resolver start writing. No user surface yet. |
+| 2 | `options_backfill_run=1` (one-shot) | Stage 1 30-day Alpaca backfill; reads-only. |
+| 3 | `options_scorecard_enabled=true` | Admin scorecard endpoint returns real numbers. |
+| 4 | `options_ladder_tiers=true` | Stage 2 three-tier day-trade cards published on Right Rail + /timed/options/all. |
+| 5 | `options_gate_honesty=true` | Stage 3 confluence-veto tier-downgrade. |
+| 6 | `options_management_card=true` | Stage 4 exit doctrine block rendered + Trade Review consumes closed contracts. |
+| 7 | `options_brief_surface=true` | Stage 7 daily brief + Right Rail historic win rate. |
+| 8 | `options_auto_mirror_indices=true` | Stage 5 paper auto-mirror SPY/QQQ/IWM `long_call/long_put`. Only after the scorecard shows ≥60% contract-win rate. |
+| 9 | `options_index_swing_enabled=true` | Stage 6 multi-day builder. |
+
+Nothing here auto-flips. Every step is an explicit operator write to
+`model_config`. Stage 5 stays paper (Alpaca) even when enabled;
+IBKR live flip is a separate write on the bridge side.
+
+---
+
 ## 4. Honest readiness answer
 
 Today:
