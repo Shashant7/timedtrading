@@ -487,6 +487,16 @@ export const REPLAY_DA_KEYS = [
   "trade_review_batch",
   "trade_review_lookahead_days",
   "trade_review_closed_only",
+  // Stage 1 — options readiness (tasks/2026-08-18-index-options-readiness.md).
+  // options_marks_enabled turns on the SPY/QQQ/IWM options-marks ledger +
+  // snapshot cron. The other stage flags follow in the same PR.
+  "options_marks_enabled",
+  "options_ladder_tiers",
+  "options_gate_honesty",
+  "options_management_card",
+  "options_brief_surface",
+  "options_auto_mirror_indices",
+  "options_index_swing_enabled",
   // V15 P0.7.63 (2026-05-05) — Cluster throttle flags
   "deep_audit_cluster_throttle_enabled",
   "deep_audit_cluster_throttle_window_min",

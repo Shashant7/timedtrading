@@ -39,6 +39,16 @@ const TRADE_REVIEW_CONFIG_KEYS = [
   "trade_review_batch",
   "trade_review_lookahead_days",
   "trade_review_closed_only",
+  // Stage 1-7 index-options readiness. Loaded on admin/HTTP paths that
+  // predate the deep-audit config too (same trap `_deepAuditConfig`
+  // has bitten before).
+  "options_marks_enabled",
+  "options_ladder_tiers",
+  "options_gate_honesty",
+  "options_management_card",
+  "options_brief_surface",
+  "options_auto_mirror_indices",
+  "options_index_swing_enabled",
 ];
 
 /**

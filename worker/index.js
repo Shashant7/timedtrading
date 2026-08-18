@@ -782,6 +782,19 @@ import { isQuarantinedByFreshness, buildFreshnessSummary, isFreshnessExemptTicke
 /* 2026-06-11 — Signal Outcome Ledger: every published call (options plays,
    investor actions, FSD signals, day-trade calls) is recorded and graded
    nightly. "Nothing we publish goes unassessed." */
+// Stage 1 — options marks (contract-side ledger for SPY/QQQ/IWM plays).
+// tasks/2026-08-18-index-options-readiness.md.
+import {
+  ensureOptionMarksSchema as _ensureOptionMarksSchema,
+  optionMarksEnabled as _optionMarksEnabled,
+  writeMark as _optionMarksWrite,
+  readMarks as _optionMarksRead,
+  snapshotSignal as _optionMarksSnapshotSignal,
+  backfillSignal as _optionMarksBackfillSignal,
+  buildOccSymbol as _optionMarksBuildOcc,
+  computeOptionOutcome as _optionMarksComputeOutcome,
+  summarizeScorecard as _optionMarksSummarize,
+} from "./options-marks.js";
 import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
@@ -1835,6 +1848,10 @@ const ROUTES = [
   ["GET",  "/timed/options/auto-mirror",   "GET /timed/options/auto-mirror"],
   ["PUT",  "/timed/options/auto-mirror",   "PUT /timed/options/auto-mirror"],
   ["POST", "/timed/options/mirror-now",    "POST /timed/options/mirror-now"],
+  // Stage 1 — options-marks admin (readiness plan 2026-08-18).
+  ["GET",  "/timed/admin/options-scorecard", "GET /timed/admin/options-scorecard"],
+  ["POST", "/timed/admin/options-marks/backfill", "POST /timed/admin/options-marks/backfill"],
+  ["POST", "/timed/admin/options-marks/snapshot", "POST /timed/admin/options-marks/snapshot"],
   // Futures pairs (Carter ES/NQ analysis).
   ["GET",  "/timed/futures-pairs",         "GET /timed/futures-pairs"],
   // Volume Profile (POC, VAH, VAL).
@@ -42819,6 +42836,124 @@ async function _tradeReviewNextSeq(env, tradeId, legKind) {
   }
 }
 
+// ── Stage 1 helpers for options marks (tasks/2026-08-18-index-options-readiness.md).
+// Day-trade plays are keyed on ticker + expiration + strike + right + NY-date
+// so the same 0/1DTE play republished during a 5-min cycle resolves to the
+// same signal_id (idempotent INSERT OR IGNORE into signal_outcomes).
+function buildDayTradeSignalId(ticker, expirationIso, play) {
+  const t = String(ticker || "").toUpperCase();
+  const iso = String(expirationIso || play?.expiration?.iso || "").slice(0, 10);
+  const strike = Number(play?.strikes?.primary) || 0;
+  const flavor = String(play?._day_trade_flavor || "").toLowerCase();
+  const right = flavor === "put" ? "P" : flavor === "call" ? "C" : "X";
+  const nyDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  if (!t || !iso || !(strike > 0) || right === "X") return null;
+  return `dt:${t}:${nyDate}:${iso}:${right}:${strike}`;
+}
+
+/**
+ * Snapshot the live chain for every open options_day_trade signal.
+ * "Open" = published in the last 48h AND before expiry AND not resolved.
+ * Idempotent (marks are minute-bucketed). Bounded by `limit`.
+ */
+async function _snapshotOpenOptionsSignals(env, { limit = 20 } = {}) {
+  if (!env?.DB) return { ok: false, error: "no_db" };
+  await _ensureOptionMarksSchema(env);
+  const now = Date.now();
+  const since = now - 48 * 3_600_000;
+  const { results } = await env.DB.prepare(
+    `SELECT signal_id, ticker, direction, published_at, expiry_ts, payload_json
+       FROM signal_outcomes
+      WHERE source = 'options_day_trade' AND status = 'open'
+        AND published_at >= ?1 AND (expiry_ts IS NULL OR expiry_ts >= ?2)
+      ORDER BY published_at DESC LIMIT ?3`
+  ).bind(since, now, Math.max(1, Math.min(100, Number(limit) || 20))).all();
+  let snapped = 0;
+  const errors = [];
+  for (const r of results || []) {
+    let payload = null;
+    try { payload = r.payload_json ? JSON.parse(r.payload_json) : null; } catch { /* skip */ }
+    if (!payload?.option_symbol) continue;
+    const res = await _optionMarksSnapshotSignal(env, {
+      signal_id: r.signal_id,
+      ticker: r.ticker,
+      option_symbol: payload.option_symbol,
+      right: payload.right,
+      strike: payload.strike,
+      expiration: payload.expiration,
+    }, now).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 120) }));
+    if (res?.ok) snapped += 1;
+    else if (res?.error) errors.push({ signal_id: r.signal_id, error: res.error });
+  }
+  return { ok: true, seen: (results || []).length, snapped, errors: errors.slice(0, 10) };
+}
+
+async function _optionsMarksRecordPlay(env, {
+  signal_id, ticker, direction, play, tier, day_lean, day_lean_conviction, confluence_mode, underlying_price,
+} = {}) {
+  if (!signal_id || !play?.strikes?.primary || !play?.expiration?.iso) return;
+  await _ensureOptionMarksSchema(env);
+  const strike = Number(play.strikes.primary);
+  const flavor = String(play._day_trade_flavor || "").toLowerCase();
+  const right = flavor === "put" ? "P" : "C";
+  const optionSymbol = _optionMarksBuildOcc(ticker, play.expiration.iso, right, strike);
+  if (!optionSymbol) return;
+  const publishedAt = Date.now();
+  const expiryTs = Date.parse(`${play.expiration.iso}T21:00:00Z`);
+  const premMid = Number(play?.premium?.mid);
+  // Record the play in signal_outcomes (idempotent) so the nightly
+  // resolver knows about it AND the marks path can stitch to it.
+  await _soRecordSignal(env, {
+    signal_id,
+    source: "options_day_trade",
+    desk: "day_trade",
+    ticker,
+    direction,
+    vehicle: right === "P" ? "put" : "call",
+    published_at: publishedAt,
+    thesis: play.label || play.rationale?.slice(0, 200) || null,
+    ref_id: null,
+    entry_price: Number.isFinite(premMid) ? premMid : null,
+    target_price: null,
+    stop_price: null,
+    breakeven: Number(play.breakeven) || null,
+    expiry_ts: Number.isFinite(expiryTs) ? expiryTs : null,
+    payload: {
+      option_symbol: optionSymbol,
+      right,
+      strike,
+      expiration: play.expiration.iso,
+      dte: play.expiration.dte,
+      archetype: play.archetype || null,
+      tier: tier || "gamma",
+      day_lean,
+      day_lean_conviction,
+      confluence_mode,
+      underlying_at_publish: underlying_price,
+    },
+  }).catch(() => {});
+  // First mark = the publish print. Live snapshots stack on top.
+  await _optionMarksWrite(env, {
+    signal_id,
+    ticker,
+    option_symbol: optionSymbol,
+    right,
+    strike,
+    expiration: play.expiration.iso,
+    ts: publishedAt,
+    mid: Number.isFinite(premMid) ? premMid : null,
+    bid: Number(play?.premium?.bid) || null,
+    ask: Number(play?.premium?.ask) || null,
+    iv: Number(play?.premium?.iv_used) || null,
+    delta: Number(play?.premium?.greeks?.delta) || null,
+    gamma: Number(play?.premium?.greeks?.gamma) || null,
+    theta: Number(play?.premium?.greeks?.theta) || null,
+    vega: Number(play?.premium?.greeks?.vega) || null,
+    underlying: Number(underlying_price) || null,
+    source: "publish",
+  }).catch(() => {});
+}
+
 // ── Decision provenance (Slice A) — version-pinned record per decision ──
 // Schema + writer for `decision_records`. Pure helpers (config hash, record
 // shape, DDL) live in decision-records.js; D1 wiring stays here next to the
@@ -69651,6 +69786,158 @@ export default {
         }
       }
 
+      // ── STAGE 1 — Options marks scorecard + backfill
+      //    tasks/2026-08-18-index-options-readiness.md
+      //
+      // GET /timed/admin/options-scorecard?days=30&ticker=SPY,QQQ,IWM
+      //   Returns per-(ticker × tier × conviction) rollup of contract
+      //   outcomes: win rate, avg max-gain, avg max-drawdown, close %,
+      //   and hit-rates at 25/50/100% take-profit. Grades the CONTRACT,
+      //   not just the underlying — the whole point of Stage 1.
+      if (routeKey === "GET /timed/admin/options-scorecard") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await _ensureOptionMarksSchema(env);
+          const days = Math.max(1, Math.min(120, Number(url.searchParams.get("days")) || 30));
+          const tickerFilter = String(url.searchParams.get("ticker") || "")
+            .split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+          const sinceTs = Date.now() - days * 86_400_000;
+          // Join signal_outcomes → option_marks. We compute the outcome
+          // block from marks on the fly so the scorecard reflects the
+          // freshest snapshots (resolver may not have re-run yet).
+          const where = [`s.source = 'options_day_trade'`, `s.published_at >= ?1`];
+          const binds = [sinceTs];
+          if (tickerFilter.length) {
+            const ph = tickerFilter.map((_, i) => `?${binds.length + i + 1}`).join(",");
+            where.push(`s.ticker IN (${ph})`);
+            binds.push(...tickerFilter);
+          }
+          const { results } = await db.prepare(
+            `SELECT s.signal_id, s.ticker, s.direction, s.published_at,
+                    s.entry_price, s.expiry_ts, s.payload_json
+               FROM signal_outcomes s
+              WHERE ${where.join(" AND ")}
+              ORDER BY s.published_at DESC LIMIT 500`
+          ).bind(...binds).all();
+          const outcomes = [];
+          for (const s of results || []) {
+            let payload = null;
+            try { payload = s.payload_json ? JSON.parse(s.payload_json) : null; } catch { /* skip */ }
+            const marks = await _optionMarksRead(env, { signalId: s.signal_id, limit: 500 });
+            const outcome = _optionMarksComputeOutcome(Number(s.entry_price), marks);
+            outcomes.push({
+              signal_id: s.signal_id,
+              ticker: s.ticker,
+              direction: s.direction,
+              published_at: s.published_at,
+              entry_mid: s.entry_price,
+              tier: payload?.tier || "gamma",
+              day_lean: payload?.day_lean || null,
+              day_lean_conviction: payload?.day_lean_conviction || null,
+              confluence_mode: payload?.confluence_mode || null,
+              expiry_ts: s.expiry_ts,
+              ...(outcome || {}),
+            });
+          }
+          const rollup = _optionMarksSummarize(outcomes);
+          return sendJSON({
+            ok: true,
+            days,
+            tickers: tickerFilter,
+            marks_enabled: _optionMarksEnabled(env),
+            n: outcomes.length,
+            rollup,
+            outcomes,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/options-marks/backfill — body { days?, tickers?[], limit? }
+      //   One-shot Alpaca options-bars backfill for signals inside the
+      //   window. Idempotent. Safe to re-run.
+      if (routeKey === "POST /timed/admin/options-marks/backfill") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await _ensureOptionMarksSchema(env);
+          const body = await req.json().catch(() => ({}));
+          const days = Math.max(1, Math.min(60, Number(body?.days) || 30));
+          const limit = Math.max(1, Math.min(200, Number(body?.limit) || 60));
+          const wantTickers = Array.isArray(body?.tickers)
+            ? body.tickers.map((s) => String(s || "").toUpperCase()).filter(Boolean)
+            : ["SPY", "QQQ", "IWM", "DIA"];
+          const sinceTs = Date.now() - days * 86_400_000;
+          const ph = wantTickers.map((_, i) => `?${i + 3}`).join(",");
+          const { results } = await db.prepare(
+            `SELECT signal_id, ticker, published_at, expiry_ts, payload_json
+               FROM signal_outcomes
+              WHERE source = 'options_day_trade' AND published_at >= ?1
+                AND ticker IN (${ph})
+              ORDER BY published_at DESC LIMIT ?2`
+          ).bind(sinceTs, limit, ...wantTickers).all();
+          let signalsBackfilled = 0;
+          let barsWritten = 0;
+          const errors = [];
+          for (const r of results || []) {
+            let payload = null;
+            try { payload = r.payload_json ? JSON.parse(r.payload_json) : null; } catch { /* skip */ }
+            if (!payload?.option_symbol) continue;
+            const res = await _optionMarksBackfillSignal(env, {
+              signal_id: r.signal_id,
+              ticker: r.ticker,
+              option_symbol: payload.option_symbol,
+              right: payload.right,
+              strike: payload.strike,
+              expiration: payload.expiration,
+            }, {
+              start: r.published_at,
+              end: r.expiry_ts || Date.now(),
+            });
+            if (res.ok) {
+              signalsBackfilled += 1;
+              barsWritten += res.written || 0;
+            } else if (res.error) {
+              errors.push({ signal_id: r.signal_id, error: res.error });
+            }
+          }
+          return sendJSON({
+            ok: true, days, tickers: wantTickers,
+            signals_seen: (results || []).length,
+            signals_backfilled: signalsBackfilled,
+            bars_written: barsWritten,
+            errors: errors.slice(0, 20),
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/options-marks/snapshot — manual/cron entrypoint
+      //   Snapshot every OPEN options_day_trade signal (published today,
+      //   before expiry). Live path — hits the Alpaca chain per signal.
+      //   Also invoked from the tt-engine */5 tick when marks are enabled.
+      if (routeKey === "POST /timed/admin/options-marks/snapshot") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const res = await _snapshotOpenOptionsSignals(env, {
+            limit: Math.max(1, Math.min(50, Number((await req.json().catch(() => ({}))).limit) || 20)),
+          });
+          return sendJSON(res, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // GET /timed/admin/exec-memos?audience=cio — the desk feed
       if (routeKey === "GET /timed/admin/exec-memos") {
         const authFail = await requireKeyOrAdmin(req, env);
@@ -94316,11 +94603,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   });
                   continue;
                 }
+                const _dtDirection = _dtPlay._day_trade_flavor === "put"
+                  ? "SHORT"
+                  : (_dtPlay._day_trade_flavor === "call" ? "LONG" : "NEUTRAL");
+                const _dtSignalId = buildDayTradeSignalId(_dtSym, _dtExpiration.iso, _dtPlay);
                 _dtPlays.push({
                   ticker: _dtSym,
                   setup_grade: "Day Trade",
                   conviction: Math.max(Number(_dtTicker?.entry_quality?.score || 0), Number(_dtTicker?.rank || 0)),
-                  direction: _dtPlay._day_trade_flavor === "put" ? "SHORT" : (_dtPlay._day_trade_flavor === "call" ? "LONG" : "NEUTRAL"),
+                  direction: _dtDirection,
                   price: _dtPrice,
                   strike: _strike,
                   confluence_mode: _dtVerdict?.mode || "UNKNOWN",
@@ -94336,7 +94627,29 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   ladder_count: 1,
                   day_trade: true,
                   day_trade_dte: _dtExpiration.dte,
+                  signal_id: _dtSignalId,
                 });
+                // Stage 1 — record the play in signal_outcomes so the
+                // nightly resolver can grade it AND the mark path can be
+                // stitched to it. Flag-gated: default OFF until the
+                // operator flips options_marks_enabled in model_config.
+                try {
+                  if (_optionMarksEnabled(env) && _dtSignalId) {
+                    await _optionsMarksRecordPlay(env, {
+                      signal_id: _dtSignalId,
+                      ticker: _dtSym,
+                      direction: _dtDirection,
+                      play: _dtPlay,
+                      tier: "gamma",
+                      day_lean: _dtLean || null,
+                      day_lean_conviction: _dtLeanConv || null,
+                      confluence_mode: _dtVerdict?.mode || null,
+                      underlying_price: _dtPrice,
+                    });
+                  }
+                } catch (_recErr) {
+                  console.warn(`[OPTION_MARKS] record failed for ${_dtSym}:`, String(_recErr?.message || _recErr).slice(0, 120));
+                }
               } catch (_dtErr) {
                 console.warn(`[OPTIONS-ALL] day-trade build failed for ${_dtSym}:`, String(_dtErr?.message || _dtErr).slice(0, 120));
               }
@@ -102294,6 +102607,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           } catch (_) {}
         })());
       }
+
+      // 2026-08-18 — Stage 1 options-marks snapshot cron.
+      // Live snapshot every 5 min of every open options_day_trade
+      // signal so the scorecard can grade the CONTRACT path, not just
+      // the underlying. Runs on tt-engine (owns */5) AND on the
+      // monolith when engine has not cut over. Flag-gated: default
+      // OFF until `options_marks_enabled=true` lands in model_config.
+      // Non-blocking via ctx.waitUntil — never delays the trade path.
+      ctx.waitUntil((async () => {
+        try {
+          await loadTradeReviewConfig(env).catch(() => {});
+          if (!_optionMarksEnabled(env)) return;
+          if (!isWithinOperatingHours()) return;
+          const res = await _snapshotOpenOptionsSignals(env, { limit: 20 });
+          if (res?.snapped > 0) {
+            console.log(`[OPTION_MARKS] snapped ${res.snapped}/${res.seen} open plays`);
+          }
+        } catch (e) {
+          console.warn("[OPTION_MARKS] snapshot cron failed:", String(e?.message || e).slice(0, 120));
+        }
+      })());
 
       // 2026-06-11 — ET chart candle calendar: hourly 1H, scheduled 4H,
       // 4pm D, Friday W for the full chart universe (SECTOR_MAP + timed:tickers).
