@@ -1511,184 +1511,319 @@ function IndexDayTradeStrip({
   };
   const fmtUsd = n => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : "—";
   const fmtLevel = n => Number.isFinite(Number(n)) ? Number(n).toFixed(2) : null;
-  const renderTier = (tier, parent) => {
-    const badge = tierBadge(tier._tier || "gamma");
-    const dir = tier._day_trade_flavor === "put" ? "PUT" : tier._day_trade_flavor === "call" ? "CALL" : "STRADDLE";
-    const dirColor = dir === "PUT" ? "#f87171" : dir === "CALL" ? "#34d399" : "#a3e635";
-    const strike = tier?.strikes?.primary ?? parent.strike;
-    const prem = tier?.premium?.mid ?? tier?.legs?.[0]?.premium_mid;
-    const be = tier?.breakeven;
-    const dte = tier?.expiration?.dte;
-    const mgmt = tier?.option_management || null;
-    return h("div", {
-      key: `${parent.ticker}:${tier._tier || dir}:${strike}`,
+  const RED = "#f87171";
+  const GREEN = "#34d399";
+  const NEUTRAL = "#a3e635";
+  const BLUE = "#38bdf8";
+  const flavorColor = f => f === "put" ? RED : f === "call" ? GREEN : NEUTRAL;
+  const renderCard = (p, ctx = {}) => {
+    const isExpandedTier = ctx.tier === true;
+    const flavor = p._day_trade_flavor || (String(p.direction || "").toUpperCase() === "SHORT" ? "put" : String(p.direction || "").toUpperCase() === "LONG" ? "call" : "straddle");
+    const fc = flavorColor(flavor);
+    const strike = p?.strikes?.primary ?? p.strike;
+    const prem = p?.premium?.mid ?? p?.legs?.[0]?.premium_mid ?? p?.primary?.premium?.mid;
+    const be = p?.breakeven ?? p?.primary?.breakeven;
+    const exp = p?.expiration || p?.primary?.expiration || {};
+    const risk = p?.max_loss_usd ?? p?.primary?.max_loss_usd;
+    const mgmt = p?.option_management || p?.primary?.option_management || null;
+    const gp = ctx.gp || p?.game_plan || {};
+    const tierBadge = (() => {
+      const t = String(p._tier || ctx.tierKey || "").toLowerCase();
+      if (t === "safety") return {
+        label: "SAFETY",
+        color: BLUE
+      };
+      if (t === "breathing") return {
+        label: "BREATHING",
+        color: NEUTRAL
+      };
+      if (t === "gamma") return {
+        label: "GAMMA",
+        color: "#f472b6"
+      };
+      return null;
+    })();
+    const chip = (label, color, opts = {}) => h("span", {
       style: {
-        border: "1px solid rgba(56,189,248,0.20)",
-        borderRadius: 10,
-        padding: 10,
-        marginTop: 8,
-        background: "rgba(56,189,248,0.03)"
+        fontSize: 9,
+        fontWeight: 800,
+        letterSpacing: "0.06em",
+        padding: "3px 8px",
+        borderRadius: 999,
+        background: color + "22",
+        color,
+        border: `1px solid ${color}33`,
+        ...opts
+      },
+      title: opts.title
+    }, label);
+    return h("div", {
+      key: (ctx.key || p.ticker) + (isExpandedTier ? `:${p._tier}` : ""),
+      role: "listitem",
+      className: "tt-strip-card",
+      onClick: ctx.onClick,
+      style: {
+        cursor: ctx.onClick ? "pointer" : "default",
+        border: isExpandedTier ? `1px solid ${tierBadge?.color || BLUE}44` : "1px solid rgba(56,189,248,0.30)",
+        background: isExpandedTier ? `linear-gradient(135deg, ${tierBadge?.color || BLUE}0F, rgba(255,255,255,0.02))` : "linear-gradient(135deg, rgba(56,189,248,0.06), rgba(52,211,153,0.03))",
+        borderRadius: 12,
+        padding: 14,
+        minWidth: isExpandedTier ? 240 : 280,
+        marginTop: isExpandedTier ? 8 : 0,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10
       }
     }, h("div", {
       style: {
         display: "flex",
         alignItems: "center",
-        gap: 6,
-        flexWrap: "wrap"
+        justifyContent: "space-between",
+        gap: 8
       }
-    }, h("span", {
-      style: {
-        fontSize: 9,
-        fontWeight: 800,
-        letterSpacing: "0.08em",
-        padding: "2px 7px",
-        borderRadius: 999,
-        background: badge.color + "33",
-        color: badge.color
-      }
-    }, badge.label), h("span", {
-      style: {
-        fontSize: 10,
-        fontWeight: 700,
-        color: dirColor
-      }
-    }, `$${strike} ${dir}`), Number.isFinite(Number(dte)) && h("span", {
-      className: "ds-chip ds-chip--sm",
-      style: {
-        fontFamily: "var(--tt-font-mono)",
-        fontSize: 9
-      }
-    }, `${dte}DTE`), Number.isFinite(Number(prem)) && h("span", {
-      style: {
-        fontFamily: "var(--tt-font-mono)",
-        fontSize: 10,
-        color: "var(--tt-text-muted)"
-      }
-    }, fmtUsd(prem)), Number.isFinite(Number(be)) && h("span", {
-      style: {
-        fontFamily: "var(--tt-font-mono)",
-        fontSize: 10,
-        color: "var(--tt-text-faint)"
-      }
-    }, `BE ${fmtLevel(be)}`)), mgmt && h("div", {
+    }, h("div", {
       style: {
         display: "flex",
+        alignItems: "center",
         gap: 8,
-        flexWrap: "wrap",
-        marginTop: 6,
+        minWidth: 0
+      }
+    }, !isExpandedTier && h("strong", {
+      style: {
+        fontSize: 18,
+        fontWeight: 800,
+        letterSpacing: "-0.01em"
+      }
+    }, ctx.ticker || p.ticker), tierBadge && chip(tierBadge.label, tierBadge.color), !isExpandedTier && !tierBadge && chip("DAY-TRADE", BLUE)), h("span", {
+      style: {
+        fontSize: 11,
+        fontWeight: 800,
+        letterSpacing: "0.08em",
+        padding: "4px 10px",
+        borderRadius: 6,
+        background: fc + "1F",
+        color: fc,
+        border: `1px solid ${fc}55`
+      }
+    }, flavor.toUpperCase())), h("div", {
+      style: {
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "space-between",
+        gap: 12
+      }
+    }, h("div", {
+      style: {
         fontFamily: "var(--tt-font-mono)",
-        fontSize: 10,
+        lineHeight: 1.1
+      }
+    }, h("div", null, h("span", {
+      style: {
+        fontSize: 22,
+        fontWeight: 700,
+        color: "var(--tt-text)"
+      }
+    }, `$${strike}`), h("span", {
+      style: {
+        fontSize: 12,
+        marginLeft: 6,
+        color: fc,
+        fontWeight: 700
+      }
+    }, flavor === "put" ? "P" : flavor === "call" ? "C" : "")), exp?.label && h("div", {
+      style: {
+        fontSize: 10.5,
+        color: "var(--tt-text-muted)",
+        marginTop: 4,
+        fontFamily: "var(--tt-font)"
+      }
+    }, exp.label)), Number.isFinite(Number(prem)) && h("div", {
+      style: {
+        textAlign: "right",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, h("div", {
+      style: {
+        fontSize: 18,
+        fontWeight: 700,
+        color: "var(--tt-text)"
+      }
+    }, fmtUsd(prem)), h("div", {
+      style: {
+        fontSize: 9,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        color: "var(--tt-text-faint)",
+        marginTop: 2,
+        fontFamily: "var(--tt-font)"
+      }
+    }, "PREMIUM"))), h("div", {
+      style: {
+        display: "flex",
+        gap: 14,
+        flexWrap: "wrap",
+        fontSize: 10.5,
+        fontFamily: "var(--tt-font-mono)",
         color: "var(--tt-text-muted)"
+      }
+    }, !isExpandedTier && Number.isFinite(Number(ctx.spot ?? p.price)) && h("span", null, "SPOT ", Number(ctx.spot ?? p.price).toFixed(2)), risk != null && h("span", null, "RISK $", risk), Number.isFinite(Number(be)) && h("span", null, "BE ", Number(be).toFixed(2))), !isExpandedTier && h("div", {
+      style: {
+        display: "flex",
+        gap: 6,
+        flexWrap: "wrap",
+        alignItems: "center"
+      }
+    }, p.day_lean && chip(`LEAN ${p.day_lean}${p.day_lean_conviction ? " · " + p.day_lean_conviction : ""}`, fc), p.confluence_mode && p.confluence_mode !== "UNKNOWN" && chip(p.confluence_mode, "#9ca3af"), p.honesty_gate_veto && chip("TIER DOWNGRADED", "#f5c25c", {
+      title: p.honesty_gate_veto
+    })), !isExpandedTier && (Number.isFinite(Number(gp.bull_trigger)) || Number.isFinite(Number(gp.bear_trigger))) && h("div", {
+      style: {
+        display: "flex",
+        gap: 10,
+        padding: "8px 10px",
+        borderRadius: 8,
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.05)",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, h("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, h("div", {
+      style: {
+        fontSize: 8.5,
+        letterSpacing: "0.10em",
+        color: GREEN,
+        marginBottom: 3,
+        fontFamily: "var(--tt-font)",
+        fontWeight: 700
+      }
+    }, "BULL TRIGGER"), h("div", {
+      style: {
+        fontSize: 11.5,
+        color: "var(--tt-text)"
+      }
+    }, Number.isFinite(Number(gp.bull_trigger)) ? Number(gp.bull_trigger).toFixed(2) : "—", Number.isFinite(Number(gp.bull_target)) && h("span", {
+      style: {
+        color: "var(--tt-text-faint)"
+      }
+    }, ` → ${Number(gp.bull_target).toFixed(2)}`))), h("div", {
+      style: {
+        width: 1,
+        background: "rgba(255,255,255,0.06)"
+      }
+    }), h("div", {
+      style: {
+        flex: 1,
+        minWidth: 0,
+        textAlign: "right"
+      }
+    }, h("div", {
+      style: {
+        fontSize: 8.5,
+        letterSpacing: "0.10em",
+        color: RED,
+        marginBottom: 3,
+        fontFamily: "var(--tt-font)",
+        fontWeight: 700
+      }
+    }, "BEAR TRIGGER"), h("div", {
+      style: {
+        fontSize: 11.5,
+        color: "var(--tt-text)"
+      }
+    }, Number.isFinite(Number(gp.bear_trigger)) ? Number(gp.bear_trigger).toFixed(2) : "—", Number.isFinite(Number(gp.bear_target)) && h("span", {
+      style: {
+        color: "var(--tt-text-faint)"
+      }
+    }, ` → ${Number(gp.bear_target).toFixed(2)}`)))), mgmt && h("div", {
+      style: {
+        display: "flex",
+        gap: 6,
+        flexWrap: "wrap",
+        padding: "8px 10px",
+        borderRadius: 8,
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.05)",
+        fontFamily: "var(--tt-font-mono)",
+        fontSize: 10
       },
       title: "Machine-readable exit doctrine — Trade Review grades against these rules"
-    }, mgmt.take_profit_1 && h("span", null, `TP1 ${mgmt.take_profit_1.pct}% × ${Math.round(mgmt.take_profit_1.size * 100)}%`), mgmt.take_profit_2 && h("span", null, `TP2 ${mgmt.take_profit_2.pct}%`), typeof mgmt.hard_stop_pct === "number" && h("span", null, `Stop ${mgmt.hard_stop_pct}%`), mgmt.time_stop_et && h("span", null, `Time stop ${mgmt.time_stop_et} ET`), mgmt.invalidation && (mgmt.invalidation.underlying_above != null || mgmt.invalidation.underlying_below != null) && h("span", null, mgmt.invalidation.underlying_above != null ? `Invalid > ${fmtLevel(mgmt.invalidation.underlying_above)}` : `Invalid < ${fmtLevel(mgmt.invalidation.underlying_below)}`)));
+    }, mgmt.take_profit_1 && h("span", {
+      style: {
+        color: GREEN
+      }
+    }, `TP1 +${mgmt.take_profit_1.pct}%`), mgmt.take_profit_2 && h("span", {
+      style: {
+        color: GREEN
+      }
+    }, `TP2 +${mgmt.take_profit_2.pct}%`), typeof mgmt.hard_stop_pct === "number" && h("span", {
+      style: {
+        color: RED
+      }
+    }, `STOP ${mgmt.hard_stop_pct}%`), mgmt.time_stop_et && h("span", {
+      style: {
+        color: "var(--tt-text-muted)"
+      }
+    }, `${mgmt.time_stop_et} ET`), mgmt.invalidation && (mgmt.invalidation.underlying_above != null || mgmt.invalidation.underlying_below != null) && h("span", {
+      style: {
+        color: "var(--tt-text-muted)"
+      }
+    }, mgmt.invalidation.underlying_above != null ? `Invalid > ${fmtLevel(mgmt.invalidation.underlying_above)}` : `Invalid < ${fmtLevel(mgmt.invalidation.underlying_below)}`)));
   };
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
     role: "list",
     style: {
-      marginTop: 8
+      marginTop: 10
     }
   }, plays.map(p => {
-    const dir = String(p.direction || "").toUpperCase();
-    const dirColor = dir === "SHORT" ? "#f87171" : dir === "LONG" ? "#34d399" : "#a3e635";
-    const flavor = p.primary?._day_trade_flavor || (dir === "SHORT" ? "put" : dir === "LONG" ? "call" : "straddle");
     const hasTiers = Array.isArray(p.tiers) && p.tiers.length > 1;
     const isOpen = openCard === p.ticker;
     const gp = p.game_plan || {};
+    const headline = {
+      ...p,
+      ...(p.primary || {}),
+      _tier: p.primary_tier || null
+    };
     return h("div", {
       key: p.ticker,
-      role: "listitem",
-      className: "tt-strip-card",
+      style: {
+        display: "flex",
+        flexDirection: "column",
+        minWidth: 280
+      }
+    }, renderCard(headline, {
+      ticker: p.ticker,
+      spot: p.price,
+      gp,
       onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
-      style: {
-        cursor: "pointer",
-        border: "1px solid rgba(56,189,248,0.30)",
-        background: "linear-gradient(135deg, rgba(56,189,248,0.06), rgba(52,211,153,0.03))",
-        minWidth: 260
-      }
-    }, h("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        flexWrap: "wrap",
-        marginBottom: 6
-      }
-    }, h("strong", {
-      style: {
-        fontSize: 15
-      }
-    }, p.ticker), h("span", {
-      style: {
-        fontSize: 9,
-        fontWeight: 800,
-        letterSpacing: "0.08em",
-        padding: "2px 7px",
-        borderRadius: 999,
-        background: "rgba(56,189,248,0.20)",
-        color: "#38bdf8"
-      }
-    }, "DAY-TRADE"), h("span", {
-      style: {
-        fontSize: 10,
-        fontWeight: 700,
-        color: dirColor
-      }
-    }, flavor.toUpperCase()), p.confluence_mode && h("span", {
-      className: "ds-chip ds-chip--sm",
-      style: {
-        fontFamily: "var(--tt-font-mono)",
-        fontSize: 9
-      }
-    }, p.confluence_mode), p.day_lean && h("span", {
-      style: {
-        fontSize: 9,
-        fontWeight: 700,
-        color: dirColor,
-        opacity: 0.8
-      }
-    }, `LEAN ${p.day_lean}${p.day_lean_conviction ? " " + p.day_lean_conviction : ""}`), p.honesty_gate_veto && h("span", {
-      style: {
-        fontSize: 9,
-        fontWeight: 700,
-        color: "#f5c25c"
-      },
-      title: p.honesty_gate_veto
-    }, "TIER DOWNGRADED")), h("div", {
-      style: {
-        fontSize: 11,
-        color: "var(--tt-text-muted)",
-        lineHeight: 1.4,
-        marginBottom: 6
-      }
-    }, p.primary?.label || `Day-Trade ${flavor} on ${p.ticker}`), h("div", {
-      style: {
-        display: "flex",
-        gap: 10,
-        flexWrap: "wrap",
-        fontSize: 10,
-        fontFamily: "var(--tt-font-mono)",
-        color: "var(--tt-text-muted)"
-      }
-    }, Number.isFinite(Number(p.strike)) && h("span", null, "$", Number(p.strike).toFixed(0), " strike"), Number.isFinite(Number(p.price)) && h("span", null, "spot ", Number(p.price).toFixed(2)), p.primary?.expiration?.label && h("span", null, p.primary.expiration.label), p.primary?.max_loss_usd != null && h("span", null, "Risk $", p.primary.max_loss_usd), Number.isFinite(Number(gp.bull_trigger)) && h("span", null, "Bull ", fmtLevel(gp.bull_trigger)), Number.isFinite(Number(gp.bear_trigger)) && h("span", null, "Bear ", fmtLevel(gp.bear_trigger))), hasTiers && h("div", {
-      style: {
-        fontSize: 10,
-        marginTop: 6,
-        color: "#38bdf8",
-        fontWeight: 600
-      },
+      key: p.ticker,
+      tierKey: p.primary_tier
+    }), hasTiers && h("button", {
       onClick: e => {
         e.stopPropagation();
         setOpenCard(isOpen ? null : p.ticker);
-      }
-    }, isOpen ? `Hide ${p.tiers.length - 1} more tier(s)` : `Show all ${p.tiers.length} tiers ▾`), p.primary?.option_management && renderTier(p.primary, p), hasTiers && isOpen && p.tiers.filter(t => t._tier !== p.primary_tier).map(t => renderTier(t, p)), h("div", {
+      },
       style: {
-        fontSize: 9,
-        color: "var(--tt-text-faint)",
-        marginTop: 6
+        marginTop: 6,
+        fontSize: 10.5,
+        fontWeight: 600,
+        color: BLUE,
+        background: "transparent",
+        border: "none",
+        padding: "6px 4px",
+        cursor: "pointer",
+        textAlign: "left",
+        fontFamily: "var(--tt-font)"
       }
-    }, "Same-day / 1DTE — premium risk. Manage on the game plan levels above."));
+    }, isOpen ? "Hide other tiers ▴" : `Show ${p.tiers.length - 1} more tier${p.tiers.length - 1 === 1 ? "" : "s"} ▾`), hasTiers && isOpen && p.tiers.filter(t => t._tier !== p.primary_tier).map(t => renderCard(t, {
+      tier: true,
+      ticker: p.ticker,
+      gp,
+      key: `${p.ticker}:${t._tier}`
+    })));
   }))));
 }
 function computeOpenPositionPnlPct(tr, livePx) {
@@ -7562,6 +7697,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787029328141:380946497
+// cache-bust:1787032358149:648576785
 
-// cache-bust:1787029328141:380946497
+// cache-bust:1787032358149:648576785
