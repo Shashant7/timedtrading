@@ -1,8 +1,12 @@
 # Trade Review Agent
 
-Independent per-leg grading of every ENTRY / TRIM / EXIT the model
-executes, with an operator approve / modify / reject loop that feeds the
-learning bus, the executive desks, and GitHub.
+Independent grading of each **closed trade** as one story (entry + any
+trims + exit), with an operator approve / modify / reject loop that feeds
+the learning bus, the executive desks, and GitHub.
+
+The original per-leg queue (~76 cards on a busy day) was not a sustainable
+operator loop. Default is now `trade_review_closed_only=true`: ENTRY/TRIM
+are not queued; the EXIT event writes one `{trade_id}::TRADE::0` row.
 
 Admin page: **`/trade-review.html`** (admin-gated).
 Design + rationale: [tasks/2026-08-17-trade-review-agent.md](../tasks/2026-08-17-trade-review-agent.md).
@@ -36,6 +40,7 @@ All flags live in `model_config` (D1 `timed-trading-ledger`).
 | `trade_review_model` | `gpt-4o-mini` | reviewer model |
 | `trade_review_batch` | `6` | max legs reviewed per cron tick |
 | `trade_review_lookahead_days` | `10` | big-move overlay window past the exit |
+| `trade_review_closed_only` | `true` | one TRADE review after close (skip per-leg ENTRY/TRIM) |
 | `trade_review_github_enabled` | `false` | allow filing one-pagers as issues |
 
 ```bash
@@ -53,6 +58,12 @@ every reviewer entry point calls `loadTradeReviewConfig(env)` first.
 
 Enqueueing is a single D1 insert on the ledger path — **no LLM runs
 during a trade**. Reviews happen on the nightly drain or on demand.
+Open positions are left alone; the UI says the review waits until flat.
+
+**Operator-validated class (2026-08-17):** USO trimmed and exited early
+while the dominant move was still running is **LEFT_MONEY / valid**. A
+max-loss or cloud-pivot with MFE near zero and leftover under ~1% is
+**not** premature (XYZ 17 Aug was rejected on that basis).
 
 **Live as of 2026-08-17:** `trade_review_enabled`, `trade_review_auto_run`
 and `trade_review_github_enabled` are `true` in production with

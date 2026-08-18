@@ -298,7 +298,7 @@
       }
 
       // ── One leg ─────────────────────────────────────────────────────────
-      function LegCard({ leg, tradeId, onRefresh }) {
+      function LegCard({ leg, tradeId, onRefresh, allowDecide = true }) {
         const [detail, setDetail] = useState(null);
         const [open, setOpen] = useState(false);
         const [busy, setBusy] = useState(false);
@@ -337,7 +337,7 @@
           <div style={{ borderTop: "1px solid var(--tt-border)", padding: "12px 18px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", cursor: "pointer" }} onClick={toggle}>
               <span className={`grade ${gradeClass(leg.grade)}`}>{leg.grade || "—"}</span>
-              <span className="leg-kind">{leg.leg_kind}{leg.leg_seq ? ` #${leg.leg_seq + 1}` : ""}</span>
+              <span className="leg-kind">{leg.leg_kind === "TRADE" ? "CLOSED TRADE" : `${leg.leg_kind}${leg.leg_seq ? ` #${leg.leg_seq + 1}` : ""}`}</span>
               <span className="mono muted" style={{ fontSize: 12 }}>{fmtPx(leg.leg_price)}</span>
               <span className="dim" style={{ fontSize: 12 }}>{fmtTs(leg.leg_ts)}</span>
               {leg.leg_qty_pct != null && <span className="faint" style={{ fontSize: 12 }}>{Math.round(leg.leg_qty_pct)}%</span>}
@@ -429,10 +429,16 @@
                       </span>
                     </div>
 
-                    <DecisionPanel
-                      review={detail} analysis={analysis} busy={busy} setBusy={setBusy}
-                      onDecided={async () => { await load(); await onRefresh(); }}
-                    />
+                    {allowDecide ? (
+                      <DecisionPanel
+                        review={detail} analysis={analysis} busy={busy} setBusy={setBusy}
+                        onDecided={async () => { await load(); await onRefresh(); }}
+                      />
+                    ) : (
+                      <p className="muted" style={{ fontSize: 12.5, marginTop: 12 }}>
+                        This position is still open. The closed-trade review waits until the book is flat so entry, trims and exit can be graded as one story.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -444,8 +450,11 @@
       // ── One trade ───────────────────────────────────────────────────────
       function TradeCard({ trade, onRefresh }) {
         const [open, setOpen] = useState(false);
-        const grades = trade.legs.map((l) => l.grade).filter(Boolean);
-        const undecided = trade.legs.filter((l) => !["approved", "modified", "rejected"].includes(l.status)).length;
+        const stillOpen = !trade.exit_ts || ["OPEN", "TP_HIT_TRIM"].includes(String(trade.trade_status || "").toUpperCase());
+        const tradeLeg = (trade.legs || []).find((l) => l.leg_kind === "TRADE");
+        const displayLegs = tradeLeg ? [tradeLeg] : (trade.legs || []);
+        const grades = displayLegs.map((l) => l.grade).filter(Boolean);
+        const undecided = displayLegs.filter((l) => !["approved", "modified", "rejected", "deferred"].includes(l.status)).length;
 
         return (
           <div>
@@ -456,7 +465,9 @@
                 <span className="pill pill--pending">{trade.direction}</span>
                 <span className="muted" style={{ fontSize: 12.5 }}>{trade.setup_name || trade.entry_path || "—"}</span>
                 <span className="dim" style={{ fontSize: 12 }}>{fmtTs(trade.entry_ts)}</span>
-                <span className="faint" style={{ fontSize: 12 }}>{trade.legs.length} leg{trade.legs.length === 1 ? "" : "s"}</span>
+                <span className="faint" style={{ fontSize: 12 }}>
+                  {tradeLeg ? "closed-trade review" : stillOpen ? "open — waits for close" : `${displayLegs.length} leg${displayLegs.length === 1 ? "" : "s"}`}
+                </span>
                 {grades.length > 0 && (
                   <span style={{ display: "inline-flex", gap: 4 }}>
                     {trade.legs.map((l) => <span key={l.review_id} className={`grade ${gradeClass(l.grade)}`} style={{ minWidth: 26, height: 20, fontSize: 11 }}>{l.grade || "·"}</span>)}
@@ -468,8 +479,8 @@
                 <span className={`mono ${signClass(trade.pnl)}`} style={{ fontSize: 14, fontWeight: 700 }}>{fmtUsd(trade.pnl)}</span>
               </div>
             </div>
-            {open && trade.legs.map((leg) => (
-              <LegCard key={leg.review_id} leg={leg} tradeId={trade.trade_id} onRefresh={onRefresh} />
+            {open && displayLegs.map((leg) => (
+              <LegCard key={leg.review_id} leg={leg} tradeId={trade.trade_id} onRefresh={onRefresh} allowDecide={!stillOpen} />
             ))}
           </div>
         );
@@ -580,9 +591,9 @@
               <div>
                 <h1 className="tt-page-title">Trade Review</h1>
                 <p className="tt-page-lede">
-                  An independent agent grades every entry, trim and exit the model executes — against the tape, not against the
-                  model's own reasoning. Approve, modify or reject each review; approved findings flow to the learning bus, the
-                  executive desks, and engine work becomes a one-page proposal.
+                  One high-level review per closed trade — entry, any trims, and the exit as a single story, graded against the tape,
+                  not the model's own reasoning. Open positions wait until they are flat. Approve, modify or reject; approved findings
+                  flow to the learning bus, the executive desks, and engine work becomes a one-page proposal.
                 </p>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

@@ -18,7 +18,7 @@
 
 const DAY_MS = 86400000;
 
-export const FRAME_DIGEST_VERSION = 1;
+export const FRAME_DIGEST_VERSION = 2;
 
 /** Anchor classification bands (pct of level). Mirrors CONTEXT_ANCHORS. */
 export const FRAME_ANCHOR_SPECS = Object.freeze({
@@ -30,6 +30,48 @@ export const FRAME_ANCHOR_SPECS = Object.freeze({
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Minutes since the 9:30 ET cash open. Negative = pre-market. */
+export function nySessionMinutes(now = Date.now()) {
+  const p = new Date(now).toLocaleTimeString("en-GB", {
+    timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit",
+  }).split(":");
+  const min = parseInt(p[0], 10) * 60 + parseInt(p[1], 10) - 570;
+  return Number.isFinite(min) ? min : null;
+}
+
+function hmmChopFromPayload(td = {}) {
+  const lr = td?.latent_regime;
+  const state = lr?.state ? String(lr.state) : null;
+  const post = (lr && typeof lr.posterior === "object") ? lr.posterior : {};
+  const chop = num(post.CHOP ?? post.CHOPPY);
+  return {
+    hmm_state: state,
+    hmm_chop: chop,
+    high_chop: state === "CHOP" && chop != null && chop >= 0.55,
+  };
+}
+
+/**
+ * Strongest adverse (bear) phase print already on the scored payload.
+ * Trajectory > snapshot: bars_ago tells whether the print is fresh.
+ */
+export function summarizeAdversePhase(td = {}) {
+  const pd = td?.phase_divergence;
+  if (!pd || typeof pd !== "object") return null;
+  let best = null;
+  for (const [tf, v] of Object.entries(pd)) {
+    if (!v || typeof v !== "object") continue;
+    const bear = v.bear && typeof v.bear === "object" ? v.bear : null;
+    const strength = num(bear?.strength ?? (String(v.dir || "").toLowerCase() === "bear" ? v.strength : null));
+    if (strength == null || strength <= 0) continue;
+    const barsAgo = num(bear?.bars_ago ?? v.bars_ago);
+    if (!best || strength > best.strength) {
+      best = { tf, dir: "bear", strength, bars_ago: barsAgo };
+    }
+  }
+  return best;
 }
 
 /** Resolve current level for each anchor from payload fields. */
@@ -129,6 +171,9 @@ export function buildFrameDigest({ td = {}, context = null, now = Date.now() } =
       resolution: t.resolution,
     }));
 
+  const hmm = hmmChopFromPayload(td);
+  const adversePhase = summarizeAdversePhase(td);
+
   return {
     v: FRAME_DIGEST_VERSION,
     ts: now,
@@ -144,5 +189,15 @@ export function buildFrameDigest({ td = {}, context = null, now = Date.now() } =
     last_exit_pnl_pct: context?.last_exit?.pnl_pct ?? null,
     recent_tests: recentTests,
     median_move_pct: context?.moves?.median_pct ?? null,
+    // v2 — what the movie should actually watch after ST/LT refinement.
+    // EMA-reclaim sequence is not the primary question; session, CHOP,
+    // phase trajectory, and PDZ are. See tasks/2026-08-18-movie-reframe.md.
+    session_min: nySessionMinutes(now),
+    hmm_state: hmm.hmm_state,
+    hmm_chop: hmm.hmm_chop,
+    high_chop: hmm.high_chop,
+    pdz_zone_D: td?.pdz_zone_D || null,
+    pdz_pct_D: num(td?.pdz_pct_D),
+    adverse_phase: adversePhase,
   };
 }

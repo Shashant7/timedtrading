@@ -695,6 +695,8 @@ import {
   drainTradeReviewQueue,
   tradeReviewEnabled,
   tradeReviewAutoRun,
+  tradeReviewClosedOnly,
+  resolveReviewEnqueue,
   loadTradeReviewConfig,
   normalizeReviewPayload as normalizeTradeReviewPayload,
 } from "./review/trade-review-agent.js";
@@ -42776,14 +42778,16 @@ async function d1InsertTradeEvent(env, tradeId, event, ctx = {}) {
     // Live only — replay legs would flood the queue with synthetic trades.
     if (!env._isReplay) await loadTradeReviewConfig(env).catch(() => {});
     if (!env._isReplay && tradeReviewEnabled(env)) {
-      const _trLegKind = String(type || "").toUpperCase();
-      if (["ENTRY", "TRIM", "EXIT", "SCALE_IN"].includes(_trLegKind)) {
+      const _trPlan = resolveReviewEnqueue(type, { closedOnly: tradeReviewClosedOnly(env) });
+      if (_trPlan.enqueue) {
         await enqueueTradeReviewLeg(env, {
           tradeId,
           ticker: ctx.trade?.ticker || ctx.tickerData?.ticker || event.ticker || null,
           direction: ctx.trade?.direction || event.direction || null,
-          legKind: _trLegKind === "SCALE_IN" ? "ENTRY" : _trLegKind,
-          legSeq: await _tradeReviewNextSeq(env, tradeId, _trLegKind === "SCALE_IN" ? "ENTRY" : _trLegKind),
+          legKind: _trPlan.legKind,
+          legSeq: _trPlan.legSeq != null
+            ? _trPlan.legSeq
+            : await _tradeReviewNextSeq(env, tradeId, _trPlan.legKind),
           eventId,
           ts,
           price: event.price != null ? Number(event.price) : null,
@@ -69331,8 +69335,13 @@ export default {
           if (tickerFilter) { binds.push(tickerFilter); where.push(`r.ticker = ?${binds.length}`); }
           if (statusFilter === "undecided") {
             where.push(`r.status IN ('pending','reviewed','error')`);
+          } else if (statusFilter === "deferred") {
+            where.push(`r.status = 'deferred'`);
           } else if (statusFilter) {
             binds.push(statusFilter); where.push(`r.status = ?${binds.length}`);
+          } else {
+            // Default list hides deferred per-leg rows once closed-only is on.
+            where.push(`r.status != 'deferred'`);
           }
           binds.push(limit);
 
@@ -69406,6 +69415,7 @@ export default {
           return sendJSON({
             ok: true,
             enabled: tradeReviewEnabled(env),
+            closed_only: tradeReviewClosedOnly(env),
             count: trades.length,
             leg_count: (results || []).length,
             status_counts: Object.fromEntries((counts?.results || []).map((c) => [c.status, c.n])),

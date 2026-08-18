@@ -3,7 +3,9 @@
 // Trade Review Agent — D1 schema.
 //
 // Three tables:
-//   trade_reviews           one row per LEG (entry / each trim / exit)
+//   trade_reviews           one row per closed TRADE (default), or per
+//                           LEG when trade_review_closed_only=false.
+//                           status may be 'deferred' for leftover ENTRY/TRIM.
 //   trade_review_proposals  engine-work one-pagers destined for GitHub
 //   exec_memos              approved lessons routed to the CIO/CRO/COO desks
 //
@@ -23,7 +25,7 @@ const CREATE_REVIEWS = `CREATE TABLE IF NOT EXISTS trade_reviews (
   leg_ts INTEGER,
   leg_price REAL,
   leg_qty_pct REAL,
-  status TEXT NOT NULL DEFAULT 'pending',
+  status TEXT NOT NULL DEFAULT 'pending', -- pending|reviewed|error|approved|modified|rejected|deferred
   grade TEXT,
   verdict TEXT,
   success_prob REAL,

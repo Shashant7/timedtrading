@@ -486,6 +486,7 @@ export const REPLAY_DA_KEYS = [
   "trade_review_model",
   "trade_review_batch",
   "trade_review_lookahead_days",
+  "trade_review_closed_only",
   // V15 P0.7.63 (2026-05-05) — Cluster throttle flags
   "deep_audit_cluster_throttle_enabled",
   "deep_audit_cluster_throttle_window_min",

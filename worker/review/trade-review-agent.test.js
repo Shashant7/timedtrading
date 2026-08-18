@@ -3,9 +3,11 @@ import {
   normalizeReviewPayload,
   tradeReviewEnabled,
   tradeReviewAutoRun,
+  tradeReviewClosedOnly,
+  resolveReviewEnqueue,
   loadTradeReviewConfig,
 } from "./trade-review-agent.js";
-import { buildTradeReviewUserPrompt } from "./trade-review-prompts.js";
+import { buildClosedTradeUserPrompt, buildTradeReviewUserPrompt } from "./trade-review-prompts.js";
 import { condenseSnapshot, pickTimeframe } from "./trade-review-context.js";
 
 describe("normalizeReviewPayload", () => {
@@ -108,6 +110,61 @@ describe("grade coercion", () => {
     expect(normalizeReviewPayload({ grade: "A+" }, "ENTRY").grade).toBe("A+");
     expect(normalizeReviewPayload({ grade: "excellent" }, "ENTRY").grade).toBeNull();
     expect(normalizeReviewPayload({ grade: null }, "ENTRY").grade).toBeNull();
+  });
+});
+
+describe("TRADE (closed-trade) payload", () => {
+  it("accepts the closed-trade verdict set", () => {
+    const out = normalizeReviewPayload({
+      grade: "B",
+      verdict: "LEFT_MONEY",
+      headline: "Valid location; early trims cut a real runner.",
+    }, "TRADE");
+    expect(out.grade).toBe("B");
+    expect(out.verdict).toBe("LEFT_MONEY");
+  });
+
+  it("rejects a per-leg verdict on a TRADE review", () => {
+    const out = normalizeReviewPayload({ grade: "C", verdict: "PREMATURE_EXIT" }, "TRADE");
+    expect(out.verdict).toBeNull();
+  });
+
+  it("accepts CORRECT_LOSS and BAD_ENTRY", () => {
+    expect(normalizeReviewPayload({ verdict: "CORRECT_LOSS" }, "TRADE").verdict).toBe("CORRECT_LOSS");
+    expect(normalizeReviewPayload({ verdict: "BAD_ENTRY" }, "TRADE").verdict).toBe("BAD_ENTRY");
+    expect(normalizeReviewPayload({ verdict: "GOOD_TRADE" }, "TRADE").verdict).toBe("GOOD_TRADE");
+  });
+});
+
+describe("tradeReviewClosedOnly", () => {
+  it("defaults ON when the flag is unset", () => {
+    expect(tradeReviewClosedOnly({})).toBe(true);
+    expect(tradeReviewClosedOnly({ _deepAuditConfig: {} })).toBe(true);
+  });
+
+  it("can be turned off explicitly", () => {
+    expect(tradeReviewClosedOnly({ _deepAuditConfig: { trade_review_closed_only: "false" } })).toBe(false);
+    expect(tradeReviewClosedOnly({ TRADE_REVIEW_CLOSED_ONLY: false })).toBe(false);
+  });
+});
+
+describe("resolveReviewEnqueue", () => {
+  it("queues one TRADE row on EXIT when closed-only", () => {
+    expect(resolveReviewEnqueue("EXIT", { closedOnly: true })).toEqual({
+      enqueue: true, legKind: "TRADE", legSeq: 0,
+    });
+  });
+
+  it("skips ENTRY and TRIM when closed-only", () => {
+    expect(resolveReviewEnqueue("ENTRY", { closedOnly: true }).enqueue).toBe(false);
+    expect(resolveReviewEnqueue("TRIM", { closedOnly: true }).enqueue).toBe(false);
+    expect(resolveReviewEnqueue("SCALE_IN", { closedOnly: true }).enqueue).toBe(false);
+  });
+
+  it("keeps per-leg enqueue when closed-only is off", () => {
+    expect(resolveReviewEnqueue("ENTRY", { closedOnly: false })).toEqual({ enqueue: true, legKind: "ENTRY" });
+    expect(resolveReviewEnqueue("TRIM", { closedOnly: false })).toEqual({ enqueue: true, legKind: "TRIM" });
+    expect(resolveReviewEnqueue("EXIT", { closedOnly: false })).toEqual({ enqueue: true, legKind: "EXIT" });
   });
 });
 
@@ -312,5 +369,53 @@ describe("buildTradeReviewUserPrompt", () => {
     const p = buildTradeReviewUserPrompt(entry);
     expect(p).not.toContain("MULTI-TIMEFRAME READ AT EXIT");
     expect(p).toContain("MULTI-TIMEFRAME READ AT ENTRY");
+  });
+});
+
+describe("buildClosedTradeUserPrompt", () => {
+  const closed = {
+    trade: { ticker: "USO", direction: "LONG", status: "WIN" },
+    engine_claim: {
+      setup_name: "TT Support Bounce", setup_grade: "A", entry_path: "tt_n_test_support",
+      rank: 2, rr: 2.1, stop_loss: 68, take_profit: 78, levels_source: "decision_record",
+      exit_reason: "TP_FULL",
+      cio_decision: { decision: "APPROVE", confidence: 0.6, reasoning: "Held the weekly." },
+    },
+    all_legs_full: [
+      { kind: "ENTRY", ts: 1785000000000, price: 70, qty_pct: 100, reason: "entry" },
+      { kind: "TRIM", ts: 1785500000000, price: 73.2, qty_pct: 30, reason: "partial" },
+      { kind: "EXIT", ts: 1786000000000, price: 71.5, qty_pct: 70, reason: "TP_FULL" },
+    ],
+    tape: {
+      timeframe: "60", bar_count: 80,
+      geometry: { sl_distance_pct: 2.8, tp_distance_pct: 11.4, rr: 4.0, entry_in_bar_range: 0.2 },
+      capture: {
+        entry: { ts: 1785000000000, price: 70 },
+        exit: { ts: 1786000000000, price: 71.5, reason: "TP_FULL" },
+        bars_in_trade: 18, bars_after_exit: 40,
+        mfe_pct: 8.1, mae_pct: -0.6, heat_before_payoff_pct: -0.4,
+        realized_pct: 2.17, realized_usd: 146, capture_ratio: 0.27,
+        post_exit_pct: 4.8, post_exit_extreme_ts: 1787000000000, lookahead_days: 10,
+        big_move: { from_ts: 1785100000000, from_price: 70.1, to_ts: 1786900000000, to_price: 76.4, pct: 9.0 },
+        big_move_capture_ratio: 0.24,
+      },
+    },
+    signals_at_entry: { "1H": { bias: 0.4, supertrend: 1, ema_structure: 0.5, rsi: 54 } },
+    signals_at_exit: { "1H": { bias: 0.2, supertrend: 1, ema_structure: 0.4, rsi: 61 } },
+  };
+
+  const prompt = buildClosedTradeUserPrompt(closed);
+
+  it("leads with the closed trade, not a single leg", () => {
+    expect(prompt.startsWith("CLOSED TRADE UNDER REVIEW: USO LONG")).toBe(true);
+    expect(prompt).toContain("LEGS (the whole story");
+    expect(prompt).toContain("TRIM at 73.2000");
+    expect(prompt).toContain("Grade this closed trade as one story");
+  });
+
+  it("flags leftover under 1% as noise, not LEFT_MONEY", () => {
+    const tiny = JSON.parse(JSON.stringify(closed));
+    tiny.tape.capture.post_exit_pct = 0.27;
+    expect(buildClosedTradeUserPrompt(tiny)).toContain("leftover under 1% is noise, not LEFT_MONEY");
   });
 });

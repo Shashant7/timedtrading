@@ -9,7 +9,7 @@ import {
   classifyAnchorState,
   resolveAnchorLevels,
 } from "./frames.js";
-import { updateArmedPlaybooks, PLAYBOOK_DEFS } from "./playbooks.js";
+import { updateArmedPlaybooks, PLAYBOOK_DEFS, shouldSkipArm } from "./playbooks.js";
 
 const DAY = 86400000;
 const NOW = Date.UTC(2026, 7, 6, 14, 0, 0);
@@ -280,5 +280,47 @@ describe("updateArmedPlaybooks (CAT weekly breakout retest)", () => {
     // Reclaim: 810 → 880 (+3.5% above the daily EMA ⇒ approaching) triggers.
     const c3 = updateArmedPlaybooks({ frames: framesFor(880, respectCtx), prior: c2.armed, now: NOW + DAY });
     expect(c3.armed.find((a) => a.playbook === "daily_ema21_reclaim").status).toBe("triggered");
+  });
+});
+
+describe("shouldSkipArm (movie reframe)", () => {
+  it("does not skip CAT fixtures (session_min is 30, no HMM CHOP)", () => {
+    const frames = framesFor(860, staleTestContext);
+    expect(frames.session_min).toBe(30);
+    expect(shouldSkipArm(frames).skip).toBe(false);
+  });
+
+  it("skips new arms in the first 30 minutes of RTH", () => {
+    const early = Date.UTC(2026, 7, 6, 13, 40, 0); // 09:40 ET
+    const frames = buildFrameDigest({ td: catPayload(860), context: staleTestContext, now: early });
+    expect(frames.session_min).toBe(10);
+    expect(shouldSkipArm(frames)).toEqual({ skip: true, reason: "opening_window" });
+    const { armed, events } = updateArmedPlaybooks({ frames, prior: [], now: early });
+    expect(armed.find((a) => a.playbook === "weekly_breakout_retest")).toBeUndefined();
+    expect(events).toHaveLength(0);
+  });
+
+  it("skips new arms when HMM CHOP posterior is high", () => {
+    const td = {
+      ...catPayload(860),
+      latent_regime: { state: "CHOP", posterior: { CHOP: 0.72, BULL_TREND: 0.2, BEAR_TREND: 0.08 } },
+    };
+    const frames = buildFrameDigest({ td, context: staleTestContext, now: NOW });
+    expect(frames.high_chop).toBe(true);
+    expect(shouldSkipArm(frames)).toEqual({ skip: true, reason: "high_chop" });
+    const { armed } = updateArmedPlaybooks({ frames, prior: [], now: NOW });
+    expect(armed.find((a) => a.playbook === "weekly_breakout_retest")).toBeUndefined();
+  });
+
+  it("stamps adverse phase and PDZ onto the digest", () => {
+    const td = {
+      ...catPayload(860),
+      pdz_zone_D: "premium",
+      pdz_pct_D: 86,
+      phase_divergence: { W: { bear: { strength: 34.3, bars_ago: 3 } } },
+    };
+    const frames = buildFrameDigest({ td, context: staleTestContext, now: NOW });
+    expect(frames.pdz_zone_D).toBe("premium");
+    expect(frames.adverse_phase).toEqual({ tf: "W", dir: "bear", strength: 34.3, bars_ago: 3 });
   });
 });
