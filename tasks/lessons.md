@@ -5332,6 +5332,15 @@ fresh branch off origin/main and open a new PR. Deploys from an unmerged
 branch also mean main no longer matches production until the follow-up PR
 lands — flag that in the PR body.
 
+**Recurrence (2026-08-18):** hit the exact same trap on PR #1276
+(Today-page index day-trade strip). Operator flagged the card design
+mid-session; the redesign was pushed to the same branch without checking
+merge state. #1276 had already merged so the redesign lived only on the
+branch. Recovery: cherry-picked onto a fresh branch off `main`, opened
+#1277. Rule is now automatic — the next time this branch pattern shows up,
+`gh pr view <n> --json state,mergedAt` is the first git command, not
+`git push`.
+
 ### Lesson (2026-08-16) — the backtest number we optimised against was wrong
 Building a dollar-denominated results table exposed that `pnl` stopped
 reconciling with `notional`. `closeReplayPositionsAtDate` marked positions
