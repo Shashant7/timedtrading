@@ -2802,6 +2802,43 @@ export function buildDayTradePlay(ctx) {
 }
 
 /**
+ * Stage 3 — honesty gate on the day-trade tiers.
+ *
+ * When confluence WAIT opposes the day_lean, and day_lean conviction is
+ * only medium, downgrade the primary tier one step. Never inverts —
+ * we still publish the direction the day-lean called; we just give the
+ * trade more time / more delta cushion because the multi-day picture
+ * disagrees. Pure function; no side effects.
+ *
+ * Returns { primary_tier, veto_reason } — caller reorders `tiers` by
+ * new primary_tier the same way `buildDayTradeTiers` did.
+ */
+export function applyHonestyGate({ tiers, primary_tier, day_lean, day_lean_conviction, confluence } = {}) {
+  if (!Array.isArray(tiers) || tiers.length === 0) return { primary_tier, veto_reason: null };
+  const lean = String(day_lean || "").toUpperCase();
+  const conv = String(day_lean_conviction || "").toLowerCase();
+  const mode = String(confluence?.mode || "").toUpperCase();
+  const side = String(confluence?.side || "").toUpperCase();
+  if (mode !== "WAIT") return { primary_tier, veto_reason: null };
+  const opposes = (lean === "LONG" && side === "SHORT") || (lean === "SHORT" && side === "LONG");
+  if (!opposes) return { primary_tier, veto_reason: null };
+  if (conv !== "medium") return { primary_tier, veto_reason: null };
+  // Downgrade one step: gamma → safety → breathing.
+  const chain = ["gamma", "safety", "breathing"];
+  const idx = chain.indexOf(String(primary_tier || "gamma"));
+  if (idx < 0 || idx >= chain.length - 1) {
+    return { primary_tier, veto_reason: null };
+  }
+  const nextTier = chain[idx + 1];
+  const available = new Set(tiers.map((t) => t._tier));
+  if (!available.has(nextTier)) return { primary_tier, veto_reason: null };
+  return {
+    primary_tier: nextTier,
+    veto_reason: `wait_${side.toLowerCase()}_confluence_opposes_${lean.toLowerCase()}_lean_medium`,
+  };
+}
+
+/**
  * Stage 2 — three-tier day-trade ladder.
  *
  * Operator ask (2026-08-17): the SPY 772P (1 DTE ATM) was

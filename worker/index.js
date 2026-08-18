@@ -94641,9 +94641,34 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 // When enabled, we return Gamma + Safety + Breathing on
                 // every card. Recording writes one signal_id per tier.
                 let _dtTiers = null;
+                let _dtVetoReason = null;
                 if (_optionsLadderTiersEnabled(env) && _optionsPlaysMod.buildDayTradeTiers) {
                   try {
                     _dtTiers = _optionsPlaysMod.buildDayTradeTiers(_dtCtx);
+                    // Stage 3 — honesty gate: downgrade the primary tier one
+                    // step when confluence WAIT opposes a medium day_lean.
+                    if (_dtTiers && _optionsGateHonestyEnabled(env) && _optionsPlaysMod.applyHonestyGate) {
+                      const g = _optionsPlaysMod.applyHonestyGate({
+                        tiers: _dtTiers.tiers,
+                        primary_tier: _dtTiers.primary_tier,
+                        day_lean: _dtLean,
+                        day_lean_conviction: _dtLeanConv,
+                        confluence: _dtVerdict,
+                      });
+                      if (g?.primary_tier && g.primary_tier !== _dtTiers.primary_tier) {
+                        const _order = { [g.primary_tier]: 0 };
+                        ["gamma", "safety", "breathing"].forEach((t, i) => {
+                          if (!(t in _order)) _order[t] = i + 1;
+                        });
+                        _dtTiers = {
+                          ...(_dtTiers || {}),
+                          tiers: [..._dtTiers.tiers].sort((a, b) => (_order[a._tier] ?? 9) - (_order[b._tier] ?? 9)),
+                          primary_tier: g.primary_tier,
+                          honesty_gate_veto: g.veto_reason,
+                        };
+                        _dtVetoReason = g.veto_reason;
+                      }
+                    }
                   } catch (_tierErr) {
                     console.warn(`[OPTIONS-TIERS] build failed for ${_dtSym}:`, String(_tierErr?.message || _tierErr).slice(0, 120));
                   }
@@ -94671,6 +94696,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   signal_id: _dtSignalId,
                   tiers: _dtTiers?.tiers || null,
                   primary_tier: _dtTiers?.primary_tier || null,
+                  honesty_gate_veto: _dtVetoReason,
                 });
                 // Stage 1+2 — record every tier we published so the
                 // scorecard grades each independently. Signal ids are

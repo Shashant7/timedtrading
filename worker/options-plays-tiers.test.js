@@ -4,6 +4,7 @@ import {
   pickBreathingExpiration,
   pickItmStrike,
   pickDayTradeExpiration,
+  applyHonestyGate,
 } from "./options-plays.js";
 
 describe("pickItmStrike", () => {
@@ -117,6 +118,15 @@ describe("buildDayTradeTiers", () => {
     expect(buildDayTradeTiers({ ...spy, ticker: "AAPL" })).toBeNull();
   });
 
+  it("does NOT return a straddle for a directional day-lean", () => {
+    const out = buildDayTradeTiers({ ...spy, direction: "SHORT" });
+    expect(out).toBeTruthy();
+    // Any tier we return must be a call or a put, not a straddle.
+    for (const t of out.tiers) {
+      expect(String(t.archetype).includes("straddle")).toBe(false);
+    }
+  });
+
   it("straddle plays return only one tier (Gamma)", () => {
     const straddleCtx = {
       ...spy,
@@ -133,5 +143,74 @@ describe("buildDayTradeTiers", () => {
       expect(out.tier_count).toBe(1);
       expect(out.tiers[0]._tier).toBe("gamma");
     }
+  });
+});
+
+describe("applyHonestyGate (Stage 3)", () => {
+  const tiers = [
+    { _tier: "gamma" },
+    { _tier: "safety" },
+    { _tier: "breathing" },
+  ];
+
+  it("no-op when confluence is not WAIT", () => {
+    const out = applyHonestyGate({
+      tiers, primary_tier: "gamma", day_lean: "SHORT", day_lean_conviction: "medium",
+      confluence: { mode: "DRIFT", side: "LONG" },
+    });
+    expect(out.primary_tier).toBe("gamma");
+    expect(out.veto_reason).toBeNull();
+  });
+
+  it("no-op when day_lean conviction is high (trust the tape)", () => {
+    const out = applyHonestyGate({
+      tiers, primary_tier: "gamma", day_lean: "SHORT", day_lean_conviction: "high",
+      confluence: { mode: "WAIT", side: "LONG" },
+    });
+    expect(out.primary_tier).toBe("gamma");
+  });
+
+  it("no-op when confluence agrees with the day_lean", () => {
+    const out = applyHonestyGate({
+      tiers, primary_tier: "gamma", day_lean: "LONG", day_lean_conviction: "medium",
+      confluence: { mode: "WAIT", side: "LONG" },
+    });
+    expect(out.primary_tier).toBe("gamma");
+  });
+
+  it("downgrades gamma → safety on WAIT + opposing side + medium conviction", () => {
+    const out = applyHonestyGate({
+      tiers, primary_tier: "gamma", day_lean: "SHORT", day_lean_conviction: "medium",
+      confluence: { mode: "WAIT", side: "LONG" },
+    });
+    expect(out.primary_tier).toBe("safety");
+    expect(out.veto_reason).toBe("wait_long_confluence_opposes_short_lean_medium");
+  });
+
+  it("downgrades safety → breathing on the same class if already at safety", () => {
+    const out = applyHonestyGate({
+      tiers, primary_tier: "safety", day_lean: "LONG", day_lean_conviction: "medium",
+      confluence: { mode: "WAIT", side: "SHORT" },
+    });
+    expect(out.primary_tier).toBe("breathing");
+  });
+
+  it("caps at breathing (never inverts, never publishes a fourth tier)", () => {
+    const out = applyHonestyGate({
+      tiers, primary_tier: "breathing", day_lean: "LONG", day_lean_conviction: "medium",
+      confluence: { mode: "WAIT", side: "SHORT" },
+    });
+    expect(out.primary_tier).toBe("breathing");
+    expect(out.veto_reason).toBeNull();
+  });
+
+  it("no-op when the target tier is not in the tier list", () => {
+    const out = applyHonestyGate({
+      tiers: [{ _tier: "gamma" }],
+      primary_tier: "gamma", day_lean: "SHORT", day_lean_conviction: "medium",
+      confluence: { mode: "WAIT", side: "LONG" },
+    });
+    expect(out.primary_tier).toBe("gamma");
+    expect(out.veto_reason).toBeNull();
   });
 });
