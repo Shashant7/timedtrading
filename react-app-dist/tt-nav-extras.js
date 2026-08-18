@@ -179,6 +179,10 @@
       const ds = document.body && document.body.dataset;
       if (ds && (ds.isAdmin === "true" || ds.tier === "admin")) return true;
     } catch (_) {}
+    try {
+      const session = getCurrentUser();
+      if (session && (session.role === "admin" || session.tier === "admin")) return true;
+    } catch (_) {}
     return false;
   }
 
@@ -665,21 +669,22 @@
     if (ev && ev.persisted) refreshBadges();
   });
 
-  // Admin pages render their nav through React, so the <nav> element
-  // may not exist when init() first fires. Re-attempt journey-link
-  // injection every 200ms for the first 3s in case React was still
-  // mounting.
+  // Admin pages and shared-nav.js mount <nav> after extras' first init
+  // (extras is in <head>, shared-nav is in <body>; both defer). Re-attempt
+  // Admin + right widgets + journey-link injection every 200ms for the
+  // first 3s so the header matches journey pages even if AuthGate's
+  // tt-auth-bootstrap-updated already fired before nav existed.
   (function pollForNav() {
     let tries = 0;
     const id = setInterval(() => {
       tries += 1;
       const nav = document.querySelector("nav");
-      if (nav && !nav.querySelector(".tt-journey-strip")) {
-        injectJourneyLinks();
+      if (nav) {
+        injectAdminMenu();
+        injectRightWidgets();
+        if (!nav.querySelector(".tt-journey-strip")) injectJourneyLinks();
+        reapplyBadges();
       }
-      // The nav markup may have only just mounted (shared-nav.js / React
-      // admin nav). Re-apply any cached badge so it isn't lost to the race.
-      if (nav) reapplyBadges();
       if (tries > 15) clearInterval(id);
     }, 200);
   })();
@@ -718,6 +723,7 @@
       tries += 1;
       const u = getCurrentUser();
       if (u || tries > 20) {
+        injectAdminMenu();
         injectRightWidgets();
         if (u || tries > 20) clearInterval(id);
       }
@@ -757,4 +763,4 @@
   })();
 })();
 
-// cache-bust:1786985420462:896669568
+// cache-bust:1787019216025:96745271

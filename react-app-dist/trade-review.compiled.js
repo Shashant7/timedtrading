@@ -957,7 +957,12 @@ function App() {
     onRefresh: load
   })))));
 }
-ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
-// cache-bust:1786985420462:896669568
+const AuthGate = window.TimedAuthGate;
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(AuthGate ? React.createElement(AuthGate, {
+  apiBase: API_BASE,
+  requiredTier: "admin"
+}, () => React.createElement(App, null)) : React.createElement(App, null));
+// cache-bust:1787019216025:96745271
 
-// cache-bust:1786985420462:896669568
+// cache-bust:1787019216025:96745271
