@@ -5341,6 +5341,15 @@ branch. Recovery: cherry-picked onto a fresh branch off `main`, opened
 `gh pr view <n> --json state,mergedAt` is the first git command, not
 `git push`.
 
+**Third recurrence (2026-08-18, same session):** logging alone did not
+fix the reflex. Operator flagged card height; a follow-up commit went to
+the already-merged #1277 branch instead of a fresh one. Fixed once and
+for all with a workflow guardrail: `scripts/check-branch-merge-state.sh`
+runs `gh pr list --head <branch> --state merged` and exits 2 with recovery
+instructions when the branch's PR has already merged. Every push to an
+existing branch must now run this first (documented in AGENTS.md §5 and
+skills/deploy.md). The tool is the memory; the human reflex was not.
+
 ### Lesson (2026-08-16) — the backtest number we optimised against was wrong
 Building a dollar-denominated results table exposed that `pnl` stopped
 reconciling with `notional`. `closeReplayPositionsAtDate` marked positions
