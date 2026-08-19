@@ -648,6 +648,11 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
         // Explicit alignment flag so the LLM can branch quickly
         // without inspecting themes/sector/multiplier.
         on_thesis: !!strategy.aligned || ((strategy.themes_matched || []).length > 0),
+        // 2026-08-19 — top-of-book FSD conviction (Top / Bottom Core Ideas).
+        // Present only when the symbol sits on a Newton desk short list;
+        // null otherwise. Do not confuse with the fund holdings, which are
+        // handled separately via etf_holdings tags.
+        fsd_core_idea: strategy.fsd_core_idea || null,
       };
 
       // ── Layer 15b: Tactical signals matching this ticker (2026-06-02) ──
