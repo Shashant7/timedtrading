@@ -49,6 +49,7 @@ const TRADE_REVIEW_CONFIG_KEYS = [
   "options_brief_surface",
   "options_auto_mirror_indices",
   "options_index_swing_enabled",
+  "cio_speculative_chop_reject_enabled",
 ];
 
 /**

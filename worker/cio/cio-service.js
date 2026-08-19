@@ -12,6 +12,7 @@ import {
 } from "./cio-prompts.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 import { condenseHarmonicCycle } from "../harmonic-modifiers.js";
+import { applyCioContextVerdict, condenseMtfSequence } from "./cio-context-gate.js";
 
 // Right Rail + email render full reasoning; Discord chunks at 1024. Persist
 // enough for the rail (legacy rows were capped at 300 and read truncated).
@@ -537,6 +538,7 @@ export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tick
       c34_50_D: tickerData?.tf_tech?.D?.ripster?.c34_50?.bull ? "bull" : tickerData?.tf_tech?.D?.ripster?.c34_50?.bear ? "bear" : "flat",
       c72_89_10m: tickerData?.tf_tech?.["10"]?.ripster?.c72_89?.bull ? "bull" : tickerData?.tf_tech?.["10"]?.ripster?.c72_89?.bear ? "bear" : "flat",
     },
+    mtf_sequence: condenseMtfSequence(tickerData, direction),
   };
 }
 
@@ -898,7 +900,7 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null, 
       return { decision: "APPROVE", fallback: true, reason: "invalid_decision", model: entryModel };
     }
 
-    return {
+    const enforced = applyCioContextVerdict(proposal, {
       decision,
       confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
       reasoning: String(parsed.reasoning || "").slice(0, CIO_REASONING_MAX_CHARS),
@@ -912,7 +914,19 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null, 
       } : null,
       risk_flags: Array.isArray(parsed.risk_flags) ? parsed.risk_flags.slice(0, 5).map(f => String(f).slice(0, 50)) : [],
       edge_score: Math.max(0, Math.min(1, Number(parsed.edge_score) || 0.5)),
+    }, env?._deepAuditConfig || {});
+
+    const finalDecision = String(enforced.decision || decision).toUpperCase();
+    return {
+      decision: finalDecision,
+      confidence: Math.max(0, Math.min(1, Number(enforced.confidence) || 0.5)),
+      reasoning: String(enforced.reasoning || "").slice(0, CIO_REASONING_MAX_CHARS),
+      adjustments: finalDecision === "ADJUST" ? enforced.adjustments : null,
+      risk_flags: Array.isArray(enforced.risk_flags) ? enforced.risk_flags.slice(0, 5).map(f => String(f).slice(0, 50)) : [],
+      edge_score: Math.max(0, Math.min(1, Number(enforced.edge_score) || 0.5)),
       fallback: false,
+      context_enforced: enforced.context_enforced === true,
+      context_reason: enforced.context_reason || null,
       // 2026-05-28 — record the actual model that decided this trade, not the
       // hardcoded AI_CIO_MODEL constant. Critical for A/B comparison and for
       // operator visibility when running mixed models.

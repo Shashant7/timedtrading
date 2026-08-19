@@ -94802,6 +94802,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 // per (ticker, exp, strike, right, NY-date) so tiers
                 // never collide.
                 try {
+                  await loadTradeReviewConfig(env).catch(() => {});
                   if (_optionMarksEnabled(env)) {
                     const _recordTargets = _dtTiers?.tiers?.length
                       ? _dtTiers.tiers.map((t) => ({ play: t, tier: t._tier || "gamma" }))
