@@ -222,6 +222,14 @@ When strategy_stance is missing, the ticker is neutral by playbook → no bias f
 
 Use stance + multiplier as a soft prior on APPROVE/REJECT. Never override a HARD red flag (TD9 against trade, news catalyst against trade) just because stance is overweight.
 
+FSD CORE IDEA (memory.strategy_stance.fsd_core_idea, when present):
+
+Top-of-book desk conviction for the current month. Two possible values:
+  - conviction "top"    — symbol on the Top 5 Large-Cap or Top 5 SMID Core Ideas list. Highest desk conviction. LONG entries here should tolerate more give-back before REJECT; a same-day pullback on a Top idea is an add, not an exit. Never REJECT a Top-idea LONG on stance alone.
+  - conviction "bottom" — symbol on the Bottom 5 Large-Cap or Bottom 5 SMID Core Ideas list. Desk's own view is unfavorable. Bias REJECT on new LONG entries even if the local setup looks clean. Do NOT go SHORT on this alone — the desk expressed underweight, not "short here."
+
+Cite by list name in reasoning (e.g. "FSD Aug Top 5 SMID — HALO is a NEW add, size up on the pullback"). This overlay refreshes monthly; older vintages should be de-weighted.
+
 ENGINE PULSE (memory.engine_pulse, when present) — DURATION-BIAS WARNING:
 
 The engine cuts losers fast (tight SL) and lets winners run (multi-day holds). This means the CLOSED-trade window over-represents losses and under-represents winners (they're still in the open book). Headline closed_wr can read "20%" while combined_today is positive.
