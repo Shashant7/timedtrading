@@ -131,4 +131,67 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
     expect(pf.ok).toBe(false);
     expect(pf.reject_reason).toBe("account_equity_unknown_sync_required");
   });
+
+  // 2026-08-19 — TJX 8/17 15:59 ET rejection. Cash account with $340 of
+  // total cash but $332 buying power (recent sell not yet settled).
+  // Model wanted a $338.69 buy (2.24 sh @ $151.14). Old sizing
+  // (cash * 0.98) produced $333.20 which cleared cash but violated
+  // Webull's 2% market-order buffer against BP.
+  it("scales against min(cash, buying_power) / 1.02 when unsettled funds shrink BP", async () => {
+    // Simulate a cash account whose whole equity is model-book-sized
+    // (so relational sizing does NOT clamp the request); BP is the
+    // only tighter ceiling because recent proceeds have not settled.
+    const unsettled = {
+      ...rothUser,
+      user_id: "op@x.com#webull#individual-cash",
+      cash_usd: 340,
+      buying_power_usd: 332,
+      equity_usd: 100000,
+    };
+    const env = makeEnv(unsettled);
+    const payload = {
+      user_id: "op@x.com#webull#individual-cash",
+      trade_id: "TJX-8/17",
+      ticker: "TJX",
+      side: "buy",
+      qty: 2.24,      // model wanted $338.69
+      entry: 151.14,
+      mode: "investor",
+    };
+    const pf = await preflightOrder(env, payload);
+    expect(pf.ok).toBe(true);
+    // Ceiling 332 / 1.02 = 325.49; floor(325.49 / 151.14) = 2 whole.
+    expect(payload.qty).toBe(2);
+    // 2 * 151.14 = 302.28. 302.28 * 1.02 = 308.33 <= 332 BP. Clears
+    // Webull's rule; no more "Insufficient Buying Power".
+    expect(payload.qty * payload.entry * 1.02).toBeLessThanOrEqual(332);
+    expect(pf.scaling?.reason).toContain("cash_buffer");
+    expect(pf.scaling?.buying_power_usd).toBe(332);
+    expect(pf.scaling?.cash_ceiling_usd).toBe(332);
+  });
+
+  it("uses cash_usd as ceiling when buying_power is missing", async () => {
+    const cashOnly = {
+      ...rothUser,
+      user_id: "op@x.com#webull#margin",
+      cash_usd: 500,
+      buying_power_usd: undefined,
+      equity_usd: 100000,
+    };
+    const env = makeEnv(cashOnly);
+    const payload = {
+      user_id: "op@x.com#webull#margin",
+      trade_id: "TJX-cash",
+      ticker: "TJX",
+      side: "buy",
+      qty: 4,      // $604 order > $500 cash
+      entry: 151.14,
+      mode: "investor",
+    };
+    const pf = await preflightOrder(env, payload);
+    expect(pf.ok).toBe(true);
+    // 500 / 1.02 = 490.19; floor(490.19 / 151.14) = 3 whole.
+    expect(payload.qty).toBe(3);
+    expect(payload.qty * payload.entry * 1.02).toBeLessThanOrEqual(500);
+  });
 });
