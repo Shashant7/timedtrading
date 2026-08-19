@@ -4278,18 +4278,18 @@
       },
       {
         "date": "2026-08-18",
-        "vix_close": 18.2,
+        "vix_close": 18.13,
         "vix_state": "normal",
-        "spy_pct": -0.47,
-        "qqq_pct": -0.16,
-        "iwm_pct": -0.34,
-        "offense_avg_pct": -0.39,
-        "defense_avg_pct": -0.71,
-        "sector_rotation": "balanced",
-        "regime_overall": "balanced",
-        "regime_score": -6,
-        "btc_pct": -0.46,
-        "eth_pct": -0.72
+        "spy_pct": -0.69,
+        "qqq_pct": -1.66,
+        "iwm_pct": -1.26,
+        "offense_avg_pct": -1.42,
+        "defense_avg_pct": 0.75,
+        "sector_rotation": "risk_off",
+        "regime_overall": "risk_off",
+        "regime_score": -23,
+        "btc_pct": 0.11,
+        "eth_pct": -0.02
       }
     ],
     "success": true,
@@ -4299,13 +4299,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 9.1046
+        "sql_duration_ms": 4.7211
       },
-      "duration": 9.1046,
+      "duration": 4.7211,
       "changes": 0,
-      "last_row_id": 3403,
+      "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4438917120,
+      "size_after": 4506238976,
       "rows_read": 286,
       "rows_written": 0,
       "total_attempts": 1
