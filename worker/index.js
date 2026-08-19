@@ -69836,6 +69836,7 @@ export default {
         const db = env?.DB;
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
+          await loadTradeReviewConfig(env);
           await _ensureOptionMarksSchema(env);
           const days = Math.max(1, Math.min(120, Number(url.searchParams.get("days")) || 30));
           const tickerFilter = String(url.searchParams.get("ticker") || "")
