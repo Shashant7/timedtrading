@@ -307,6 +307,67 @@ The movies that *do* matter this week are not `_armed_playbooks`:
    another 7 sessions. Promotion bar is still "daily reclaim 1d
    is not the only non-negative slice, and acted-on names are
    not the ST loser list."
+6. **FN (and the 18 Aug 15:02 stuck class).** Investor lot
+   `inv-FN-auto-1786730574592` is 20% through the Weekly ATR
+   floor the card itself prints. Flatten is overdue — see §9.
+   Do not wait for failed-reclaim or Monthly ST $281. Same
+   frozen `updated_at` on PANW / TSM / CAT / DE.
 
 Not in scope: investor weekly-ST floor ratchet, auto-mirror,
 Phase 2, new EMA playbooks, re-enabling ATH/support admission.
+
+---
+
+## 9. FN — why the investor lot is still open (19 Aug follow-up)
+
+FN is **not** an open short-term trade. Last ST FN closed months ago
+(`atr_week_618_full_exit`). This is investor `inv-FN-auto-1786730574592`.
+
+| | |
+|---|---|
+| Opened | 14 Aug 14:02 ET @ **$570.55** (`auto_entry_accumulate`) |
+| Why admitted | Score 78, FSD GRNJ core, compounder `growth_elite` dip override (`weekly_pullback_monthly_intact`). Morning admits that day were rejected (`ltf_5_12_cloud_not_curled`); 14:02 override got it in. |
+| Pre-earnings | 17 Aug 10:02 sold **0.98 / 12.27 sh** @ $583.20 (`PRE_EARNINGS_RISK_REDUCTION`). ~8% cut. Core held. |
+| Earnings gap | Next session opened ~513 and closed **482.59 (−19%)**. Then 19 Aug **454.55 (−5.8%)**. |
+| Now | 11.29 sh, cost $6,440, **unrealized −20.3%**. Score **16** (was 78). RS rank **10** (was 100). Stage **reduce** / `primary_invalidation_breach`. |
+| Operative floor | Weekly ATR support **$546.39** (UI: "exit remainder if price closes below"). Live **−20.2% through that floor**. `primaryInvalidation.breached = true`. |
+| Published thesis floors | Monthly ST $281 (−52%) and Weekly EMA200 $380 (−35%). Those are not the stop the card shows. |
+| Movie | `_inv_movie` armed 18 Aug 10:04 ET. `breach_low` 471.34. Last persist **18 Aug 15:02**. |
+| Failed-reclaim | Armed. MAE −17%. High since arm $495. **`saw_near_be: false`** — that exit cannot fire until a bounce tags ~BE, which never happened. |
+| Shallow-breach hold | Does **not** apply (20% breach, score 16). |
+
+It is still open because the flatten path never got a legal tick:
+
+1. **D3 `deep_audit_investor_require_session_close=true`** blocks
+   `sustained_hold_below` and `prior_daily_close` while RTH is open.
+   The only confirm that may fire is `session_close_mark` after 16:00.
+2. **Investor actions only run inside `isNyRegularMarketOpen()`**
+   (hourly 10–15 ET `?score_trims=skip` + 10:30 PRIMARY). At 16:00
+   that window is false, so the after-close movie pass does not run.
+3. **`investor_daily_eval_enabled` is unset** (treated as off). The
+   16:00 daily-eval slot that could have been the close print is a
+   no-op.
+4. **Score-path full exit** (`primary_invalidation_breach` → 100%
+   flatten, CIO-bypassed) only runs on the 10:30 PRIMARY. Hourly
+   RTH skips it. Position `updated_at` is still **18 Aug 15:02** for
+   FN **and** the other open reduce names (PANW, TSM, CAT, DE) —
+   compute wrote reduce at 18:04 ET 19 Aug, but auto-rebalance has
+   not successfully written since yesterday 15:02. So the 19 Aug
+   10:30 backup also did not land.
+
+Same stuck class: PANW and TSM also have `_inv_movie` armed and
+`updated_at` 18 Aug 15:02.
+
+**This lot should have been flattened at the 18 Aug close below
+$546.39.** Holding it is not a thesis call; it is a cadence hole
+between the session-close gate and RTH-only rebalance.
+
+Operator choices:
+
+- One-shot `POST /timed/investor/auto-rebalance` **after** 16:00 ET
+  so `session_close_mark` can fire (or accept a 10:30 PRIMARY flatten
+  tomorrow if that cron actually runs).
+- Add a dedicated post-close invalidation pass (16:05 ET) that is
+  not gated on `isNyRegularMarketOpen()`. That is the durable fix.
+- Do not wait for failed-reclaim or Monthly ST $281. Those will not
+  save this name.
