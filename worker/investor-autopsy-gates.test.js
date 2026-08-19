@@ -193,10 +193,13 @@ describe("deferForSessionClose (D3 — intraday confirms liquidate a long-horizo
     }
   });
 
-  it("defers the two intraday confirms during RTH when armed", () => {
+  it("defers sustained_hold_below during RTH but lets prior_daily_close fire", () => {
     const cfg = ON("deep_audit_investor_require_session_close");
+    // sustained_hold_below is a 180-RTH-minute guess — defer it during RTH.
     expect(deferForSessionClose({ confirm: "sustained_hold_below", marketOpen: true, daCfg: cfg })).toBe(true);
-    expect(deferForSessionClose({ confirm: "prior_daily_close", marketOpen: true, daCfg: cfg })).toBe(true);
+    // A completed prior daily close below the floor IS a session close — the
+    // discipline has been met, so RTH does not need to re-defer it.
+    expect(deferForSessionClose({ confirm: "prior_daily_close", marketOpen: true, daCfg: cfg })).toBe(false);
   });
 
   it("never defers session_close_mark — that IS the published discipline", () => {

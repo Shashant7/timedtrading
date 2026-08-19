@@ -141,17 +141,20 @@ export function weeklySupertrendDir({ tfW = null, wb = null } = {}) {
 }
 
 /**
- * D3 — require the session's own close to confirm the breach.
+ * D3 — require a session's own close to confirm the breach.
  *
- * `resolvePrimaryInvalidationMovie` fires on `sustained_hold_below` (180 RTH
- * minutes) and `prior_daily_close` while the market is still open. Both are
- * intraday liquidations of a long-horizon position. With this gate armed only
- * `session_close_mark` — the post-16:00 ET path, where the mark IS today's RTH
- * close — may fire, which is the discipline the UI already publishes.
+ * `resolvePrimaryInvalidationMovie` can fire on three confirms:
+ *   - `session_close_mark` — post-16:00 mark below the floor. Always allowed.
+ *   - `prior_daily_close`  — a completed prior daily close already sits below
+ *     the floor. That IS a session close; the discipline has been met.
+ *   - `sustained_hold_below` — RTH minutes below the floor with no reclaim.
+ *     This is an intraday liquidation of a long-horizon position; defer
+ *     during RTH so the actual close discipline governs.
  *
- * The legacy-tick confirm is deliberately not covered: when the movie feature
- * itself is disabled the operator has explicitly opted out of confirm
- * discipline, and this gate should not silently re-impose it.
+ * 2026-08-19 — the FN stuck class showed the failure mode: with the RTH-only
+ * auto-rebalance loop, `prior_daily_close` was the only path to flatten
+ * after a real close below the floor, and D3 was blocking it. Only
+ * `sustained_hold_below` needs the intraday defer.
  *
  * @param {object} args
  * @param {string} args.confirm — movie confirm kind
@@ -163,7 +166,7 @@ export function deferForSessionClose({ confirm = null, marketOpen = false, daCfg
   if (!flagOn(daCfg?.deep_audit_investor_require_session_close)) return false;
   if (!marketOpen) return false;
   const c = String(confirm || "");
-  return c === "sustained_hold_below" || c === "prior_daily_close";
+  return c === "sustained_hold_below";
 }
 
 /**

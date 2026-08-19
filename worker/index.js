@@ -2337,6 +2337,9 @@ const ROUTES = [
   ["POST", "/timed/admin/investor/dedupe-dca-lots", "POST /timed/admin/investor/dedupe-dca-lots"],
   // 2026-08-12 — Manually run the DCA side-effect heal sweep (see cron 15:50 ET).
   ["POST", "/timed/admin/investor/dca-sweep", "POST /timed/admin/investor/dca-sweep"],
+  // 2026-08-19 — Market-open force-flatten queue (post-close FN fix).
+  ["GET",  "/timed/admin/investor/market-open-queue", "GET /timed/admin/investor/market-open-queue"],
+  ["POST", "/timed/admin/investor/market-open-queue", "POST /timed/admin/investor/market-open-queue"],
   ["POST", "/timed/admin/broker-bridge/manifest/action",  "POST /timed/admin/broker-bridge/manifest/action"],
   ["POST", "/timed/admin/broker-bridge/notify/drain",     "POST /timed/admin/broker-bridge/notify/drain"],
   ["POST", "/timed/admin/broker-bridge/daily-digest",     "POST /timed/admin/broker-bridge/daily-digest"],
@@ -69836,6 +69839,7 @@ export default {
         const db = env?.DB;
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
+          await loadTradeReviewConfig(env);
           await _ensureOptionMarksSchema(env);
           const days = Math.max(1, Math.min(120, Number(url.searchParams.get("days")) || 30));
           const tickerFilter = String(url.searchParams.get("ticker") || "")
@@ -84152,6 +84156,58 @@ export default {
       // earlier lot, deletes the later twin, reverses the share/cost bump on
       // investor_positions, deletes the matching ledger row when present, and
       // writes an ADJUSTMENT to restore investor cash.
+      // 2026-08-19 — Market-open force-flatten queue. Persisted in KV so a
+      // ticker breached after a cron gap (weekend, holiday, missed
+      // dispatch) gets flattened on the next RTH pass without waiting
+      // for its movie to re-arm. The auto-rebalance route consumes and
+      // clears the queue as flattens fire; unread entries roll forward.
+      if (routeKey === "GET /timed/admin/investor/market-open-queue") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const q = await kvGetJSON(env.KV_TIMED, "timed:investor:market_open_exit_queue");
+          return sendJSON({ ok: true, queue: Array.isArray(q) ? q : [] }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/investor/market-open-queue") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const action = String(body?.action || "add").toLowerCase();
+          const addTickers = Array.isArray(body?.tickers)
+            ? body.tickers.map(t => String(t || "").toUpperCase()).filter(Boolean)
+            : [];
+          const reason = String(body?.reason || "operator_queue").slice(0, 200);
+          const now = Date.now();
+          const currentRaw = await kvGetJSON(env.KV_TIMED, "timed:investor:market_open_exit_queue");
+          const current = Array.isArray(currentRaw) ? currentRaw : [];
+          let next = current;
+          if (action === "clear") {
+            next = [];
+          } else if (action === "remove") {
+            const toRemove = new Set(addTickers);
+            next = current.filter(e => !toRemove.has(String(e?.ticker || "").toUpperCase()));
+          } else {
+            const byTicker = new Map(current.map(e => [String(e?.ticker || "").toUpperCase(), e]));
+            for (const t of addTickers) {
+              byTicker.set(t, { ticker: t, reason, queued_at: byTicker.get(t)?.queued_at || now });
+            }
+            next = Array.from(byTicker.values());
+          }
+          await env.KV_TIMED.put(
+            "timed:investor:market_open_exit_queue",
+            JSON.stringify(next),
+            { expirationTtl: 14 * 86400 },
+          );
+          return sendJSON({ ok: true, action, queue: next }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "POST /timed/admin/investor/dedupe-dca-lots") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -94523,12 +94579,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             _cxMarketOpen = (typeof isNyRegularMarketOpen === "function") ? isNyRegularMarketOpen() : true;
           } catch (_) { /* best-effort */ }
           const _lottoMax = Number(env?.CONVEXITY_LOTTO_MAX_LOSS_USD) || 50;
+          const _diag = String(url.searchParams.get("diag") || "0") === "1";
+          const _skipReasons = [];
           const _cxOne = async (t) => {
+            const sym = String(t?.ticker || "").toUpperCase();
+            const note = (reason, detail) => {
+              if (_diag) _skipReasons.push({ ticker: sym, reason, ...(detail || {}) });
+              return null;
+            };
             try {
-              const sym = String(t?.ticker || "").toUpperCase();
-              if (!sym) return null;
+              if (!sym) return note("no_ticker");
               const contract = await buildTraderPredictionContract(env, sym);
-              if (!contract) return null;
+              if (!contract) return note("no_contract");
               const invStage = String(t?.investor_stage || t?.kanban_stage || "").toLowerCase();
               const useInvestor = invStage.includes("accumulate") || invStage.includes("core")
                 || invStage.includes("watch");
@@ -94538,7 +94600,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 pricesMap: _cxPricesMap,
                 marketOpen: _cxMarketOpen,
               });
-              if (!Number.isFinite(Number(ladderInput?.price))) return null;
+              if (!Number.isFinite(Number(ladderInput?.price))) return note("no_price");
               let confluence = null;
               try { confluence = _scoreRootConfluence(t); } catch (_) {}
               let themes = [];
@@ -94551,7 +94613,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 lotto_max_loss_usd: _lottoMax,
               });
               const extracted = _extractConvexityPlayFromLadder(ladder);
-              if (!extracted?.play) return null;
+              if (!extracted?.play) {
+                const moon = ladder?.moonshot;
+                return note("no_convexity_leg", {
+                  confluence_mode: confluence?.mode || null,
+                  confluence_side: confluence?.side || null,
+                  moonshot_reason: moon?.reason || null,
+                });
+              }
               const spot = Number(ladderInput.price);
               const asOf = Date.now();
               if (!_isConvexityPlayActionable({
@@ -94562,7 +94631,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 spot,
                 chain_status: "not_attempted",
                 as_of_ms: asOf,
-              })) return null;
+              })) {
+                return note("not_actionable", {
+                  play_class: extracted.play_class,
+                  confluence_mode: confluence?.mode || null,
+                  play_dir: extracted.play?.direction || null,
+                  contract_dir: ladderInput?.direction || null,
+                  strike: extracted.play?.strikes?.primary,
+                  dte: extracted.play?.expiration?.dte,
+                });
+              }
               return _toConvexityCard({
                 ticker: sym,
                 play: extracted.play,
@@ -94573,7 +94651,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 chain_status: "not_attempted",
                 as_of_ms: asOf,
               });
-            } catch (_) { return null; }
+            } catch (e) {
+              return note("exception", { message: String(e?.message || e).slice(0, 120) });
+            }
           };
           const cards = [];
           const CONCURRENCY = 5;
@@ -94589,7 +94669,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             plays,
             generated_at: Date.now(),
           };
-          ctx.waitUntil(env.KV_TIMED.put(_cxCacheKey, JSON.stringify(payload), { expirationTtl: 600 }).catch(() => {}));
+          if (_diag) {
+            const reasonCounts = {};
+            for (const r of _skipReasons) reasonCounts[r.reason] = (reasonCounts[r.reason] || 0) + 1;
+            payload.diag = {
+              scanned: tickers.length,
+              cards: cards.length,
+              reason_counts: reasonCounts,
+              samples: _skipReasons.slice(0, 20),
+            };
+          }
+          if (!_diag) {
+            ctx.waitUntil(env.KV_TIMED.put(_cxCacheKey, JSON.stringify(payload), { expirationTtl: 600 }).catch(() => {}));
+          }
           return sendJSON({ ...payload, _cache: "miss" }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
@@ -94802,6 +94894,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 // per (ticker, exp, strike, right, NY-date) so tiers
                 // never collide.
                 try {
+                  await loadTradeReviewConfig(env).catch(() => {});
                   if (_optionMarksEnabled(env)) {
                     const _recordTargets = _dtTiers?.tiers?.length
                       ? _dtTiers.tiers.map((t) => ({ play: t, tier: t._tier || "gamma" }))
@@ -96498,6 +96591,30 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const _skipTrims = String(url.searchParams.get("trims") || "").toLowerCase() === "skip";
           const _skipScoreTrims = String(url.searchParams.get("score_trims") || "").toLowerCase() === "skip";
           const _skipAdds = String(url.searchParams.get("adds") || "").toLowerCase() === "skip";
+          // Post-close pass (2026-08-19). Not gated on RTH, adds are always
+          // skipped. Fires the movie's session_close_mark for breached
+          // positions that could not flatten during the hourly RTH window.
+          // See tasks/2026-08-19-recent-book-review.md §9 (FN stuck class).
+          const _postClose = String(url.searchParams.get("post_close") || "").toLowerCase() === "1"
+            || String(url.searchParams.get("post_close") || "").toLowerCase() === "true";
+          // Market-open force-flatten queue. When a position was breached and
+          // the movie could not fire (weekend, holiday, cron gap) the
+          // operator or the post-close pass writes the ticker to the KV list
+          // `timed:investor:market_open_exit_queue`. The next RTH pass reads
+          // it and force-executes the invalidation exit, bypassing the movie
+          // arm state so a stale `last_below_ts` does not block flatten.
+          const _flattenQueue = new Set(
+            String(url.searchParams.get("flatten") || "").split(",").map(s => s.trim().toUpperCase()).filter(Boolean),
+          );
+          try {
+            const q = await kvGetJSON(env.KV_TIMED, "timed:investor:market_open_exit_queue");
+            if (Array.isArray(q)) {
+              for (const entry of q) {
+                const t = String(entry?.ticker || entry || "").toUpperCase();
+                if (t) _flattenQueue.add(t);
+              }
+            }
+          } catch (_) { /* best-effort */ }
 
           // ── Configuration ──
           const INVESTOR_CAPITAL = 100000;                   // Total investable capital
@@ -97495,6 +97612,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               marketOpen: _invMarketOpen,
               daCfg: env?._deepAuditConfig || null,
             });
+
+            // Operator-tagged / post-close force flatten. When this position
+            // is on the market-open exit queue or the caller passed
+            // ?flatten=SYM,SYM and the invalidation is still breached, fire
+            // without waiting for the movie's own confirm.
+            if (breach && _flattenQueue.has(sym) && !movie.fire) {
+              console.log(`[AUTO-REBALANCE] ${sym} FORCED FLATTEN — market_open_exit_queue / operator flag @ $${price.toFixed(2)} vs floor $${breach.price.toFixed(2)}.`);
+              movie.fire = true;
+              movie.confirm = movie.confirm || "market_open_exit_queue";
+              movie.deferReason = null;
+              movie.breach = breach;
+            }
 
             // Persist arm / clear so the sequence survives cron ticks.
             if (JSON.stringify(movie.state) !== JSON.stringify(notesObj._inv_movie || null)) {
@@ -98520,6 +98649,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.warn("[REBALANCE DIGEST] failed:", String(e?.message || e).slice(0, 150));
           }
 
+          // Clear consumed tickers from the market-open exit queue so the
+          // next pass doesn't try to double-flatten. Whatever did not fire
+          // this pass stays queued for a retry.
+          try {
+            const firedTickers = new Set(invalidationExits.map(x => String(x?.ticker || "").toUpperCase()));
+            const q = await kvGetJSON(env.KV_TIMED, "timed:investor:market_open_exit_queue");
+            if (Array.isArray(q) && q.length) {
+              const remaining = q.filter(e => {
+                const t = String(e?.ticker || e || "").toUpperCase();
+                return t && !firedTickers.has(t);
+              });
+              if (remaining.length !== q.length) {
+                await env.KV_TIMED.put(
+                  "timed:investor:market_open_exit_queue",
+                  JSON.stringify(remaining),
+                  { expirationTtl: 14 * 86400 },
+                );
+              }
+            }
+          } catch (_) { /* best-effort */ }
+
           return sendJSON({
             ok: true,
             capitalAvailable: Math.round(availableCapital * 100) / 100,
@@ -98530,6 +98680,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             addedTo: added.length,
             eventReducedCount: eventReduced.length,
             invalidationExitCount: invalidationExits.length,
+            marketOpenQueueSize: _flattenQueue.size,
+            postClose: _postClose,
             failedReclaimExitCount: failedReclaimExits.length,
             mfeExtensionTrimCount: mfeExtensionTrims.length,
             fsdRemovalExitCount: fsdRemovalExits.length,
@@ -103515,7 +103667,43 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
           }
 
-          // 3. Daily evaluator at 4 PM ET (post-close).
+          // 3a. Post-close invalidation pass at 4 PM ET.
+          //
+          // The 16:00 hourly is fired outside RTH so
+          // isInvestorRthActionWindow() is false and the normal action
+          // pass above never runs. Without this the movie's
+          // `session_close_mark` — the ONLY confirm allowed under D3
+          // require-session-close — has no dispatcher, and every
+          // breached position (FN 18–19 Aug and the PANW/TSM/CAT/DE
+          // stuck class) waits another 18 hours for the next 10:30
+          // PRIMARY, which may or may not land. Fires `post_close=1`
+          // so the auto-rebalance runs the invalidation-movie loop
+          // without RTH gating, and forces `score_trims=skip` /
+          // `adds=skip` (execution windows are closed).
+          if (_etH === 16) {
+            console.log(`[INVESTOR HOURLY] ET=16:00 — Post-close invalidation pass (?post_close=1)`);
+            const postClose = await investorCronDispatchWithRetry(
+              _selfDispatch,
+              `/timed/investor/auto-rebalance?post_close=1&score_trims=skip&adds=skip`,
+              { method: "POST" },
+              {
+                label: "INVESTOR POST-CLOSE",
+                preDelayMs: comp.ok ? 20000 : 40000,
+                backoffsMs: [0, 15000, 45000],
+              },
+            );
+            if (!postClose.ok) {
+              const err = `post_close_failed_status_${postClose.resp?.status || 0}_${postClose.lastErr || "unknown"}_after_${postClose.attempts}_attempts`;
+              console.warn(`[INVESTOR HOURLY] POST-CLOSE FAILED: ${err}`);
+              recordCronFailure(env, { op: "investor_post_close_invalidation", error: err, caller: "scheduled_event" }).catch(() => {});
+            } else {
+              const rbd = postClose.data || {};
+              console.log(`[INVESTOR HOURLY] Post-close pass: ${rbd.invalidationExitCount || 0} exits, queued=${rbd.marketOpenQueueSize || 0}`);
+              recordCronSuccess(env, "investor_post_close_invalidation").catch(() => {});
+            }
+          }
+
+          // 3b. Daily evaluator at 4 PM ET (post-close).
           if (_etH === 16) {
             try {
               const flagRow = await env.DB.prepare(

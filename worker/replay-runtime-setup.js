@@ -491,6 +491,7 @@ export const REPLAY_DA_KEYS = [
   // options_marks_enabled turns on the SPY/QQQ/IWM options-marks ledger +
   // snapshot cron. The other stage flags follow in the same PR.
   "options_marks_enabled",
+  "cio_speculative_chop_reject_enabled",
   "options_ladder_tiers",
   "options_gate_honesty",
   "options_management_card",

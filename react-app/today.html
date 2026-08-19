@@ -3931,6 +3931,13 @@
       }
 
 
+      const INDEX_TRADE_NAME = {
+        SPY: "S&P 500 ETF",
+        QQQ: "Nasdaq-100 ETF",
+        IWM: "Russell 2000 ETF",
+        DIA: "Dow Jones ETF",
+      };
+
       // ─────────────────────────────────────────────────────────────
       // IndexDayTradeStrip — SPY/QQQ/IWM/DIA day-trade cards
       // (2026-08-18, tasks/2026-08-18-index-options-readiness.md).
@@ -3943,7 +3950,7 @@
       // then. Empty rendering when no plays fire (WAIT / low
       // conviction), so the strip is honest about its cadence.
       // ─────────────────────────────────────────────────────────────
-      function IndexDayTradeStrip({ onSelectTicker, embedded }) {
+      function IndexDayTradeStrip({ onSelectTicker, embedded, data, sparkCache, ensureSpark }) {
         // TTFetchCache stale-while-revalidate: paint the last-seen response
         // instantly from sessionStorage on mount, then revalidate in the
         // background so the tape is never more than one 5-min tick stale.
@@ -4183,12 +4190,64 @@
               gap: 8,
             },
           },
-            // Row 1: Ticker + tier badge (left) · direction pill (right).
-            h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
+            // Row 1: Ticker lockup (logo + symbol + fund name + sparkline) matches
+            // the Compounder / Ready Setup cards; direction pill sits right.
+            !isExpandedTier && (() => {
+              const sym = String(ctx.ticker || p.ticker || "").toUpperCase();
+              const liveT = data && data[sym] ? data[sym] : null;
+              const priceForSpark = Number(ctx.spot ?? p.price) || null;
+              let dayPct = null;
+              try {
+                if (liveT && typeof getDailyChange === "function") {
+                  const dc = getDailyChange(liveT);
+                  if (Number.isFinite(Number(dc?.dayPct))) dayPct = Number(dc.dayPct);
+                }
+              } catch (_) {}
+              const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat"
+                : dayPct > 0 ? "up" : "dn";
+              const LaneCard = window.TTLaneCard;
+              const sparkSvg = LaneCard?.sparkSvgFromCache
+                ? LaneCard.sparkSvgFromCache(sym, priceForSpark, dir, sparkCache, ensureSpark)
+                : "";
+              const fundName = INDEX_TRADE_NAME[sym] || (liveT && (liveT.companyName || liveT.company_name)) || "";
+              return h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
+                h("div", { style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 } },
+                  window.DS && h("span", {
+                    ref: (el) => {
+                      if (el && !el.dataset.dsInit) {
+                        el.dataset.dsInit = "1";
+                        try { el.replaceWith(window.DS.tickerLogo(sym, { size: 22 })); } catch (_) {}
+                      }
+                    },
+                    style: { display: "inline-flex", width: 22, height: 22, borderRadius: 6, background: "rgba(255,255,255,0.04)" },
+                  }),
+                  h("div", { style: { minWidth: 0, flex: 1 } },
+                    h("div", { style: { display: "flex", alignItems: "baseline", gap: 6 } },
+                      h("strong", { style: { fontSize: 18, fontWeight: 800, letterSpacing: "-0.01em" } }, sym),
+                      tierBadge && chip(tierBadge.label, tierBadge.color),
+                      !tierBadge && chip("DAY-TRADE", BLUE),
+                    ),
+                    fundName && h("div", {
+                      style: { fontSize: 10, color: "var(--tt-text-faint)", marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+                    }, fundName),
+                  ),
+                ),
+                h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                  sparkSvg && h("span", { dangerouslySetInnerHTML: { __html: sparkSvg }, style: { display: "inline-flex", opacity: 0.75 } }),
+                  h("span", {
+                    style: {
+                      fontSize: 11, fontWeight: 800, letterSpacing: "0.08em",
+                      padding: "3px 9px", borderRadius: 6,
+                      background: fc + "1F", color: fc, border: `1px solid ${fc}55`,
+                    },
+                  }, flavor.toUpperCase()),
+                ),
+              );
+            })(),
+            // Tier-expanded row: no lockup, only tier badge + direction.
+            isExpandedTier && h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 } },
               h("div", { style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 } },
-                !isExpandedTier && h("strong", { style: { fontSize: 18, fontWeight: 800, letterSpacing: "-0.01em" } }, ctx.ticker || p.ticker),
                 tierBadge && chip(tierBadge.label, tierBadge.color),
-                !isExpandedTier && !tierBadge && chip("DAY-TRADE", BLUE),
               ),
               h("span", {
                 style: {
@@ -8939,6 +8998,24 @@
               : h(MarketStateSkeleton, null),
             h("section", { className: "tt-row" },
               h("div", { className: "tt-card tt-universe-panel" },
+                // 2026-08-19 — Strip order (operator, review § 8):
+                //   1. Compounders (best-performing lane, lead)
+                //   2. Capital Shortlist (Ready Setups)
+                //   3. Structured Families (setup-tagged watchlist)
+                //   4. Index Day-Trade cards (SPY/QQQ/IWM/DIA)
+                //   5. Options Lotto / Moonshots
+                //   6. Universe viewport
+                h(GrowthIdeasStrip, {
+                  onSelectTicker,
+                  user,
+                  embedded: true,
+                  data,
+                  savedSet,
+                  onToggleSaved: toggleSaved,
+                  sparkCache,
+                  ensureSpark,
+                }),
+                h("div", { className: "tt-universe-panel__divider" }),
                 window.TimedVerdictUI?.ReadySetupsBoard && h(window.TimedVerdictUI.ReadySetupsBoard, {
                   onSelectTicker,
                   tickerData: data,
@@ -8959,20 +9036,15 @@
                   ensureSpark,
                 }),
                 h("div", { className: "tt-universe-panel__divider" }),
-                h(ConvexityPlaysStrip, { onSelectTicker, embedded: true }),
-                h("div", { className: "tt-universe-panel__divider" }),
-                h(IndexDayTradeStrip, { onSelectTicker, embedded: true }),
-                h("div", { className: "tt-universe-panel__divider" }),
-                h(GrowthIdeasStrip, {
+                h(IndexDayTradeStrip, {
                   onSelectTicker,
-                  user,
                   embedded: true,
                   data,
-                  savedSet,
-                  onToggleSaved: toggleSaved,
                   sparkCache,
                   ensureSpark,
                 }),
+                h("div", { className: "tt-universe-panel__divider" }),
+                h(ConvexityPlaysStrip, { onSelectTicker, embedded: true }),
                 h("div", { className: "tt-universe-panel__divider" }),
                 data
                   ? h(TickerLaneSection, {
