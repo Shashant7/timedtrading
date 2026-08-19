@@ -1389,9 +1389,18 @@ function ConvexityPlaysStrip({
     }, "Premium may go to zero.", fmtAsOf(p.as_of_ms) ? " · as of " + fmtAsOf(p.as_of_ms) + " ET" : ""));
   }))));
 }
+const INDEX_TRADE_NAME = {
+  SPY: "S&P 500 ETF",
+  QQQ: "Nasdaq-100 ETF",
+  IWM: "Russell 2000 ETF",
+  DIA: "Dow Jones ETF"
+};
 function IndexDayTradeStrip({
   onSelectTicker,
-  embedded
+  embedded,
+  data,
+  sparkCache,
+  ensureSpark
 }) {
   const url = `${API_BASE}/timed/options/all?limit=10`;
   const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
@@ -1664,7 +1673,107 @@ function IndexDayTradeStrip({
         flexDirection: "column",
         gap: 8
       }
-    }, h("div", {
+    }, !isExpandedTier && (() => {
+      const sym = String(ctx.ticker || p.ticker || "").toUpperCase();
+      const liveT = data && data[sym] ? data[sym] : null;
+      const priceForSpark = Number(ctx.spot ?? p.price) || null;
+      let dayPct = null;
+      try {
+        if (liveT && typeof getDailyChange === "function") {
+          const dc = getDailyChange(liveT);
+          if (Number.isFinite(Number(dc?.dayPct))) dayPct = Number(dc.dayPct);
+        }
+      } catch (_) {}
+      const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+      const LaneCard = window.TTLaneCard;
+      const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, priceForSpark, dir, sparkCache, ensureSpark) : "";
+      const fundName = INDEX_TRADE_NAME[sym] || liveT && (liveT.companyName || liveT.company_name) || "";
+      return h("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8
+        }
+      }, h("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          minWidth: 0,
+          flex: 1
+        }
+      }, window.DS && h("span", {
+        ref: el => {
+          if (el && !el.dataset.dsInit) {
+            el.dataset.dsInit = "1";
+            try {
+              el.replaceWith(window.DS.tickerLogo(sym, {
+                size: 22
+              }));
+            } catch (_) {}
+          }
+        },
+        style: {
+          display: "inline-flex",
+          width: 22,
+          height: 22,
+          borderRadius: 6,
+          background: "rgba(255,255,255,0.04)"
+        }
+      }), h("div", {
+        style: {
+          minWidth: 0,
+          flex: 1
+        }
+      }, h("div", {
+        style: {
+          display: "flex",
+          alignItems: "baseline",
+          gap: 6
+        }
+      }, h("strong", {
+        style: {
+          fontSize: 18,
+          fontWeight: 800,
+          letterSpacing: "-0.01em"
+        }
+      }, sym), tierBadge && chip(tierBadge.label, tierBadge.color), !tierBadge && chip("DAY-TRADE", BLUE)), fundName && h("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--tt-text-faint)",
+          marginTop: 1,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis"
+        }
+      }, fundName))), h("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 8
+        }
+      }, sparkSvg && h("span", {
+        dangerouslySetInnerHTML: {
+          __html: sparkSvg
+        },
+        style: {
+          display: "inline-flex",
+          opacity: 0.75
+        }
+      }), h("span", {
+        style: {
+          fontSize: 11,
+          fontWeight: 800,
+          letterSpacing: "0.08em",
+          padding: "3px 9px",
+          borderRadius: 6,
+          background: fc + "1F",
+          color: fc,
+          border: `1px solid ${fc}55`
+        }
+      }, flavor.toUpperCase())));
+    })(), isExpandedTier && h("div", {
       style: {
         display: "flex",
         alignItems: "center",
@@ -1678,13 +1787,7 @@ function IndexDayTradeStrip({
         gap: 8,
         minWidth: 0
       }
-    }, !isExpandedTier && h("strong", {
-      style: {
-        fontSize: 18,
-        fontWeight: 800,
-        letterSpacing: "-0.01em"
-      }
-    }, ctx.ticker || p.ticker), tierBadge && chip(tierBadge.label, tierBadge.color), !isExpandedTier && !tierBadge && chip("DAY-TRADE", BLUE)), h("span", {
+    }, tierBadge && chip(tierBadge.label, tierBadge.color)), h("span", {
       style: {
         fontSize: 11,
         fontWeight: 800,
@@ -7242,7 +7345,18 @@ function TodayApp({
     className: "tt-row"
   }, h("div", {
     className: "tt-card tt-universe-panel"
-  }, window.TimedVerdictUI?.ReadySetupsBoard && h(window.TimedVerdictUI.ReadySetupsBoard, {
+  }, h(GrowthIdeasStrip, {
+    onSelectTicker,
+    user,
+    embedded: true,
+    data,
+    savedSet,
+    onToggleSaved: toggleSaved,
+    sparkCache,
+    ensureSpark
+  }), h("div", {
+    className: "tt-universe-panel__divider"
+  }), window.TimedVerdictUI?.ReadySetupsBoard && h(window.TimedVerdictUI.ReadySetupsBoard, {
     onSelectTicker,
     tickerData: data,
     embedded: true,
@@ -7262,25 +7376,17 @@ function TodayApp({
     ensureSpark
   }), h("div", {
     className: "tt-universe-panel__divider"
+  }), h(IndexDayTradeStrip, {
+    onSelectTicker,
+    embedded: true,
+    data,
+    sparkCache,
+    ensureSpark
+  }), h("div", {
+    className: "tt-universe-panel__divider"
   }), h(ConvexityPlaysStrip, {
     onSelectTicker,
     embedded: true
-  }), h("div", {
-    className: "tt-universe-panel__divider"
-  }), h(IndexDayTradeStrip, {
-    onSelectTicker,
-    embedded: true
-  }), h("div", {
-    className: "tt-universe-panel__divider"
-  }), h(GrowthIdeasStrip, {
-    onSelectTicker,
-    user,
-    embedded: true,
-    data,
-    savedSet,
-    onToggleSaved: toggleSaved,
-    sparkCache,
-    ensureSpark
   }), h("div", {
     className: "tt-universe-panel__divider"
   }), data ? h(TickerLaneSection, {
@@ -7733,6 +7839,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787067361563:469431317
+// cache-bust:1787182438422:377432777
 
-// cache-bust:1787067361563:469431317
+// cache-bust:1787182438422:377432777

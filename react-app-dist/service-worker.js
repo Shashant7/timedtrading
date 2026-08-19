@@ -192,4 +192,4 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(cacheFirst(request, RUNTIME_CACHE));
 });
 
-// cache-bust:1787067361563:469431317
+// cache-bust:1787182438422:377432777
