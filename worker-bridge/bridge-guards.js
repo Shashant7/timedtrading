@@ -849,26 +849,46 @@ export async function preflightOrder(env, payload) {
   // "insufficient buying power" 200ms later. Scale-to-fit again here so
   // a user with $200 cash + a cap of $5k still gets 0 shares if entry
   // > $200, but gets the right fractional / floor count if it fits.
+  //
+  // 2026-08-19 — TJX buy 8/17 15:59 ET hit Webull with
+  // "Insufficient Buying Power. Due to market volatility, the buying
+  // power must be 2% greater than the estimated amount of the purchase
+  // market order..." on Shashant's `individual-cash` account.
+  // Root cause: sizing was `cash_usd * 0.98` but Webull enforces
+  // `order_value * 1.02 <= buying_power`, and on a cash account with
+  // recently-sold unsettled proceeds `buying_power_usd < cash_usd`. The
+  // 0.98-of-cash headroom was not enough when BP was the tighter
+  // ceiling. The fix uses `min(cash, buying_power) / 1.02` as the
+  // sizing denominator so market-order placements clear the 2% buffer
+  // even with unsettled cash.
   const liveCash = Number(user?.cash_usd || user?.portfolio?.cash_usd);
-  if (!isReducer && Number.isFinite(liveCash) && liveCash > 0 && estValue != null && estValue > liveCash) {
+  const liveBuyingPower = Number(user?.buying_power_usd || user?.portfolio?.buying_power_usd);
+  const cashCeilingRaw = [liveCash, liveBuyingPower]
+    .filter((v) => Number.isFinite(v) && v > 0);
+  const cashCeiling = cashCeilingRaw.length ? Math.min(...cashCeilingRaw) : null;
+  if (!isReducer && cashCeiling != null && estValue != null && estValue > cashCeiling) {
     const scaleToFit = String(env?.BROKER_SCALE_TO_FIT || "true").toLowerCase() !== "false";
     if (!scaleToFit) {
       return {
         ok: false,
-        reject_reason: `insufficient_cash_${liveCash.toFixed(0)}_lt_${estValue.toFixed(0)}`,
+        reject_reason: `insufficient_cash_${cashCeiling.toFixed(0)}_lt_${estValue.toFixed(0)}`,
         estimated_value: estValue,
         cash_usd: liveCash,
+        buying_power_usd: Number.isFinite(liveBuyingPower) ? liveBuyingPower : null,
       };
     }
-    // Reserve a 2% buffer for fees / slippage so the broker doesn't
-    // reject the place call for a few cents.
-    const usableCash = liveCash * 0.98;
+    // Reserve Webull's 2% market-order buffer PLUS a small slippage
+    // margin. Divide by 1.02 rather than multiply by 0.98 so the
+    // Webull-side check `order_value * 1.02 <= buying_power` clears
+    // exactly (0.98 leaves ~0.04% slack that broker rounding can eat).
+    const usableCash = cashCeiling / 1.02;
     const maxQtyByCash = Math.floor(usableCash / entry);
     if (maxQtyByCash < 1) {
       return {
         ok: false,
-        reject_reason: `insufficient_cash_for_one_unit_${liveCash.toFixed(0)}_lt_${entry.toFixed(2)}`,
+        reject_reason: `insufficient_cash_for_one_unit_${cashCeiling.toFixed(0)}_lt_${entry.toFixed(2)}`,
         cash_usd: liveCash,
+        buying_power_usd: Number.isFinite(liveBuyingPower) ? liveBuyingPower : null,
         unit_usd: entry,
       };
     }
@@ -881,12 +901,17 @@ export async function preflightOrder(env, payload) {
       reason: scalingMeta ? `${scalingMeta.reason}+cash_buffer` : "cash_buffer",
       cap_usd: scalingMeta?.cap_usd || null,
       cash_usd: liveCash,
+      buying_power_usd: Number.isFinite(liveBuyingPower) ? liveBuyingPower : null,
+      cash_ceiling_usd: cashCeiling,
       scale_ratio: Math.round((maxQtyByCash / originalQty) * 1000) / 1000,
     };
     qty = maxQtyByCash;
     estValue = entry * qty;
     payload.qty = qty;
-    console.log(`[BRIDGE_SCALE] ${payload.user_id || "?"}/${payload.ticker}: cash-scaled qty ${originalQty}→${qty} (cash $${liveCash.toFixed(0)} vs $${originalValue.toFixed(0)} order)`);
+    const bpNote = Number.isFinite(liveBuyingPower) && liveBuyingPower < liveCash
+      ? ` [BP $${liveBuyingPower.toFixed(0)} < cash $${liveCash.toFixed(0)}; unsettled funds?]`
+      : "";
+    console.log(`[BRIDGE_SCALE] ${payload.user_id || "?"}/${payload.ticker}: cash-scaled qty ${originalQty}→${qty} (ceiling $${cashCeiling.toFixed(0)} vs $${originalValue.toFixed(0)} order)${bpNote}`);
   }
 
   // Account-concentration cap (max_account_pct). Default 25%.

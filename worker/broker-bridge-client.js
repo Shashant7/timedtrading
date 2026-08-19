@@ -10,6 +10,30 @@
 // is finalized. The bridge URL + HMAC key are env vars set per-
 // deployment.
 
+/**
+ * NY regular market open (9:30–16:00 ET, weekdays). Kept local to avoid
+ * pulling the whole calendar module — Webull rejects market orders in
+ * pre/post so we only need to know "am I inside the RTH window?".
+ */
+function isNyRthOpen(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(now);
+  const map = {};
+  for (const p of parts) map[p.type] = p.value;
+  const dow = String(map.weekday || "").toLowerCase();
+  if (dow === "sat" || dow === "sun") return false;
+  const hh = Number(map.hour);
+  const mm = Number(map.minute);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return false;
+  const mins = hh * 60 + mm;
+  return mins >= 9 * 60 + 30 && mins < 16 * 60;
+}
+
 async function hmacSign(key, payload) {
   const hk = await crypto.subtle.importKey(
     "raw", new TextEncoder().encode(key),
@@ -206,19 +230,55 @@ export async function forwardInvestorMirror(env, op = {}) {
     ? Number(reducePctRaw)
     : null;
   try {
-    const orderKind = op?.order_kind || op?.order_type || null;
-    const limitPrice = Number(op?.limit_price);
-    const tif = op?.tif != null ? String(op.tif) : null;
-    const tradingSession = op?.support_trading_session != null
+    let orderKind = op?.order_kind || op?.order_type || null;
+    let limitPrice = Number(op?.limit_price);
+    let tif = op?.tif != null ? String(op.tif) : null;
+    let tradingSession = op?.support_trading_session != null
       ? String(op.support_trading_session)
       : null;
+    let mirrorQty = qty;
+
+    // 2026-08-19 — Session-aware order-type coercion. Webull rejects MARKET
+    // orders outside RTH with "Only limit orders are supported for
+    // extended-hours trading" (OAUTH_OPENAPI_CAN_NOT_TRADING_FOR_FIXGW_NOT_
+    // READY_MARKET). The post-close invalidation pass (FN 2026-08-19,
+    // ~19:35 ET) hit exactly this on FN/CAT/DE/PANW flatten mirrors.
+    //
+    // When the caller has not explicitly opted into a session and we're
+    // outside RTH:
+    //   • Set order_kind = "limit" so the bridge/webull-api uses LIMIT.
+    //   • Set support_trading_session = "ALL" (pre + post-market both).
+    //   • Set tif = "GTC" so the resting order rides overnight into RTH.
+    //   • Set limit_price = op.price (last known mark, 2dp) when the
+    //     caller didn't supply one.
+    //   • Round qty down to whole shares — Webull rejects fractionals in
+    //     ETH. Reducers set reduce_pct which the bridge scales against
+    //     the actual held qty (fractional-safe), so we leave those alone.
+    const priceForLimit = Number(op?.price) || Number(op?.limit_price) || 0;
+    const explicitSession = tradingSession != null;
+    const marketOpen = isNyRthOpen();
+    if (!marketOpen && !explicitSession && priceForLimit > 0) {
+      const isReducer = side === "trim" || side === "sell";
+      // Reducers use reduce_pct → bridge sizes against held qty; we
+      // don't need to whole-share-floor them here.
+      if (!isReducer) {
+        const whole = Math.floor(mirrorQty + 1e-9);
+        if (whole >= 1) mirrorQty = whole;
+      }
+      orderKind = "limit";
+      limitPrice = Number.isFinite(limitPrice) && limitPrice > 0
+        ? Math.round(limitPrice * 100) / 100
+        : Math.round(priceForLimit * 100) / 100;
+      tif = "GTC";
+      tradingSession = "ALL";
+    }
     const result = await forwardOrderToBridge(env, {
       user_id: userEmail,
       trade_id: tradeId,
       client_order_id: clientOrderId,
       ticker,
       side,
-      qty,
+      qty: mirrorQty,
       entry: Number(op?.price) || null,
       sl: null,
       tp: null,
@@ -243,7 +303,7 @@ export async function forwardInvestorMirror(env, op = {}) {
       result,
       trade_id: tradeId,
       side,
-      qty,
+      qty: mirrorQty,
       bridge_reject_reason: result?.response?.reject_reason
         || result?.response?.error
         || result?.error

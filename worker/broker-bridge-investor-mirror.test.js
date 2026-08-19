@@ -270,7 +270,60 @@ describe("forwardInvestorMirror", () => {
     expect(result.skip).toBe("investor_mirror_disabled");
   });
 
-  it("forwards ETH LIMIT + GTC + ALL session fields to the bridge", async () => {
+  it("auto-coerces MARKET→LIMIT+ALL+GTC when fired outside RTH (2026-08-19 FN flatten class)", async () => {
+    const seen = [];
+    const env = {
+      BROKER_INVESTOR_MIRROR_ENABLED: "true",
+      BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      ADMIN_EMAIL: "op@example.com",
+      BROKER_BRIDGE: {
+        fetch: async (req) => {
+          seen.push(JSON.parse(await req.text()));
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      },
+      KV_TIMED: { get: async () => "[]", put: async () => {} },
+    };
+    // Freeze "now" outside RTH — 7:35 PM ET on 2026-08-19 (Wednesday).
+    // This is the same wallclock as the actual FN mirror rejection tonight.
+    const realDate = globalThis.Date;
+    class FrozenDate extends realDate {
+      constructor(...args) {
+        if (args.length === 0) return new realDate("2026-08-19T23:35:00Z");
+        return new realDate(...args);
+      }
+      static now() { return new realDate("2026-08-19T23:35:00Z").getTime(); }
+    }
+    globalThis.Date = FrozenDate;
+    try {
+      const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+      // Caller did NOT pass order_kind — old code sent MARKET+CORE and
+      // Webull rejected with OAUTH_OPENAPI_CAN_NOT_TRADING_FOR_FIXGW_NOT_
+      // READY_MARKET. New code coerces to LIMIT+ALL+GTC at last mark.
+      await forwardInvestorMirror(env, {
+        kind: "exit",
+        ticker: "FN",
+        shares: 11.29,   // fractional flatten
+        price: 454.55,
+        position_id: "inv-FN-auto-1",
+      });
+    } finally {
+      globalThis.Date = realDate;
+    }
+    expect(seen).toHaveLength(1);
+    const body = seen[0];
+    expect(body.order_kind).toBe("limit");
+    expect(body.limit_price).toBe(454.55);
+    expect(body.tif).toBe("GTC");
+    expect(body.support_trading_session).toBe("ALL");
+    // Reducer keeps its original qty — the bridge sizes trims against
+    // held qty via reduce_pct / reconcileReducerQty, so we don't
+    // whole-share-floor sells.
+    expect(body.qty).toBe(11.29);
+  });
+
+  it("keeps caller-supplied ETH fields untouched when explicit", async () => {
     const seen = [];
     const env = {
       BROKER_INVESTOR_MIRROR_ENABLED: "true",
@@ -304,5 +357,50 @@ describe("forwardInvestorMirror", () => {
     expect(seen[0].support_trading_session).toBe("ALL");
     expect(seen[0].side).toBe("buy");
     expect(seen[0].qty).toBe(3);
+  });
+
+  it("leaves the payload unchanged inside RTH", async () => {
+    const seen = [];
+    const env = {
+      BROKER_INVESTOR_MIRROR_ENABLED: "true",
+      BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      ADMIN_EMAIL: "op@example.com",
+      BROKER_BRIDGE: {
+        fetch: async (req) => {
+          seen.push(JSON.parse(await req.text()));
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      },
+      KV_TIMED: { get: async () => "[]", put: async () => {} },
+    };
+    // Weds 2026-08-19 11:00 ET (RTH open).
+    const realDate = globalThis.Date;
+    class FrozenDate extends realDate {
+      constructor(...args) {
+        if (args.length === 0) return new realDate("2026-08-19T15:00:00Z");
+        return new realDate(...args);
+      }
+      static now() { return new realDate("2026-08-19T15:00:00Z").getTime(); }
+    }
+    globalThis.Date = FrozenDate;
+    try {
+      const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+      await forwardInvestorMirror(env, {
+        kind: "dca",
+        ticker: "TJX",
+        shares: 2.24,
+        price: 151.14,
+        position_id: "inv-TJX-1",
+      });
+    } finally {
+      globalThis.Date = realDate;
+    }
+    expect(seen).toHaveLength(1);
+    // Inside RTH: no order_kind coercion. Bridge planner picks defaults.
+    expect(seen[0].order_kind).toBeUndefined();
+    expect(seen[0].support_trading_session).toBeUndefined();
+    expect(seen[0].tif).toBeUndefined();
+    expect(seen[0].qty).toBe(2.24);
   });
 });
