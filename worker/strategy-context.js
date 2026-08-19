@@ -956,6 +956,20 @@ async function loadCROOverride(env) {
 }
 
 /**
+ * 2026-08-19 — Structural Core Ideas signals that must survive alongside any
+ * CRO override. A signal qualifies when it carries a tickers_top or
+ * tickers_bottom list (e.g. Newton's monthly Top/Bottom 5 Large-Cap and
+ * SMID Core Ideas). The CRO Daily Technical Strategy override is a
+ * single-day timing overlay and must NOT drop the month's top-of-book.
+ */
+function inCodeCoreIdeaSignals() {
+  return TACTICAL_SIGNALS.filter((s) =>
+    (Array.isArray(s.tickers_top) && s.tickers_top.length > 0)
+    || (Array.isArray(s.tickers_bottom) && s.tickers_bottom.length > 0)
+  );
+}
+
+/**
  * Async variant of getTacticalSignals() — KV-override aware. Falls back to
  * the in-code TACTICAL_SIGNALS when no override exists or env is missing.
  */
@@ -964,8 +978,15 @@ export async function getTacticalSignalsAsync(env) {
   const override = await loadCROOverride(env);
   if (!override) return getTacticalSignals();
 
-  const signals = Array.isArray(override.tactical_signals) && override.tactical_signals.length > 0
+  // Structural Core Ideas (Top/Bottom 5 lists) must survive alongside a
+  // Daily Technical Strategy override — the override is a same-day
+  // timing overlay; the Core Ideas artifact is the month's top-of-book.
+  const overrideSignals = Array.isArray(override.tactical_signals) && override.tactical_signals.length > 0
     ? override.tactical_signals
+    : null;
+  const core = inCodeCoreIdeaSignals();
+  const signals = overrideSignals
+    ? [...overrideSignals, ...core]
     : TACTICAL_SIGNALS;
   const byTheme = {};
   const byPair = {};
