@@ -142,9 +142,10 @@ describe("applyCioContextVerdict", () => {
     expect(out.reasoning).toBe("already no");
   });
 
-  it("no-ops when the flag is explicitly false", () => {
+  it("no-ops when both flags are explicitly false", () => {
     const out = applyCioContextVerdict(proposal, { decision: "ADJUST" }, {
       cio_speculative_chop_reject_enabled: "false",
+      cio_adjust_is_reject_enabled: "false",
     });
     expect(out.decision).toBe("ADJUST");
   });
@@ -154,7 +155,82 @@ describe("applyCioContextVerdict", () => {
       direction: "LONG",
       setup: { name: "TT HTF Reclaim", grade: "Prime" },
       hmm_regime: chopHmm,
+      strategy_stance: { stance: "overweight", tier: "tier_1" },
     }, { decision: "APPROVE", reasoning: "structure reclaim" });
     expect(out.decision).toBe("APPROVE");
+  });
+
+  // 2026-08-20 — Kill ADJUST as an entry verdict outside the narrow
+  // carve-out (Prime + tier-1 overweight + not high-CHOP).
+  describe("adjust-is-reject policy (2026-08-20)", () => {
+    it("upgrades ADJUST on a Confirmed non-thesis setup to REJECT", () => {
+      const p = {
+        direction: "LONG",
+        setup: { name: "TT Gap Reversal Long", grade: "Confirmed" },
+        hmm_regime: { state: "BULL_TREND", posterior_top: 0.7 },
+        strategy_stance: { stance: "neutral", tier: null },
+      };
+      const out = applyCioContextVerdict(p, {
+        decision: "ADJUST",
+        reasoning: "haircut size on chop guard",
+        adjustments: { size_mult: 0.75 },
+      });
+      expect(out.decision).toBe("REJECT");
+      expect(out.context_reason).toBe("adjust_is_reject");
+      expect(out.risk_flags).toContain("adjust_upgraded_to_reject");
+    });
+
+    it("preserves ADJUST on Prime + tier-1 overweight (the carve-out)", () => {
+      const p = {
+        direction: "LONG",
+        setup: { name: "TT HTF Reclaim", grade: "Prime" },
+        hmm_regime: { state: "BULL_TREND", posterior_top: 0.8 },
+        strategy_stance: { stance: "overweight", tier: "tier_1" },
+      };
+      const out = applyCioContextVerdict(p, {
+        decision: "ADJUST",
+        reasoning: "tighten SL on ~ATR-band entry",
+        adjustments: { size_mult: 0.75, sl: 100 },
+      });
+      expect(out.decision).toBe("ADJUST");
+      expect(out.adjustments).toBeTruthy();
+    });
+
+    it("does NOT preserve ADJUST if the Prime + tier-1 setup is in CHOP", () => {
+      const p = {
+        direction: "LONG",
+        setup: { name: "TT HTF Reclaim", grade: "Prime" },
+        hmm_regime: chopHmm,
+        strategy_stance: { stance: "overweight", tier: "tier_1" },
+      };
+      const out = applyCioContextVerdict(p, { decision: "ADJUST", reasoning: "" });
+      // The Speculative-CHOP path doesn't hit (setup family is HTF Reclaim,
+      // not ATH/support). But the carve-out still requires not-CHOP —
+      // ADJUST upgrades to REJECT.
+      expect(out.decision).toBe("REJECT");
+      expect(out.context_reason).toBe("adjust_is_reject");
+    });
+
+    it("no-ops when cio_adjust_is_reject_enabled=false", () => {
+      const p = {
+        direction: "LONG",
+        setup: { name: "TT Gap Reversal Long", grade: "Confirmed" },
+        hmm_regime: { state: "BULL_TREND", posterior_top: 0.7 },
+      };
+      const out = applyCioContextVerdict(p, { decision: "ADJUST" }, {
+        cio_adjust_is_reject_enabled: "false",
+      });
+      expect(out.decision).toBe("ADJUST");
+    });
+
+    it("leaves APPROVE untouched", () => {
+      const p = {
+        direction: "LONG",
+        setup: { name: "TT Gap Reversal Long", grade: "Confirmed" },
+        hmm_regime: { state: "BULL_TREND", posterior_top: 0.7 },
+      };
+      const out = applyCioContextVerdict(p, { decision: "APPROVE", reasoning: "clean" });
+      expect(out.decision).toBe("APPROVE");
+    });
   });
 });
