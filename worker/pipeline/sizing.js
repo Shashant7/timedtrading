@@ -92,6 +92,140 @@ export function gatherSizingMultipliers(tickerData, entryResult) {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// CONVICTION-WEIGHTED SIZING (2026-08-20)
+//
+// The 90d autopsy: risk is tiered by grade (Prime 2% / Confirmed 1% /
+// Speculative 0.5%) but the $1k MIN_NOTIONAL floor flattens the bottom
+// end, and *alignment* — strategy stance, FSD Core Idea, tape rotation —
+// never touched size at all. USO (+$80, the one aligned trade of the
+// 13–19 Aug week) was sized the same as three SNOWs. The top-quartile
+// trade must be worth 3–4× the bottom-quartile trade or the winners can
+// never pay for the losers.
+//
+// This multiplier stacks ON TOP of the tier risk pct:
+//   grade   Prime 1.30 / Confirmed 1.00 / Speculative 0.60
+//   stance  tier-1 overweight 1.25 / overweight 1.15 / neutral 1.0 / underweight 0.70
+//   fsd     core-idea top 1.30 / bottom 0.50 / none 1.0
+//   tape    aligned-with-rotation 1.15 / misaligned (excepted long) 0.70 / neutral 1.0
+// Combined clamp [0.40, 2.00].
+//
+// Effective dollar-risk spread once stacked with the tier pct:
+//   best  (Prime × tier-1 OW × FSD-top × aligned):  2.0% × 2.0  = 4.0%
+//   worst (Spec  × UW × misaligned):                0.5% × 0.40 = 0.2%
+//   → 20:1 asymmetry between the best and worst admitted trade.
+//
+// Flag: deep_audit_conviction_sizing_enabled (default OFF in code;
+// flipped ON in production model_config). MIN_NOTIONAL also scales by
+// the multiplier when < 1 so the floor stops flattening low-conviction
+// entries up to full size.
+// ─────────────────────────────────────────────────────────────────────
+
+const flagOn = (v) => v === true || v === 1 || String(v ?? "").toLowerCase() === "true";
+
+const TAPE_OFFENSE_SECTORS_SZ = new Set([
+  "Information Technology",
+  "Consumer Discretionary",
+  "Communication Services",
+  "Industrials",
+  "Financials",
+]);
+
+/**
+ * Pure conviction multiplier. All inputs optional — missing data reads
+ * as neutral (1.0 component) so a thin payload can never crush size.
+ *
+ * @param {object} args
+ * @param {string} args.grade          — Prime / Confirmed / Speculative
+ * @param {object} args.stance         — getStrategyForTicker result ({ stance, tier })
+ * @param {object} args.fsdCoreIdea    — getFsdCoreIdeaForTicker result ({ conviction })
+ * @param {string} args.side           — LONG / SHORT
+ * @param {string} args.sector         — GICS sector
+ * @param {object} args.internals      — market internals ({ overall, sector_rotation.state })
+ * @param {object} args.daCfg          — deep-audit config (flag + overrides)
+ * @returns {{ mult:number, enabled:boolean, breakdown:object }}
+ */
+export function computeConvictionSizeMult({
+  grade,
+  stance,
+  fsdCoreIdea,
+  side,
+  sector,
+  internals,
+  daCfg,
+} = {}) {
+  const cfg = daCfg || {};
+  const enabled = flagOn(cfg.deep_audit_conviction_sizing_enabled);
+  const neutral = { mult: 1.0, enabled, breakdown: { grade: 1, stance: 1, fsd: 1, tape: 1 } };
+  if (!enabled) return neutral;
+
+  // Grade component.
+  const g = String(grade || "").toLowerCase();
+  const gradeMult = g === "prime" ? 1.30 : g === "speculative" ? 0.60 : 1.0;
+
+  // Strategy stance component (playbook alignment).
+  const st = String(stance?.stance || "").toLowerCase();
+  const tier = String(stance?.tier || "").toLowerCase();
+  let stanceMult = 1.0;
+  if (st === "overweight") {
+    stanceMult = (tier === "tier_1" || tier === "tier1") ? 1.25 : 1.15;
+  } else if (st === "underweight") {
+    stanceMult = 0.70;
+  }
+
+  // FSD Core Idea component (top-of-book desk conviction).
+  const conv = String(fsdCoreIdea?.conviction || "").toLowerCase();
+  const fsdMult = conv === "top" ? 1.30 : conv === "bottom" ? 0.50 : 1.0;
+
+  // Tape alignment component. LONGs sized up when the sector agrees
+  // with the live rotation; sized down when misaligned but excepted
+  // through the G8 gate (RS / fundamental pass). SHORTs mirror.
+  let tapeMult = 1.0;
+  const rot = String(internals?.sector_rotation?.state || internals?.overall || "").toLowerCase();
+  const isOffense = TAPE_OFFENSE_SECTORS_SZ.has(String(sector || ""));
+  const s = String(side || "LONG").toUpperCase();
+  if (rot === "risk_off") {
+    if (s === "LONG") tapeMult = isOffense ? 0.70 : 1.15;
+    else tapeMult = isOffense ? 1.15 : 0.85;
+  } else if (rot === "risk_on") {
+    if (s === "LONG") tapeMult = isOffense ? 1.15 : 1.0;
+    else tapeMult = isOffense ? 0.70 : 1.0;
+  }
+
+  const raw = gradeMult * stanceMult * fsdMult * tapeMult;
+  const lo = Number(cfg.deep_audit_conviction_sizing_min) > 0 ? Number(cfg.deep_audit_conviction_sizing_min) : 0.40;
+  const hi = Number(cfg.deep_audit_conviction_sizing_max) > 0 ? Number(cfg.deep_audit_conviction_sizing_max) : 2.00;
+  const mult = Math.max(lo, Math.min(hi, raw));
+
+  return {
+    mult: Math.round(mult * 1000) / 1000,
+    enabled,
+    breakdown: {
+      grade: gradeMult,
+      stance: stanceMult,
+      fsd: fsdMult,
+      tape: tapeMult,
+      raw: Math.round(raw * 1000) / 1000,
+      clamp_lo: lo,
+      clamp_hi: hi,
+    },
+  };
+}
+
+/**
+ * Conviction-aware notional floor. The flat $1k MIN_NOTIONAL was
+ * up-sizing every low-conviction entry to the same floor as a Prime —
+ * exactly the flattening the diagnosis called out. When conviction
+ * sizing is on and the multiplier is below 1, the floor scales down
+ * with it (still bounded at $250 so fills stay real).
+ */
+export function convictionAwareMinNotional(baseMinNotional, convictionMult, enabled) {
+  const base = Number(baseMinNotional) > 0 ? Number(baseMinNotional) : 1000;
+  const m = Number(convictionMult);
+  if (!enabled || !Number.isFinite(m) || m >= 1) return base;
+  return Math.max(250, Math.round(base * m));
+}
+
 /**
  * Compute PDZ-based sizing multiplier from zone and side.
  */
