@@ -1084,6 +1084,8 @@ import { replayInvestorLots } from "./investor-lot-ledger.js";
 import {
   gatherSizingMultipliers,
   computePdzSizeMult,
+  computeConvictionSizeMult,
+  convictionAwareMinNotional,
   computeRiskBasedSize as pipelineComputeRiskBasedSize,
   getSizingConfig as pipelineGetSizingConfig,
   PORTFOLIO_START_CASH as PIPELINE_PORTFOLIO_START_CASH,
@@ -1124,6 +1126,7 @@ import * as PortfolioRisk from "./portfolio-risk.js";
 import {
   getStrategyDigest as _getStrategyDigest,
   getStrategyForTicker as _getStrategyForTicker,
+  getFsdCoreIdeaForTicker as _getFsdCoreIdeaForTicker,
   getTacticalSignals as _getTacticalSignals,
   STRATEGY_VINTAGE as _STRATEGY_VINTAGE,
 } from "./strategy-context.js";
@@ -26810,6 +26813,36 @@ async function processTradeSimulation(
           const _convSizeMult = _convFusionLive
             ? clamp(Number(_conviction.sizeMult) || 1, 0.5, 1.5)
             : 1.0;
+          // 2026-08-20 — CONVICTION-WEIGHTED SIZING (alignment stack).
+          // Grade × playbook stance × FSD Core Idea × tape rotation →
+          // [0.4, 2.0] multiplier so the best admitted trade carries
+          // 3-4× the capital of the weakest. The one aligned trade of
+          // 13-19 Aug (USO) was sized the same as three SNOWs; the
+          // winners can never pay for the losers at flat size.
+          // Flag: deep_audit_conviction_sizing_enabled.
+          let _alignConv = { mult: 1.0, enabled: false, breakdown: null };
+          try {
+            const _acDaCfg = tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {};
+            const _acStance = _getStrategyForTicker(sym, tickerData, _getThemesForTicker);
+            const _acFsd = _getFsdCoreIdeaForTicker(sym);
+            const _acInternals = tickerData?._env?._marketInternals
+              || tickerData?._env?._marketRegime?.market_internals
+              || null;
+            _alignConv = computeConvictionSizeMult({
+              grade: setupGrade,
+              stance: _acStance,
+              fsdCoreIdea: _acFsd,
+              side: direction,
+              sector: tickerData?._sector || _acStance?.sector || null,
+              internals: _acInternals,
+              daCfg: _acDaCfg,
+            });
+            if (_alignConv.enabled && _alignConv.mult !== 1.0) {
+              console.log(`[CONVICTION_SIZE] ${sym}: × ${_alignConv.mult} (grade=${_alignConv.breakdown.grade}, stance=${_alignConv.breakdown.stance}, fsd=${_alignConv.breakdown.fsd}, tape=${_alignConv.breakdown.tape})`);
+            }
+          } catch (_acErr) {
+            // Conviction sizing must never block an entry.
+          }
           // Confirm-stack paper queue: sequence-proposed Queued entries stay tiny.
           // Re-stamp from gates/sequences on tickerData in case KV lag missed it.
           try {
@@ -26861,7 +26894,7 @@ async function processTradeSimulation(
             || cloudPivotPaperSizeMult(tickerData, _daCfgSz) < 1) {
             console.log(`[PAPER_QUEUE] ${sym}: paper stamp ignored for canonical path ${entryPath}`);
           }
-          const regimeAdjustedNotional = sizing.notional * _sizingMults.combined * _convSizeMult * _paperMult;
+          const regimeAdjustedNotional = sizing.notional * _sizingMults.combined * _convSizeMult * _alignConv.mult * _paperMult;
           let _liqCap = applyPullbackLiquidityCap({
             notional: regimeAdjustedNotional,
             entryPath,
@@ -26875,8 +26908,12 @@ async function processTradeSimulation(
           }
           notional = Math.min(_liqCap.notional, cash);
           // Post-multiplier floor for full-size entries (paper stays tiny).
-          if (_paperMult >= 1 && notional < cfg.MIN_NOTIONAL && cash >= cfg.MIN_NOTIONAL) {
-            notional = Math.min(cfg.MIN_NOTIONAL, cash);
+          // 2026-08-20 — conviction-aware floor: a low-conviction entry no
+          // longer gets up-sized to the same $1k floor as a Prime. The
+          // floor scales with the alignment multiplier (bounded at $250).
+          const _effMinNotional = convictionAwareMinNotional(cfg.MIN_NOTIONAL, _alignConv.mult, _alignConv.enabled);
+          if (_paperMult >= 1 && notional < _effMinNotional && cash >= _effMinNotional) {
+            notional = Math.min(_effMinNotional, cash);
           }
           shares = notional / entryPx;
           pointValue = 1;
@@ -26885,6 +26922,8 @@ async function processTradeSimulation(
             ..._sizingMults.breakdown,
             effectiveMult: _sizingMults.combined,
             paperMult: _paperMult,
+            alignmentConvictionMult: _alignConv.mult,
+            alignmentConvictionBreakdown: _alignConv.breakdown,
             finalNotional: notional,
           };
         } else {
