@@ -69,6 +69,40 @@ describe("selectLatestSignalLots — last signal wins", () => {
     expect(superseded).toHaveLength(1);
     expect(superseded[0].skip_reason).toBe("superseded_by_newer_signal");
   });
+
+  it("prefers full-exit over partial-trim when ts is tied (DE 2026-08-19)", () => {
+    // Same post-close pass wrote both:
+    //   PRE_EARNINGS_RISK_REDUCTION trim (1.23 sh) — mirror `kind=trim`
+    //   PRIMARY_INVALIDATION_BREACH exit (11.17 sh) — mirror `kind=exit`
+    // Older tiebreaker (Map insertion order) picked the trim, so the
+    // mirror only sold 1.23 sh at the broker and left the residual open.
+    const trim = {
+      id: "lot-DE-eventrisk-1787182546339",
+      position_id: "inv-DE-auto-1",
+      ticker: "DE",
+      action: "SELL",
+      shares: 1.2289,
+      price: 580.63,
+      ts: 1787182546339,
+      reason: "PRE_EARNINGS_RISK_REDUCTION",
+    };
+    const exit = {
+      id: "lot-DE-invalidation-1787182546339",
+      position_id: "inv-DE-auto-1",
+      ticker: "DE",
+      action: "SELL",
+      shares: 11.1723,
+      price: 580.63,
+      ts: 1787182546339,
+      reason: "PRIMARY_INVALIDATION_BREACH",
+    };
+    const { latest } = selectLatestSignalLots([trim, exit]);
+    expect(latest).toHaveLength(1);
+    expect(latest[0].id).toBe("lot-DE-invalidation-1787182546339");
+    // Also verify the reverse insertion order still picks the exit.
+    const { latest: latest2 } = selectLatestSignalLots([exit, trim]);
+    expect(latest2[0].id).toBe("lot-DE-invalidation-1787182546339");
+  });
 });
 
 describe("planInvestorCatchupOps", () => {
