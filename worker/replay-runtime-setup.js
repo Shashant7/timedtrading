@@ -466,6 +466,7 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_ja_struct_stop_max_cushion_pct",
   "deep_audit_ja_forming_div_gate",
   "deep_audit_ja_ltf_structure_confirm",
+  "deep_audit_tape_alignment_gate",                 // G8 2026-08-20 — offense LONG in risk_off needs ticker strength
   "deep_audit_ja_ltf_washout_rsi",
   "deep_audit_ja_no_slot_sector_limits",
   // 2026-08-17 — Investor (long-horizon) stop forensics gate pack. Read on the

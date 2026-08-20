@@ -13,7 +13,7 @@ import {
   getSectorRating as getSectorRatingForFocus,
 } from "../sector-mapping.js";
 import { admitSetup as admitSetupContext } from "../phase-c-setup-admission.js";
-import { julyAutopsyGateBlock, julyAutopsyDefaultDeny, isHtfReclaimContext, ltfStructureBlock } from "../july-autopsy-gates.js";
+import { julyAutopsyGateBlock, julyAutopsyDefaultDeny, isHtfReclaimContext, ltfStructureBlock, tapeAlignmentBlock } from "../july-autopsy-gates.js";
 import { STRATEGY_TACTICAL_TITLE } from "../strategy-context.js";
 import {
   evaluateIndexEtfModelEntry,
@@ -519,6 +519,35 @@ export function evaluateEntry(ctx) {
       }
     } catch (_jaErr) {
       // Gate-pack failure must never block legit entries.
+    }
+    // ─────────────────────────────────────────────────────────────────
+    // G8 — TAPE ALIGNMENT (2026-08-20). The brief reads risk_off with
+    // gold/oil leading while the book buys offense-sector Speculative
+    // longs (SNOW/PH/WAL 13–19 Aug). LONGs in offense sectors during a
+    // risk-off tape must show ticker-level strength or a fundamental
+    // score. Flag: deep_audit_tape_alignment_gate.
+    // ─────────────────────────────────────────────────────────────────
+    try {
+      const _tapeSector = d?._sector
+        || (String(d.ticker || d.sym || "") ? getSectorForFocus(String(d.ticker || d.sym || "").toUpperCase()) : null);
+      const _tapeInternals = d?._env?._marketInternals
+        || d?._env?._marketRegime?.market_internals
+        || d?.market_internals
+        || null;
+      const _tapeBlock = tapeAlignmentBlock({
+        side: effectiveDir,
+        sector: _tapeSector,
+        internals: _tapeInternals,
+        dayChangePct: d?.dailyChgPct ?? d?.day_change_pct ?? d?.daily_chg_pct,
+        pctAboveE21: d?.daily_structure?.pct_above_e21,
+        investorScore: d?.investor_score ?? d?.investorScore,
+        daCfg,
+      });
+      if (_tapeBlock) {
+        return rejectEntry(_tapeBlock.reason, { tape_alignment_gate: _tapeBlock.detail });
+      }
+    } catch (_tapeErr) {
+      // Tape-alignment failure must never block legit entries.
     }
     // ─────────────────────────────────────────────────────────────────
     // PHASE C — Stage 1 (2026-05-04) — Context-Aware Setup Admission.
