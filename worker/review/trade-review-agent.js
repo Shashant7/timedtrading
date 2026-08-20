@@ -39,6 +39,10 @@ const TRADE_REVIEW_CONFIG_KEYS = [
   "trade_review_batch",
   "trade_review_lookahead_days",
   "trade_review_closed_only",
+  // 2026-08-20 — Auto-apply high-confidence reviews without operator
+  // click-through. See `shouldAutoApplyReview()` below.
+  "trade_review_auto_apply_enabled",
+  "trade_review_auto_apply_min_prob",
   // Stage 1-7 index-options readiness. Loaded on admin/HTTP paths that
   // predate the deep-audit config too (same trap `_deepAuditConfig`
   // has bitten before).
@@ -50,6 +54,7 @@ const TRADE_REVIEW_CONFIG_KEYS = [
   "options_auto_mirror_indices",
   "options_index_swing_enabled",
   "cio_speculative_chop_reject_enabled",
+  "cio_adjust_is_reject_enabled",
 ];
 
 /**
@@ -97,6 +102,59 @@ export function tradeReviewClosedOnly(env) {
   const raw = cfg.trade_review_closed_only ?? env?.TRADE_REVIEW_CLOSED_ONLY;
   if (raw == null || raw === "") return true;
   return flagOn(raw);
+}
+
+export function tradeReviewAutoApplyEnabled(env) {
+  const cfg = env?._deepAuditConfig || {};
+  const raw = cfg.trade_review_auto_apply_enabled ?? env?.TRADE_REVIEW_AUTO_APPLY_ENABLED;
+  // Default ON — operator loop was manual and reviews stagnated. Only
+  // the *safe* grade × verdict pairs auto-apply; ambiguous C's still
+  // wait for the operator.
+  if (raw == null || raw === "") return true;
+  return flagOn(raw);
+}
+
+/**
+ * 2026-08-20 — Decide whether a review is confident enough to auto-apply.
+ *
+ * The safe pairs are the ones where reviewer confidence + tape agreement
+ * make operator-in-the-loop redundant:
+ *   • A / A+ / B  with a WIN verdict (GOOD_TRADE, LEFT_MONEY, GOOD_EXIT,
+ *     GOOD_TRIM) → approve as-is.
+ *   • D / F      with a LOSS verdict (BAD_ENTRY, NO_EDGE, CORRECT_LOSS,
+ *     CORRECT_STOP) → approve as-is (the reviewer is being honest
+ *     about a mistake or a legit stop-out; no operator judgement adds
+ *     signal there).
+ *
+ * Grade C (MIXED) and any verdict of INSUFFICIENT_DATA / STOPPED_BY_NOISE /
+ * PREMATURE_* / SHOULD_HAVE_HELD still queue for the operator — those
+ * are the ambiguous calls that benefit from a human read.
+ *
+ * `min_prob` (default 0.65) is a secondary check on the reviewer's own
+ * probability_of_success so an unsure reviewer can never auto-apply.
+ */
+export function shouldAutoApplyReview({ analysis, legKind, env } = {}) {
+  if (!analysis || typeof analysis !== "object") return { auto: false, reason: "no_analysis" };
+  const grade = String(analysis.grade || "").toUpperCase();
+  const verdict = String(analysis.verdict || "").toUpperCase();
+  const kind = String(legKind || "").toUpperCase();
+  const cfg = env?._deepAuditConfig || {};
+  const minProbRaw = Number(cfg.trade_review_auto_apply_min_prob);
+  const minProb = Number.isFinite(minProbRaw) && minProbRaw > 0 && minProbRaw < 1 ? minProbRaw : 0.65;
+  const prob = Number(analysis.probability_of_success);
+  const goodClass = new Set(["GOOD_TRADE", "LEFT_MONEY", "GOOD_EXIT", "GOOD_TRIM", "VALID_SETUP"]);
+  const badClass = new Set(["BAD_ENTRY", "NO_EDGE", "CORRECT_LOSS", "CORRECT_STOP", "LOCATION_WRONG", "CHASE"]);
+  const isWinGrade = grade === "A+" || grade === "A" || grade === "B";
+  const isLossGrade = grade === "D" || grade === "F";
+  const goodVerdict = goodClass.has(verdict);
+  const badVerdict = badClass.has(verdict);
+  if (isWinGrade && goodVerdict && (!Number.isFinite(prob) || prob >= minProb)) {
+    return { auto: true, reason: "high_conf_win", grade, verdict, kind };
+  }
+  if (isLossGrade && badVerdict && (!Number.isFinite(prob) || prob >= minProb)) {
+    return { auto: true, reason: "high_conf_loss", grade, verdict, kind };
+  }
+  return { auto: false, reason: "ambiguous_or_low_conf", grade, verdict };
 }
 
 /**
@@ -451,7 +509,50 @@ export async function runTradeReview(env, { reviewId, tradeId, legKind, legSeq =
     return { ok: false, error: "persist_failed", review_id: rid };
   }
 
-  return { ok: true, review_id: rid, grade: analysis.grade, verdict: analysis.verdict, analysis, latency_ms: llm.latency_ms };
+  // 2026-08-20 — Auto-apply the safe grade × verdict pairs so the
+  // operator only touches the ambiguous C's. Failure is non-fatal.
+  let autoApplied = null;
+  if (tradeReviewAutoApplyEnabled(env)) {
+    const decision = shouldAutoApplyReview({ analysis, legKind: kind, env });
+    if (decision.auto) {
+      try {
+        const { applyTradeReview } = await import("./trade-review-apply.js");
+        const row = await env.DB.prepare(`SELECT * FROM trade_reviews WHERE review_id = ?1`).bind(rid).first();
+        if (row) {
+          const res = await applyTradeReview(env, {
+            review: row,
+            analysis,
+            operatorNote: `auto-applied: ${decision.reason} (grade ${decision.grade} / verdict ${decision.verdict})`,
+            decidedBy: "auto_review_agent",
+          });
+          await env.DB.prepare(
+            `UPDATE trade_reviews
+                SET status = 'approved', decided_by = 'auto_review_agent',
+                    decided_at = ?2, applied_json = ?3, operator_note = ?4, updated_at = ?2
+              WHERE review_id = ?1`,
+          ).bind(
+            rid,
+            Date.now(),
+            res?.applied ? JSON.stringify(res.applied) : null,
+            `auto-approved: ${decision.reason}`,
+          ).run();
+          autoApplied = { decision, applied: res?.applied || null };
+        }
+      } catch (e) {
+        console.warn("[TRADE_REVIEW] auto-apply failed:", String(e?.message || e).slice(0, 200));
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    review_id: rid,
+    grade: analysis.grade,
+    verdict: analysis.verdict,
+    analysis,
+    latency_ms: llm.latency_ms,
+    auto_applied: autoApplied,
+  };
 }
 
 async function persistError(env, reviewId, error, latencyMs = null) {

@@ -597,6 +597,9 @@ export const REPLAY_DA_KEYS = [
   // Unsuppressible profit floor: peak MFE >= activation arms it; pnl below
   // lock_frac * peak exits with reason mfe_ratchet_giveback.
   "deep_audit_mfe_ratchet_enabled",                      // default true
+  "deep_audit_mfe_ratchet_hi_activation_pct",            // default 5.0 (peak MFE for hi lock)
+  "deep_audit_mfe_ratchet_hi_lock_frac",                 // default 0.70 (runner lock)
+  "deep_audit_mfe_ratchet_runner_release_pct",           // default 10.0 (release to trend-hold)
   "deep_audit_mfe_ratchet_activation_pct",               // default 2.0
   "deep_audit_mfe_ratchet_lock_frac",                    // default 0.40
   // V15 P0.7.52 (2026-05-03) — big-winner extension levers (analysis #1, #2)
