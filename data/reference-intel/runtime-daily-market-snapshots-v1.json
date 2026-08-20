@@ -4314,13 +4314,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 4.5926
+        "sql_duration_ms": 3.9727
       },
-      "duration": 4.5926,
+      "duration": 3.9727,
       "changes": 0,
-      "last_row_id": 82288,
+      "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4644384768,
+      "size_after": 4485828608,
       "rows_read": 287,
       "rows_written": 0,
       "total_attempts": 1
