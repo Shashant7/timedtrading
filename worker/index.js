@@ -796,6 +796,12 @@ import {
   summarizeScorecard as _optionMarksSummarize,
 } from "./options-marks.js";
 import {
+  extractIndexTimingIndicators as _optClockIndicators,
+  buildExecutionClock as _optClockBuild,
+  summarizeTodStudy as _optClockTod,
+  groupMarksByOcc as _optClockGroupMarks,
+} from "./option-execution-clock.js";
+import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
   resolveDueSignals as _soResolveDueSignals,
@@ -94783,6 +94789,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const _resolveSpot = _optionsPlaysMod.resolveDayTradeSpot;
             const _dtPlays = [];
             const _dtSuppressed = [];
+            // Session + 14d option marks → trough/peak clock (best-effort).
+            let _dtMarksByOcc = {};
+            let _dtTodStudy = null;
+            try {
+              const _lookback = Date.now() - 14 * 86400000;
+              const _markQ = await env.DB.prepare(
+                `SELECT ticker, option_symbol, ts, mid FROM option_marks
+                  WHERE ticker IN ('SPY','QQQ','IWM','DIA') AND ts >= ?1
+                  ORDER BY ts ASC LIMIT 4000`
+              ).bind(_lookback).all();
+              const _markRows = _markQ?.results || [];
+              _dtMarksByOcc = _optClockGroupMarks(_markRows);
+              _dtTodStudy = _optClockTod(_markRows);
+            } catch (_) { /* clock degrades to the playbook */ }
             for (const _dtSym of _dtTickers) {
               try {
                 const _dtContract = await buildTraderPredictionContract(env, _dtSym);
@@ -94903,6 +94923,30 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 if (!_dtHasManagement && _optionsManagementCardEnabled(env) && _optionsPlaysMod.attachOptionManagement) {
                   _dtPrimary = _optionsPlaysMod.attachOptionManagement(_dtPlay, { gamePlan: _dtGp });
                 }
+                const _dtGpSum = _optionsPlaysMod.summarizeDayTradeGamePlan
+                  ? _optionsPlaysMod.summarizeDayTradeGamePlan(_dtGp)
+                  : null;
+                let _dtExecution = null;
+                try {
+                  const _occRight = _dtPlay._day_trade_flavor === "put" ? "P" : "C";
+                  const _occ = _optionMarksBuildOcc(_dtSym, _dtPrimary?.expiration?.iso || _dtPlay.expiration?.iso, _occRight, _strike);
+                  _dtExecution = _optClockBuild({
+                    ticker: _dtSym,
+                    flavor: _dtPlay._day_trade_flavor,
+                    strike: _strike,
+                    expiration: _dtPrimary?.expiration || _dtPlay.expiration,
+                    spot: _dtPrice,
+                    premium: _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid,
+                    indicators: _optClockIndicators(_dtTicker),
+                    gamePlan: _dtGpSum,
+                    management: _dtPrimary?.option_management || _dtPlay?.option_management,
+                    now: Date.now(),
+                    marks: _occ ? (_dtMarksByOcc[_occ] || []) : [],
+                    todStudy: _dtTodStudy,
+                  });
+                } catch (_clockErr) {
+                  console.warn(`[OPTIONS-CLOCK] ${_dtSym}:`, String(_clockErr?.message || _clockErr).slice(0, 120));
+                }
                 _dtPlays.push({
                   ticker: _dtSym,
                   setup_grade: "Day Trade",
@@ -94916,9 +94960,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   day_lean: _dtLean || _dtPlay._day_trade_lean || null,
                   day_lean_conviction: _dtLeanConv || null,
                   flavor_source: _dtPlay._day_trade_flavor_source || null,
-                  game_plan: _optionsPlaysMod.summarizeDayTradeGamePlan
-                    ? _optionsPlaysMod.summarizeDayTradeGamePlan(_dtGp)
-                    : null,
+                  game_plan: _dtGpSum,
                   primary: _dtPrimary,
                   ladder_count: _dtTiers?.tier_count || 1,
                   day_trade: true,
@@ -94927,6 +94969,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   tiers: _dtTiers?.tiers || null,
                   primary_tier: _dtTiers?.primary_tier || null,
                   honesty_gate_veto: _dtVetoReason,
+                  execution: _dtExecution,
+                  zone: _dtExecution?.zone || null,
                 });
                 // Stage 1+2 — record every tier we published so the
                 // scorecard grades each independently. Signal ids are
