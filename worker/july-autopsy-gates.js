@@ -33,6 +33,11 @@
 const flagOn = (v) =>
   v === true || v === 1 || String(v ?? "").toLowerCase() === "true";
 
+const num = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
 const advCount = (summary) => {
   if (!summary) return 0;
   const n = Number(summary.count);
@@ -357,6 +362,86 @@ export function ltfStructureBlock({
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// G8 — TAPE ALIGNMENT (2026-08-20, flag `deep_audit_tape_alignment_gate`,
+// default OFF; flipped ON in production model_config the same day).
+//
+// The 13–19 Aug bleed: the system's OWN internals read risk_off (defense
+// leading offense, gold/oil up, VIX 17.8) while the book bought SNOW,
+// PH, WAL — offense-sector Speculative longs. USO (the one trade aligned
+// with the tape) was the only clean TP_FULL that week. The daily brief
+// and the book were reading different newspapers.
+//
+// Rule: when sector rotation or overall internals are risk_off, a LONG
+// in an OFFENSE sector (Tech / Discretionary / Comm Services /
+// Industrials / Financials) must prove the ticker ITSELF is outrunning
+// the tape:
+//   • positive day change AND price above its own daily EMA21, OR
+//   • investor (fundamental) score >= 65.
+// Defensive / commodity sectors (Energy, Utilities, Staples, Health
+// Care, Materials, Real Estate) pass — those ARE the aligned pond in a
+// risk-off tape. SHORTs are never blocked here (a short on a weak
+// offense name in risk-off is aligned by definition).
+// ─────────────────────────────────────────────────────────────────────
+
+const TAPE_OFFENSE_SECTORS = new Set([
+  "Information Technology",
+  "Consumer Discretionary",
+  "Communication Services",
+  "Industrials",
+  "Financials",
+]);
+
+/**
+ * @param {object} args
+ * @param {string} args.side          — LONG / SHORT
+ * @param {string} args.sector        — GICS sector of the ticker
+ * @param {object} args.internals     — market internals blob (`_env._marketInternals`)
+ * @param {number} args.dayChangePct  — ticker's day change %
+ * @param {number} args.pctAboveE21   — % above its own daily EMA21 (daily_structure)
+ * @param {number} args.investorScore — investor (fundamental) score when known
+ * @param {object} args.daCfg         — deep-audit config
+ * @returns {{reason: string, detail: object}|null}
+ */
+export function tapeAlignmentBlock({
+  side,
+  sector,
+  internals,
+  dayChangePct,
+  pctAboveE21,
+  investorScore,
+  daCfg,
+} = {}) {
+  if (!flagOn(daCfg?.deep_audit_tape_alignment_gate)) return null;
+  if (String(side || "").toUpperCase() !== "LONG") return null;
+  const rot = String(internals?.sector_rotation?.state || "").toLowerCase();
+  const overall = String(internals?.overall || "").toLowerCase();
+  const riskOff = rot === "risk_off" || overall === "risk_off";
+  if (!riskOff) return null;
+  const sec = String(sector || "");
+  if (!TAPE_OFFENSE_SECTORS.has(sec)) return null;
+
+  const dayPct = num(dayChangePct);
+  const e21 = num(pctAboveE21);
+  const strongToday = dayPct !== null && dayPct > 0 && e21 !== null && e21 > 0;
+  const invScore = num(investorScore);
+  const fundamentalPass = invScore !== null && invScore >= 65;
+  if (strongToday || fundamentalPass) return null;
+
+  return {
+    reason: "ja_tape_misaligned_offense_long_risk_off",
+    detail: {
+      sector: sec,
+      sector_rotation: rot || null,
+      internals_overall: overall || null,
+      day_change_pct: dayPct,
+      pct_above_e21: e21,
+      investor_score: invScore,
+      note: "Offense-sector LONG in a risk-off tape without ticker-level strength or fundamental score — trade WITH the rotation, not against it.",
+    },
+  };
+}
+
 /**
  * G4 — default-deny for admission holes (P8). Call with the admitSetup
  * result: when the only reason a cohort is allowed is a missing grade or a
@@ -384,4 +469,5 @@ export default {
   exhaustTrimMinProfitPct,
   structStopCushion,
   ltfStructureBlock,
+  tapeAlignmentBlock,
 };

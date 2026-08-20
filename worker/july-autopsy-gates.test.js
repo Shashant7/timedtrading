@@ -8,6 +8,7 @@ import {
   ltfStructureBlock,
 } from "./july-autopsy-gates.js";
 import { admitSetup } from "./phase-c-setup-admission.js";
+import { tapeAlignmentBlock } from "./july-autopsy-gates.js";
 
 describe("exhaustTrimMinProfitPct — ATR-scaled exhaustion trim floor", () => {
   // HALO Jul 22: $77.93 entry, ~3.2% daily ATR, trimmed 50% at +0.74% via
@@ -486,5 +487,68 @@ describe("ltfStructureBlock — LTF structure confirmation (pinned live entries)
       ...de,
       daCfg: { ...ON, deep_audit_ja_ltf_washout_rsi: 45 },
     })).toBeNull();
+  });
+});
+
+describe("tapeAlignmentBlock (G8 — trade WITH the rotation, 2026-08-20)", () => {
+  const ON = { deep_audit_tape_alignment_gate: "true" };
+  const riskOffInternals = {
+    overall: "risk_off",
+    sector_rotation: { state: "risk_off", offense_avg_pct: -0.8, defense_avg_pct: 0.8 },
+  };
+  const riskOnInternals = {
+    overall: "risk_on",
+    sector_rotation: { state: "risk_on", offense_avg_pct: 0.9, defense_avg_pct: 0.1 },
+  };
+
+  // The SNOW 8/14 class: offense-sector Speculative LONG in a risk-off
+  // tape, red on the day, below its own daily EMA21, no fundamental pass.
+  const snow = {
+    side: "LONG",
+    sector: "Information Technology",
+    internals: riskOffInternals,
+    dayChangePct: -1.2,
+    pctAboveE21: -2.4,
+    investorScore: 44,
+    daCfg: ON,
+  };
+
+  it("blocks the SNOW class — offense LONG in risk_off with no strength", () => {
+    const b = tapeAlignmentBlock(snow);
+    expect(b?.reason).toBe("ja_tape_misaligned_offense_long_risk_off");
+    expect(b?.detail?.sector).toBe("Information Technology");
+  });
+
+  it("passes USO class — Energy is not an offense sector", () => {
+    expect(tapeAlignmentBlock({ ...snow, sector: "Energy" })).toBeNull();
+  });
+
+  it("passes gold-miner class — Materials is aligned in risk_off", () => {
+    expect(tapeAlignmentBlock({ ...snow, sector: "Materials" })).toBeNull();
+  });
+
+  it("passes an offense LONG that is outrunning the tape (RS exception)", () => {
+    expect(tapeAlignmentBlock({ ...snow, dayChangePct: 1.4, pctAboveE21: 2.1 })).toBeNull();
+  });
+
+  it("passes an offense LONG with a fundamental score >= 65 (compounder exception)", () => {
+    expect(tapeAlignmentBlock({ ...snow, investorScore: 78 })).toBeNull();
+  });
+
+  it("does not block in a risk_on tape", () => {
+    expect(tapeAlignmentBlock({ ...snow, internals: riskOnInternals })).toBeNull();
+  });
+
+  it("never blocks SHORTs", () => {
+    expect(tapeAlignmentBlock({ ...snow, side: "SHORT" })).toBeNull();
+  });
+
+  it("is a no-op when the flag is off", () => {
+    expect(tapeAlignmentBlock({ ...snow, daCfg: {} })).toBeNull();
+  });
+
+  it("positive day but below EMA21 still blocks (dead-cat, not strength)", () => {
+    const b = tapeAlignmentBlock({ ...snow, dayChangePct: 0.6, pctAboveE21: -1.8 });
+    expect(b?.reason).toBe("ja_tape_misaligned_offense_long_risk_off");
   });
 });
