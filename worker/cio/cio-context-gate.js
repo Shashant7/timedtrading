@@ -114,42 +114,93 @@ export function shouldRejectMtfChase(proposal) {
 }
 
 /**
+ * 2026-08-20 — Narrow carve-out where ADJUST is still allowed to reduce
+ * size instead of upgrading to REJECT. The 90d autopsy showed ADJUST at
+ * −1.07% average across 139 decisions ≈ ~$4.4k leaked. The setups where
+ * ADJUST *did* have positive expectancy were Prime grade AND tier-1
+ * theme overweight AND not high-CHOP context. Everything else is
+ * upgraded to REJECT.
+ */
+export function isAdjustCarveOutEligible(proposal) {
+  if (!proposal || typeof proposal !== "object") return false;
+  const grade = String(proposal?.setup?.grade || "").toLowerCase();
+  if (grade !== "prime") return false;
+  if (isHighChopHmm(proposal.hmm_regime)) return false;
+  const stance = String(proposal?.strategy_stance?.stance || proposal?.stance || "").toLowerCase();
+  const tier = String(proposal?.strategy_stance?.tier || "").toLowerCase();
+  const onThesis = stance === "overweight" && (tier === "tier_1" || tier === "tier1");
+  if (!onThesis) return false;
+  return true;
+}
+
+/**
  * Apply context enforcement to a parsed CIO decision.
  * Leaves REJECT alone. Upgrades APPROVE/ADJUST when a hard-context
- * cluster matches. No-ops when the flag is explicitly false.
+ * cluster matches, or (when the ADJUST→REJECT policy is armed) upgrades
+ * ADJUST to REJECT unless it falls in the narrow Prime + tier-1
+ * overweight carve-out.
  */
 export function applyCioContextVerdict(proposal, parsed, cfg = {}) {
   const out = parsed && typeof parsed === "object" ? { ...parsed } : { decision: "APPROVE" };
-  if (!flagOn(cfg.cio_speculative_chop_reject_enabled)) return out;
-
   const decision = String(out.decision || "APPROVE").toUpperCase();
   if (decision === "REJECT") return out;
 
-  const spec = shouldRejectSpeculativeChop(proposal);
-  const chase = shouldRejectMtfChase(proposal);
-  const hit = spec.reject ? spec : chase.reject ? chase : null;
-  if (!hit) return out;
+  const contextFlag = flagOn(cfg.cio_speculative_chop_reject_enabled);
+  if (contextFlag) {
+    const spec = shouldRejectSpeculativeChop(proposal);
+    const chase = shouldRejectMtfChase(proposal);
+    const hit = spec.reject ? spec : chase.reject ? chase : null;
+    if (hit) {
+      const prior = String(out.reasoning || "").trim();
+      const prefix = `[context-enforce ${hit.reason}] ADJUST is not a decision here.`;
+      return {
+        ...out,
+        decision: "REJECT",
+        reasoning: prior ? `${prefix} ${prior}`.slice(0, 4000) : prefix,
+        adjustments: null,
+        risk_flags: Array.from(new Set([
+          ...(Array.isArray(out.risk_flags) ? out.risk_flags : []),
+          hit.reason,
+        ])).slice(0, 5),
+        context_enforced: true,
+        context_reason: hit.reason,
+      };
+    }
+  }
 
-  const prior = String(out.reasoning || "").trim();
-  const prefix = `[context-enforce ${hit.reason}] ADJUST is not a decision here.`;
-  return {
-    ...out,
-    decision: "REJECT",
-    reasoning: prior ? `${prefix} ${prior}`.slice(0, 4000) : prefix,
-    adjustments: null,
-    risk_flags: Array.from(new Set([
-      ...(Array.isArray(out.risk_flags) ? out.risk_flags : []),
-      hit.reason,
-    ])).slice(0, 5),
-    context_enforced: true,
-    context_reason: hit.reason,
-  };
+  // 2026-08-20 — Kill ADJUST as the default entry verdict.
+  // Policy: only ADJUST when the trade is on the narrow carve-out.
+  // Everything else that would have been ADJUST becomes REJECT — the
+  // 90d ADJUST cohort averaged −1.07%, an active money sink; the CIO
+  // should decide, not compromise.
+  const adjustRejectFlag = cfg.cio_adjust_is_reject_enabled == null
+    ? true
+    : flagOn(cfg.cio_adjust_is_reject_enabled);
+  if (decision === "ADJUST" && adjustRejectFlag && !isAdjustCarveOutEligible(proposal)) {
+    const prior = String(out.reasoning || "").trim();
+    const prefix = "[adjust→reject] ADJUST is not an entry verdict outside Prime + tier-1 overweight.";
+    return {
+      ...out,
+      decision: "REJECT",
+      reasoning: prior ? `${prefix} ${prior}`.slice(0, 4000) : prefix,
+      adjustments: null,
+      risk_flags: Array.from(new Set([
+        ...(Array.isArray(out.risk_flags) ? out.risk_flags : []),
+        "adjust_upgraded_to_reject",
+      ])).slice(0, 5),
+      context_enforced: true,
+      context_reason: "adjust_is_reject",
+    };
+  }
+
+  return out;
 }
 
 export default {
   isHighChopHmm,
   isSpeculativeOrUnknownGrade,
   isFragileChopSetup,
+  isAdjustCarveOutEligible,
   condenseMtfSequence,
   shouldRejectSpeculativeChop,
   shouldRejectMtfChase,

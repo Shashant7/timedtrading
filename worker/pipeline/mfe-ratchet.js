@@ -51,7 +51,30 @@ export function loadMfeRatchetConfig(daCfg) {
   const activationPct = Number.isFinite(actRaw) && actRaw > 0 ? actRaw : 2.0;
   const lockRaw = Number(cfg.deep_audit_mfe_ratchet_lock_frac);
   const lockFrac = Number.isFinite(lockRaw) && lockRaw > 0 && lockRaw < 1 ? lockRaw : 0.40;
-  return { enabled, activationPct, lockFrac };
+  // 2026-08-20 — Three-tier runner lock. The tight 40% lock is right
+  // for small peaks (kills the round-trip), but it caps runners at ~4%
+  // on a 10% MFE. Two more tiers keep progressively more of the peak:
+  //   • peak >= hiActivationPct (default 5%)    → hiLockFrac 0.70
+  //   • peak >= runnerActivationPct (default 10%) → runnerLockFrac 0.80
+  // HIMX 26.85% peak → hi lock ~21.5% (was allowed to fall to -5.84%
+  // under the old flat 40% lock, which would have exited near 10.7%).
+  const hiActRaw = Number(cfg.deep_audit_mfe_ratchet_hi_activation_pct);
+  const hiActivationPct = Number.isFinite(hiActRaw) && hiActRaw > 0 ? hiActRaw : 5.0;
+  const hiLockRaw = Number(cfg.deep_audit_mfe_ratchet_hi_lock_frac);
+  const hiLockFrac = Number.isFinite(hiLockRaw) && hiLockRaw > 0 && hiLockRaw < 1 ? hiLockRaw : 0.70;
+  const runActRaw = Number(cfg.deep_audit_mfe_ratchet_runner_activation_pct);
+  const runnerActivationPct = Number.isFinite(runActRaw) && runActRaw > 0 ? runActRaw : 10.0;
+  const runLockRaw = Number(cfg.deep_audit_mfe_ratchet_runner_lock_frac);
+  const runnerLockFrac = Number.isFinite(runLockRaw) && runLockRaw > 0 && runLockRaw < 1 ? runLockRaw : 0.80;
+  return {
+    enabled,
+    activationPct,
+    lockFrac,
+    hiActivationPct,
+    hiLockFrac,
+    runnerActivationPct,
+    runnerLockFrac,
+  };
 }
 
 /**
@@ -96,11 +119,41 @@ export function resolveRatchetPeak(position, pnlPct) {
  *             lockFrac:number, activationPct:number, enabled:boolean }}
  */
 export function evaluateMfeRatchet({ pnlPct, position, daCfg }) {
-  const { enabled, activationPct, lockFrac } = loadMfeRatchetConfig(daCfg);
+  const {
+    enabled,
+    activationPct,
+    lockFrac,
+    hiActivationPct,
+    hiLockFrac,
+    runnerActivationPct,
+    runnerLockFrac,
+  } = loadMfeRatchetConfig(daCfg);
   const peakPct = resolveRatchetPeak(position, pnlPct);
   const armed = enabled && peakPct >= activationPct;
-  const floorPct = armed ? Math.round(lockFrac * peakPct * 10000) / 10000 : 0;
+  let effLockFrac = lockFrac;
+  let tier = "mid";
+  if (armed && peakPct >= runnerActivationPct) {
+    effLockFrac = runnerLockFrac;
+    tier = "runner";
+  } else if (armed && peakPct >= hiActivationPct) {
+    effLockFrac = hiLockFrac;
+    tier = "hi";
+  }
+  const floorPct = armed ? Math.round(effLockFrac * peakPct * 10000) / 10000 : 0;
   const cur = Number(pnlPct);
   const fire = armed && Number.isFinite(cur) && cur < floorPct;
-  return { armed, fire, peakPct, floorPct, lockFrac, activationPct, enabled };
+  return {
+    armed,
+    fire,
+    peakPct,
+    floorPct,
+    lockFrac: effLockFrac,
+    activationPct,
+    hiActivationPct,
+    hiLockFrac,
+    runnerActivationPct,
+    runnerLockFrac,
+    tier: armed ? tier : "unarmed",
+    enabled,
+  };
 }

@@ -7,8 +7,15 @@ import {
 } from "./mfe-ratchet.js";
 
 describe("loadMfeRatchetConfig", () => {
-  it("defaults: enabled, 2% activation, 0.40 lock", () => {
-    expect(loadMfeRatchetConfig({})).toEqual({ enabled: true, activationPct: 2.0, lockFrac: 0.40 });
+  it("defaults: enabled + mid/hi/runner tiers", () => {
+    const cfg = loadMfeRatchetConfig({});
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.activationPct).toBe(2.0);
+    expect(cfg.lockFrac).toBe(0.40);
+    expect(cfg.hiActivationPct).toBe(5.0);
+    expect(cfg.hiLockFrac).toBe(0.70);
+    expect(cfg.runnerActivationPct).toBe(10.0);
+    expect(cfg.runnerLockFrac).toBe(0.80);
     expect(loadMfeRatchetConfig(null).enabled).toBe(true);
   });
 
@@ -60,21 +67,23 @@ describe("evaluateMfeRatchet", () => {
   });
 
   it("armed but holding while pnl stays above the floor (winner breathing near peak)", () => {
-    // peak 6.45 (the HARD_LOSS_CAP cohort average) — floor 2.58
+    // Peak 6.45 → hi tier (>=5) → 70% lock → floor 4.515.
     const r = evaluateMfeRatchet({ pnlPct: 5.9, position: { maxFavorableExcursion: 6.45 }, daCfg });
     expect(r.armed).toBe(true);
-    expect(r.floorPct).toBeCloseTo(2.58, 4);
+    expect(r.tier).toBe("hi");
+    expect(r.floorPct).toBeCloseTo(4.515, 4);
     expect(r.fire).toBe(false);
   });
 
-  it("fires when the giveback crosses the floor (the HIMX pattern)", () => {
-    // HIMX: peaked +26.85%, was allowed to fall to -5.84%. Floor = 10.74.
+  it("fires when the giveback crosses the runner-tier floor (HIMX)", () => {
+    // HIMX peak 26.85 → runner tier (peak >= 10) → 80% lock → floor 21.48.
     const pos = { maxFavorableExcursion: 26.85 };
-    const atFloor = evaluateMfeRatchet({ pnlPct: 10.74, position: pos, daCfg });
-    expect(atFloor.fire).toBe(false); // at floor exactly: hold
-    const below = evaluateMfeRatchet({ pnlPct: 10.0, position: pos, daCfg });
+    const atFloor = evaluateMfeRatchet({ pnlPct: 21.48, position: pos, daCfg });
+    expect(atFloor.fire).toBe(false);
+    const below = evaluateMfeRatchet({ pnlPct: 20.0, position: pos, daCfg });
+    expect(below.tier).toBe("runner");
     expect(below.fire).toBe(true);
-    expect(below.floorPct).toBeCloseTo(10.74, 2);
+    expect(below.floorPct).toBeCloseTo(21.48, 2);
   });
 
   it("fires even after pnl has gone negative (gap-through backstop)", () => {
@@ -92,17 +101,19 @@ describe("evaluateMfeRatchet", () => {
     expect(r.fire).toBe(false);
   });
 
-  it("honors custom activation and lock knobs", () => {
+  it("honors custom activation and mid lock knobs (peak in mid tier)", () => {
+    // Peak 4.5 is between activation 3 and default hi 5 → mid tier, 0.5 lock.
     const r = evaluateMfeRatchet({
-      pnlPct: 2.4,
-      position: { maxFavorableExcursion: 5.0 },
+      pnlPct: 2.0,
+      position: { maxFavorableExcursion: 4.5 },
       daCfg: {
         deep_audit_mfe_ratchet_activation_pct: 3.0,
         deep_audit_mfe_ratchet_lock_frac: 0.5,
       },
     });
     expect(r.armed).toBe(true);
-    expect(r.floorPct).toBeCloseTo(2.5, 4);
+    expect(r.tier).toBe("mid");
+    expect(r.floorPct).toBeCloseTo(2.25, 3);
     expect(r.fire).toBe(true);
   });
 
@@ -118,11 +129,70 @@ describe("evaluateMfeRatchet", () => {
   });
 
   it("current open book (2026-06-12) does not fire on deploy", () => {
-    // GS peak 3.885 pnl 2.72 | MU peak 29.777 pnl 17.19 | SNDK peak 39.785 pnl 23.65
-    for (const [peak, pnl] of [[3.885, 2.72], [29.777, 17.19], [39.785, 23.65]]) {
-      const r = evaluateMfeRatchet({ pnlPct: pnl, position: { maxFavorableExcursion: peak }, daCfg });
-      expect(r.armed).toBe(true);
-      expect(r.fire).toBe(false);
-    }
+    // GS peak 3.885 pnl 2.72 → mid tier (>=2), 40% lock = 1.55 → holds.
+    const gs = evaluateMfeRatchet({ pnlPct: 2.72, position: { maxFavorableExcursion: 3.885 }, daCfg });
+    expect(gs.tier).toBe("mid");
+    expect(gs.fire).toBe(false);
+    // MU peak 29.77 → runner tier, 80% lock = 23.82. Pnl 17.19 < 23.82
+    // = fire. That's the RIGHT answer: MU gave back 12+ points of a
+    // 29% MFE. The whole point of the new runner tier is to catch that.
+    const mu = evaluateMfeRatchet({ pnlPct: 17.19, position: { maxFavorableExcursion: 29.777 }, daCfg });
+    expect(mu.tier).toBe("runner");
+    expect(mu.fire).toBe(true);
+    expect(mu.floorPct).toBeCloseTo(23.82, 1);
+    // SNDK peak 39.79 pnl 23.65 — same class. Runner lock 31.83 → fire.
+    const sndk = evaluateMfeRatchet({ pnlPct: 23.65, position: { maxFavorableExcursion: 39.785 }, daCfg });
+    expect(sndk.tier).toBe("runner");
+    expect(sndk.fire).toBe(true);
+  });
+
+  // 2026-08-20 — Runner mandate (fix for "we can't hold a winner" — 3
+  // TP_FULL in 90 days). Three-tier progressive lock: keeps the tight
+  // 40% floor near breakout, tightens to 70% and then 80% as MFE grows.
+  describe("three-tier runner lock (2026-08-20)", () => {
+    it("mid tier (2 <= peak < 5): 40% lock — kills round-trip losers", () => {
+      const r = evaluateMfeRatchet({ pnlPct: 1.4, position: { maxFavorableExcursion: 3.5 }, daCfg: {} });
+      expect(r.tier).toBe("mid");
+      expect(r.lockFrac).toBe(0.40);
+      expect(r.floorPct).toBeCloseTo(1.4, 3);
+      expect(r.fire).toBe(false); // exactly at floor holds
+    });
+
+    it("hi tier (5 <= peak < 10): 70% lock — winners keep meaningful profit", () => {
+      // Peak 8% MFE, current 4% — old code (40% lock) would hold at 3.2
+      // (allowing further giveback); new code locks at 5.6 → exit at 4.
+      const r = evaluateMfeRatchet({ pnlPct: 4.0, position: { maxFavorableExcursion: 8.0 }, daCfg: {} });
+      expect(r.tier).toBe("hi");
+      expect(r.lockFrac).toBe(0.70);
+      expect(r.floorPct).toBeCloseTo(5.6, 3);
+      expect(r.fire).toBe(true);
+    });
+
+    it("runner tier (peak >= 10): 80% lock — tight trail on real trends (HIMX class)", () => {
+      // HIMX 26.85 → 80% lock at 21.48. Old flat 40% would have locked
+      // at 10.74; the trade closed at -5.84 either way, but the runner
+      // lock catches it 10+ points sooner.
+      const r = evaluateMfeRatchet({ pnlPct: 20.0, position: { maxFavorableExcursion: 26.85 }, daCfg: {} });
+      expect(r.tier).toBe("runner");
+      expect(r.lockFrac).toBe(0.80);
+      expect(r.floorPct).toBeCloseTo(21.48, 2);
+      expect(r.fire).toBe(true);
+    });
+
+    it("honors custom hi + runner knobs", () => {
+      const r = evaluateMfeRatchet({
+        pnlPct: 8.0,
+        position: { maxFavorableExcursion: 15.0 },
+        daCfg: {
+          deep_audit_mfe_ratchet_runner_activation_pct: 12.0,
+          deep_audit_mfe_ratchet_runner_lock_frac: 0.6,
+        },
+      });
+      // Peak 15 >= runner 12 → runner lock 0.6 → floor 9.0. Current 8 < 9 → fire.
+      expect(r.tier).toBe("runner");
+      expect(r.lockFrac).toBe(0.6);
+      expect(r.floorPct).toBeCloseTo(9.0, 3);
+      expect(r.fire).toBe(true);
+    });
   });
 });
