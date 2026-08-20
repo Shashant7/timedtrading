@@ -67,14 +67,36 @@ function kindForLot(lot) {
 /**
  * Per position, keep only the chronologically latest lot.
  * Older lots are returned as superseded skips (last signal wins).
+ *
+ * 2026-08-19 — Tiebreaker for same-timestamp lots: `exit` (invalidation
+ * breach, full close) beats `trim` (event-risk partial). Same auto-
+ * rebalance pass can write both simultaneously (FN/PANW/CAT/DE tonight);
+ * the full-flatten must win so the broker mirror does not leave a
+ * residual position when the model is already CLOSED.
  */
+function lotPreferenceRank(lot) {
+  const kind = kindForLot(lot);
+  if (kind === "exit") return 3;
+  if (kind === "trim") return 2;
+  if (kind === "sell") return 2;
+  if (kind === "add" || kind === "open") return 1;
+  if (kind === "dca") return 1;
+  return 0;
+}
+
 export function selectLatestSignalLots(lots = []) {
   const byPos = new Map();
   for (const lot of lots || []) {
     const key = String(lot?.position_id || lot?.ticker || "").toUpperCase();
     if (!key) continue;
     const prev = byPos.get(key);
-    if (!prev || (Number(lot.ts) || 0) >= (Number(prev.ts) || 0)) {
+    if (!prev) { byPos.set(key, lot); continue; }
+    const lotTs = Number(lot.ts) || 0;
+    const prevTs = Number(prev.ts) || 0;
+    if (lotTs > prevTs) { byPos.set(key, lot); continue; }
+    if (lotTs < prevTs) continue;
+    // Ties: prefer the deeper reduce (exit > trim > add).
+    if (lotPreferenceRank(lot) > lotPreferenceRank(prev)) {
       byPos.set(key, lot);
     }
   }

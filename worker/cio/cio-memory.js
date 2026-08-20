@@ -648,6 +648,11 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
         // Explicit alignment flag so the LLM can branch quickly
         // without inspecting themes/sector/multiplier.
         on_thesis: !!strategy.aligned || ((strategy.themes_matched || []).length > 0),
+        // 2026-08-19 — top-of-book FSD conviction (Top / Bottom Core Ideas).
+        // Present only when the symbol sits on a Newton desk short list;
+        // null otherwise. Do not confuse with the fund holdings, which are
+        // handled separately via etf_holdings tags.
+        fsd_core_idea: strategy.fsd_core_idea || null,
       };
 
       // ── Layer 15b: Tactical signals matching this ticker (2026-06-02) ──
@@ -670,12 +675,24 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
           ? override.tactical_signals
           : null;
         const base = getTacticalSignals();
+        // 2026-08-19 — Preserve the in-code FSD Core Idea signals (any
+        // signal that carries a tickers_top or tickers_bottom list) even
+        // when a live CRO override is active. The CRO override is
+        // typically a single Daily Technical Strategy overlay; the
+        // structural Core Ideas artifact is separate and must still reach
+        // the CIO memory for the named tickers.
+        const coreIdeaSignals = liveSignals
+          ? (base.signals || []).filter((s) =>
+              Array.isArray(s.tickers_top) && s.tickers_top.length
+              || Array.isArray(s.tickers_bottom) && s.tickers_bottom.length
+            )
+          : [];
         const tactical = liveSignals
           ? {
               vintage: override.tactical_vintage || base.vintage,
               source: override.source || base.source,
               title: override.tactical_title || base.title,
-              signals: liveSignals,
+              signals: [...liveSignals, ...coreIdeaSignals],
               live_override: true,
             }
           : { ...base, live_override: false };

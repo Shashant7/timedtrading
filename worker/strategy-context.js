@@ -26,7 +26,19 @@ export { loadStrategyOverrideCache };
 //  reads through `getStrategyDigest()` so callers stay decoupled from the
 //  schema details.
 //  ── Vintage history ──────────────────────────────────────────────────────
-//   2026-07-07 (current)
+//   2026-08-19 (tactical overlay update, structural playbook unchanged)
+//     Market Update & Core Stock Ideas (docs/reference-pdfs/20260819-Market-
+//     UpdatevFSD.pdf). Newton technical top-of-book conviction for August:
+//       Top 5 Large-Cap: NVDA, BNY, LLY, JPM, ANET  (BNY + ANET NEW)
+//       Bot 5 Large-Cap: ECHO, MSTR, TSLA, VST, HOOD (ECHO + TSLA NEW)
+//       Top 5 SMID:      DINO, HALO, IESC, LITE, CRDO (HALO, IESC, LITE, CRDO NEW)
+//       Bot 5 SMID:      GLXY, UUUU, RIOT, RKLB, IONQ (all carry-over)
+//     Lead macro risk added: global 30Y yields surging to 15–30-year highs
+//     (US 5.29%, UK 5.83%, Germany 3.77%, Japan 4.14%, France 4.89%). Size
+//     down long-duration proxies; do not stop out. GRNY/GRNJ ETF holdings
+//     auto-sync separately (grannyshots.com) — these entries are the
+//     top-of-book conviction the fund holdings themselves do not express.
+//   2026-07-07
 //     July 2026 Sector Allocation model refresh. Cyclical broadening:
 //     Industrials +2.7% to 10.0% (Mark upgraded to Overweight), Financials
 //     +2.4% to 12.3%, Discretionary +1.9% to 8.5% (Mark upgraded to Neutral).
@@ -100,9 +112,9 @@ export const STRATEGY_TITLE = "Resilience & US Exceptionalism — July Sector Al
 // Strategy publishes new rotation signals. Surfaced separately so the LLM
 // can see which signals are "fresh" (today's note) vs. "structural"
 // (whole-year thesis).
-export const STRATEGY_TACTICAL_VINTAGE = "2026-07-07";
-export const STRATEGY_TACTICAL_SOURCE  = "Sector Allocation Update · 7/7/2026";
-export const STRATEGY_TACTICAL_TITLE   = "Cyclical Broadening — Industrials/Financials Up, Defensive Sleeves Trim";
+export const STRATEGY_TACTICAL_VINTAGE = "2026-08-19";
+export const STRATEGY_TACTICAL_SOURCE  = "Market Update & Core Stock Ideas · 8/19/2026 (docs/reference-pdfs/20260819-Market-UpdatevFSD.pdf)";
+export const STRATEGY_TACTICAL_TITLE   = "Yields-Surging Watch · New Top/Bottom Large-Cap and SMID Core Ideas";
 
 // ── 1. Headline thesis ─────────────────────────────────────────────────────
 // One paragraph. Used verbatim in Daily Brief, Right Rail "Active Strategy",
@@ -234,6 +246,66 @@ export const TACTICAL_SIGNALS = [
     playbook_action: "Express rotation via airlines, biotech, and high-beta sleeves. De-emphasize healthcare-providers, EV, and transport vehicles from the prior month.",
     affected_tier1_themes: ["cybersecurity", "weight_loss", "travel_leisure"],
     affected_sectors_overweight: ["Industrials", "Healthcare", "Consumer Discretionary"],
+  },
+  // ── 8/19/2026 Market Update & Core Stock Ideas ────────────────────────────
+  // Top / Bottom 5 Large-Cap and SMID picks are the Newton technical desk's
+  // highest-conviction reads, updated monthly. GRNY/GRNJ ETFs are the
+  // corresponding funds; the ETF-holdings sync (grannyshots.com) covers the
+  // full universe. These entries add the *top-of-book* conviction that the
+  // fund holdings alone do not express.
+  {
+    signal: "core_large_cap_top5_aug_2026",
+    pair: "top5_large_cap/SPY",
+    direction: "favor_top5_large_cap",
+    horizon: "intermediate",
+    evidence: "8/19/2026 Market Update Top 5 Large-Cap Core Ideas — NVDA, BNY (NEW), LLY, JPM, ANET. BNY and ANET fresh adds; LLY/JPM/NVDA carry-over. Prior 7/15–8/18 return −1.6% vs SPX −3.1%.",
+    playbook_action: "Treat NVDA/BNY/LLY/JPM/ANET as highest-conviction Large-Cap entries: accept pullback adds, respect Weekly ATR floors, do not counter-fade. New adds (BNY, ANET) get a 30-day conviction window.",
+    tickers_top: ["NVDA", "BNY", "LLY", "JPM", "ANET"],
+    affected_tier1_themes: ["ai_infra_compute", "banks_money_center", "weight_loss", "ai_infra_networking"],
+    affected_sectors_overweight: ["Information Technology", "Financials", "Health Care"],
+  },
+  {
+    signal: "core_large_cap_bottom5_aug_2026",
+    pair: "bottom5_large_cap/SPY",
+    direction: "underweight_bottom5_large_cap",
+    horizon: "intermediate",
+    evidence: "8/19/2026 Market Update Bottom 5 Large-Cap Core Ideas — ECHO (NEW), MSTR, TSLA (NEW), VST, HOOD. TSLA and ECHO fresh adds; MSTR/VST/HOOD carry-over. Return 7/15–8/18 −1.3% vs SPX −2.9%.",
+    playbook_action: "Bias REJECT on new LONG entries in ECHO, MSTR, TSLA, VST, HOOD. Treat existing exposure as reduce-on-strength. Do not add on weakness — the desk's own read is unfavorable.",
+    tickers_bottom: ["ECHO", "MSTR", "TSLA", "VST", "HOOD"],
+    affected_tier1_themes: ["crypto_treasury", "ai_infra_energy", "ev_battery", "fintech"],
+    affected_sectors_overweight: ["Consumer Discretionary", "Utilities"],
+  },
+  {
+    signal: "core_smid_top5_aug_2026",
+    pair: "top5_smid/R2500",
+    direction: "favor_top5_smid",
+    horizon: "intermediate",
+    evidence: "8/19/2026 Market Update Top 5 SMID-Cap Core Ideas — DINO, HALO (NEW), IESC (NEW), LITE (NEW), CRDO (NEW). Four fresh adds — largest single-month refresh since May. Prior period −5.7% vs R2500 −7.9%.",
+    playbook_action: "Treat DINO/HALO/IESC/LITE/CRDO as highest-conviction SMID entries. IESC re-entering the SMID top-5 warrants a fresh accumulate window (prior invalidation exit 2026-08-14 is no longer the desk's read).",
+    tickers_top: ["DINO", "HALO", "IESC", "LITE", "CRDO"],
+    affected_tier1_themes: ["energy_refiners", "biotech", "ai_infra_electric", "ai_infra_optical"],
+    affected_sectors_overweight: ["Energy", "Health Care", "Industrials", "Information Technology"],
+  },
+  {
+    signal: "core_smid_bottom5_aug_2026",
+    pair: "bottom5_smid/R2500",
+    direction: "underweight_bottom5_smid",
+    horizon: "intermediate",
+    evidence: "8/19/2026 Market Update Bottom 5 SMID-Cap Core Ideas — GLXY, UUUU, RIOT, RKLB, IONQ. All carry-over. Return 7/15–8/18 +5.7% vs R2500 +3.5% — desk stayed underweight despite counter-move.",
+    playbook_action: "Bias REJECT on new SMID LONG entries in GLXY, UUUU, RIOT, RKLB, IONQ. These are Speculative / crypto-adjacent / retail-quant plays that repeatedly generated bad exits — desk's own scoring keeps them at the bottom.",
+    tickers_bottom: ["GLXY", "UUUU", "RIOT", "RKLB", "IONQ"],
+    affected_tier1_themes: ["crypto_treasury", "uranium", "quantum_compute", "space_defense"],
+    affected_sectors_overweight: ["Financials", "Energy", "Information Technology"],
+  },
+  {
+    signal: "yields_surging_watch",
+    pair: "TLT/SPY",
+    direction: "caution_long_duration",
+    horizon: "tactical",
+    evidence: "8/19/2026 Market Update lead: 'Yields surging = next worry.' Global 30Y at 15–30-year highs (US 5.29%, UK 5.83%, Germany 3.77%, Japan 4.14%, France 4.89%).",
+    playbook_action: "Watch long-duration weakness spilling into REITs, Utilities, and low-earn-yield growth. Do not front-run — this is a *watch* signal, not a REJECT. Pair with the defensive-sleeve trim already in place.",
+    affected_tier1_themes: ["ai_infra_dc_reit", "ai_infra_energy"],
+    affected_sectors_overweight: ["Utilities", "Real Estate"],
   },
 ];
 
@@ -495,6 +567,11 @@ export const ACTIVE_RISKS = [
     severity: "medium",
     note: "July sector allocation shifts weight toward Industrials (+2.7% to 10.0%), Financials (+2.4% to 12.3%), and Discretionary (+1.9% to 8.5%) while trimming Utilities (1.8%), Real Estate (2.0%), and Comm Services (6.7%). Mark upgraded cyclicals while stepping back defensives — treat as cyclical broadening even if SPX grinds higher.",
   },
+  {
+    name: "yields_surging_2026_08",
+    severity: "medium",
+    note: "8/19/2026 Market Update lead risk — global 30Y yields at 15–30-year highs (US 5.29%, UK 5.83%, Germany 3.77%, Japan 4.14%, France 4.89%). Long-duration proxies (TLT), REITs, and high-multiple growth without earnings support are most exposed. Not a stop-out signal; a size-down signal on rate-sensitive names.",
+  },
 ];
 
 // ── 9. User-facing education snippets ──────────────────────────────────────
@@ -565,6 +642,43 @@ function getEffectiveThemeTiltsMap() {
  * @param {function} getThemesForTicker  Optional injection — falls back to require
  * @returns {object}          { aligned, stance, multiplier, themes_matched, ... }
  */
+/**
+ * FSD Core Idea lookup for a single ticker. Returns whichever list the
+ * symbol currently sits on ("large_cap_top5" / "large_cap_bottom5" /
+ * "smid_top5" / "smid_bottom5") plus the signal id + source, or null.
+ * Used by CIO memory + scoring so a name on the desk's top-of-book carries
+ * a conviction bump the fund holdings alone don't express.
+ */
+export function getFsdCoreIdeaForTicker(sym) {
+  const t = String(sym || "").toUpperCase();
+  if (!t) return null;
+  for (const s of TACTICAL_SIGNALS) {
+    if (Array.isArray(s.tickers_top) && s.tickers_top.includes(t)) {
+      return {
+        conviction: "top",
+        list: s.signal,
+        pair: s.pair,
+        source: STRATEGY_TACTICAL_SOURCE,
+        vintage: STRATEGY_TACTICAL_VINTAGE,
+        evidence: s.evidence,
+        playbook_action: s.playbook_action,
+      };
+    }
+    if (Array.isArray(s.tickers_bottom) && s.tickers_bottom.includes(t)) {
+      return {
+        conviction: "bottom",
+        list: s.signal,
+        pair: s.pair,
+        source: STRATEGY_TACTICAL_SOURCE,
+        vintage: STRATEGY_TACTICAL_VINTAGE,
+        evidence: s.evidence,
+        playbook_action: s.playbook_action,
+      };
+    }
+  }
+  return null;
+}
+
 export function getStrategyForTicker(sym, tickerData = null, themeResolver = null) {
   const ticker = String(sym || "").toUpperCase();
   if (!ticker) return { aligned: false, stance: "neutral", multiplier: 1.0 };
@@ -626,6 +740,8 @@ export function getStrategyForTicker(sym, tickerData = null, themeResolver = nul
   }
   multiplier *= smidMultiplier;
 
+  const fsdCore = getFsdCoreIdeaForTicker(ticker);
+
   return {
     aligned: stance === "overweight" || stance === "underweight",
     stance,
@@ -640,6 +756,7 @@ export function getStrategyForTicker(sym, tickerData = null, themeResolver = nul
     themes_matched: matchedThemes,
     smid_applies: smidApplies,
     market_cap_usd: mcap || null,
+    fsd_core_idea: fsdCore,
     vintage: STRATEGY_VINTAGE,
   };
 }
@@ -663,11 +780,19 @@ export function getStrategyBrief() {
 
   // Compact tactical signal lines — short-term rotation overlay on top of
   // the structural sector/theme tilts. Each line is a single sentence the
-  // LLM can cite verbatim.
+  // LLM can cite verbatim. Signals that carry per-ticker conviction lists
+  // (tickers_top / tickers_bottom, e.g. FSD Top 5 Large-Cap and SMID
+  // Core Ideas) surface those symbols inline so the CIO cannot miss them.
   const tacticalLines = TACTICAL_SIGNALS.map(s => {
     const themes = (s.affected_tier1_themes || []).slice(0, 3).join(", ");
     const themeNote = themes ? ` [themes: ${themes}]` : "";
-    return `• ${s.signal} (${s.horizon}, ${s.pair} → ${s.direction})${themeNote}: ${s.playbook_action}`;
+    const topList = Array.isArray(s.tickers_top) && s.tickers_top.length
+      ? ` [top: ${s.tickers_top.join(", ")}]`
+      : "";
+    const botList = Array.isArray(s.tickers_bottom) && s.tickers_bottom.length
+      ? ` [bottom: ${s.tickers_bottom.join(", ")}]`
+      : "";
+    return `• ${s.signal} (${s.horizon}, ${s.pair} → ${s.direction})${themeNote}${topList}${botList}: ${s.playbook_action}`;
   });
 
   return [
@@ -831,6 +956,20 @@ async function loadCROOverride(env) {
 }
 
 /**
+ * 2026-08-19 — Structural Core Ideas signals that must survive alongside any
+ * CRO override. A signal qualifies when it carries a tickers_top or
+ * tickers_bottom list (e.g. Newton's monthly Top/Bottom 5 Large-Cap and
+ * SMID Core Ideas). The CRO Daily Technical Strategy override is a
+ * single-day timing overlay and must NOT drop the month's top-of-book.
+ */
+function inCodeCoreIdeaSignals() {
+  return TACTICAL_SIGNALS.filter((s) =>
+    (Array.isArray(s.tickers_top) && s.tickers_top.length > 0)
+    || (Array.isArray(s.tickers_bottom) && s.tickers_bottom.length > 0)
+  );
+}
+
+/**
  * Async variant of getTacticalSignals() — KV-override aware. Falls back to
  * the in-code TACTICAL_SIGNALS when no override exists or env is missing.
  */
@@ -839,8 +978,15 @@ export async function getTacticalSignalsAsync(env) {
   const override = await loadCROOverride(env);
   if (!override) return getTacticalSignals();
 
-  const signals = Array.isArray(override.tactical_signals) && override.tactical_signals.length > 0
+  // Structural Core Ideas (Top/Bottom 5 lists) must survive alongside a
+  // Daily Technical Strategy override — the override is a same-day
+  // timing overlay; the Core Ideas artifact is the month's top-of-book.
+  const overrideSignals = Array.isArray(override.tactical_signals) && override.tactical_signals.length > 0
     ? override.tactical_signals
+    : null;
+  const core = inCodeCoreIdeaSignals();
+  const signals = overrideSignals
+    ? [...overrideSignals, ...core]
     : TACTICAL_SIGNALS;
   const byTheme = {};
   const byPair = {};
