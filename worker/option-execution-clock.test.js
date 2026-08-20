@@ -100,6 +100,33 @@ describe("summarizeTodStudy", () => {
     expect(out.source).toBe("playbook");
     expect(out.buy_window_et).toBe(DEFAULT_TOD_PLAYBOOK.buy_window_et);
   });
+  it("ignores late-session theta death as a buy trough", () => {
+    const marks = [];
+    for (let d = 10; d <= 16; d++) {
+      const day = `2026-08-${d}`;
+      // Open spike, then grind to zero into the close — losing 0DTE.
+      const pts = [
+        ["09:30", 1.40],
+        ["10:00", 1.10],
+        ["11:00", 0.80],
+        ["12:00", 0.50],
+        ["13:00", 0.30],
+        ["14:00", 0.18],
+        ["15:30", 0.04],
+      ];
+      for (const [hm, mid] of pts) {
+        marks.push({
+          option_symbol: `SPY${d}P`,
+          ts: ts(`${day}T${hm}:00${ET}`),
+          mid,
+        });
+      }
+    }
+    const out = summarizeTodStudy(marks);
+    expect(out.source).toBe("playbook");
+    expect(out.buy_window_et).toBe(DEFAULT_TOD_PLAYBOOK.buy_window_et);
+  });
+
   it("derives windows from several contract-days", () => {
     const marks = [];
     for (let d = 10; d <= 14; d++) {

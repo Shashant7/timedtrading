@@ -194,8 +194,13 @@ export function summarizeOptionPath(marks = [], now = Date.now()) {
 }
 
 /**
- * Historical time-of-day study: per (symbol, NY date) find RTH trough/peak
- * hours, then take the interquartile window. Needs a few contract-days.
+ * Historical time-of-day study: per (symbol, NY date) find a *tradable*
+ * RTH trough / peak, then take the interquartile window.
+ *
+ * Dying 0DTE premium prints its low at 15:50 as it goes to zero. That
+ * is not a buy. A buy-quality trough has to land before 13:00 ET AND
+ * be followed by at least a 15% bounce. A sell-quality peak has to
+ * land after 09:45 (the open print is excluded — that is the chase).
  */
 export function summarizeTodStudy(marks = []) {
   const byKey = new Map();
@@ -211,14 +216,25 @@ export function summarizeTodStudy(marks = []) {
   const peakHours = [];
   for (const rows of byKey.values()) {
     if (rows.length < 6) continue;
-    let min = rows[0];
-    let max = rows[0];
-    for (const r of rows) {
-      if (r.mid < min.mid) min = r;
-      if (r.mid > max.mid) max = r;
+    const sorted = [...rows].sort((a, b) => a.ts - b.ts);
+    let buyTrough = null;
+    let sellPeak = null;
+    for (const r of sorted) {
+      const hm = nyParts(r.ts).minutes;
+      if (hm >= 9 * 60 + 45 && hm < 13 * 60) {
+        if (!buyTrough || r.mid < buyTrough.mid) buyTrough = r;
+      }
+      if (hm >= 9 * 60 + 45 && hm < 15 * 60 + 30) {
+        if (!sellPeak || r.mid > sellPeak.mid) sellPeak = r;
+      }
     }
-    troughHours.push(nyParts(min.ts).hour + nyParts(min.ts).minute / 60);
-    peakHours.push(nyParts(max.ts).hour + nyParts(max.ts).minute / 60);
+    if (buyTrough) {
+      const bounce = sorted.some((r) => r.ts > buyTrough.ts && r.mid >= buyTrough.mid * 1.15);
+      if (bounce) troughHours.push(nyParts(buyTrough.ts).hour + nyParts(buyTrough.ts).minute / 60);
+    }
+    if (sellPeak) {
+      peakHours.push(nyParts(sellPeak.ts).hour + nyParts(sellPeak.ts).minute / 60);
+    }
   }
   if (troughHours.length < 3) {
     return { ...DEFAULT_TOD_PLAYBOOK, n_days: troughHours.length };
