@@ -314,7 +314,9 @@ describe("forwardInvestorMirror", () => {
     expect(seen).toHaveLength(1);
     const body = seen[0];
     expect(body.order_kind).toBe("limit");
-    expect(body.limit_price).toBe(454.55);
+    // Flatten intent — sell limit slacks 3% BELOW last mark so
+    // tomorrow's open fills it regardless of a gap. 454.55 * 0.97 = 440.91.
+    expect(body.limit_price).toBe(440.91);
     expect(body.tif).toBe("GTC");
     expect(body.support_trading_session).toBe("ALL");
     // Reducer keeps its original qty — the bridge sizes trims against

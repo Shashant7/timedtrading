@@ -266,9 +266,20 @@ export async function forwardInvestorMirror(env, op = {}) {
         if (whole >= 1) mirrorQty = whole;
       }
       orderKind = "limit";
-      limitPrice = Number.isFinite(limitPrice) && limitPrice > 0
-        ? Math.round(limitPrice * 100) / 100
-        : Math.round(priceForLimit * 100) / 100;
+      // 2026-08-19 — Slack a "flatten intent" limit so tomorrow's
+      // open fills it regardless of a gap. Otherwise a sell limit at
+      // last_mark rests until price bounces back, defeating the point
+      // of the flatten. Buy limits slack up so a fill is still likely
+      // on a small gap up. Caller-supplied limit_price wins.
+      const explicitLimit = Number.isFinite(limitPrice) && limitPrice > 0;
+      const slackPct = isReducer ? 0.03 : 0.015; // 3% below for sells, 1.5% above for buys
+      const baseLimit = explicitLimit ? limitPrice : priceForLimit;
+      const slacked = isReducer
+        ? baseLimit * (1 - slackPct)
+        : baseLimit * (1 + slackPct);
+      limitPrice = explicitLimit
+        ? Math.round(baseLimit * 100) / 100
+        : Math.round(slacked * 100) / 100;
       tif = "GTC";
       tradingSession = "ALL";
     }
