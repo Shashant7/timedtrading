@@ -6,6 +6,34 @@
 
 ---
 
+## Opposite-side flat SuperTrend is the reversal magnet [2026-08-21]
+
+**Symptom:** TSLA week of Aug 17 was read as “Friday daily ST flip, not
+a hold; ride the Aug 13 21 EMA reclaim.” Operator correction: during a
+reversal the daily ST is *supposed* to still be bear and flat; price
+inching toward it means the ST is the confluence / magnet.
+
+**Root:** SuperTrend flips only after the close takes the line. A
+reversal therefore spends days with the *old* color parked overhead.
+TSLA daily ST sat at $356.77 BEAR from Aug 3–20 (zero line travel)
+while close walked 322 → 351 (distSt 1.87 → 0.35 ATR on Aug 19 high
+351.62). Aug 21 flip to bull jumped the line to $311.83 with close
+$363.37, 1.41 ATR off the 21 — confirmation, not the setup.
+
+The hold detector only scores **same-side** tests (`bearTest` = tag
+the bear line and close back below = SHORT continuation). L7 still
+votes D BEAR as bearish when the line is flat. `_tfDirAgainst` uses
+**dir**, not slope, so a flat daily bear is a hard LONG veto.
+
+**Fix (docs / next engine pass):** two movies —
+1. Same-side flat ST tested and held → continuation (ETH monthly).
+2. Opposite-side flat ST with the ATR gap closing → reversal magnet
+   (TSLA daily). The flip is late. Do not wait for D ST to turn bull
+   to call the setup. Hard-against should mean *sloping* against, not
+   a parked opposite color.
+
+Skill: `skills/supertrend-hold.md`. Tape: `data/tsla-week-movie/movie.json`.
+
 ## OpEx PRE_OPEX mirrors dropped + DD shadow page at start cash [2026-08-21]
 
 **Symptom:** Sanity `investor_signal_bridge_coverage` failed on
