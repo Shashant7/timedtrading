@@ -21,6 +21,7 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **ST test-and-hold scan + TSLA miss (2026-08-21).** How many names tested M/W/D/4H SuperTrend and held; why TSLA this past week was not caught. Branch: `cursor/st-hold-scan-tsla-dbdd`.
 - [ ] **Investor (long-term) stop forensics (2026-08-17).** 63 positions
       opened May–Aug 2026, 47 closed. The damage is on the exit side, not
       the entry side: 44 of 47 closes were `PRIMARY_INVALIDATION_BREACH`
