@@ -2660,8 +2660,8 @@ export function buildDayTradePlay(ctx) {
   const verdictSide = ctx?.verdict?.side || direction;
   const atrPct = Number(ctx?.atrPct) || 0.012;
   const expiration = ctx?.expiration || pickDayTradeExpiration(Date.now(), {
-    // Index day-trade headlines 1 DTE so the book can hold 15:45-16:15
-    // and skip 0 DTE force-liq / late-day theta death.
+    // Index day-trade headlines 1 DTE so the book can skip 0 DTE force-liq;
+    // flatten at 15:45 unless leftover R:R still justifies overnight.
     forceTomorrow: true,
   });
   const chain = ctx?.chain || null;
@@ -2813,10 +2813,10 @@ export function buildDayTradePlay(ctx) {
  *
  * Rules the card enforces (deterministic — the same rules the Trade
  * Review agent grades against after the fact):
- *   • Take Profit 1: bank half at +40% premium
- *   • Take Profit 2: close remaining at +100% premium
+ *   • Take Profit 1: bank half at 1R (50% with a 50% stop — not +40%)
+ *   • Take Profit 2: close remaining at 2R / +100%
  *   • Hard stop:     exit whole position at -50% premium
- *   • Time stop:     0 DTE by 12:00 ET; 1 DTE after the 16:15 ET close-auction
+ *   • Time stop:     0 DTE by 12:00 ET; 1 DTE flatten by 15:45 ET unless overnight
  *   • Underlying invalidation: exit if spot crosses the OPPOSITE
  *     game-plan trigger (bull put → underlying breaks the bull
  *     trigger; bear call → underlying loses the bear trigger).
@@ -2838,14 +2838,14 @@ export function attachOptionManagement(play, ctx = {}) {
       ? { underlying_below: Number.isFinite(bearTrigger) ? bearTrigger : null }
       : null;
   const isDte0 = Number(play?.expiration?.dte) === 0;
-  const timeStopEt = isDte0 ? "12:00" : "16:15";
+  const timeStopEt = isDte0 ? "12:00" : "15:45";
   const management = {
-    take_profit_1: { pct: 40, size: 0.5 },
-    take_profit_2: { pct: 100, size: 0.5 },
+    take_profit_1: { pct: 50, size: 0.5, r: 1 },
+    take_profit_2: { pct: 100, size: 0.5, r: 2 },
     hard_stop_pct: -50,
     time_stop_et: timeStopEt,
     invalidation,
-    doctrine_version: "options-mgmt-1",
+    doctrine_version: "options-mgmt-2",
   };
   return { ...play, option_management: management };
 }

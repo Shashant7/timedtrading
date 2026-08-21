@@ -221,9 +221,37 @@ describe("buildExecutionClock", () => {
     expect(out.action).toBe("BUY");
     expect(out.buy_rule).toMatch(/765C/);
     expect(out.buy_rule).toMatch(/21 EMA/);
-    expect(out.sell_rule).toMatch(/16:15/);
+    expect(out.sell_rule).toMatch(/15:45/);
+    expect(out.sell_rule).toMatch(/\$/);
+    expect(out.hold_overnight).toBe(false);
+    expect(out.rr.positive).toBe(true);
     expect(out.zone.inv).toBe(761);
     expect(out.headline).toMatch(/BUY/);
+  });
+
+  it("WAITs when tape agrees but leftover R:R is below 1:1", () => {
+    const out = buildExecutionClock({
+      ticker: "SPY",
+      flavor: "put",
+      strike: 763,
+      expiration: { dte: 1, iso: "2026-08-21", label: "1 DTE" },
+      spot: 762.84,
+      premium: 0.45,
+      indicators: { ema21: 763.1, st_dir: 1, st_label: "short", tf: "5" },
+      gamePlan: { bear_target: 762.50, bear_trigger: 764, bull_trigger: 766 },
+      management: {
+        take_profit_1: { pct: 50, size: 0.5 },
+        take_profit_2: { pct: 100, size: 0.5 },
+        hard_stop_pct: -50,
+        time_stop_et: "15:45",
+        invalidation: { underlying_above: 766 },
+      },
+      now: ts(`2026-08-20T10:05:00${ET}`),
+    });
+    expect(out.action).toBe("WAIT");
+    expect(out.rr.positive).toBe(false);
+    expect(out.rr.trim).toBeGreaterThan(0.53);
+    expect(out.why).toMatch(/R:R/);
   });
 
   it("WAITs through the 09:30-09:45 open print", () => {
@@ -327,10 +355,10 @@ describe("buildExecutionClock", () => {
     });
     expect(out.action).toBe("SELL");
     expect(out.why).toMatch(/force-liquidation/);
-    expect(out.dte_note).toMatch(/15:45-16:15/);
+    expect(out.dte_note).toMatch(/15:15/);
   });
 
-  it("holds 1 DTE through 15:50 instead of firing a 15:30 time-stop", () => {
+  it("SELLs 1 DTE by 15:45 when leftover R:R does not justify overnight", () => {
     const out = buildExecutionClock({
       ticker: "SPY",
       flavor: "put",
@@ -341,25 +369,27 @@ describe("buildExecutionClock", () => {
       indicators: { ema21: 763.05, st_dir: 1, st_label: "short", tf: "5" },
       gamePlan: { bear_target: 762.50, bear_trigger: 764, bull_trigger: 766 },
       management: {
-        take_profit_1: { pct: 40, size: 0.5 },
+        take_profit_1: { pct: 50, size: 0.5 },
         take_profit_2: { pct: 100, size: 0.5 },
         hard_stop_pct: -50,
-        time_stop_et: "15:30",
+        time_stop_et: "15:45",
         invalidation: { underlying_above: 766 },
       },
       now: ts(`2026-08-20T15:50:00${ET}`),
     });
-    expect(out.action).toBe("BUY");
-    expect(out.dte_note).toMatch(/Close-auction/);
-    expect(out.premium_band.band).toBe("under");
+    expect(out.action).toBe("SELL");
+    expect(out.sell_kind).toBe("session_close");
+    expect(out.hold_overnight).toBe(false);
+    expect(out.why).toMatch(/15:45/);
   });
 
-  it("SELLs 1 DTE after 16:15 when the close-auction run is done", () => {
+  it("holds 1 DTE overnight when leftover R:R is still ≥ 1", () => {
     const out = buildExecutionClock({
       ...baseClock,
-      now: ts(`2026-08-20T16:16:00${ET}`),
+      now: ts(`2026-08-20T15:50:00${ET}`),
     });
-    expect(out.action).toBe("SELL");
-    expect(out.why).toMatch(/16:15/);
+    expect(out.hold_overnight).toBe(true);
+    expect(out.action).not.toBe("SELL");
+    expect(out.why).toMatch(/overnight|Too late/i);
   });
 });

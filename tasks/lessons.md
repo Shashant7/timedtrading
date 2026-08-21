@@ -5421,8 +5421,12 @@ noise; a naked BUY/SELL without a premium range chases rich prints;
 **Rule:** Signal TF is 5m (then 10/15). FMV is precomputed: pin =
 intrinsic at the game-plan expected close (763P / 762.50 → buy ceiling
 $0.50); live premium is under / fair / over. Headline expiration is
-always 1 DTE so the book can hold 15:45–16:15 and skip 0 DTE theta /
-force-liq. Flatten 1 DTE after 16:15; 0 DTE (if it appears) is flat
-by 15:15. Discord #trade-signals fires on paper BUY / TRIM / EXIT /
-STOP with a Saty five-box plan + light/medium/heavy size — not on
-WAIT, and not on every 5-min tick while the clock stays BUY.
+always 1 DTE so the book skips 0 DTE theta / force-liq. BUY requires
+leftover R:R ≥ 1:1 vs the game-plan **target** (not the pin — pin is
+the buy ceiling only). Trim is 1R with a $0.15 floor ($0.45 entry →
+$0.68, never $0.53). Flatten 1 DTE at 15:45 ET unless leftover R:R
+still justifies overnight after 15:30; 16:15 is not the planned exit.
+0 DTE (if it appears) is flat by 15:15. Discord #trade-signals fires
+on paper BUY / TRIM / EXIT / STOP with a Saty five-box plan +
+light/medium/heavy size — not on WAIT, and not on every 5-min tick
+while the clock stays BUY.

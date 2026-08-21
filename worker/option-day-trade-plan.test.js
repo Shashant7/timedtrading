@@ -5,7 +5,8 @@ import {
   buildSatyDayTradePlan,
   classifyPaperEvent,
   buildDayTradeSignalEmbed,
-  TP1_PCT,
+  computePremiumRr,
+  shouldHoldOvernight,
 } from "./option-day-trade-plan.js";
 
 const ET = "-04:00";
@@ -53,6 +54,61 @@ describe("sizeDayTradePlay", () => {
   });
 });
 
+describe("computePremiumRr", () => {
+  it("trims a $0.45 entry at 1R ($0.68), not $0.53", () => {
+    const rr = computePremiumRr({
+      entry: 0.45,
+      strike: 763,
+      flavor: "put",
+      targetPx: 758,
+      pin: 0.50,
+    });
+    expect(rr.stop).toBe(0.23);
+    expect(rr.risk).toBe(0.23);
+    expect(rr.trim).toBe(0.68);
+    expect(rr.trim).toBeGreaterThan(0.53);
+    expect(rr.exit).toBe(0.90);
+    expect(rr.positive).toBe(true);
+    expect(rr.rr).toBeGreaterThanOrEqual(1);
+  });
+  it("rejects a pin-only 763P when the print cannot cover the stop", () => {
+    const rr = computePremiumRr({
+      entry: 0.45,
+      strike: 763,
+      flavor: "put",
+      targetPx: 762.50,
+      pin: 0.50,
+    });
+    expect(rr.target_prem).toBe(0.5);
+    expect(rr.positive).toBe(false);
+    expect(rr.rr).toBeLessThan(1);
+  });
+});
+
+describe("shouldHoldOvernight", () => {
+  it("holds 1 DTE after 15:30 when SuperTrend agrees and leftover R:R is still ≥ 1", () => {
+    expect(shouldHoldOvernight({
+      dte: 1, stWith: true, invalidated: false,
+      premium: 0.45, entry: 0.45, targetPrem: 2.00,
+      minutes: 15 * 60 + 50,
+    })).toBe(true);
+  });
+  it("does not mark overnight at 10:05 even when leftover R:R is large", () => {
+    expect(shouldHoldOvernight({
+      dte: 1, stWith: true, invalidated: false,
+      premium: 0.45, entry: 0.45, targetPrem: 2.00,
+      minutes: 10 * 60 + 5,
+    })).toBe(false);
+  });
+  it("flattens before the close when leftover R:R is gone", () => {
+    expect(shouldHoldOvernight({
+      dte: 1, stWith: true, invalidated: false,
+      premium: 0.48, entry: 0.45, targetPrem: 0.50,
+      minutes: 15 * 60 + 50,
+    })).toBe(false);
+  });
+});
+
 describe("buildSatyDayTradePlan", () => {
   it("fills the five boxes and a flip level", () => {
     const plan = buildSatyDayTradePlan({
@@ -66,7 +122,7 @@ describe("buildSatyDayTradePlan", () => {
       gamePlan: {
         lean: "SHORT",
         lean_conviction: "high",
-        bear_target: 762.5,
+        bear_target: 758,
         bear_trigger: 764,
         bull_trigger: 766,
       },
@@ -79,8 +135,33 @@ describe("buildSatyDayTradePlan", () => {
     expect(plan.stop).toMatch(/766/);
     expect(plan.flip).toMatch(/766/);
     expect(plan.bracket.buy_limit).toBe(0.5);
-    expect(plan.bracket.trim).toBeCloseTo(0.38 * 1.4, 2);
+    expect(plan.bracket.trim).toBeGreaterThan(0.53);
+    expect(plan.bracket.rr_positive).toBe(true);
+    expect(plan.hold_overnight).toBe(false);
+    expect(plan.exits).toMatch(/15:45/);
     expect(plan.size.label).toBe("heavy");
+  });
+  it("can hold overnight when the clock grants it after 15:30", () => {
+    const plan = buildSatyDayTradePlan({
+      ticker: "SPY",
+      flavor: "put",
+      strike: 763,
+      expiration: { dte: 1, iso: "2026-08-21", label: "1 DTE" },
+      spot: 762.84,
+      premium: 0.80,
+      execution: { ...clockBuy, hold_overnight: true },
+      gamePlan: {
+        lean: "SHORT",
+        lean_conviction: "high",
+        bear_target: 758,
+        bear_trigger: 764,
+        bull_trigger: 766,
+      },
+      management: { invalidation: { underlying_above: 766 } },
+    });
+    expect(plan.hold_overnight).toBe(true);
+    expect(plan.exits).toMatch(/overnight/i);
+    expect(plan.exits).toMatch(/16:15/);
   });
   it("does not use you/your", () => {
     const plan = buildSatyDayTradePlan({
@@ -118,14 +199,19 @@ describe("classifyPaperEvent", () => {
     });
     expect(out.event).toBeNull();
   });
-  it("TRIMs at +40% premium", () => {
-    const out = classifyPaperEvent({
+  it("does not TRIM a $0.45 book at $0.53 — waits for 1R", () => {
+    const early = classifyPaperEvent({
       clock: clockBuy,
-      book: { status: "open", entry_premium: 0.38, contracts: 2 },
-      premium: 0.38 * (1 + TP1_PCT / 100),
+      book: { status: "open", entry_premium: 0.45, trim_premium: 0.68, contracts: 2 },
+      premium: 0.53,
     });
-    expect(out.event).toBe("TRIM");
-    expect(out.nextBook.status).toBe("trimmed");
+    expect(early.event).toBeNull();
+    const hit = classifyPaperEvent({
+      clock: clockBuy,
+      book: { status: "open", entry_premium: 0.45, trim_premium: 0.68, contracts: 2 },
+      premium: 0.68,
+    });
+    expect(hit.event).toBe("TRIM");
   });
   it("STOPs on underlying invalidation", () => {
     const out = classifyPaperEvent({
@@ -137,9 +223,9 @@ describe("classifyPaperEvent", () => {
     expect(out.nextBook.status).toBe("closed");
     expect(out.nextBook.needs_wait).toBe(true);
   });
-  it("EXITs after the 16:15 close-auction flatten", () => {
+  it("EXITs on the 15:45 session-close flatten", () => {
     const out = classifyPaperEvent({
-      clock: { ...clockBuy, action: "SELL", sell_kind: "close_auction", why: "1 DTE close-auction window is done" },
+      clock: { ...clockBuy, action: "SELL", sell_kind: "session_close", why: "Flatten by 15:45 ET — before the cash close" },
       book: { status: "trimmed", entry_premium: 0.38 },
       premium: 0.60,
     });
@@ -219,16 +305,18 @@ describe("clock sell_kind", () => {
 
     const flat = buildExecutionClock({
       ticker: "SPY",
-      flavor: "call",
-      strike: 765,
+      flavor: "put",
+      strike: 763,
       expiration: { dte: 1, iso: "2026-08-21" },
-      spot: 764.2,
-      premium: 1.2,
-      indicators: { ema21: 764.1, st_dir: -1, st_label: "long", tf: "5" },
-      gamePlan: { bull_target: 772, bear_trigger: 761 },
-      management: { time_stop_et: "16:15", invalidation: { underlying_below: 761 } },
+      spot: 762.9,
+      premium: 0.38,
+      indicators: { ema21: 763.05, st_dir: 1, st_label: "short", tf: "5" },
+      gamePlan: { bear_target: 762.50, bear_trigger: 764, bull_trigger: 766 },
+      management: { time_stop_et: "16:15", invalidation: { underlying_above: 766 } },
       now: ts(`2026-08-20T16:16:00${ET}`),
     });
-    expect(flat.sell_kind).toBe("close_auction");
+    expect(flat.action).toBe("SELL");
+    expect(flat.hold_overnight).toBe(false);
+    expect(flat.sell_kind).toBe("session_close");
   });
 });

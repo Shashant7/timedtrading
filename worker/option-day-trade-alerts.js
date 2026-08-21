@@ -45,6 +45,7 @@ export function assembleDayTradePlan(payload = {}) {
     gamePlan: gp,
     management: payload.management,
     size,
+    now: payload.now,
   });
   return { plan, size };
 }

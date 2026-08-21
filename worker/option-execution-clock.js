@@ -8,6 +8,8 @@
 //
 // Pure. No I/O. Caller attaches D1 marks + ticker tf_tech.
 
+import { computePremiumRr, shouldHoldOvernight, SESSION_FLAT_ET, HARD_STOP_PCT } from "./option-day-trade-plan.js";
+
 const NY_TZ = "America/New_York";
 
 export const DEFAULT_TOD_PLAYBOOK = {
@@ -418,13 +420,33 @@ export function buildExecutionClock({
     now,
     atrPct: num(gp.atr_pct) ?? num(ind.atr_pct),
   });
-  const requestedStop = String(mgmt.time_stop_et || (dte0 ? "12:00" : "16:15"));
+  const targetPx = isPut ? num(gp.bear_target) : num(gp.bull_target);
+  const rr = computePremiumRr({
+    entry: prem,
+    stopPct: num(mgmt.hard_stop_pct) ?? HARD_STOP_PCT,
+    strike,
+    flavor: flav,
+    targetPx,
+    pin: value?.pin,
+  });
+  let holdOvernight = shouldHoldOvernight({
+    dte: num(expiration?.dte),
+    stWith: isPut ? stIsBear(ind.st_dir) : stIsBull(ind.st_dir),
+    invalidated: false,
+    premium: prem,
+    entry: prem,
+    targetPrem: rr?.target_prem,
+    minutes: ny.minutes,
+  });
+  const requestedStop = String(mgmt.time_stop_et || (dte0 ? "12:00" : SESSION_FLAT_ET));
   const [tsH, tsM] = requestedStop.split(":").map((x) => Number(x));
-  let timeStopMin = (Number.isFinite(tsH) ? tsH : (dte0 ? 12 : 16)) * 60
-    + (Number.isFinite(tsM) ? tsM : (dte0 ? 0 : 15));
-  // 1 DTE holds the 15:45-16:15 close-auction run. A 15:30 card stop
-  // would flatten the exact window 1 DTE exists to capture.
-  if (!dte0 && timeStopMin < CLOSE_AUCTION_END) timeStopMin = CLOSE_AUCTION_END;
+  let timeStopMin = (Number.isFinite(tsH) ? tsH : (dte0 ? 12 : 15)) * 60
+    + (Number.isFinite(tsM) ? tsM : (dte0 ? 0 : 45));
+  // Same-day flatten is 15:45 ET — before the cash close. 16:15 is only
+  // reachable if the overnight hold is on.
+  if (!dte0 && !holdOvernight && timeStopMin > CLOSE_AUCTION_START) {
+    timeStopMin = CLOSE_AUCTION_START;
+  }
   const timeStop = `${String(Math.floor(timeStopMin / 60)).padStart(2, "0")}:${String(timeStopMin % 60).padStart(2, "0")}`;
   const dist = distPct(px, ema21);
   const nearEma = dist != null && Math.abs(dist) <= 0.35;
@@ -435,14 +457,17 @@ export function buildExecutionClock({
     ? num(mgmt.invalidation?.underlying_above) ?? num(gp.bull_trigger)
     : num(mgmt.invalidation?.underlying_below) ?? num(gp.bear_trigger);
   const invalidated = px != null && invPx != null && (isPut ? px > invPx : px < invPx);
-  const tp1 = num(mgmt.take_profit_1?.pct) ?? 40;
-  const hardStop = num(mgmt.hard_stop_pct) ?? -50;
+  if (invalidated) holdOvernight = false;
+  const tp1 = rr?.trim != null ? rr.trim : (num(mgmt.take_profit_1?.pct) ?? 50);
+  const hardStop = num(mgmt.hard_stop_pct) ?? HARD_STOP_PCT;
   const atTrough = path && prem != null && path.trough_mid > 0 && prem <= path.trough_mid * 1.08;
   const offPeak = path && prem != null && path.peak_mid > 0 && prem <= path.peak_mid * 0.80;
   const openPrint = ny.minutes >= 9 * 60 + 30 && ny.minutes < 9 * 60 + 45;
   const forceLiqWindow = dte0 && ny.minutes >= FORCE_LIQ_MIN;
   const closeAuction = !dte0 && ny.minutes >= CLOSE_AUCTION_START && ny.minutes < CLOSE_AUCTION_END;
-  const oneDteFlatten = !dte0 && ny.minutes >= CLOSE_AUCTION_END;
+  const sessionFlatten = !dte0 && ny.minutes >= CLOSE_AUCTION_START && !holdOvernight;
+  const lateEntry = ny.minutes >= 15 * 60 + 30;
+  const rrBlocked = rr != null && !rr.positive;
   const premiumRich = value?.band === "over";
   const premiumCheap = value?.band === "under";
 
@@ -460,10 +485,10 @@ export function buildExecutionClock({
     action = "SELL";
     sellKind = "force_liq";
     why = "0 DTE is in the broker force-liquidation window (from 15:15 ET, typically flat by 15:45). Roll to 1 DTE to hold the 15:45-16:15 close run.";
-  } else if (oneDteFlatten) {
+  } else if (sessionFlatten) {
     action = "SELL";
-    sellKind = "close_auction";
-    why = "1 DTE close-auction window is done (16:15 ET). Take the premium — 15:45-16:15 is the hold, not after.";
+    sellKind = "session_close";
+    why = `Flatten by ${SESSION_FLAT_ET} ET — before the cash close. Overnight risk can erase the gain; 16:15 is not the planned exit.`;
   } else if (dte0 && ny.minutes >= timeStopMin) {
     action = "SELL";
     sellKind = "time_stop";
@@ -474,6 +499,14 @@ export function buildExecutionClock({
   } else if (premiumRich && stWith) {
     action = "WAIT";
     why = `Tape agrees but premium $${round2(prem)} is rich vs FMV $${value.fmv} (pin $${value.pin} if ${sym} closes $${value.expected_close}). Wait for a print at or under $${value.buy_ceil}.`;
+  } else if (rrBlocked && stWith) {
+    action = "WAIT";
+    why = `R:R to the target is ${rr.rr}:1 — below 1:1 at this print. Wait for a cheaper mid so the stop is covered.`;
+  } else if (lateEntry && stWith) {
+    action = "WAIT";
+    why = holdOvernight
+      ? "Too late for a new ticket. Existing book may hold overnight — leftover R:R is still ≥ 1."
+      : "Too late for a new ticket. Flatten any open book by 15:45 ET; do not wait until 16:15.";
   } else if (stWith && nearEma && !openPrint && !extended && !premiumRich) {
     action = "BUY";
     why = `${sym} is holding the ${ind.tf || "5"}-minute 21 EMA${ema21 ? ` ($${ema21})` : ""} with SuperTrend ${ind.st_label || "aligned"}. Premium is ${value?.band || "unpriced"} vs FMV $${value?.fmv ?? "—"}.`;
@@ -509,16 +542,20 @@ export function buildExecutionClock({
   const overBit = value ? ` or when premium is rich (≥ $${value.over})` : "";
   const flattenBit = dte0
     ? "0 DTE must be flat by 15:15 ET (broker force-liq ~15:45)."
-    : "1 DTE holds 15:45-16:15 ET close-auction, then flatten after 16:15.";
-  const sellRule = `Sell half at +${tp1}% premium${overBit}. Close the rest at +${num(mgmt.take_profit_2?.pct) ?? 100}%, at the ${timeStop} ET time stop, on a ${hardStop}% premium stop${invBit}. ${flattenBit}`;
+    : (holdOvernight
+      ? "Overnight hold is on — leftover R:R ≥ 1. Flatten next session; do not wait until 16:15 ET tonight."
+      : `Flatten by ${SESSION_FLAT_ET} ET, before the cash close. Overnight only if leftover R:R stays ≥ 1.`);
+  const trimBit = rr?.trim != null ? ` $${Number(rr.trim).toFixed(2)} (1R)` : ` +${tp1}%`;
+  const exitBit = rr?.exit != null ? ` $${Number(rr.exit).toFixed(2)} (2R)` : ` +${num(mgmt.take_profit_2?.pct) ?? 100}%`;
+  const sellRule = `Sell half at${trimBit} premium${overBit}. Close the rest at${exitBit}, at the ${timeStop === "overnight" ? "next-session" : `${timeStop} ET`} time stop, on a ${hardStop}% premium stop${invBit}. ${flattenBit}`;
   const pathNote = path
     ? `This contract bottomed at $${path.trough_mid} (${path.trough_et} ET) and peaked at $${path.peak_mid} (${path.peak_et} ET).`
     : (tod.note || null);
   const dteNote = dte0
-    ? "0 DTE can be force-liquidated from 15:15 ET. The 15:45-16:15 close run is for 1 DTE (or cash to exercise)."
-    : closeAuction
-      ? "Close-auction window (15:45-16:15 ET) — 1 DTE still trades; this is the run 0 DTE often misses after a force-liq."
-      : "Headline is 1 DTE so the book can hold 15:45-16:15 without a 15:45 force-liq.";
+    ? "0 DTE can be force-liquidated from 15:15 ET. Flatten 0 DTE well before the cash close."
+    : holdOvernight
+      ? "Overnight hold — thesis intact and leftover R:R ≥ 1. 1 DTE can still trade 15:45-16:15, but 16:15 is not the planned exit."
+      : "Flatten by 15:45 ET unless leftover R:R still justifies holding overnight. Do not wait until 16:15 to take an intended exit.";
 
   const headline = action === "BUY"
     ? `BUY ${occ_short} — ${premiumCheap ? "under FMV" : "pullback into"}${premiumCheap ? "" : emaBit}`
@@ -548,6 +585,8 @@ export function buildExecutionClock({
       extended,
     },
     zone,
+    rr,
+    hold_overnight: holdOvernight,
     contract: { ticker: sym, flavor: flav, strike: num(strike), expiration: expiration || null, label: occ_short, dte: dte_bit },
   };
 }

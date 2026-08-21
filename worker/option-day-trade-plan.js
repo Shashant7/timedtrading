@@ -23,10 +23,113 @@ function money(v) {
 }
 
 export const SIZE_CONTRACTS = { light: 1, medium: 2, heavy: 3 };
-export const TP1_PCT = 40;
-export const TP2_PCT = 100;
 export const HARD_STOP_PCT = -50;
+export const MIN_RR = 1;
+export const TRIM_R = 1;
+export const EXIT_R = 2;
+/** Absolute floor so a $0.45 entry does not trim at $0.53. */
+export const MIN_TRIM_DOLLARS = 0.15;
+export const SESSION_FLAT_ET = "15:45";
+/** Overnight is decided from 15:30 ET, not at the morning entry. */
+export const OVERNIGHT_DECIDE_MIN = 15 * 60 + 30;
 const SLEEVE_USD = 25000;
+
+function nyMinutes(ts) {
+  if (ts == null) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date(Number(ts)));
+  let hour = Number(parts.find((p) => p.type === "hour")?.value);
+  if (hour === 24) hour = 0;
+  const minute = Number(parts.find((p) => p.type === "minute")?.value);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return hour * 60 + minute;
+}
+
+/**
+ * Premium R:R from a proposed entry. Reward is the game-plan target
+ * intrinsic (not the pin). The pin is the buy ceiling; the target is
+ * the move. Trim = 1R, exit = 2R, both floored so the first take is
+ * meaningful vs a 50% stop.
+ *
+ * Entry $0.45 / stop $0.225 → trim $0.68 (1R), not $0.53.
+ */
+export function computePremiumRr({
+  entry,
+  stopPct = HARD_STOP_PCT,
+  strike,
+  flavor,
+  targetPx,
+  pin,
+} = {}) {
+  const e = num(entry);
+  if (!(e > 0)) return null;
+  const stopRaw = e * (1 + Number(stopPct) / 100);
+  const riskRaw = e - stopRaw;
+  if (!(riskRaw > 0)) return null;
+  const stop = round2(stopRaw);
+  const risk = round2(riskRaw);
+  const K = num(strike);
+  const tgt = num(targetPx);
+  const isPut = String(flavor || "").toLowerCase() === "put";
+  let targetPrem = num(pin);
+  if (K > 0 && tgt > 0) {
+    const intrinsic = Math.max(0, isPut ? K - tgt : tgt - K);
+    targetPrem = Math.max(targetPrem || 0, intrinsic);
+  }
+  const reward = targetPrem != null ? round2(targetPrem - e) : null;
+  const rr = reward != null ? round2(reward / riskRaw) : null;
+  const trimRaw = Math.max(e + TRIM_R * riskRaw, e + MIN_TRIM_DOLLARS);
+  const exitRaw = Math.max(e + EXIT_R * riskRaw, trimRaw + riskRaw);
+  const trim = round2(trimRaw);
+  const exit = round2(exitRaw);
+  return {
+    entry: round2(e),
+    stop,
+    risk,
+    target_prem: targetPrem != null ? round2(targetPrem) : null,
+    reward,
+    rr,
+    positive: rr != null && rr >= MIN_RR,
+    trim,
+    exit,
+    trim_r: riskRaw > 0 ? round2((trim - e) / riskRaw) : null,
+    exit_r: riskRaw > 0 ? round2((exit - e) / riskRaw) : null,
+  };
+}
+
+/**
+ * Overnight hold is only for 1 DTE when the thesis is still intact and
+ * leftover R:R to the target is still ≥ 1. Otherwise flatten before the
+ * 16:00 ET cash close — 16:15 is not the planned exit.
+ */
+export function shouldHoldOvernight({
+  dte,
+  stWith,
+  invalidated,
+  premium,
+  entry,
+  targetPrem,
+  minutes,
+} = {}) {
+  if (num(dte) === 0) return false;
+  if (invalidated || !stWith) return false;
+  const min = num(minutes);
+  // Missing minutes = morning plan. Overnight is only granted after 15:30 ET.
+  if (min == null || min < OVERNIGHT_DECIDE_MIN) return false;
+  const mid = num(premium);
+  const fill = num(entry) ?? mid;
+  if (mid != null && fill != null && mid + 1e-9 < fill) return false;
+  const tgt = num(targetPrem);
+  if (mid != null && tgt != null) {
+    const risk = (fill != null) ? fill * Math.abs(HARD_STOP_PCT) / 100 : mid * 0.5;
+    if (risk > 0 && (tgt - mid) / risk < MIN_RR) return false;
+  }
+  return true;
+}
 
 /**
  * Model size for the index day-trade sleeve.
@@ -76,6 +179,7 @@ export function buildSatyDayTradePlan({
   gamePlan,
   management,
   size,
+  now,
 } = {}) {
   const sym = String(ticker || "").toUpperCase();
   const flav = String(flavor || "").toLowerCase() === "put" ? "put" : "call";
@@ -101,10 +205,31 @@ export function buildSatyDayTradePlan({
   const buyCeil = num(band.buy_ceil);
   const pin = num(band.pin);
   const expected = num(band.expected_close);
-  const tp1 = mid != null ? round2(mid * (1 + TP1_PCT / 100)) : null;
-  const tp2 = mid != null ? round2(mid * (1 + TP2_PCT / 100)) : null;
-  const stopPrem = mid != null ? round2(mid * (1 + HARD_STOP_PCT / 100)) : null;
-  const timeStop = num(expiration?.dte) === 0 ? "12:00" : "16:15";
+  const fill = mid ?? buyCeil;
+  const rr = computePremiumRr({
+    entry: fill,
+    strike: K,
+    flavor: flav,
+    targetPx: target,
+    pin,
+  });
+  const tp1 = rr?.trim ?? null;
+  const tp2 = rr?.exit ?? null;
+  const stopPrem = rr?.stop ?? (fill != null ? round2(fill * (1 + HARD_STOP_PCT / 100)) : null);
+  const holdOvernight = typeof execution?.hold_overnight === "boolean"
+    ? execution.hold_overnight
+    : shouldHoldOvernight({
+      dte: num(expiration?.dte),
+      stWith: isPut ? num(ind.st_dir) > 0 : num(ind.st_dir) < 0,
+      invalidated: false,
+      premium: mid,
+      entry: fill,
+      targetPrem: rr?.target_prem,
+      minutes: now != null ? nyMinutes(now) : null,
+    });
+  const timeStop = num(expiration?.dte) === 0
+    ? "12:00"
+    : (holdOvernight ? "overnight" : SESSION_FLAT_ET);
   const sz = size || sizeDayTradePlay({
     leanConviction: gp.lean_conviction,
     premiumBand: band.band,
@@ -127,18 +252,25 @@ export function buildSatyDayTradePlan({
     (pin != null && expected != null ? ` (pin ${money(pin)} if ${sym} closes ${money(expected)})` : "") +
     `. If the print is already rich or extended, wait for the next pullback — do not chase.`;
 
-  const exits = `Trim half at +${TP1_PCT}% premium` +
+  const rrBit = rr
+    ? ` R:R to target is ${rr.rr != null ? `${rr.rr}:1` : "n/a"}${rr.positive ? "" : " — below 1:1, do not pay this print"}.`
+    : "";
+  const exits = `Trim half at ${TRIM_R}R` +
     (tp1 != null ? ` (${money(tp1)})` : "") +
-    `. Close the rest at +${TP2_PCT}%` +
+    `. Close the rest at ${EXIT_R}R` +
     (tp2 != null ? ` (${money(tp2)})` : "") +
     (target != null ? ` or if ${sym} reaches ${money(target)}` : "") +
-    `. After the trim, trail the runner: stop to breakeven, then to the last 5-minute 21 EMA hold. Flatten after ${timeStop} ET.`;
+    `. After the trim, trail the runner: stop to breakeven, then to the last 5-minute 21 EMA hold.` +
+    (holdOvernight
+      ? " Hold overnight — leftover R:R is still ≥ 1 and the thesis is intact. Flatten tomorrow; do not wait until 16:15 ET tonight."
+      : ` Flatten by ${SESSION_FLAT_ET} ET, before the cash close. Overnight risk can erase the gain.`) +
+    rrBit;
 
   const stop = `Technical stop: cut the ${flav} if ${sym} ${isPut ? "reclaims" : "loses"} ${money(inv)}` +
     `. Premium hard stop ${HARD_STOP_PCT}%` +
     (stopPrem != null ? ` (${money(stopPrem)})` : "") +
-    `. Time stop ${timeStop} ET` +
-    (num(expiration?.dte) === 0 ? " — 0 DTE force-liq from 15:15 ET." : " — 1 DTE holds 15:45–16:15, then done.");
+    `. Time stop ${timeStop === "overnight" ? "next session (overnight hold)" : `${timeStop} ET`}` +
+    (num(expiration?.dte) === 0 ? " — 0 DTE force-liq from 15:15 ET." : ".");
 
   const flipLine = flip != null
     ? `Opposite side: if ${sym} ${isPut ? "reclaims" : "loses"} ${money(flip)}, the ${flav} is done. Do not hold and hope — that is the flip level.`
@@ -147,11 +279,16 @@ export function buildSatyDayTradePlan({
   const bracket = {
     buy_limit: buyCeil ?? mid,
     trim: tp1,
+    trim_r: rr?.trim_r ?? TRIM_R,
     trim_pct: 50,
     exit: tp2,
+    exit_r: rr?.exit_r ?? EXIT_R,
     stop_premium: stopPrem,
     stop_underlying: inv,
-    time_stop_et: timeStop,
+    time_stop_et: timeStop === "overnight" ? "15:45" : timeStop,
+    hold_overnight: holdOvernight,
+    rr: rr?.rr ?? null,
+    rr_positive: !!rr?.positive,
   };
 
   return {
@@ -162,6 +299,8 @@ export function buildSatyDayTradePlan({
     stop,
     flip: flipLine,
     bracket,
+    rr,
+    hold_overnight: holdOvernight,
     size: sz,
     occ,
     dte_bit: dteBit,
@@ -176,7 +315,7 @@ function inferSellKind(clock) {
   const why = String(clock?.why || "").toLowerCase();
   if (why.includes("invalidation") || why.includes("reclaimed") || why.includes("lost the")) return "invalidation";
   if (why.includes("force-liq")) return "force_liq";
-  if (why.includes("close-auction") || why.includes("16:15")) return "close_auction";
+  if (why.includes("close-auction") || why.includes("16:15") || why.includes("cash close") || why.includes("15:45")) return "session_close";
   if (why.includes("time stop")) return "time_stop";
   return "exit";
 }
@@ -220,6 +359,14 @@ export function classifyPaperEvent({
 
   const canEnter = status === "flat" || (status === "closed" && !book?.needs_wait);
   if (canEnter && action === "BUY") {
+    const rr = clock?.rr?.trim != null
+      ? clock.rr
+      : computePremiumRr({
+        entry: mid,
+        strike: clock?.contract?.strike,
+        flavor: clock?.contract?.flavor,
+        pin: clock?.premium_band?.pin,
+      });
     return {
       event: "BUY",
       nextBook: {
@@ -228,6 +375,8 @@ export function classifyPaperEvent({
         event: "BUY",
         entry_premium: mid,
         entry_ts: now,
+        trim_premium: rr?.trim ?? null,
+        exit_premium: rr?.exit ?? null,
         contracts: sz?.contracts ?? 1,
         size_label: sz?.label || "medium",
       },
@@ -248,7 +397,7 @@ export function classifyPaperEvent({
     };
   }
 
-  if (action === "SELL" || sellKind === "force_liq" || sellKind === "time_stop" || sellKind === "close_auction") {
+  if (action === "SELL" || sellKind === "force_liq" || sellKind === "time_stop" || sellKind === "close_auction" || sellKind === "session_close") {
     return {
       event: "EXIT",
       reason: sellKind || "exit",
@@ -256,7 +405,9 @@ export function classifyPaperEvent({
     };
   }
 
-  if (status === "open" && entry != null && mid != null && mid >= entry * (1 + TP1_PCT / 100)) {
+  const trimPx = num(book?.trim_premium) ?? (entry != null ? round2(Math.max(entry * 1.5, entry + MIN_TRIM_DOLLARS)) : null);
+  const exitPx = num(book?.exit_premium) ?? (entry != null ? round2(entry + 2 * (entry * Math.abs(HARD_STOP_PCT) / 100)) : null);
+  if (status === "open" && trimPx != null && mid != null && mid + 1e-9 >= trimPx) {
     return {
       event: "TRIM",
       nextBook: {
@@ -269,7 +420,7 @@ export function classifyPaperEvent({
     };
   }
 
-  if (status === "trimmed" && entry != null && mid != null && mid >= entry * (1 + TP2_PCT / 100)) {
+  if (status === "trimmed" && exitPx != null && mid != null && mid + 1e-9 >= exitPx) {
     return {
       event: "EXIT",
       reason: "tp2",
@@ -316,7 +467,7 @@ export function buildDayTradeSignalEmbed({
       descParts.push(`Size **${sz.contracts} contract${sz.contracts === 1 ? "" : "s"}** (${sz.label || "medium"})${sz.debit_usd != null ? ` · debit **$${sz.debit_usd}**` : ""}.`);
     }
   } else if (ev === "TRIM") {
-    descParts.push(`Paper trim half of ${occ} at ${money(mid)} (+${TP1_PCT}%). Runner stays on, stop to breakeven.`);
+    descParts.push(`Paper trim half of ${occ} at ${money(mid)} (${TRIM_R}R). Runner stays on, stop to breakeven.`);
   } else if (ev === "STOP") {
     descParts.push(`Paper stop on ${occ} at ${money(mid)}${reason === "invalidation" ? " — underlying invalidation." : " — premium hard stop."}`);
   } else {
@@ -335,11 +486,12 @@ export function buildDayTradeSignalEmbed({
   const br = plan?.bracket || {};
   const bracketLines = [
     br.buy_limit != null ? `BUY limit ≤ ${money(br.buy_limit)}` : null,
-    br.trim != null ? `TRIM 50% @ ${money(br.trim)} (+${TP1_PCT}%)` : null,
-    br.exit != null ? `EXIT rest @ ${money(br.exit)} (+${TP2_PCT}%)` : null,
+    br.trim != null ? `TRIM 50% @ ${money(br.trim)} (${br.trim_r ?? TRIM_R}R)` : null,
+    br.exit != null ? `EXIT rest @ ${money(br.exit)} (${br.exit_r ?? EXIT_R}R)` : null,
+    br.rr != null ? `R:R to target ${br.rr}:1${br.rr_positive ? "" : " — below 1:1"}` : null,
+    br.hold_overnight ? "HOLD overnight — leftover R:R still ≥ 1" : (br.time_stop_et ? `FLAT by ${br.time_stop_et} ET (before the cash close)` : null),
     br.stop_premium != null ? `STOP premium @ ${money(br.stop_premium)} (${HARD_STOP_PCT}%)` : null,
     br.stop_underlying != null ? `STOP underlying @ ${money(br.stop_underlying)}` : null,
-    br.time_stop_et ? `TIME stop ${br.time_stop_et} ET` : null,
     sz.scale_note || null,
   ].filter(Boolean);
   if (bracketLines.length) {

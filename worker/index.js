@@ -94910,7 +94910,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       }
                     }
                     // Stage 4 — attach machine-readable exit doctrine to
-                    // every tier: TP1 40% / TP2 100% / hard stop -50% /
+                    // every tier: TP1 1R / TP2 2R / hard stop -50% /
                     // time stop / underlying invalidation. Flag-gated.
                     if (_dtTiers && _optionsManagementCardEnabled(env) && _optionsPlaysMod.attachManagementToTiers) {
                       _dtTiers = _optionsPlaysMod.attachManagementToTiers(_dtTiers, { gamePlan: _dtGp });
@@ -94965,6 +94965,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       management: _dtPrimary?.option_management || _dtPlay?.option_management,
                       day_lean_conviction: _dtLeanConv,
                       honesty_gate_veto: _dtVetoReason,
+                      now: Date.now(),
                     });
                     _dtExecution = {
                       ..._dtExecution,
@@ -94985,6 +94986,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       management: _dtPrimary?.option_management || _dtPlay?.option_management,
                       day_lean_conviction: _dtLeanConv,
                       honesty_gate_veto: _dtVetoReason,
+                      now: Date.now(),
                     }).then((ev) => {
                       if (!ev?.event) return;
                       d1InsertNotification(env, {

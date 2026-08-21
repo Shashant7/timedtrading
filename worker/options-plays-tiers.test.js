@@ -228,9 +228,9 @@ describe("attachOptionManagement (Stage 4)", () => {
     const play = { _day_trade_flavor: "put", expiration: { dte: 1 } };
     const out = attachOptionManagement(play, { gamePlan: gp });
     expect(out.option_management).toBeTruthy();
-    expect(out.option_management.take_profit_1).toEqual({ pct: 40, size: 0.5 });
+    expect(out.option_management.take_profit_1).toEqual({ pct: 50, size: 0.5, r: 1 });
     expect(out.option_management.hard_stop_pct).toBe(-50);
-    expect(out.option_management.time_stop_et).toBe("16:15");
+    expect(out.option_management.time_stop_et).toBe("15:45");
     // Put invalidation is the BULL trigger (reclaim)
     expect(out.option_management.invalidation).toEqual({ underlying_above: 776 });
   });

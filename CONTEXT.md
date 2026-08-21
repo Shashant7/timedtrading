@@ -463,14 +463,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   (`buildDayTradePlay` honors a conviction lean — 0/1DTE is same-day, so the day
   lean overrides the multi-day confluence gate; low conviction falls back).
   **Index day-trade clock (2026-08-20):** headline is always **1 DTE** (skip
-  0 DTE 15:45 force-liq; hold the 15:45–16:15 close-auction, flatten after
-  16:15). Signal TF is **5m** EMA21 + SuperTrend (not 1m). BUY/SELL carry a
-  precomputed FMV band: pin = intrinsic at the game-plan expected close
-  (763P / 762.50 → buy ceiling $0.50); live premium under / fair / over.
-  Paper BUY/TRIM/EXIT/STOP posts to Discord **#trade-signals** with a
-  Saty-style plan (setup, trigger, entry, exits, stop + flip) and
-  light/medium/heavy size — same levels as a bracket. KV book
-  `timed:opt-dt-book:{signal_id}`; only the speculator/Today profile fires.
+  0 DTE 15:45 force-liq). Signal TF is **5m** EMA21 + SuperTrend (not 1m).
+  FMV pin = buy ceiling (763P / 762.50 → $0.50). BUY requires leftover
+  R:R ≥ 1:1 vs the **game-plan target** (not the pin). Trim is **1R**
+  (min +$0.15 over entry; $0.45 → $0.68), not +40%. Flatten 1 DTE at
+  **15:45 ET** unless leftover R:R still justifies overnight after 15:30;
+  16:15 is not the planned exit. Paper BUY/TRIM/EXIT/STOP posts to
+  Discord **#trade-signals** with a Saty-style plan + light/medium/heavy
+  size. KV book `timed:opt-dt-book:{signal_id}`; speculator/Today only.
   Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day) → Investor
   (long haul); keep each lane's horizon honest.
   **Product surface (2026-07-19):** AT vs Investor are the same actions
