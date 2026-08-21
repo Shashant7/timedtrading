@@ -272,6 +272,35 @@ describe("assembleStHoldSetup + flags + tf_tech", () => {
     expect(flags.st_hold).toBe(true);
     expect(flags.st_flip_extended).toBe(true);
   });
+
+  it("surfaces 6.5H / 9H holds but does not let them become RIDE", () => {
+    const flags = detectFlags({
+      "6.5H": { stHold: { held: true, kind: "st_flip_retest" } },
+      "9H": { stHold: { held: false, kind: "st_flip_extended" } },
+    });
+    expect(flags.st_hold_6_5h).toBe(true);
+    expect(flags.st_hold).toBeUndefined();
+    expect(flags.st_flip_extended).toBe(true);
+    const setup = assembleStHoldSetup({
+      bundles: {
+        D: {
+          stHold: {
+            kind: "st_flip_extended", side: 1, sideLabel: "LONG", held: false,
+            quality: "low", stLine: 100, ema21: 90, distEma21Atr: 2.2,
+          },
+        },
+        "6.5H": {
+          stHold: {
+            kind: "st_flip_retest", side: 1, sideLabel: "LONG", held: true,
+            quality: "high", stLine: 95, ema21: 94, distEma21Atr: 0.3,
+          },
+        },
+      },
+    });
+    expect(setup.best.tf).toBe("D");
+    expect(setup.best.held).toBe(false);
+    expect(setup.best.kind).toBe("st_flip_extended");
+  });
 });
 
 function confluenceLongBase(overrides = {}) {
@@ -368,6 +397,55 @@ describe("scoreRootConfluence ST hold gate", () => {
     expect(c.mode).toBe("READY");
     expect(isFlipExtendedChase(c.st_hold, "LONG")).toBe(true);
     expect(c.actionable_summary).toMatch(/retest/i);
+  });
+
+  it("does not ignite 10m/30m slope when daily SuperTrend is against", () => {
+    const c = scoreRootConfluence(confluenceLongBase({
+      st_hold_setup: null,
+      tf_tech: {
+        D: {
+          ew: { dir: 1, fiboMatch: 1.618, detected: true },
+          fvg: { activeBull: 4, activeBear: 0, inBullGap: true },
+          pdz: { zone: "discount" },
+          sma200: 2000,
+          sq: { r: 1 },
+          ema: { ema21: 2550 },
+          stDir: 1,
+          stSlope: 0,
+          ripster: { c72_89: { above: true } },
+        },
+        "4H": { stDir: 1, stSlope: 0, fvg: { activeBull: 2, activeBear: 0 } },
+        "10": { stDir: -1, stSlope: 1 },
+        "30": { stDir: -1, stSlope: 1 },
+      },
+    }));
+    expect(c.supertrend_trigger.freshness).toBe("htf_against");
+    expect(c.supertrend_trigger.triggered).toBe(false);
+  });
+
+  it("keeps a weekly slope trigger when daily SuperTrend is against", () => {
+    const c = scoreRootConfluence(confluenceLongBase({
+      st_hold_setup: null,
+      tf_tech: {
+        D: {
+          ew: { dir: 1, fiboMatch: 1.618, detected: true },
+          fvg: { activeBull: 4, activeBear: 0, inBullGap: true },
+          pdz: { zone: "discount" },
+          sma200: 2000,
+          sq: { r: 1 },
+          ema: { ema21: 2550 },
+          stDir: 1,
+          stSlope: 0,
+          ripster: { c72_89: { above: true } },
+        },
+        W: { stDir: -1, stSlope: 1 },
+        "4H": { stDir: 1, stSlope: 0, fvg: { activeBull: 2, activeBear: 0 } },
+        "1H": { stDir: -1, stSlope: 0 },
+      },
+    }));
+    expect(c.supertrend_trigger.side).toBe("LONG");
+    expect(c.supertrend_trigger.triggered).toBe(true);
+    expect(c.supertrend_trigger.confirmed_tfs).toContain("W");
   });
 
   it("keeps READY when confluence is high and ST is flat with no hold", () => {

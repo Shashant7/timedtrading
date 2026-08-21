@@ -20,11 +20,12 @@ import {
   detectSupertrendHoldFromSeries,
   refreshStHoldSetup,
 } from "./supertrend-hold.js";
+import { synthesizeNineHourBars, synthesizeRthSessionBars } from "./session-tfs.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
 // this version let us know exactly which logic produced them.
-export const SCORING_VERSION = "2.1.0-2026-03-20";
+export const SCORING_VERSION = "2.1.0-2026-08-21";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)
@@ -3456,6 +3457,8 @@ export function detectFlags(bundles) {
   const b4H = bundles?.["240"];
   const bW = bundles?.W;
   const bM = bundles?.M;
+  const b65 = bundles?.["6.5H"];
+  const b9 = bundles?.["9H"];
 
   // SuperTrend flips (with timestamps)
   if (b30?.stFlip) { flags.st_flip_30m = true; flags.st_flip_30m_ts = b30.stFlip_ts; }
@@ -3487,11 +3490,15 @@ export function detectFlags(bundles) {
   if (bW?.stHold?.held) flags.st_hold_W = true;
   if (bD?.stHold?.held) flags.st_hold_D = true;
   if (b4H?.stHold?.held) flags.st_hold_4h = true;
+  if (b65?.stHold?.held) flags.st_hold_6_5h = true;
+  if (b9?.stHold?.held) flags.st_hold_9h = true;
+  // Session holds are informational / against-veto only — they do not set st_hold.
   if (flags.st_hold_M || flags.st_hold_W || flags.st_hold_D || flags.st_hold_4h) {
     flags.st_hold = true;
   }
   if (bM?.stHold?.kind === "st_flip_extended" || bW?.stHold?.kind === "st_flip_extended"
-    || bD?.stHold?.kind === "st_flip_extended" || b4H?.stHold?.kind === "st_flip_extended") {
+    || bD?.stHold?.kind === "st_flip_extended" || b4H?.stHold?.kind === "st_flip_extended"
+    || b65?.stHold?.kind === "st_flip_extended" || b9?.stHold?.kind === "st_flip_extended") {
     flags.st_flip_extended = true;
   }
 
@@ -4638,6 +4645,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const b15 = bundles?.["15"];
   const b10 = bundles?.["10"];
   const b5 = bundles?.["5"];
+  const b65 = bundles?.["6.5H"];
+  const b9 = bundles?.["9H"];
   const requestedLeadingLtf = normalizeTfKey(opts?.leadingLtf || existingData?.leading_ltf || "10") || "10";
   const leadingLtf = requestedLeadingLtf === "30" && b30
     ? "30"
@@ -4839,7 +4848,10 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
 
   // Build tf_tech for compatibility with existing worker logic
   const tfTech = {};
-  const tfMap = { M: bM, W: bW, D: bD, "4H": b4H, "1H": b1H, "30": b30, "15": b15, "10": b10 };
+  const tfMap = {
+    M: bM, W: bW, D: bD, "9H": b9, "6.5H": b65,
+    "4H": b4H, "1H": b1H, "30": b30, "15": b15, "10": b10,
+  };
   for (const [tfLabel, b] of Object.entries(tfMap)) {
     if (!b) continue;
     // ATR band: which Fibonacci ATR zone price is in
@@ -6892,6 +6904,7 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   // Separate scoring candles, TD Sequential candles, and raw bars for regime
   const tdSeqCandles = {};
   const rawBars = {}; // Phase 2a: raw OHLC bars for regime detection
+  const candlesByTf = {};
   // Data Age Contract — newest candle ts per TF, fed to computeFreshnessBlock
   // after assembly. Tracked for every scoring TF (even ones that fail the
   // 50-bar bundle minimum) so missing/thin TFs surface as freshness gaps.
@@ -6904,6 +6917,7 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
       // Deduplicate candles BEFORE any computation (fixes duplicate daily bars
       // from multiple Alpaca backfill runs that store two entries per date)
       const deduped = deduplicateCandles(result.candles, tf);
+      candlesByTf[tf] = deduped;
       if (scoringTfs.includes(tf)) {
         let newest = 0;
         for (const c of deduped) {
@@ -6951,6 +6965,28 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     }
   }
 
+  // Session-scale SuperTrend / EMA charts from bars we already fetched.
+  // 6.5H = one NYSE RTH session; 9H = 00/09/18 America/New_York buckets.
+  try {
+    const s65 = synthesizeRthSessionBars(candlesByTf["30"] || []);
+    if (s65.length >= 15) {
+      bundles["6.5H"] = computeTfBundle(s65);
+      if (bundles["6.5H"]) hasData = true;
+    }
+  } catch (e) {
+    console.warn(`[SESSION_TF] ${ticker} 6.5H failed:`, String(e?.message || e).slice(0, 120));
+  }
+  try {
+    const src9 = candlesByTf["60"]?.length ? candlesByTf["60"] : (candlesByTf["30"] || []);
+    const s9 = synthesizeNineHourBars(src9);
+    if (s9.length >= 15) {
+      bundles["9H"] = computeTfBundle(s9);
+      if (bundles["9H"]) hasData = true;
+    }
+  } catch (e) {
+    console.warn(`[SESSION_TF] ${ticker} 9H failed:`, String(e?.message || e).slice(0, 120));
+  }
+
   // Map to the key format used by assembleTickerData
   const bundleMap = {
     M: bundles.M || null,
@@ -6958,6 +6994,8 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     "12M": bundles["12M"] || null,
     W: bundles.W || null,
     D: bundles.D || null,
+    "9H": bundles["9H"] || null,
+    "6.5H": bundles["6.5H"] || null,
     "240": bundles["240"] || null,
     "60": bundles["60"] || null,
     "30": bundles["30"] || null,

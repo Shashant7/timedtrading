@@ -583,13 +583,29 @@ function scoreL8_Saty(t) {
 //                          This is the highest-edge entry (fresh ignition).
 //   • timeframe_confirmed: which TFs report sloping in the same direction.
 //
-// We score 5m/15m/30m as intraday (for tactical entries) and 60m/4h/D as swing
-// (for the options-ladder selector). A sloping daily ST is the strongest
-// confirmation; a flat daily ST + sloping 60m = entering early into a swing.
+// We score 10m/30m as intraday (tactical) and 1H/4H/D/W/M as swing slope.
+// 6.5H (NYSE cash session) and 9H (00/09/18 America/New_York) are against-vetoes,
+// not slope ignition — closed-book review 2026-08-21: monthly slope is the
+// edge; session holds and LTF holds lost.
 
-// Production tf_tech labels: '10', '30', '1H', '4H', 'D' (NOT '60' or '240').
+// Production tf_tech labels: '10', '30', '1H', '4H', '6.5H', '9H', 'D', 'W', 'M'.
 const ST_TFS_INTRADAY = ["10", "30"];
-const ST_TFS_SWING    = ["1H", "4H", "D"];
+const ST_TFS_SWING    = ["1H", "4H", "D", "W", "M"];
+const ST_TFS_HARD_AGAINST = ["4H", "6.5H", "9H", "D"];
+
+function _tfDirAgainst(t, tf, side) {
+  const st = _readSuperTrend(t, tf);
+  if (!st || !side || side === "NEUTRAL") return false;
+  const raw = st.dir;
+  let dirSide = "NEUTRAL";
+  if (typeof raw === "number") dirSide = raw < 0 ? "LONG" : raw > 0 ? "SHORT" : "NEUTRAL";
+  else if (typeof raw === "string") {
+    const up = raw.toUpperCase();
+    if (up === "BULL" || up === "LONG" || up === "UP") dirSide = "LONG";
+    if (up === "BEAR" || up === "SHORT" || up === "DOWN") dirSide = "SHORT";
+  }
+  return dirSide !== "NEUTRAL" && dirSide !== side;
+}
 
 function _readSuperTrend(t, tf) {
   // Production scoring writes ST as two flat fields on the TF row:
@@ -709,6 +725,19 @@ function computeSupertrendTrigger(t) {
     triggerSide = intradayBullCount >= intradayBearCount ? "LONG" : "SHORT";
     triggerStrength = 0.3;
     freshness = "intraday_only";
+  }
+
+  // Direction-against on D / 4H / 6.5H / 9H is a hard veto unless weekly or
+  // monthly slope still agrees (monthly sloping-agree was the closed-book edge).
+  if (triggerSide !== "NEUTRAL") {
+    const hardAgainst = ST_TFS_HARD_AGAINST.some((tf) => _tfDirAgainst(t, tf, triggerSide));
+    const wmSlopeAgrees = (triggerSide === "LONG" ? confirmedBullTfs : confirmedBearTfs)
+      .some((tf) => tf === "W" || tf === "M");
+    if (hardAgainst && !wmSlopeAgrees) {
+      triggerSide = "NEUTRAL";
+      triggerStrength = 0;
+      freshness = "htf_against";
+    }
   }
 
   return {
@@ -858,6 +887,11 @@ export function scoreRootConfluence(t) {
       stLine: hold.stLine ?? null,
       side: hold.sideLabel || (hold.side > 0 ? "LONG" : hold.side < 0 ? "SHORT" : "NEUTRAL"),
     } : null,
+    st_treatment: holdAgrees ? "hold"
+      : flipExtended ? "chase"
+      : stAgrees ? "slope"
+      : stOpposes ? "against"
+      : "flat",
     actionable_summary: _buildActionableSummary({
       mode, side, layers, score, longAgree, shortAgree, stTrigger, hold,
     }),
@@ -896,7 +930,7 @@ function _buildActionableSummary({ mode, side, layers, score, longAgree, shortAg
     if (hold?.kind === "st_flip_extended") {
       return `READY ${side} — confluence ${score}/100 (${agree}/8 layers) but SuperTrend flipped extended off the 21 EMA. ENTRY PENDING — wait for a retest and hold of the ST line (defined risk), not the stretch flip.`;
     }
-    return `READY ${side} — confluence ${score}/100 (${agree}/8 layers) but SuperTrend has not ignited. ENTRY PENDING — wait for ST(10,3) to start sloping ${side === "LONG" ? "up" : "down"} on D/4H/60m, or for a test-and-hold of a flat ST line.`;
+    return `READY ${side} — confluence ${score}/100 (${agree}/8 layers) but SuperTrend has not ignited. ENTRY PENDING — wait for ST(10,3) to start sloping ${side === "LONG" ? "up" : "down"} on W/D/9H/6.5H/4H, or for a test-and-hold of a flat ST line.`;
   }
   if (mode === "FADE") {
     const fadeSrc = stTrigger.side === side ? "ST opposes confluence" : "Newton (RS/Wave/Ichi) opposes majority";

@@ -87,3 +87,10 @@ wrangler.toml.local
 
 # PFVG raw bars (regenerable)
 data/pfvg/*-bars-*.json
+
+# SuperTrend MTF review candle cache + raw exports (report.md + summary.json are committed)
+data/st-mtf-review/cache/
+data/st-mtf-review/trades.json
+data/st-mtf-review/investor.json
+data/st-mtf-review/classified.json
+data/st-mtf-review/candles-index.json
