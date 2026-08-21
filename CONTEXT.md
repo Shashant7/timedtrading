@@ -467,6 +467,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   16:15). Signal TF is **5m** EMA21 + SuperTrend (not 1m). BUY/SELL carry a
   precomputed FMV band: pin = intrinsic at the game-plan expected close
   (763P / 762.50 → buy ceiling $0.50); live premium under / fair / over.
+  Paper BUY/TRIM/EXIT/STOP posts to Discord **#trade-signals** with a
+  Saty-style plan (setup, trigger, entry, exits, stop + flip) and
+  light/medium/heavy size — same levels as a bracket. KV book
+  `timed:opt-dt-book:{signal_id}`; only the speculator/Today profile fires.
   Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day) → Investor
   (long haul); keep each lane's horizon honest.
   **Product surface (2026-07-19):** AT vs Investor are the same actions

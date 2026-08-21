@@ -447,21 +447,26 @@ export function buildExecutionClock({
   const premiumCheap = value?.band === "under";
 
   let action = "WAIT";
+  let sellKind = null;
   let why = "Stalk the first pullback into the 5-minute 21 EMA. The opening print usually overpays premium.";
 
   if (invalidated) {
     action = "SELL";
+    sellKind = "invalidation";
     why = isPut
       ? `${sym} reclaimed the invalidation at $${round2(invPx)} — the put thesis is done.`
       : `${sym} lost the invalidation at $${round2(invPx)} — the call thesis is done.`;
   } else if (forceLiqWindow) {
     action = "SELL";
+    sellKind = "force_liq";
     why = "0 DTE is in the broker force-liquidation window (from 15:15 ET, typically flat by 15:45). Roll to 1 DTE to hold the 15:45-16:15 close run.";
   } else if (oneDteFlatten) {
     action = "SELL";
+    sellKind = "close_auction";
     why = "1 DTE close-auction window is done (16:15 ET). Take the premium — 15:45-16:15 is the hold, not after.";
   } else if (dte0 && ny.minutes >= timeStopMin) {
     action = "SELL";
+    sellKind = "time_stop";
     why = `0 DTE time stop is ${timeStop} ET. Flat anything that is not working; do not hold into 15:45 force-liq.`;
   } else if (path && prem != null && path.trough_mid > 0 && prem <= path.trough_mid * (1 + hardStop / 100 + 0.02) && path.peak_mid && prem < path.peak_mid * 0.55) {
     action = "WAIT";
@@ -523,6 +528,7 @@ export function buildExecutionClock({
 
   return {
     action,
+    sell_kind: sellKind,
     headline,
     why,
     buy_rule: buyRule,

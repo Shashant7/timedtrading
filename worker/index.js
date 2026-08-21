@@ -802,6 +802,10 @@ import {
   groupMarksByOcc as _optClockGroupMarks,
 } from "./option-execution-clock.js";
 import {
+  assembleDayTradePlan as _optDtAssemblePlan,
+  maybeNotifyDayTradePaperEvent as _optDtNotifyPaper,
+} from "./option-day-trade-alerts.js";
+import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
   resolveDueSignals as _soResolveDueSignals,
@@ -94946,6 +94950,60 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   });
                 } catch (_clockErr) {
                   console.warn(`[OPTIONS-CLOCK] ${_dtSym}:`, String(_clockErr?.message || _clockErr).slice(0, 120));
+                }
+                if (_dtExecution) {
+                  try {
+                    const _assembled = _optDtAssemblePlan({
+                      ticker: _dtSym,
+                      flavor: _dtPlay._day_trade_flavor,
+                      strike: _strike,
+                      expiration: _dtPrimary?.expiration || _dtPlay.expiration,
+                      spot: _dtPrice,
+                      premium: _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid,
+                      execution: _dtExecution,
+                      gamePlan: _dtGpSum,
+                      management: _dtPrimary?.option_management || _dtPlay?.option_management,
+                      day_lean_conviction: _dtLeanConv,
+                      honesty_gate_veto: _dtVetoReason,
+                    });
+                    _dtExecution = {
+                      ..._dtExecution,
+                      plan: _assembled.plan,
+                      size: _assembled.size,
+                    };
+                    _optDtNotifyPaper(env, {
+                      profile,
+                      signal_id: _dtSignalId,
+                      ticker: _dtSym,
+                      flavor: _dtPlay._day_trade_flavor,
+                      strike: _strike,
+                      expiration: _dtPrimary?.expiration || _dtPlay.expiration,
+                      spot: _dtPrice,
+                      premium: _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid,
+                      execution: _dtExecution,
+                      gamePlan: _dtGpSum,
+                      management: _dtPrimary?.option_management || _dtPlay?.option_management,
+                      day_lean_conviction: _dtLeanConv,
+                      honesty_gate_veto: _dtVetoReason,
+                    }).then((ev) => {
+                      if (!ev?.event) return;
+                      d1InsertNotification(env, {
+                        email: null,
+                        type: "options_day_trade",
+                        title: ev.embed?.title || `${ev.event} ${_dtSym} day-trade`,
+                        body: String(ev.embed?.description || ev.event).replace(/\*/g, "").slice(0, 280),
+                        link: "/today.html",
+                        alert_class: "trade_signal",
+                        severity: ev.event === "STOP" ? "high" : "info",
+                        engine: "options_day_trade",
+                        exec_state: ev.event,
+                      }).catch(() => {});
+                    }).catch((err) => {
+                      console.warn(`[OPTIONS-DT-ALERT] ${_dtSym}:`, String(err?.message || err).slice(0, 120));
+                    });
+                  } catch (_planErr) {
+                    console.warn(`[OPTIONS-DT-PLAN] ${_dtSym}:`, String(_planErr?.message || _planErr).slice(0, 120));
+                  }
                 }
                 _dtPlays.push({
                   ticker: _dtSym,

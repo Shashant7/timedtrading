@@ -5423,4 +5423,6 @@ intrinsic at the game-plan expected close (763P / 762.50 → buy ceiling
 $0.50); live premium is under / fair / over. Headline expiration is
 always 1 DTE so the book can hold 15:45–16:15 and skip 0 DTE theta /
 force-liq. Flatten 1 DTE after 16:15; 0 DTE (if it appears) is flat
-by 15:15.
+by 15:15. Discord #trade-signals fires on paper BUY / TRIM / EXIT /
+STOP with a Saty five-box plan + light/medium/heavy size — not on
+WAIT, and not on every 5-min tick while the clock stays BUY.
