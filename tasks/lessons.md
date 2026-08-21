@@ -5489,3 +5489,9 @@ Card copy dumped BUY / SELL / TRIM / SETUP / TRIG walls.
 name **Aug 22** (from `expiration.iso`), not just `1 DTE`. Zone / progress
 bars use `getTrackPrice()` (EXT/`ahp` outside RTH); `getHeadlinePrice()`
 stays the RTH close. Card copy is punchline + scan line + one why.
+
+**Correction (same day):** SELL / TRIM / invalidation flatten are live
+**09:30–16:15 ET** only. Invalidation does **not** flatten an open book
+in premarket — wait for the 09:30 cash open. `classifyPaperEvent` refuses
+STOP / TRIM / EXIT outside `isOptionsSellWindowEt`. Do not write
+"invalidation can flatten before 09:30."

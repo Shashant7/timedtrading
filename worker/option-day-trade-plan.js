@@ -35,6 +35,8 @@ export const OVERNIGHT_DECIDE_MIN = 15 * 60 + 30;
 export const OPEN_PRINT_START_MIN = 9 * 60 + 30;
 export const OPEN_PRINT_END_MIN = 9 * 60 + 45;
 export const CASH_CLOSE_MIN = 16 * 60;
+/** Last sell is before 16:15 ET — the index options close. */
+export const SELL_WINDOW_END_MIN = 16 * 60 + 15;
 const SLEEVE_USD = 25000;
 const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -54,6 +56,12 @@ export function formatExpirationShort(expiration) {
 export function isOptionsBuyWindowEt(ts) {
   const m = nyMinutes(ts);
   return m != null && m >= OPEN_PRINT_END_MIN && m < CASH_CLOSE_MIN;
+}
+
+/** Flatten / trim / exit: 09:30 ET until before 16:15 ET. Not premarket. */
+export function isOptionsSellWindowEt(ts) {
+  const m = nyMinutes(ts);
+  return m != null && m >= OPEN_PRINT_START_MIN && m < SELL_WINDOW_END_MIN;
 }
 
 function nyMinutes(ts) {
@@ -446,6 +454,17 @@ export function classifyPaperEvent({
 
   if (status !== "open" && status !== "trimmed") {
     return { event: null, nextBook: null };
+  }
+
+  if (!isOptionsSellWindowEt(now)) {
+    return {
+      event: null,
+      nextBook: {
+        ...book,
+        last_premium: mid ?? book?.last_premium ?? null,
+        held_overnight: !!clock?.hold_overnight || !!book?.held_overnight,
+      },
+    };
   }
 
   const stopHit = (entry != null && mid != null && mid <= entry * (1 + HARD_STOP_PCT / 100))

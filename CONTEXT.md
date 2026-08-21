@@ -466,7 +466,8 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   **calendar expiration** plus **1 DTE** (skip 0 DTE 15:45 force-liq).
   New BUY is cash-session only: **WAIT before 09:30 ET** (index options are
   not tradeable in premarket — 06:30 ET is not a ticket) and through the
-  **09:30-09:45** open print. Signal TF is **5m** EMA21 + SuperTrend (not 1m).
+  **09:30-09:45** open print. SELL / TRIM / invalidation flatten are live
+  **09:30–16:15 ET** — invalidation does **not** flatten a book in premarket. Signal TF is **5m** EMA21 + SuperTrend (not 1m).
   FMV pin = buy ceiling (763P / 762.50 → $0.50). BUY requires leftover
   R:R ≥ 1:1 vs the **game-plan target** (not the pin). Trim is **1R**
   (min +$0.15 over entry; $0.45 → $0.68), not +40%. Flatten 1 DTE at
@@ -675,7 +676,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - **TwelveData margin fields all multiply by 100** (decimal → percent) — `profit_margin`, `operating_margin`, `gross_margin`, `return_on_equity_ttm`, `return_on_assets_ttm`. Forgetting on any one ships impossible values like `gross_margin 0.7%` when net is `41.5%`. (PR #306)
 - **TwelveData FCF: `free_cash_flow_ttm` is canonical** — `levered_free_cash_flow_ttm` is inconsistently populated per ticker. Use the fallback chain in `worker/index.js` to avoid 8× under-reports. (PR #306)
 - **Saty ATR labels are jargon to users** — `DAY GATE / +38.2%` should render as `Today's Range / Expected High` in any UI a non-Saty-reader will see. Math unchanged; vocab swapped. (PR #305)
-- **Index options BUY at 06:30 ET (fixed)**: `openPrint` is only 09:30–09:45, so premarket + SuperTrend + under-FMV became a paper BUY (QQQ 720C). Clock WAITs before 09:30; BUY needs cash RTH after 09:45; `classifyPaperEvent` refuses BUY outside that window. Name the calendar expiration, not just `1 DTE`. Zone bars use `getTrackPrice()` (EXT outside RTH); headline stays RTH close.
+- **Index options BUY at 06:30 ET (fixed)**: `openPrint` is only 09:30–09:45, so premarket + SuperTrend + under-FMV became a paper BUY (QQQ 720C). Clock WAITs before 09:30; BUY needs cash RTH after 09:45; `classifyPaperEvent` refuses BUY outside that window. Name the calendar expiration, not just `1 DTE`. Zone bars use `getTrackPrice()` (EXT outside RTH); headline stays RTH close. SELL/TRIM/invalidation flatten only **09:30–16:15 ET** — do not flatten an open book on invalidation in premarket.
 - **Cards stale close + 0% daily change (fixed)**: Scoring blobs often leave `close == prev_close` while `timed:prices` has the real RTH close on `price`/`p`. `getHeadlinePrice()` preferred stale `close` outside RTH → headline price matched yesterday's reference and `getDailyChange()` returned 0%. Fix: `overlayTimedPricesRow` sets `obj.close = pfP` when market closed; stale-close guard in `getHeadlinePrice`; apply feed `price/close/_live_price` in `tt-live-data.js` + index-react when closed (`p` = RTH close, `ahp` = EXT — not the old PR #319 skip). (PR #594)
 - **Fresh-entry false "Stop breached" (fixed)**: AT `isPricePastStop` mixed prev-day `close`/`ahp` into the worst-case min → a stop just under today's entry read as breached while the feed settled. Breach test now weighs only current-session prints (headline + fresh live tick / OOH ext), filters exact prev-close, 3-min post-entry grace; `getHeadlinePrice` RTH fallback prefers live over a prev-close-equal snapshot price. NEVER use prev-day price in an RTH breach test.
 - **Feed SL at 4 AM false exit (fixed, KO Jul 13)**: `*/1` `detectFeedSlBreaches` used stale KV `entry_price`+`pnlPct` (not D1 VWAP after trims) and hard-closed outside RTH. Feed cron now checks feed print only; defer marginal SL pre/post-market; `closeTradeAtPrice` uses D1 VWAP for P&L/email.

@@ -13,6 +13,7 @@ import {
   shouldHoldOvernight,
   isOvernightCarry,
   formatExpirationShort,
+  isOptionsSellWindowEt,
   SESSION_FLAT_ET,
   HARD_STOP_PCT,
 } from "./option-day-trade-plan.js";
@@ -378,6 +379,7 @@ function distPct(price, ema) {
  *
  * action:
  *   SELL — invalidation, hard stop, time stop, or TP1 already printed
+ *          (09:30–16:15 ET only — invalidation waits for the cash open)
  *   BUY  — SuperTrend with the lean, price in/near the 21 EMA band, cash RTH after 09:45
  *   WAIT — everything else (premarket, chase, against-trend, 09:30-09:45 open print)
  */
@@ -418,6 +420,7 @@ export function buildExecutionClock({
   const ny = nyParts(now);
   const rth = isRthEt(now);
   const beforeCashOpen = ny.minutes < 9 * 60 + 30;
+  const sellWindow = isOptionsSellWindowEt(now);
   const dte0 = num(expiration?.dte) === 0;
   const expectedClose = isPut
     ? (num(gp.bear_target) ?? px)
@@ -501,7 +504,17 @@ export function buildExecutionClock({
   let sellKind = null;
   let why = "Stalk the first pullback into the 5-minute 21 EMA. The opening print usually overpays premium.";
 
-  if (invalidated) {
+  if (beforeCashOpen) {
+    action = "WAIT";
+    why = invalidated
+      ? `${sym} is through invalidation at $${round2(invPx)} — flatten at the 09:30 ET cash open, not in premarket.`
+      : carryOvernight
+        ? "Overnight book is still open. Index options are not tradeable until the 09:30 ET cash open. Trim and exit stay live at the open."
+        : "Index options are not tradeable until the 09:30 ET cash open. Stalk the first pullback after 09:45.";
+  } else if (!sellWindow) {
+    action = "WAIT";
+    why = "Index options session is closed. Sells are live 09:30-16:15 ET.";
+  } else if (invalidated) {
     action = "SELL";
     sellKind = "invalidation";
     why = isPut
@@ -530,11 +543,6 @@ export function buildExecutionClock({
   } else if (carryOvernight && openPrint) {
     action = "WAIT";
     why = "Overnight book — trim and exit are live from 09:30. Do not wait for 09:45; the open is often the profit-taking print.";
-  } else if (beforeCashOpen) {
-    action = "WAIT";
-    why = carryOvernight
-      ? "Overnight book is still open. Index options are not tradeable until the 09:30 ET cash open. Trim and exit stay live at the open."
-      : "Index options are not tradeable until the 09:30 ET cash open. Stalk the first pullback after 09:45.";
   } else if (path && prem != null && path.trough_mid > 0 && prem <= path.trough_mid * (1 + hardStop / 100 + 0.02) && path.peak_mid && prem < path.peak_mid * 0.55) {
     action = "WAIT";
     why = `Premium already bled from $${path.peak_mid} (${path.peak_et} ET) to $${round2(prem)}. Do not chase a dead contract.`;
@@ -612,10 +620,12 @@ export function buildExecutionClock({
       : action === "SELL"
         ? `SELL ${contractBit} — ${why.split("—")[0].trim()}`
         : `WAIT on ${contractBit} — ${beforeCashOpen
-          ? "index options open 09:30 ET"
-          : (carryOvernight && openPrint
-            ? "trim/exit live at the open"
-            : (premiumRich ? `rich vs FMV $${value?.fmv}` : `stalk ${tod.buy_window_et} ET`))}`;
+          ? (invalidated ? "flatten at 09:30 ET" : "index options open 09:30 ET")
+          : (!sellWindow
+            ? "session closed"
+            : (carryOvernight && openPrint
+              ? "trim/exit live at the open"
+              : (premiumRich ? `rich vs FMV $${value?.fmv}` : `stalk ${tod.buy_window_et} ET`)))}`;
 
   const scanParts = [
     value?.buy_ceil != null ? `Pay ≤ $${Number(value.buy_ceil).toFixed(2)}` : null,

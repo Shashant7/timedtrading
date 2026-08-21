@@ -372,6 +372,40 @@ describe("buildExecutionClock", () => {
     expect(out.why).toMatch(/761/);
   });
 
+  it("WAITs on invalidation at 06:30 ET — flatten at the 09:30 cash open", () => {
+    const out = buildExecutionClock({
+      ...baseClock,
+      spot: 760.4,
+      now: ts(`2026-08-21T06:30:00${ET}`),
+    });
+    expect(out.action).toBe("WAIT");
+    expect(out.sell_kind).toBeNull();
+    expect(out.why).toMatch(/09:30/);
+    expect(out.why).toMatch(/not in premarket/);
+    expect(out.headline).toMatch(/flatten at 09:30/);
+  });
+
+  it("SELLs invalidation at 09:30 ET, not earlier", () => {
+    const out = buildExecutionClock({
+      ...baseClock,
+      spot: 760.4,
+      now: ts(`2026-08-21T09:30:00${ET}`),
+    });
+    expect(out.action).toBe("SELL");
+    expect(out.sell_kind).toBe("invalidation");
+    expect(out.why).toMatch(/761/);
+  });
+
+  it("does not SELL after 16:15 ET", () => {
+    const out = buildExecutionClock({
+      ...baseClock,
+      spot: 760.4,
+      now: ts(`2026-08-20T16:15:00${ET}`),
+    });
+    expect(out.action).toBe("WAIT");
+    expect(out.why).toMatch(/16:15/);
+  });
+
   it("SELLs a 0 DTE at the noon time stop", () => {
     const out = buildExecutionClock({
       ...baseClock,
