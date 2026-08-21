@@ -1565,6 +1565,7 @@ function IndexDayTradeStrip({
   const actionChipClass = action => {
     const a = String(action || "").toUpperCase();
     if (a === "BUY") return "ds-chip ds-chip--sm ds-chip--up";
+    if (a === "TRIM") return "ds-chip ds-chip--sm ds-chip--accent";
     if (a === "SELL") return "ds-chip ds-chip--sm ds-chip--dn";
     return "ds-chip ds-chip--sm ds-chip--accent";
   };
@@ -1690,14 +1691,15 @@ function IndexDayTradeStrip({
       }, rr.positive ? `R:R ${Number(rr.rr).toFixed(1)}` : "R:R < 1"));
     }
     const holdOn = !!(exec.hold_overnight || exec.plan?.hold_overnight);
+    const carryOn = !!exec.carry_overnight;
     chipRow.push(h("span", {
       key: "flat",
-      className: `ds-chip ds-chip--sm ${holdOn ? "ds-chip--accent" : ""}`,
+      className: `ds-chip ds-chip--sm ${holdOn || carryOn ? "ds-chip--accent" : ""}`,
       style: {
         fontFamily: "var(--tt-font-mono)"
       },
-      title: holdOn ? "Leftover R:R still justifies an overnight hold" : "Flatten before the cash close unless overnight hold is on"
-    }, holdOn ? "HOLD O/N" : "FLAT 15:45"));
+      title: carryOn ? "Overnight book — trim and exit are live from 09:30. Do not wait for 09:45." : holdOn ? "Leftover R:R still justifies an overnight hold. Trim/exit stay live at the next open." : "Flatten before the cash close unless overnight hold is on"
+    }, carryOn ? "CARRY" : holdOn ? "HOLD O/N" : "FLAT 15:45"));
     const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const rank = Number(liveT?.rank_position ?? liveT?.rank ?? p?.confluence_score) || null;
@@ -1713,13 +1715,13 @@ function IndexDayTradeStrip({
       trackTitle: flavor === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
     }) : null;
     const buyRule = exec.buy_rule || (Number.isFinite(Number(strike)) ? `Buy the ${sym} ${Number(strike).toFixed(0)}${flavor === "put" ? "P" : "C"} when ${sym} holds the 21 EMA and SuperTrend agrees. First pullback, not the open print.` : `Buy when ${sym} holds the 21 EMA and SuperTrend agrees.`);
-    const sellRule = exec.sell_rule || "Sell half at 1R. Close the rest at 2R, by 15:45 ET unless overnight hold is on, or if the underlying crosses invalidation.";
+    const sellRule = exec.sell_rule || "Sell half at 1R. Close the rest at 2R, by 15:45 ET unless overnight hold is on. If the book holds overnight, trim and exit stay live from 09:30 — do not wait for 09:45.";
     const br = exec.plan?.bracket || {};
     const trimPx = br.trim ?? exec.rr?.trim;
     const exitPx = br.exit ?? exec.rr?.exit;
     const trimLine = [trimPx != null ? `half @ $${Number(trimPx).toFixed(2)} (1R)` : null, exitPx != null ? `rest @ $${Number(exitPx).toFixed(2)} (2R)` : null, holdOn ? "hold overnight — leftover R:R still ≥ 1" : "flat by 15:45 ET, before the cash close"].filter(Boolean).join(" · ");
     const hint = exec.headline || exec.why || `${sym} day-trade — stalk the 21 EMA.`;
-    const kClass = action === "BUY" ? "tt-dt-plan__k--buy" : action === "SELL" ? "tt-dt-plan__k--sell" : "tt-dt-plan__k--wait";
+    const kClass = action === "BUY" ? "tt-dt-plan__k--buy" : action === "TRIM" || action === "SELL" ? "tt-dt-plan__k--sell" : "tt-dt-plan__k--wait";
     const hasTiers = Array.isArray(p.tiers) && p.tiers.length > 1;
     const isOpen = openCard === sym;
     const otherTiers = hasTiers ? p.tiers.filter(t => t._tier !== p.primary_tier) : [];
@@ -7709,6 +7711,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787272381362:906024897
+// cache-bust:1787273003135:523289185
 
-// cache-bust:1787272381362:906024897
+// cache-bust:1787273003135:523289185
