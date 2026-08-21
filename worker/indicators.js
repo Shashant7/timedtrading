@@ -1651,7 +1651,8 @@ export function computeTfBundle(bars, anchors = null) {
     ema233Reclaim = detectEma233ReclaimFromSeries({
       closes,
       ema233: e233s,
-      lookback: 24,
+      // 72 bars: 4H ≈ 12 sessions — enough to see reclaim → coil → breakout.
+      lookback: 72,
     });
   } catch (_) { ema233Reclaim = null; }
 
