@@ -4308,18 +4308,18 @@
       },
       {
         "date": "2026-08-20",
-        "vix_close": 17.75,
+        "vix_close": 17.86,
         "vix_state": "normal",
-        "spy_pct": 0.21,
-        "qqq_pct": -0.2,
-        "iwm_pct": 0.5,
-        "offense_avg_pct": -0.01,
-        "defense_avg_pct": 1.54,
-        "sector_rotation": "risk_off",
-        "regime_overall": "balanced",
-        "regime_score": 0,
-        "btc_pct": 3.73,
-        "eth_pct": 1.63
+        "spy_pct": -0.84,
+        "qqq_pct": -0.72,
+        "iwm_pct": -1.34,
+        "offense_avg_pct": -1.04,
+        "defense_avg_pct": -1.28,
+        "sector_rotation": "balanced",
+        "regime_overall": "risk_off",
+        "regime_score": -16,
+        "btc_pct": 4.78,
+        "eth_pct": 2.94
       }
     ],
     "success": true,
@@ -4329,13 +4329,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 7.0536
+        "sql_duration_ms": 6.065
       },
-      "duration": 7.0536,
+      "duration": 6.065,
       "changes": 0,
-      "last_row_id": 113147,
+      "last_row_id": 38158,
       "changed_db": false,
-      "size_after": 4640759808,
+      "size_after": 4491550720,
       "rows_read": 288,
       "rows_written": 0,
       "total_attempts": 1
