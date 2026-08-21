@@ -2130,6 +2130,22 @@
         },
           h("span", { style: { fontSize: 10, fontWeight: 800, padding: "2px 9px", borderRadius: 999, color: _gColor, background: _gBg, border: `1px solid ${_gBorder}`, letterSpacing: "0.05em" } }, setupGuidance.label || "SETUP"),
           h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, color: modeMeta.color, background: modeMeta.bg, border: `1px solid ${modeMeta.color}66` } }, modeMeta.label),
+          (() => {
+            const hold = verdict.st_hold || null;
+            if (hold?.held) {
+              return h("span", {
+                title: `SuperTrend tested and held${hold.tf ? ` ${hold.tf}` : ""}${Number.isFinite(hold.stLine) ? ` @ ${hold.stLine}` : ""}. Risk defined at the ST line.`,
+                style: { fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 999, color: "#34d399", background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.40)", letterSpacing: "0.04em", fontFamily: "var(--tt-font-mono)" },
+              }, "ST HOLD");
+            }
+            if (hold?.kind === "st_flip_extended") {
+              return h("span", {
+                title: "SuperTrend flipped extended off the 21 EMA. Wait for a retest of the ST line.",
+                style: { fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 999, color: "#fbbf24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.40)", letterSpacing: "0.04em", fontFamily: "var(--tt-font-mono)" },
+              }, "ST FLIP");
+            }
+            return null;
+          })(),
           h("span", { style: { fontSize: 11.5, color: "var(--ds-text-body)", flex: "1 1 200px", lineHeight: 1.45 } }, setupGuidance.action || setupGuidance.headline || "—"),
         ),
 
@@ -7338,6 +7354,11 @@
             if (flags.sq30_release) items.push("SQUEEZE_RELEASE_30M");
             if (flags.st_flip_30m) items.push("ST_FLIP_30M");
             if (flags.st_flip_1h) items.push("ST_FLIP_1H");
+            if (flags.st_hold_M) items.push("ST_HOLD_M");
+            if (flags.st_hold_W) items.push("ST_HOLD_W");
+            if (flags.st_hold_D) items.push("ST_HOLD_D");
+            if (flags.st_hold_4h) items.push("ST_HOLD_4H");
+            if (flags.st_flip_extended) items.push("ST_FLIP_EXTENDED");
             if (flags.ema_cross_1h_13_48) items.push("EMA_CROSS_1H_13_48");
             if (flags.buyable_dip_1h_13_48) items.push("BUYABLE_DIP_1H_13_48");
           }

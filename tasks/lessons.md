@@ -6,6 +6,24 @@
 
 ---
 
+## Flat SuperTrend hold is the entry; stretch flip is the chase [2026-08-21]
+
+**Symptom:** ETHUSD monthly — July TD9 after a TD13, flat SuperTrend ~$1,550
+tested and held, 4H/9H 233 EMA reclaim then breakout. The book only treated
+SuperTrend as a **flip**. `computeSupertrendTrigger` returned early on
+`!s.sloping`, so a high-confluence flat-ST hold sat in READY ("wait for slope").
+
+**Root:** A flip often prints stretched off the 21 EMA; the pullback to the
+mean is the risk. A flat ST that is tested (even pierced for one bar) and
+holds defines risk at the ST line. Distance to the 21 EMA is quality, not
+validity — ETH's crash-base was far below the monthly 21 (~$2,550).
+
+**Fix:** `worker/supertrend-hold.js` detects `st_hold` / `st_flip_retest` /
+`st_pierce_held` / `st_flip_extended`. Root confluence: held + same side →
+RIDE even when ST is flat; `st_flip_extended` + slope-agree → READY. L6
+reads monthly TD and a 13-then-9 sequence. `tf_tech.*.stLine` is now
+emitted. Skill: `skills/supertrend-hold.md`.
+
 ## Broker equity: Individual Margin frozen at first fetch [2026-08-13]
 
 **Symptom:** Account performance showed Individual Margin at a fixed
