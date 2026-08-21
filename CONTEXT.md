@@ -468,7 +468,9 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   R:R ≥ 1:1 vs the **game-plan target** (not the pin). Trim is **1R**
   (min +$0.15 over entry; $0.45 → $0.68), not +40%. Flatten 1 DTE at
   **15:45 ET** unless leftover R:R still justifies overnight after 15:30;
-  16:15 is not the planned exit. Paper BUY/TRIM/EXIT/STOP posts to
+  16:15 is not the planned exit. Overnight carry: trim/exit stay live
+  from **09:30** the next session (do not wait for 09:45 — the open is
+  often the profit-taking print). Paper BUY/TRIM/EXIT/STOP posts to
   Discord **#trade-signals** with a Saty-style plan + light/medium/heavy
   size. KV book `timed:opt-dt-book:{signal_id}`; speculator/Today only.
   Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day) → Investor

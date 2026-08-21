@@ -7,6 +7,7 @@ import {
   buildDayTradeSignalEmbed,
   computePremiumRr,
   shouldHoldOvernight,
+  isOvernightCarry,
 } from "./option-day-trade-plan.js";
 
 const ET = "-04:00";
@@ -109,6 +110,24 @@ describe("shouldHoldOvernight", () => {
   });
 });
 
+describe("isOvernightCarry", () => {
+  it("treats a held_overnight stamp as a carry", () => {
+    expect(isOvernightCarry({ status: "open", held_overnight: true })).toBe(true);
+  });
+  it("treats a prior-session entry as a carry", () => {
+    expect(isOvernightCarry({
+      status: "open",
+      entry_ts: ts(`2026-08-20T15:50:00${ET}`),
+    }, ts(`2026-08-21T09:35:00${ET}`))).toBe(true);
+  });
+  it("does not treat a same-session book as a carry", () => {
+    expect(isOvernightCarry({
+      status: "open",
+      entry_ts: ts(`2026-08-21T10:05:00${ET}`),
+    }, ts(`2026-08-21T10:20:00${ET}`))).toBe(false);
+  });
+});
+
 describe("buildSatyDayTradePlan", () => {
   it("fills the five boxes and a flip level", () => {
     const plan = buildSatyDayTradePlan({
@@ -161,7 +180,7 @@ describe("buildSatyDayTradePlan", () => {
     });
     expect(plan.hold_overnight).toBe(true);
     expect(plan.exits).toMatch(/overnight/i);
-    expect(plan.exits).toMatch(/16:15/);
+    expect(plan.exits).toMatch(/09:45/);
   });
   it("does not use you/your", () => {
     const plan = buildSatyDayTradePlan({
@@ -198,6 +217,24 @@ describe("classifyPaperEvent", () => {
       premium: 0.40,
     });
     expect(out.event).toBeNull();
+  });
+  it("TRIMs an overnight book on open_trim instead of exiting the whole book", () => {
+    const out = classifyPaperEvent({
+      clock: { ...clockBuy, action: "TRIM", sell_kind: "open_trim", why: "Overnight book — trim at the open" },
+      book: { status: "open", entry_premium: 0.45, trim_premium: 0.68, held_overnight: true, contracts: 2 },
+      premium: 0.72,
+    });
+    expect(out.event).toBe("TRIM");
+    expect(out.nextBook.status).toBe("trimmed");
+  });
+  it("EXITs an overnight book on open_exit at the first print", () => {
+    const out = classifyPaperEvent({
+      clock: { ...clockBuy, action: "SELL", sell_kind: "open_exit", why: "Overnight book — take the open exit" },
+      book: { status: "trimmed", entry_premium: 0.45, exit_premium: 0.90, held_overnight: true },
+      premium: 0.95,
+    });
+    expect(out.event).toBe("EXIT");
+    expect(out.reason).toBe("open_exit");
   });
   it("does not TRIM a $0.45 book at $0.53 — waits for 1R", () => {
     const early = classifyPaperEvent({

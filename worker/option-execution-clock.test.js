@@ -263,6 +263,66 @@ describe("buildExecutionClock", () => {
     expect(out.why).toMatch(/open/);
   });
 
+  it("does not gate an overnight trim at the open", () => {
+    const out = buildExecutionClock({
+      ...baseClock,
+      premium: 1.80,
+      now: ts(`2026-08-21T09:35:00${ET}`),
+      openBook: {
+        status: "open",
+        held_overnight: true,
+        entry_premium: 1.20,
+        trim_premium: 1.80,
+        exit_premium: 2.40,
+        entry_ts: ts(`2026-08-20T15:50:00${ET}`),
+      },
+    });
+    expect(out.action).toBe("TRIM");
+    expect(out.sell_kind).toBe("open_trim");
+    expect(out.carry_overnight).toBe(true);
+    expect(out.why).toMatch(/09:45/);
+    expect(out.why).not.toMatch(/first pullback/);
+  });
+
+  it("takes an overnight exit at the open when 2R prints", () => {
+    const out = buildExecutionClock({
+      ...baseClock,
+      premium: 2.40,
+      now: ts(`2026-08-21T09:35:00${ET}`),
+      openBook: {
+        status: "trimmed",
+        held_overnight: true,
+        entry_premium: 1.20,
+        trim_premium: 1.80,
+        exit_premium: 2.40,
+        entry_ts: ts(`2026-08-20T15:50:00${ET}`),
+      },
+    });
+    expect(out.action).toBe("SELL");
+    expect(out.sell_kind).toBe("open_exit");
+    expect(out.why).toMatch(/profit-taking/);
+  });
+
+  it("keeps overnight trim/exit live at the open even if 1R has not printed", () => {
+    const out = buildExecutionClock({
+      ...baseClock,
+      premium: 1.40,
+      now: ts(`2026-08-21T09:35:00${ET}`),
+      openBook: {
+        status: "open",
+        held_overnight: true,
+        entry_premium: 1.20,
+        trim_premium: 1.80,
+        exit_premium: 2.40,
+        entry_ts: ts(`2026-08-20T15:50:00${ET}`),
+      },
+    });
+    expect(out.action).toBe("WAIT");
+    expect(out.carry_overnight).toBe(true);
+    expect(out.why).toMatch(/live from 09:30/);
+    expect(out.why).not.toMatch(/wait for the first pullback/i);
+  });
+
   it("SELLs when the underlying loses invalidation", () => {
     const out = buildExecutionClock({
       ...baseClock,

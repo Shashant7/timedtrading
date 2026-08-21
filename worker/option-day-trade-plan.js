@@ -32,6 +32,8 @@ export const MIN_TRIM_DOLLARS = 0.15;
 export const SESSION_FLAT_ET = "15:45";
 /** Overnight is decided from 15:30 ET, not at the morning entry. */
 export const OVERNIGHT_DECIDE_MIN = 15 * 60 + 30;
+export const OPEN_PRINT_START_MIN = 9 * 60 + 30;
+export const OPEN_PRINT_END_MIN = 9 * 60 + 45;
 const SLEEVE_USD = 25000;
 
 function nyMinutes(ts) {
@@ -129,6 +131,31 @@ export function shouldHoldOvernight({
     if (risk > 0 && (tgt - mid) / risk < MIN_RR) return false;
   }
   return true;
+}
+
+export function nyDateIso(ts = Date.now()) {
+  return new Date(Number(ts) || Date.now()).toLocaleDateString("en-CA", {
+    timeZone: "America/New_York",
+  });
+}
+
+export function isOpenPrintMinutes(minutes) {
+  const m = num(minutes);
+  return m != null && m >= OPEN_PRINT_START_MIN && m < OPEN_PRINT_END_MIN;
+}
+
+/**
+ * An overnight carry is an open/trimmed book from a prior NY session,
+ * or a book the clock already stamped held_overnight. Trim and exit
+ * stay live at the next open — the 09:30-09:45 wait is for new buys.
+ */
+export function isOvernightCarry(book, now = Date.now()) {
+  const status = String(book?.status || "");
+  if (status !== "open" && status !== "trimmed") return false;
+  if (book?.held_overnight) return true;
+  const entryTs = num(book?.entry_ts);
+  if (entryTs == null) return false;
+  return nyDateIso(entryTs) !== nyDateIso(now);
 }
 
 /**
@@ -262,7 +289,7 @@ export function buildSatyDayTradePlan({
     (target != null ? ` or if ${sym} reaches ${money(target)}` : "") +
     `. After the trim, trail the runner: stop to breakeven, then to the last 5-minute 21 EMA hold.` +
     (holdOvernight
-      ? " Hold overnight — leftover R:R is still ≥ 1 and the thesis is intact. Flatten tomorrow; do not wait until 16:15 ET tonight."
+      ? " Hold overnight — leftover R:R is still ≥ 1 and the thesis is intact. Trim and exit stay live at the next open — do not wait for 09:45; the opening print is often the profit-taking run."
       : ` Flatten by ${SESSION_FLAT_ET} ET, before the cash close. Overnight risk can erase the gain.`) +
     rrBit;
 
@@ -315,6 +342,8 @@ function inferSellKind(clock) {
   const why = String(clock?.why || "").toLowerCase();
   if (why.includes("invalidation") || why.includes("reclaimed") || why.includes("lost the")) return "invalidation";
   if (why.includes("force-liq")) return "force_liq";
+  if (why.includes("open_trim") || why.includes("trim at the open")) return "open_trim";
+  if (why.includes("open_exit") || why.includes("open exit")) return "open_exit";
   if (why.includes("close-auction") || why.includes("16:15") || why.includes("cash close") || why.includes("15:45")) return "session_close";
   if (why.includes("time stop")) return "time_stop";
   return "exit";
@@ -375,10 +404,16 @@ export function classifyPaperEvent({
         event: "BUY",
         entry_premium: mid,
         entry_ts: now,
+        last_premium: mid,
         trim_premium: rr?.trim ?? null,
         exit_premium: rr?.exit ?? null,
         contracts: sz?.contracts ?? 1,
         size_label: sz?.label || "medium",
+        ticker: clock?.contract?.ticker || null,
+        flavor: clock?.contract?.flavor || null,
+        strike: clock?.contract?.strike ?? null,
+        expiration: clock?.contract?.expiration || null,
+        held_overnight: false,
       },
     };
   }
@@ -393,15 +428,30 @@ export function classifyPaperEvent({
     return {
       event: "STOP",
       reason: sellKind === "invalidation" ? "invalidation" : "premium_stop",
-      nextBook: { ...closed, event: "STOP" },
+      nextBook: { ...closed, event: "STOP", held_overnight: false },
     };
   }
 
-  if (action === "SELL" || sellKind === "force_liq" || sellKind === "time_stop" || sellKind === "close_auction" || sellKind === "session_close") {
+  if ((sellKind === "open_trim" || action === "TRIM") && status === "open") {
+    return {
+      event: "TRIM",
+      reason: "open_trim",
+      nextBook: {
+        ...book,
+        status: "trimmed",
+        event: "TRIM",
+        last_premium: mid,
+        trim_premium: mid,
+        trim_ts: now,
+      },
+    };
+  }
+
+  if (action === "SELL" || sellKind === "force_liq" || sellKind === "time_stop" || sellKind === "close_auction" || sellKind === "session_close" || sellKind === "open_exit") {
     return {
       event: "EXIT",
       reason: sellKind || "exit",
-      nextBook: { ...closed, event: "EXIT" },
+      nextBook: { ...closed, event: "EXIT", held_overnight: false },
     };
   }
 
@@ -414,6 +464,7 @@ export function classifyPaperEvent({
         ...book,
         status: "trimmed",
         event: "TRIM",
+        last_premium: mid,
         trim_premium: mid,
         trim_ts: now,
       },
@@ -424,7 +475,19 @@ export function classifyPaperEvent({
     return {
       event: "EXIT",
       reason: "tp2",
-      nextBook: { ...closed, event: "EXIT" },
+      nextBook: { ...closed, event: "EXIT", held_overnight: false },
+    };
+  }
+
+  const stampHold = !!clock?.hold_overnight || !!book?.held_overnight;
+  if (stampHold || mid != null) {
+    return {
+      event: null,
+      nextBook: {
+        ...book,
+        last_premium: mid ?? book?.last_premium ?? null,
+        held_overnight: stampHold,
+      },
     };
   }
 
@@ -489,7 +552,9 @@ export function buildDayTradeSignalEmbed({
     br.trim != null ? `TRIM 50% @ ${money(br.trim)} (${br.trim_r ?? TRIM_R}R)` : null,
     br.exit != null ? `EXIT rest @ ${money(br.exit)} (${br.exit_r ?? EXIT_R}R)` : null,
     br.rr != null ? `R:R to target ${br.rr}:1${br.rr_positive ? "" : " — below 1:1"}` : null,
-    br.hold_overnight ? "HOLD overnight — leftover R:R still ≥ 1" : (br.time_stop_et ? `FLAT by ${br.time_stop_et} ET (before the cash close)` : null),
+    br.hold_overnight
+      ? "HOLD overnight — leftover R:R still ≥ 1. Trim/exit live at the next open (do not wait for 09:45)"
+      : (br.time_stop_et ? `FLAT by ${br.time_stop_et} ET (before the cash close)` : null),
     br.stop_premium != null ? `STOP premium @ ${money(br.stop_premium)} (${HARD_STOP_PCT}%)` : null,
     br.stop_underlying != null ? `STOP underlying @ ${money(br.stop_underlying)}` : null,
     sz.scale_note || null,

@@ -14,6 +14,7 @@ function mockEnv(store = {}) {
     KV_TIMED: {
       async get(k) { return store[k] || null; },
       async put(k, v) { store[k] = v; },
+      async delete(k) { delete store[k]; },
     },
   };
 }
@@ -62,5 +63,52 @@ describe("maybeNotifyDayTradePaperEvent", () => {
     const out = await maybeNotifyDayTradePaperEvent(env, { ...payload, profile: "moderate" });
     expect(out.skipped).toBe(true);
     expect(notifyDiscord).not.toHaveBeenCalled();
+  });
+
+  it("TRIMs a carried overnight book on the next session's signal id", async () => {
+    const thuId = payload.signal_id;
+    const store = {
+      [`timed:opt-dt-book:${thuId}`]: JSON.stringify({
+        status: "open",
+        held_overnight: true,
+        entry_premium: 0.45,
+        trim_premium: 0.68,
+        exit_premium: 0.90,
+        contracts: 2,
+        size_label: "medium",
+        flavor: "put",
+        strike: 763,
+      }),
+      "timed:opt-dt-carry:SPY": JSON.stringify({
+        signal_id: thuId,
+        book_key: `timed:opt-dt-book:${thuId}`,
+        book: {
+          status: "open",
+          held_overnight: true,
+          entry_premium: 0.45,
+          trim_premium: 0.68,
+          exit_premium: 0.90,
+          contracts: 2,
+          flavor: "put",
+          strike: 763,
+        },
+      }),
+    };
+    const env = mockEnv(store);
+    const out = await maybeNotifyDayTradePaperEvent(env, {
+      ...payload,
+      signal_id: "dt:SPY:2026-08-21:2026-08-24:P:770",
+      premium: 0.72,
+      execution: {
+        ...payload.execution,
+        action: "TRIM",
+        sell_kind: "open_trim",
+        why: "Overnight book — trim at the open",
+        hold_overnight: false,
+        carry_overnight: true,
+      },
+    });
+    expect(out.event).toBe("TRIM");
+    expect(notifyDiscord).toHaveBeenCalledTimes(1);
   });
 });

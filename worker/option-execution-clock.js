@@ -8,7 +8,7 @@
 //
 // Pure. No I/O. Caller attaches D1 marks + ticker tf_tech.
 
-import { computePremiumRr, shouldHoldOvernight, SESSION_FLAT_ET, HARD_STOP_PCT } from "./option-day-trade-plan.js";
+import { computePremiumRr, shouldHoldOvernight, isOvernightCarry, SESSION_FLAT_ET, HARD_STOP_PCT } from "./option-day-trade-plan.js";
 
 const NY_TZ = "America/New_York";
 
@@ -385,6 +385,7 @@ export function buildExecutionClock({
   now = Date.now(),
   marks = [],
   todStudy = null,
+  openBook = null,
 } = {}) {
   const sym = String(ticker || "").toUpperCase();
   const flav = String(flavor || "").toLowerCase() === "put" ? "put" : "call";
@@ -463,6 +464,20 @@ export function buildExecutionClock({
   const atTrough = path && prem != null && path.trough_mid > 0 && prem <= path.trough_mid * 1.08;
   const offPeak = path && prem != null && path.peak_mid > 0 && prem <= path.peak_mid * 0.80;
   const openPrint = ny.minutes >= 9 * 60 + 30 && ny.minutes < 9 * 60 + 45;
+  const carryOvernight = isOvernightCarry(openBook, now);
+  const bookEntry = num(openBook?.entry_premium) ?? prem;
+  const bookRr = carryOvernight && bookEntry > 0
+    ? computePremiumRr({
+      entry: bookEntry,
+      stopPct: num(mgmt.hard_stop_pct) ?? HARD_STOP_PCT,
+      strike,
+      flavor: flav,
+      targetPx,
+      pin: value?.pin,
+    })
+    : null;
+  const manageTrim = num(openBook?.trim_premium) ?? bookRr?.trim;
+  const manageExit = num(openBook?.exit_premium) ?? bookRr?.exit;
   const forceLiqWindow = dte0 && ny.minutes >= FORCE_LIQ_MIN;
   const closeAuction = !dte0 && ny.minutes >= CLOSE_AUCTION_START && ny.minutes < CLOSE_AUCTION_END;
   const sessionFlatten = !dte0 && ny.minutes >= CLOSE_AUCTION_START && !holdOvernight;
@@ -493,6 +508,17 @@ export function buildExecutionClock({
     action = "SELL";
     sellKind = "time_stop";
     why = `0 DTE time stop is ${timeStop} ET. Flat anything that is not working; do not hold into 15:45 force-liq.`;
+  } else if (carryOvernight && openPrint && manageExit != null && prem != null && prem + 1e-9 >= manageExit) {
+    action = "SELL";
+    sellKind = "open_exit";
+    why = "Overnight book — take the open exit. Do not wait for 09:45; the first print is often the profit-taking run.";
+  } else if (carryOvernight && openPrint && String(openBook?.status) === "open" && manageTrim != null && prem != null && prem + 1e-9 >= manageTrim) {
+    action = "TRIM";
+    sellKind = "open_trim";
+    why = "Overnight book — trim at the open. Do not wait for 09:45; a profit-taking dump can erase the gain.";
+  } else if (carryOvernight && openPrint) {
+    action = "WAIT";
+    why = "Overnight book — trim and exit are live from 09:30. Do not wait for 09:45; the open is often the profit-taking print.";
   } else if (path && prem != null && path.trough_mid > 0 && prem <= path.trough_mid * (1 + hardStop / 100 + 0.02) && path.peak_mid && prem < path.peak_mid * 0.55) {
     action = "WAIT";
     why = `Premium already bled from $${path.peak_mid} (${path.peak_et} ET) to $${round2(prem)}. Do not chase a dead contract.`;
@@ -530,6 +556,11 @@ export function buildExecutionClock({
     why = `Contract has rolled over from the ${path.peak_et} ET peak ($${path.peak_mid}). No SuperTrend confirmation to re-enter.`;
   }
 
+  if (carryOvernight && action === "BUY") {
+    action = "WAIT";
+    why = "Overnight book is still open. Trim and exit stay live — do not add a new ticket until this book is flat.";
+  }
+
   const emaBit = ema21 != null ? ` the ${ind.tf || "5"}-minute 21 EMA ($${ema21})` : " the 5-minute 21 EMA";
   const stBit = `SuperTrend is ${isPut ? "short" : "long"}`;
   const fmvBit = value
@@ -542,8 +573,8 @@ export function buildExecutionClock({
   const overBit = value ? ` or when premium is rich (≥ $${value.over})` : "";
   const flattenBit = dte0
     ? "0 DTE must be flat by 15:15 ET (broker force-liq ~15:45)."
-    : (holdOvernight
-      ? "Overnight hold is on — leftover R:R ≥ 1. Flatten next session; do not wait until 16:15 ET tonight."
+    : (holdOvernight || carryOvernight
+      ? "Overnight hold is on — leftover R:R ≥ 1. Trim and exit stay live at the next open; do not wait for 09:45. Flatten next session if the open does not pay."
       : `Flatten by ${SESSION_FLAT_ET} ET, before the cash close. Overnight only if leftover R:R stays ≥ 1.`);
   const trimBit = rr?.trim != null ? ` $${Number(rr.trim).toFixed(2)} (1R)` : ` +${tp1}%`;
   const exitBit = rr?.exit != null ? ` $${Number(rr.exit).toFixed(2)} (2R)` : ` +${num(mgmt.take_profit_2?.pct) ?? 100}%`;
@@ -553,15 +584,19 @@ export function buildExecutionClock({
     : (tod.note || null);
   const dteNote = dte0
     ? "0 DTE can be force-liquidated from 15:15 ET. Flatten 0 DTE well before the cash close."
-    : holdOvernight
-      ? "Overnight hold — thesis intact and leftover R:R ≥ 1. 1 DTE can still trade 15:45-16:15, but 16:15 is not the planned exit."
+    : (holdOvernight || carryOvernight)
+      ? "Overnight hold — thesis intact and leftover R:R ≥ 1. Trim and exit are live from 09:30 the next session; do not wait for 09:45. 16:15 is not the planned exit."
       : "Flatten by 15:45 ET unless leftover R:R still justifies holding overnight. Do not wait until 16:15 to take an intended exit.";
 
   const headline = action === "BUY"
     ? `BUY ${occ_short} — ${premiumCheap ? "under FMV" : "pullback into"}${premiumCheap ? "" : emaBit}`
-    : action === "SELL"
-      ? `SELL ${occ_short} — ${why.split("—")[0].trim()}`
-      : `WAIT on ${occ_short} — ${premiumRich ? `rich vs FMV $${value?.fmv}` : `stalk ${tod.buy_window_et} ET`}`;
+    : action === "TRIM"
+      ? `TRIM ${occ_short} — take the open, do not wait for 09:45`
+      : action === "SELL"
+        ? `SELL ${occ_short} — ${why.split("—")[0].trim()}`
+        : `WAIT on ${occ_short} — ${carryOvernight && openPrint
+          ? "trim/exit live at the open"
+          : (premiumRich ? `rich vs FMV $${value?.fmv}` : `stalk ${tod.buy_window_et} ET`)}`;
 
   return {
     action,
@@ -587,6 +622,7 @@ export function buildExecutionClock({
     zone,
     rr,
     hold_overnight: holdOvernight,
+    carry_overnight: carryOvernight,
     contract: { ticker: sym, flavor: flav, strike: num(strike), expiration: expiration || null, label: occ_short, dte: dte_bit },
   };
 }

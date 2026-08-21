@@ -11,10 +11,89 @@ import {
   sizeDayTradePlay,
   classifyPaperEvent,
   buildDayTradeSignalEmbed,
+  isOvernightCarry,
 } from "./option-day-trade-plan.js";
 
 const BOOK_TTL = 3 * 86400;
 const DEFAULT_PROFILE = "speculator";
+
+export function dayTradeBookKey(signalId) {
+  return `timed:opt-dt-book:${String(signalId || "").trim()}`;
+}
+
+export function dayTradeCarryKey(ticker) {
+  return `timed:opt-dt-carry:${String(ticker || "").toUpperCase()}`;
+}
+
+function parseJson(raw) {
+  if (!raw) return null;
+  try { return typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return null; }
+}
+
+function bookIsLive(book) {
+  const status = String(book?.status || "");
+  return status === "open" || status === "trimmed";
+}
+
+/**
+ * Load the paper book for this signal, then fall back to the ticker
+ * overnight-carry pointer. Signal ids include the NY date, so a
+ * Thursday book is invisible to Friday's id without the carry key.
+ */
+export async function loadDayTradeBook(env, { signal_id, ticker } = {}) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return { book: null, bookKey: null, fromCarry: false, carryKey: null };
+  const bookKey = signal_id ? dayTradeBookKey(signal_id) : null;
+  const carryKey = ticker ? dayTradeCarryKey(ticker) : null;
+  let book = null;
+  if (bookKey) {
+    try { book = parseJson(await KV.get(bookKey)); } catch { book = null; }
+  }
+  if (bookIsLive(book)) {
+    return { book, bookKey, fromCarry: false, carryKey };
+  }
+  if (!carryKey) return { book, bookKey, fromCarry: false, carryKey };
+  let carry = null;
+  try { carry = parseJson(await KV.get(carryKey)); } catch { carry = null; }
+  if (bookIsLive(carry?.book)) {
+    return {
+      book: carry.book,
+      bookKey: carry.book_key || (carry.signal_id ? dayTradeBookKey(carry.signal_id) : bookKey),
+      fromCarry: true,
+      carryKey,
+      signal_id: carry.signal_id || signal_id || null,
+    };
+  }
+  return { book, bookKey, fromCarry: false, carryKey };
+}
+
+async function persistDayTradeBook(KV, {
+  bookKey,
+  book,
+  ticker,
+  signalId,
+  now = Date.now(),
+} = {}) {
+  if (!KV || !bookKey || !book) return;
+  await KV.put(bookKey, JSON.stringify(book), { expirationTtl: BOOK_TTL }).catch(() => {});
+  const carryKey = ticker ? dayTradeCarryKey(ticker) : null;
+  if (!carryKey) return;
+  const live = bookIsLive(book) && (book.held_overnight || isOvernightCarry(book, now));
+  if (live) {
+    await KV.put(carryKey, JSON.stringify({
+      signal_id: signalId || null,
+      book_key: bookKey,
+      book,
+      ts: now,
+    }), { expirationTtl: BOOK_TTL }).catch(() => {});
+    return;
+  }
+  if (typeof KV.delete === "function") {
+    await KV.delete(carryKey).catch(() => {});
+  } else {
+    await KV.put(carryKey, JSON.stringify({ book: { status: "flat" }, ts: now }), { expirationTtl: 3600 }).catch(() => {});
+  }
+}
 
 function stWithPlay(execution, flavor) {
   const dir = Number(execution?.indicators?.st_dir);
@@ -61,14 +140,12 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
   if (!payload.execution) return { skipped: true, reason: "no_clock" };
 
   const { plan, size } = assembleDayTradePlan(payload);
-  const bookKey = `timed:opt-dt-book:${signalId}`;
-  let book = null;
-  try {
-    const raw = await KV.get(bookKey);
-    book = raw ? JSON.parse(raw) : null;
-  } catch {
-    book = null;
-  }
+  const loaded = payload.loadedBook && typeof payload.loadedBook === "object"
+    ? payload.loadedBook
+    : await loadDayTradeBook(env, { signal_id: signalId, ticker: payload.ticker });
+  const book = loaded.book;
+  const bookKey = loaded.bookKey || dayTradeBookKey(signalId);
+  const persistSignalId = loaded.signal_id || signalId;
 
   const decision = classifyPaperEvent({
     clock: payload.execution,
@@ -79,10 +156,16 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
   });
 
   if (decision.nextBook) {
-    await KV.put(bookKey, JSON.stringify(decision.nextBook), { expirationTtl: BOOK_TTL }).catch(() => {});
+    await persistDayTradeBook(KV, {
+      bookKey,
+      book: decision.nextBook,
+      ticker: payload.ticker,
+      signalId: persistSignalId,
+      now: payload.now || Date.now(),
+    });
   }
   if (!decision.event) {
-    return { ok: true, event: null, plan, size, book: decision.nextBook || book };
+    return { ok: true, event: null, plan, size, book: decision.nextBook || book, fromCarry: !!loaded.fromCarry };
   }
 
   const embed = buildDayTradeSignalEmbed({

@@ -5426,6 +5426,11 @@ leftover R:R ≥ 1:1 vs the game-plan **target** (not the pin — pin is
 the buy ceiling only). Trim is 1R with a $0.15 floor ($0.45 entry →
 $0.68, never $0.53). Flatten 1 DTE at 15:45 ET unless leftover R:R
 still justifies overnight after 15:30; 16:15 is not the planned exit.
+Overnight carry: trim and exit stay live from 09:30 the next session
+— do not wait for 09:45. The opening print is often the profit-taking
+run; sitting through the open-auction gate can give the dump back.
+Signal ids include the NY date, so the paper book is pointed from
+`timed:opt-dt-carry:{TICKER}` across the session roll.
 0 DTE (if it appears) is flat by 15:15. Discord #trade-signals fires
 on paper BUY / TRIM / EXIT / STOP with a Saty five-box plan +
 light/medium/heavy size — not on WAIT, and not on every 5-min tick
