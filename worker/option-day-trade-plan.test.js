@@ -8,10 +8,15 @@ import {
   computePremiumRr,
   shouldHoldOvernight,
   isOvernightCarry,
+  formatExpirationShort,
+  isOptionsBuyWindowEt,
+  isOptionsSellWindowEt,
 } from "./option-day-trade-plan.js";
 
 const ET = "-04:00";
 const ts = (iso) => Date.parse(iso);
+const RTH_NOW = ts(`2026-08-20T10:12:00${ET}`);
+const PREMARKET_NOW = ts(`2026-08-21T06:30:00${ET}`);
 
 const clockBuy = {
   action: "BUY",
@@ -198,6 +203,34 @@ describe("buildSatyDayTradePlan", () => {
   });
 });
 
+describe("formatExpirationShort", () => {
+  it("prints Aug 22 from ISO, not 1 DTE", () => {
+    expect(formatExpirationShort({ dte: 1, iso: "2026-08-22", label: "1 DTE" })).toBe("Aug 22");
+    expect(formatExpirationShort({ dte: 1, label: "1 DTE" })).toBe("");
+  });
+});
+
+describe("isOptionsBuyWindowEt", () => {
+  it("is closed at 06:30 ET and open at 10:12 ET", () => {
+    expect(isOptionsBuyWindowEt(PREMARKET_NOW)).toBe(false);
+    expect(isOptionsBuyWindowEt(ts(`2026-08-20T09:35:00${ET}`))).toBe(false);
+    expect(isOptionsBuyWindowEt(RTH_NOW)).toBe(true);
+    expect(isOptionsBuyWindowEt(ts(`2026-08-20T16:00:00${ET}`))).toBe(false);
+  });
+});
+
+describe("isOptionsSellWindowEt", () => {
+  it("is live 09:30 to before 16:15, not premarket", () => {
+    expect(isOptionsSellWindowEt(PREMARKET_NOW)).toBe(false);
+    expect(isOptionsSellWindowEt(ts(`2026-08-20T09:29:00${ET}`))).toBe(false);
+    expect(isOptionsSellWindowEt(ts(`2026-08-20T09:30:00${ET}`))).toBe(true);
+    expect(isOptionsSellWindowEt(ts(`2026-08-20T09:35:00${ET}`))).toBe(true);
+    expect(isOptionsSellWindowEt(RTH_NOW)).toBe(true);
+    expect(isOptionsSellWindowEt(ts(`2026-08-20T16:14:00${ET}`))).toBe(true);
+    expect(isOptionsSellWindowEt(ts(`2026-08-20T16:15:00${ET}`))).toBe(false);
+  });
+});
+
 describe("classifyPaperEvent", () => {
   it("BUYs from flat when the clock says BUY", () => {
     const out = classifyPaperEvent({
@@ -205,10 +238,31 @@ describe("classifyPaperEvent", () => {
       book: null,
       premium: 0.38,
       size: { label: "medium", contracts: 2 },
+      now: RTH_NOW,
     });
     expect(out.event).toBe("BUY");
     expect(out.nextBook.status).toBe("open");
     expect(out.nextBook.entry_premium).toBe(0.38);
+  });
+  it("does not paper-BUY at 06:30 ET even if a stale clock still says BUY", () => {
+    const out = classifyPaperEvent({
+      clock: clockBuy,
+      book: null,
+      premium: 1.45,
+      size: { label: "light", contracts: 1 },
+      now: PREMARKET_NOW,
+    });
+    expect(out.event).toBeNull();
+  });
+  it("does not paper-STOP on invalidation before 09:30 ET", () => {
+    const out = classifyPaperEvent({
+      clock: { ...clockBuy, action: "SELL", sell_kind: "invalidation", why: "QQQ lost 710" },
+      book: { status: "open", entry_premium: 1.45, held_overnight: true },
+      premium: 0.60,
+      now: PREMARKET_NOW,
+    });
+    expect(out.event).toBeNull();
+    expect(out.nextBook.status).toBe("open");
   });
   it("does not re-BUY on every tick while still BUY", () => {
     const out = classifyPaperEvent({
@@ -223,6 +277,7 @@ describe("classifyPaperEvent", () => {
       clock: { ...clockBuy, action: "TRIM", sell_kind: "open_trim", why: "Overnight book — trim at the open" },
       book: { status: "open", entry_premium: 0.45, trim_premium: 0.68, held_overnight: true, contracts: 2 },
       premium: 0.72,
+      now: ts(`2026-08-21T09:35:00${ET}`),
     });
     expect(out.event).toBe("TRIM");
     expect(out.nextBook.status).toBe("trimmed");
@@ -232,6 +287,7 @@ describe("classifyPaperEvent", () => {
       clock: { ...clockBuy, action: "SELL", sell_kind: "open_exit", why: "Overnight book — take the open exit" },
       book: { status: "trimmed", entry_premium: 0.45, exit_premium: 0.90, held_overnight: true },
       premium: 0.95,
+      now: ts(`2026-08-21T09:35:00${ET}`),
     });
     expect(out.event).toBe("EXIT");
     expect(out.reason).toBe("open_exit");
@@ -241,12 +297,14 @@ describe("classifyPaperEvent", () => {
       clock: clockBuy,
       book: { status: "open", entry_premium: 0.45, trim_premium: 0.68, contracts: 2 },
       premium: 0.53,
+      now: RTH_NOW,
     });
     expect(early.event).toBeNull();
     const hit = classifyPaperEvent({
       clock: clockBuy,
       book: { status: "open", entry_premium: 0.45, trim_premium: 0.68, contracts: 2 },
       premium: 0.68,
+      now: RTH_NOW,
     });
     expect(hit.event).toBe("TRIM");
   });
@@ -255,6 +313,7 @@ describe("classifyPaperEvent", () => {
       clock: { ...clockBuy, action: "SELL", sell_kind: "invalidation", why: "SPY reclaimed 766" },
       book: { status: "open", entry_premium: 0.38 },
       premium: 0.22,
+      now: ts(`2026-08-20T09:30:00${ET}`),
     });
     expect(out.event).toBe("STOP");
     expect(out.nextBook.status).toBe("closed");
@@ -265,6 +324,7 @@ describe("classifyPaperEvent", () => {
       clock: { ...clockBuy, action: "SELL", sell_kind: "session_close", why: "Flatten by 15:45 ET — before the cash close" },
       book: { status: "trimmed", entry_premium: 0.38 },
       premium: 0.60,
+      now: ts(`2026-08-20T15:50:00${ET}`),
     });
     expect(out.event).toBe("EXIT");
   });
@@ -299,7 +359,7 @@ describe("buildDayTradeSignalEmbed", () => {
       ticker: "SPY",
       flavor: "put",
       strike: 763,
-      expiration: { dte: 1 },
+      expiration: { dte: 1, iso: "2026-08-21" },
       spot: 762.8,
       premium: 0.38,
       execution: clockBuy,
@@ -315,7 +375,10 @@ describe("buildDayTradeSignalEmbed", () => {
       spot: 762.8,
     });
     expect(embed.title).toMatch(/BUY/);
+    expect(embed.title).toMatch(/Aug 21/);
+    expect(embed.title).toMatch(/1 DTE/);
     expect(embed.title).toMatch(/HEAVY|MEDIUM|LIGHT/);
+    expect(embed.description).toMatch(/Aug 21/);
     const names = embed.fields.map((f) => f.name);
     expect(names).toEqual(expect.arrayContaining(["Setup / Thesis", "Trigger", "Entry", "Exits", "Stop", "Bracket"]));
     const blob = [embed.title, embed.description, ...embed.fields.map((f) => f.value)].join(" ");
@@ -350,10 +413,25 @@ describe("clock sell_kind", () => {
       indicators: { ema21: 763.05, st_dir: 1, st_label: "short", tf: "5" },
       gamePlan: { bear_target: 762.50, bear_trigger: 764, bull_trigger: 766 },
       management: { time_stop_et: "16:15", invalidation: { underlying_above: 766 } },
-      now: ts(`2026-08-20T16:16:00${ET}`),
+      now: ts(`2026-08-20T16:00:00${ET}`),
     });
     expect(flat.action).toBe("SELL");
     expect(flat.hold_overnight).toBe(false);
     expect(flat.sell_kind).toBe("session_close");
+
+    const afterClose = buildExecutionClock({
+      ticker: "SPY",
+      flavor: "put",
+      strike: 763,
+      expiration: { dte: 1, iso: "2026-08-21" },
+      spot: 762.9,
+      premium: 0.38,
+      indicators: { ema21: 763.05, st_dir: 1, st_label: "short", tf: "5" },
+      gamePlan: { bear_target: 762.50, bear_trigger: 764, bull_trigger: 766 },
+      management: { time_stop_et: "16:15", invalidation: { underlying_above: 766 } },
+      now: ts(`2026-08-20T16:16:00${ET}`),
+    });
+    expect(afterClose.action).toBe("WAIT");
+    expect(afterClose.why).toMatch(/16:15/);
   });
 });

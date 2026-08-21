@@ -252,6 +252,62 @@ describe("getExtChange", () => {
   });
 });
 
+describe("getTrackPrice", () => {
+  let utils;
+
+  beforeAll(() => {
+    utils = loadPriceUtils();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function mockMarketClosed() {
+    vi.spyOn(Date.prototype, "toLocaleString").mockImplementation(function (loc, opts) {
+      if (opts && opts.timeZone === "America/New_York") {
+        return "8/21/2026, 06:30:00";
+      }
+      return "8/21/2026, 06:30:00";
+    });
+  }
+
+  function mockMarketOpen() {
+    vi.spyOn(Date.prototype, "toLocaleString").mockImplementation(function (loc, opts) {
+      if (opts && opts.timeZone === "America/New_York") {
+        return "8/21/2026, 10:30:00";
+      }
+      return "8/21/2026, 10:30:00";
+    });
+  }
+
+  it("uses the EXT print for the zone bar at 06:30 ET and keeps headline on RTH close", () => {
+    mockMarketClosed();
+    const t = withFreshPrice({
+      ticker: "QQQ",
+      close: 710.93,
+      price: 710.93,
+      _rth_session_close: 710.93,
+      _ah_price: 716.44,
+      _ah_change_pct: 0.78,
+    });
+    expect(utils.getHeadlinePrice(t)).toBe(710.93);
+    expect(utils.getTrackPrice(t)).toBe(716.44);
+  });
+
+  it("matches headline during RTH", () => {
+    mockMarketOpen();
+    const t = withFreshPrice({
+      ticker: "QQQ",
+      close: 710.93,
+      price: 710.93,
+      _live_price: 712.10,
+      _ah_price: 716.44,
+    });
+    expect(utils.getTrackPrice(t)).toBe(utils.getHeadlinePrice(t));
+  });
+});
+
 describe("getHeadlinePrice RTH flap guard", () => {
   let utils;
 

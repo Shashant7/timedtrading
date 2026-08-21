@@ -34,7 +34,35 @@ export const SESSION_FLAT_ET = "15:45";
 export const OVERNIGHT_DECIDE_MIN = 15 * 60 + 30;
 export const OPEN_PRINT_START_MIN = 9 * 60 + 30;
 export const OPEN_PRINT_END_MIN = 9 * 60 + 45;
+export const CASH_CLOSE_MIN = 16 * 60;
+/** Last sell is before 16:15 ET — the index options close. */
+export const SELL_WINDOW_END_MIN = 16 * 60 + 15;
 const SLEEVE_USD = 25000;
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Calendar expiration for chips / Discord — "Aug 22", not just "1 DTE". */
+export function formatExpirationShort(expiration) {
+  const iso = String(expiration?.iso || expiration?.date || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const [, m, d] = iso.split("-").map(Number);
+    if (m >= 1 && m <= 12 && d >= 1) return `${MONTHS_SHORT[m - 1]} ${d}`;
+  }
+  const label = String(expiration?.label || "").trim();
+  if (label && !/^\d+\s*DTE$/i.test(label)) return label;
+  return "";
+}
+
+/** New index-option buys: cash session after the 09:45 open-print wait. */
+export function isOptionsBuyWindowEt(ts) {
+  const m = nyMinutes(ts);
+  return m != null && m >= OPEN_PRINT_END_MIN && m < CASH_CLOSE_MIN;
+}
+
+/** Flatten / trim / exit: 09:30 ET until before 16:15 ET. Not premarket. */
+export function isOptionsSellWindowEt(ts) {
+  const m = nyMinutes(ts);
+  return m != null && m >= OPEN_PRINT_START_MIN && m < SELL_WINDOW_END_MIN;
+}
 
 function nyMinutes(ts) {
   if (ts == null) return null;
@@ -228,7 +256,9 @@ export function buildSatyDayTradePlan({
   const ema21 = num(ind.ema21);
   const tf = ind.tf || "5";
   const dteBit = num(expiration?.dte) === 0 ? "0 DTE" : "1 DTE";
+  const expBit = formatExpirationShort(expiration);
   const occ = K != null ? `${sym} ${Number.isInteger(K) ? K : K.toFixed(0)}${isPut ? "P" : "C"}` : `${sym} ${isPut ? "P" : "C"}`;
+  const contractBit = `${occ}${expBit ? ` ${expBit}` : ""}${dteBit ? ` (${dteBit})` : ""}`;
   const buyCeil = num(band.buy_ceil);
   const pin = num(band.pin);
   const expected = num(band.expected_close);
@@ -264,7 +294,7 @@ export function buildSatyDayTradePlan({
     premium: mid,
   });
 
-  const setup = `${occ} ${dteBit} — ${lean} thesis. ${sym} at ${money(px)}` +
+  const setup = `${contractBit} — ${lean} thesis. ${sym} at ${money(px)}` +
     (target != null ? `, first target ${money(target)}` : "") +
     (expected != null ? `. Pin / FMV uses expected close ${money(expected)}` : "") +
     `. Strike is ATM / one level — not a lottery print.`;
@@ -331,6 +361,7 @@ export function buildSatyDayTradePlan({
     size: sz,
     occ,
     dte_bit: dteBit,
+    exp_bit: expBit,
     flavor: flav,
     lean,
   };
@@ -387,6 +418,9 @@ export function classifyPaperEvent({
   }
 
   const canEnter = status === "flat" || (status === "closed" && !book?.needs_wait);
+  if (canEnter && action === "BUY" && !isOptionsBuyWindowEt(now)) {
+    return { event: null, nextBook: null };
+  }
   if (canEnter && action === "BUY") {
     const rr = clock?.rr?.trim != null
       ? clock.rr
@@ -420,6 +454,17 @@ export function classifyPaperEvent({
 
   if (status !== "open" && status !== "trimmed") {
     return { event: null, nextBook: null };
+  }
+
+  if (!isOptionsSellWindowEt(now)) {
+    return {
+      event: null,
+      nextBook: {
+        ...book,
+        last_premium: mid ?? book?.last_premium ?? null,
+        held_overnight: !!clock?.hold_overnight || !!book?.held_overnight,
+      },
+    };
   }
 
   const stopHit = (entry != null && mid != null && mid <= entry * (1 + HARD_STOP_PCT / 100))
@@ -520,12 +565,13 @@ export function buildDayTradeSignalEmbed({
       : ev === "STOP" ? "STOP OUT"
         : "EXIT";
   const sizeBit = sz.label ? ` · ${String(sz.label).toUpperCase()}` : "";
+  const expBit = plan?.exp_bit ? ` · ${plan.exp_bit}` : "";
   const dteBit = plan?.dte_bit ? ` · ${plan.dte_bit}` : "";
-  const title = `${verb} ${occ}${dteBit}${sizeBit}`.slice(0, 250);
+  const title = `${verb} ${occ}${expBit}${dteBit}${sizeBit}`.slice(0, 250);
 
   const descParts = [];
   if (ev === "BUY") {
-    descParts.push(`Paper buy ${occ} at ${money(mid)}.` + (px != null ? ` ${sym} ${money(px)}.` : ""));
+    descParts.push(`Paper buy ${occ}${plan?.exp_bit ? ` ${plan.exp_bit}` : ""} at ${money(mid)}.` + (px != null ? ` ${sym} ${money(px)}.` : ""));
     if (sz.contracts) {
       descParts.push(`Size **${sz.contracts} contract${sz.contracts === 1 ? "" : "s"}** (${sz.label || "medium"})${sz.debit_usd != null ? ` · debit **$${sz.debit_usd}**` : ""}.`);
     }
