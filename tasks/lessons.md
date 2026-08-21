@@ -6,6 +6,19 @@
 
 ---
 
+## TSLA this week was a daily ST flip, not a hold [2026-08-21]
+
+**Symptom:** Operator asked why TSLA was not caught the week of Aug 17
+2026, and how many names test M/W/D/4H SuperTrend and hold.
+
+**Root:** Mon–Thu daily ST was bear at $356.78; highs never entered the
+0.15 ATR test band. Friday close $363 flipped it to bull. Monthly ST
+was far below; weekly was bear far above. Live confluence WAIT (2/8
+layers). A four-TF hold stack is rare (10 names) and a losing cut.
+
+**Fix:** Research only. Script `scripts/scan-st-hold-stack.mjs`.
+Writeup `tasks/2026-08-21-st-hold-scan.md`.
+
 ## SuperTrend MTF: slope on W/M is the edge; session TFs are vetos [2026-08-21]
 
 **Symptom:** Operator asked whether winners/losers tested SuperTrend and
