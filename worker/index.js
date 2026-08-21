@@ -796,6 +796,17 @@ import {
   summarizeScorecard as _optionMarksSummarize,
 } from "./options-marks.js";
 import {
+  extractIndexTimingIndicators as _optClockIndicators,
+  buildExecutionClock as _optClockBuild,
+  summarizeTodStudy as _optClockTod,
+  groupMarksByOcc as _optClockGroupMarks,
+} from "./option-execution-clock.js";
+import {
+  assembleDayTradePlan as _optDtAssemblePlan,
+  maybeNotifyDayTradePaperEvent as _optDtNotifyPaper,
+  loadDayTradeBook as _optDtLoadBook,
+} from "./option-day-trade-alerts.js";
+import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
   resolveDueSignals as _soResolveDueSignals,
@@ -94482,7 +94493,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 profile,
                 verdict: confluence,
                 expiration: _pickDayTradeExpiration(Date.now(), {
-                  forceTomorrow: profile === "conservative" || profile === "moderate",
+                  forceTomorrow: true,
                 }),
               });
             } catch (_) { /* best-effort */ }
@@ -94776,13 +94787,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const _dtTickers = Array.from(_optionsPlaysMod.DAY_TRADE_TICKERS);
             const _pickDtExp = _optionsPlaysMod.pickDayTradeExpiration;
             const _dtExpiration = _pickDtExp(Date.now(), {
-              forceTomorrow: profile === "conservative" || profile === "moderate",
+              forceTomorrow: true,
             });
             const _buildDayTrade = _optionsPlaysMod.buildDayTradePlay;
             const _validateDayTrade = _optionsPlaysMod.validateDayTradePlay;
             const _resolveSpot = _optionsPlaysMod.resolveDayTradeSpot;
             const _dtPlays = [];
             const _dtSuppressed = [];
+            // Session + 14d option marks → trough/peak clock (best-effort).
+            let _dtMarksByOcc = {};
+            let _dtTodStudy = null;
+            try {
+              const _lookback = Date.now() - 14 * 86400000;
+              const _markQ = await env.DB.prepare(
+                `SELECT ticker, option_symbol, ts, mid FROM option_marks
+                  WHERE ticker IN ('SPY','QQQ','IWM','DIA') AND ts >= ?1
+                  ORDER BY ts ASC LIMIT 4000`
+              ).bind(_lookback).all();
+              const _markRows = _markQ?.results || [];
+              _dtMarksByOcc = _optClockGroupMarks(_markRows);
+              _dtTodStudy = _optClockTod(_markRows);
+            } catch (_) { /* clock degrades to the playbook */ }
             for (const _dtSym of _dtTickers) {
               try {
                 const _dtContract = await buildTraderPredictionContract(env, _dtSym);
@@ -94852,6 +94877,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   ? "SHORT"
                   : (_dtPlay._day_trade_flavor === "call" ? "LONG" : "NEUTRAL");
                 const _dtSignalId = buildDayTradeSignalId(_dtSym, _dtExpiration.iso, _dtPlay);
+                let _dtLoaded = { book: null, bookKey: null, fromCarry: false };
+                try {
+                  _dtLoaded = await _optDtLoadBook(env, { signal_id: _dtSignalId, ticker: _dtSym });
+                } catch (_) { /* clock degrades without the paper book */ }
+                const _dtOpenBook = (_dtLoaded?.book?.status === "open" || _dtLoaded?.book?.status === "trimmed")
+                  ? _dtLoaded.book
+                  : null;
+                const _dtUseCarry = !!(_dtLoaded?.fromCarry || _dtOpenBook?.held_overnight);
                 // Stage 2 — three-tier ladder. Flag-gated: default OFF.
                 // When enabled, we return Gamma + Safety + Breathing on
                 // every card. Recording writes one signal_id per tier.
@@ -94886,7 +94919,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       }
                     }
                     // Stage 4 — attach machine-readable exit doctrine to
-                    // every tier: TP1 40% / TP2 100% / hard stop -50% /
+                    // every tier: TP1 1R / TP2 2R / hard stop -50% /
                     // time stop / underlying invalidation. Flag-gated.
                     if (_dtTiers && _optionsManagementCardEnabled(env) && _optionsPlaysMod.attachManagementToTiers) {
                       _dtTiers = _optionsPlaysMod.attachManagementToTiers(_dtTiers, { gamePlan: _dtGp });
@@ -94903,6 +94936,103 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 if (!_dtHasManagement && _optionsManagementCardEnabled(env) && _optionsPlaysMod.attachOptionManagement) {
                   _dtPrimary = _optionsPlaysMod.attachOptionManagement(_dtPlay, { gamePlan: _dtGp });
                 }
+                const _dtGpSum = _optionsPlaysMod.summarizeDayTradeGamePlan
+                  ? _optionsPlaysMod.summarizeDayTradeGamePlan(_dtGp)
+                  : null;
+                let _dtExecution = null;
+                try {
+                  const _clockFlavor = _dtUseCarry && _dtOpenBook?.flavor
+                    ? _dtOpenBook.flavor
+                    : _dtPlay._day_trade_flavor;
+                  const _clockStrike = _dtUseCarry && Number(_dtOpenBook?.strike) > 0
+                    ? Number(_dtOpenBook.strike)
+                    : _strike;
+                  const _clockExp = _dtUseCarry && _dtOpenBook?.expiration
+                    ? _dtOpenBook.expiration
+                    : (_dtPrimary?.expiration || _dtPlay.expiration);
+                  const _occRight = String(_clockFlavor || "").toLowerCase() === "put" ? "P" : "C";
+                  const _occ = _optionMarksBuildOcc(_dtSym, _clockExp?.iso, _occRight, _clockStrike);
+                  const _occMarks = _occ ? (_dtMarksByOcc[_occ] || []) : [];
+                  const _occLast = _occMarks.length ? _occMarks[_occMarks.length - 1] : null;
+                  const _occMid = Number(_occLast?.mid ?? _occLast?.c);
+                  let _clockPrem = _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid;
+                  if (_dtUseCarry && _occMid > 0) _clockPrem = _occMid;
+                  else if (_dtUseCarry && Number(_dtOpenBook?.last_premium) > 0) _clockPrem = Number(_dtOpenBook.last_premium);
+                  _dtExecution = _optClockBuild({
+                    ticker: _dtSym,
+                    flavor: _clockFlavor,
+                    strike: _clockStrike,
+                    expiration: _clockExp,
+                    spot: _dtPrice,
+                    premium: _clockPrem,
+                    indicators: { ..._optClockIndicators(_dtTicker), atr_pct: _dtAtrPct },
+                    gamePlan: _dtGpSum,
+                    management: _dtPrimary?.option_management || _dtPlay?.option_management,
+                    now: Date.now(),
+                    marks: _occMarks,
+                    todStudy: _dtTodStudy,
+                    openBook: _dtOpenBook,
+                  });
+                } catch (_clockErr) {
+                  console.warn(`[OPTIONS-CLOCK] ${_dtSym}:`, String(_clockErr?.message || _clockErr).slice(0, 120));
+                }
+                if (_dtExecution) {
+                  try {
+                    const _assembled = _optDtAssemblePlan({
+                      ticker: _dtSym,
+                      flavor: _dtExecution.contract?.flavor || _dtPlay._day_trade_flavor,
+                      strike: _dtExecution.contract?.strike ?? _strike,
+                      expiration: _dtExecution.contract?.expiration || _dtPrimary?.expiration || _dtPlay.expiration,
+                      spot: _dtPrice,
+                      premium: _dtExecution.premium_band?.premium ?? _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid,
+                      execution: _dtExecution,
+                      gamePlan: _dtGpSum,
+                      management: _dtPrimary?.option_management || _dtPlay?.option_management,
+                      day_lean_conviction: _dtLeanConv,
+                      honesty_gate_veto: _dtVetoReason,
+                      now: Date.now(),
+                    });
+                    _dtExecution = {
+                      ..._dtExecution,
+                      plan: _assembled.plan,
+                      size: _assembled.size,
+                    };
+                    _optDtNotifyPaper(env, {
+                      profile,
+                      signal_id: _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId,
+                      ticker: _dtSym,
+                      flavor: _dtExecution.contract?.flavor || _dtPlay._day_trade_flavor,
+                      strike: _dtExecution.contract?.strike ?? _strike,
+                      expiration: _dtExecution.contract?.expiration || _dtPrimary?.expiration || _dtPlay.expiration,
+                      spot: _dtPrice,
+                      premium: _dtExecution.premium_band?.premium ?? _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid,
+                      execution: _dtExecution,
+                      gamePlan: _dtGpSum,
+                      management: _dtPrimary?.option_management || _dtPlay?.option_management,
+                      day_lean_conviction: _dtLeanConv,
+                      honesty_gate_veto: _dtVetoReason,
+                      now: Date.now(),
+                      loadedBook: _dtLoaded,
+                    }).then((ev) => {
+                      if (!ev?.event) return;
+                      d1InsertNotification(env, {
+                        email: null,
+                        type: "options_day_trade",
+                        title: ev.embed?.title || `${ev.event} ${_dtSym} day-trade`,
+                        body: String(ev.embed?.description || ev.event).replace(/\*/g, "").slice(0, 280),
+                        link: "/today.html",
+                        alert_class: "trade_signal",
+                        severity: ev.event === "STOP" ? "high" : "info",
+                        engine: "options_day_trade",
+                        exec_state: ev.event,
+                      }).catch(() => {});
+                    }).catch((err) => {
+                      console.warn(`[OPTIONS-DT-ALERT] ${_dtSym}:`, String(err?.message || err).slice(0, 120));
+                    });
+                  } catch (_planErr) {
+                    console.warn(`[OPTIONS-DT-PLAN] ${_dtSym}:`, String(_planErr?.message || _planErr).slice(0, 120));
+                  }
+                }
                 _dtPlays.push({
                   ticker: _dtSym,
                   setup_grade: "Day Trade",
@@ -94916,9 +95046,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   day_lean: _dtLean || _dtPlay._day_trade_lean || null,
                   day_lean_conviction: _dtLeanConv || null,
                   flavor_source: _dtPlay._day_trade_flavor_source || null,
-                  game_plan: _optionsPlaysMod.summarizeDayTradeGamePlan
-                    ? _optionsPlaysMod.summarizeDayTradeGamePlan(_dtGp)
-                    : null,
+                  game_plan: _dtGpSum,
                   primary: _dtPrimary,
                   ladder_count: _dtTiers?.tier_count || 1,
                   day_trade: true,
@@ -94927,6 +95055,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   tiers: _dtTiers?.tiers || null,
                   primary_tier: _dtTiers?.primary_tier || null,
                   honesty_gate_veto: _dtVetoReason,
+                  execution: _dtExecution,
+                  zone: _dtExecution?.zone || null,
                 });
                 // Stage 1+2 — record every tier we published so the
                 // scorecard grades each independently. Signal ids are
