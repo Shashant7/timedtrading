@@ -207,6 +207,23 @@
     return prev > 0 ? prev : null;
   }
 
+  // Zone / progress-bar price. Headline stays RTH close outside RTH.
+  // The track follows the live session print: RTH uses headline; pre/post
+  // uses the EXT print so INV/PB/TGT sits on the tape the trader sees.
+  function getTrackPrice(t) {
+    if (!t || typeof t !== "object") return null;
+    if (isNyRegularMarketOpen()) return getHeadlinePrice(t);
+    var ext = getExtChange(t);
+    if (ext && ext.price > 0) return ext.price;
+    var ah = Number(
+      t._ah_price != null ? t._ah_price :
+      t.ahp != null ? t.ahp :
+      t.extended_price
+    );
+    if (ah > 0) return ah;
+    return getHeadlinePrice(t);
+  }
+
   // ── Stock-split heal (mirrors worker/feed/prev-close-reconcile.js) ──
   var SPLIT_RATIOS = [10, 5, 4, 3, 2, 1.5, 0.5, 1 / 3, 0.25, 0.2, 0.1];
   var SPLIT_RATIO_TOL = 0.10;
@@ -1164,6 +1181,7 @@
     ageLabelFromMinutes: ageLabelFromMinutes,
     getStaleInfo: getStaleInfo,
     getHeadlinePrice: getHeadlinePrice,
+    getTrackPrice: getTrackPrice,
     getRthSessionClose: getRthSessionClose,
     isPriceFeedFresh: isPriceFeedFresh,
     getPriceValueAgeMs: getPriceValueAgeMs,
@@ -1195,4 +1213,4 @@
   };
 })();
 
-// cache-bust:1787277928652:195153779
+// cache-bust:1787316835438:995354474

@@ -1035,12 +1035,18 @@ function SetupFamiliesStrip({
     const sym = String(p.ticker || "").toUpperCase();
     const liveT = data && data[sym] ? data[sym] : {};
     let livePrice = null;
+    let trackPrice = null;
     try {
       const hp = window.TimedPriceUtils?.getHeadlinePrice?.(liveT);
       if (Number.isFinite(Number(hp)) && Number(hp) > 0) livePrice = Number(hp);
     } catch (_) {}
+    try {
+      const tp = window.TimedPriceUtils?.getTrackPrice?.(liveT);
+      if (Number.isFinite(Number(tp)) && Number(tp) > 0) trackPrice = Number(tp);
+    } catch (_) {}
     if (livePrice == null && Number.isFinite(Number(liveT?._live_price))) livePrice = Number(liveT._live_price);
     if (livePrice == null && Number.isFinite(Number(liveT?.price))) livePrice = Number(liveT.price);
+    if (trackPrice == null) trackPrice = livePrice;
     let dayPct = null;
     let dayChg = null;
     try {
@@ -1132,7 +1138,7 @@ function SetupFamiliesStrip({
       rank,
       score
     }) : [];
-    const zm = VU?.buildTraderZoneModel?.(liveT, livePrice) || VU?.buildInvestorZoneModel?.(liveT, livePrice) || null;
+    const zm = VU?.buildTraderZoneModel?.(liveT, trackPrice) || VU?.buildInvestorZoneModel?.(liveT, trackPrice) || null;
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
       planLabel: zm.lane === "investor" ? "Long Term plan" : "Short Term plan",
@@ -1474,7 +1480,7 @@ function IndexDayTradeStrip({
     className: "tt-ready__title"
   }, "SPY · QQQ · IWM · DIA"), h("p", {
     className: "tt-ready__sub"
-  }, "Same ticker card as the other strips. Key levels on the bar. Buy and sell rules under the card — the contract follows the index 21 EMA and SuperTrend."));
+  }, "Same ticker card as the other strips. Key levels on the bar. Punchline and scan line under the card — the contract follows the index 21 EMA and SuperTrend. New buys wait for the 09:30 ET cash open."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
@@ -1510,6 +1516,32 @@ function IndexDayTradeStrip({
     }, suppressedNote) : null)));
   }
   const LaneCard = window.TTLaneCard;
+  const tickerHeadlinePrice = (liveT, fallback) => {
+    try {
+      const hp = window.TimedPriceUtils?.getHeadlinePrice?.(liveT);
+      if (Number.isFinite(Number(hp)) && Number(hp) > 0) return Number(hp);
+    } catch (_) {}
+    if (Number.isFinite(Number(liveT?._live_price)) && Number(liveT._live_price) > 0) return Number(liveT._live_price);
+    if (Number.isFinite(Number(fallback)) && Number(fallback) > 0) return Number(fallback);
+    return null;
+  };
+  const tickerTrackPrice = (liveT, fallback) => {
+    try {
+      const tp = window.TimedPriceUtils?.getTrackPrice?.(liveT);
+      if (Number.isFinite(Number(tp)) && Number(tp) > 0) return Number(tp);
+    } catch (_) {}
+    return tickerHeadlinePrice(liveT, fallback);
+  };
+  const formatExpShort = exp => {
+    const iso = String(exp?.iso || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+      const parts = iso.split("-").map(Number);
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      return `${months[parts[1] - 1]} ${parts[2]}`;
+    }
+    const label = String(exp?.label || "").trim();
+    return /^\d+\s*DTE$/i.test(label) ? "" : label;
+  };
   const reviveZone = (zone, livePrice) => {
     if (!zone || !(Number(zone.minPx) < Number(zone.maxPx))) return null;
     const minPx = Number(zone.minPx);
@@ -1578,13 +1610,8 @@ function IndexDayTradeStrip({
   }, plays.map(p => {
     const sym = String(p.ticker || "").toUpperCase();
     const liveT = data && data[sym] ? data[sym] : {};
-    let livePrice = null;
-    try {
-      const hp = window.TimedPriceUtils?.getHeadlinePrice?.(liveT);
-      if (Number.isFinite(Number(hp)) && Number(hp) > 0) livePrice = Number(hp);
-    } catch (_) {}
-    if (livePrice == null && Number.isFinite(Number(liveT?._live_price))) livePrice = Number(liveT._live_price);
-    if (livePrice == null && Number.isFinite(Number(p.price))) livePrice = Number(p.price);
+    const livePrice = tickerHeadlinePrice(liveT, p.price);
+    const trackPrice = tickerTrackPrice(liveT, livePrice);
     let dayPct = null;
     let dayChg = null;
     try {
@@ -1648,6 +1675,17 @@ function IndexDayTradeStrip({
         title: exp?.label || "Strike"
       }, `$${Number(strike).toFixed(0)}${flavor === "put" ? "P" : "C"}`));
     }
+    const expShort = exec.contract?.exp_bit || formatExpShort(exp);
+    if (expShort) {
+      chipRow.push(h("span", {
+        key: "exp",
+        className: "ds-chip ds-chip--sm",
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        },
+        title: exp?.iso || expShort
+      }, expShort));
+    }
     if (p.day_lean) {
       chipRow.push(h("span", {
         key: "lean",
@@ -1708,56 +1746,31 @@ function IndexDayTradeStrip({
       rank,
       score
     }) : [];
-    const zm = reviveZone(p.zone || exec.zone, livePrice);
+    const zm = reviveZone(p.zone || exec.zone, trackPrice);
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
       planLabel: "Day-trade plan",
       trackTitle: flavor === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
     }) : null;
-    const buyRule = exec.buy_rule || (Number.isFinite(Number(strike)) ? `Buy the ${sym} ${Number(strike).toFixed(0)}${flavor === "put" ? "P" : "C"} when ${sym} holds the 21 EMA and SuperTrend agrees. First pullback, not the open print.` : `Buy when ${sym} holds the 21 EMA and SuperTrend agrees.`);
-    const sellRule = exec.sell_rule || "Sell half at 1R. Close the rest at 2R, by 15:45 ET unless overnight hold is on. If the book holds overnight, trim and exit stay live from 09:30 — do not wait for 09:45.";
-    const br = exec.plan?.bracket || {};
-    const trimPx = br.trim ?? exec.rr?.trim;
-    const exitPx = br.exit ?? exec.rr?.exit;
-    const trimLine = [trimPx != null ? `half @ $${Number(trimPx).toFixed(2)} (1R)` : null, exitPx != null ? `rest @ $${Number(exitPx).toFixed(2)} (2R)` : null, holdOn ? "hold overnight — leftover R:R still ≥ 1" : "flat by 15:45 ET, before the cash close"].filter(Boolean).join(" · ");
-    const hint = exec.headline || exec.why || `${sym} day-trade — stalk the 21 EMA.`;
+    const punchline = exec.headline || exec.why || `${sym} day-trade — stalk the 21 EMA.`;
+    const scanLine = exec.scan_line || [band && Number.isFinite(Number(band.buy_ceil)) ? `Pay ≤ $${Number(band.buy_ceil).toFixed(2)}` : null, exec.rr?.trim != null ? `trim $${Number(exec.rr.trim).toFixed(2)}` : null, exec.rr?.exit != null ? `exit $${Number(exec.rr.exit).toFixed(2)}` : null, holdOn ? "hold overnight" : "flat 15:45 ET", expShort || null].filter(Boolean).join(" · ");
+    const whyLine = exec.why && exec.why !== exec.headline ? exec.why : null;
     const kClass = action === "BUY" ? "tt-dt-plan__k--buy" : action === "TRIM" || action === "SELL" ? "tt-dt-plan__k--sell" : "tt-dt-plan__k--wait";
     const hasTiers = Array.isArray(p.tiers) && p.tiers.length > 1;
     const isOpen = openCard === sym;
     const otherTiers = hasTiers ? p.tiers.filter(t => t._tier !== p.primary_tier) : [];
-    const footEls = [h("p", {
-      key: "why",
-      className: "tt-strip-card__hint"
-    }, hint), h("div", {
+    const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
     }, h("p", {
-      className: "tt-dt-plan__row"
-    }, h("span", {
-      className: `tt-dt-plan__k ${kClass}`
-    }, "BUY"), buyRule), h("p", {
-      className: "tt-dt-plan__row"
-    }, h("span", {
-      className: "tt-dt-plan__k tt-dt-plan__k--sell"
-    }, "SELL"), sellRule), trimLine && h("p", {
-      className: "tt-dt-plan__row"
-    }, h("span", {
-      className: "tt-dt-plan__k tt-dt-plan__k--sell"
-    }, "TRIM"), trimLine), exec.plan && h("p", {
-      className: "tt-dt-plan__row"
-    }, h("span", {
-      className: "tt-dt-plan__k"
-    }, "SETUP"), exec.plan.setup), exec.plan && h("p", {
-      className: "tt-dt-plan__row"
-    }, h("span", {
-      className: "tt-dt-plan__k"
-    }, "TRIG"), exec.plan.trigger), exec.path_note && h("p", {
-      className: "tt-dt-plan__row"
-    }, exec.path_note), exec.dte_note && h("p", {
-      className: "tt-dt-plan__row"
-    }, exec.dte_note), band && Number.isFinite(Number(band.buy_ceil)) && h("p", {
+      className: `tt-dt-plan__punch ${kClass}`
+    }, punchline), scanLine && h("p", {
+      className: "tt-dt-plan__scan"
+    }, scanLine), whyLine && h("p", {
+      className: "tt-dt-plan__why"
+    }, whyLine), band && Number.isFinite(Number(band.buy_ceil)) && h("p", {
       className: `tt-dt-plan__fmv tt-dt-plan__band--${bandName || "fair"}`
-    }, `Pay ≤ $${Number(band.buy_ceil).toFixed(2)} · FMV $${Number(band.fmv).toFixed(2)} · pin $${Number(band.pin).toFixed(2)} if ${sym} closes $${Number(band.expected_close).toFixed(2)}${bandName ? ` · ${bandName}` : ""}`), h("div", {
+    }, `FMV $${Number(band.fmv).toFixed(2)} · pin $${Number(band.pin).toFixed(2)} if ${sym} closes $${Number(band.expected_close).toFixed(2)}${bandName ? ` · ${bandName}` : ""}`), h("div", {
       className: "tt-dt-plan__prem"
     }, h(LivePremium, {
       ticker: sym,
@@ -1765,7 +1778,7 @@ function IndexDayTradeStrip({
       strike,
       right: flavor === "put" ? "P" : "C",
       fallbackMid: prem
-    }), exp?.label && h("span", null, exp.label)), hasTiers && h("button", {
+    }), (expShort || exp?.label) && h("span", null, [expShort, exp?.label && exp.label !== expShort ? exp.label : null].filter(Boolean).join(" · "))), hasTiers && h("button", {
       type: "button",
       onClick: e => {
         e.stopPropagation();
@@ -3941,14 +3954,20 @@ function GrowthIdeasStrip({
     const sym = String(row.ticker || "").toUpperCase();
     const liveT = data && data[sym] ? data[sym] : null;
     let livePrice = null;
+    let trackPrice = null;
     try {
       if (liveT && window.TimedPriceUtils?.getHeadlinePrice) {
         const p = window.TimedPriceUtils.getHeadlinePrice(liveT);
         if (Number.isFinite(Number(p)) && Number(p) > 0) livePrice = Number(p);
       }
     } catch (_) {}
+    try {
+      const tp = window.TimedPriceUtils?.getTrackPrice?.(liveT);
+      if (Number.isFinite(Number(tp)) && Number(tp) > 0) trackPrice = Number(tp);
+    } catch (_) {}
     if (livePrice == null && Number.isFinite(Number(liveT?._live_price))) livePrice = Number(liveT._live_price);
     if (livePrice == null && Number.isFinite(Number(row?.price))) livePrice = Number(row.price);
+    if (trackPrice == null) trackPrice = livePrice;
     let liveDayPct = null;
     try {
       if (liveT && typeof getDailyChange === "function") {
@@ -3991,7 +4010,7 @@ function GrowthIdeasStrip({
         title: "Pullback posture active"
       }, "Dip active"));
     }
-    const zm = buildGrowthZoneModel(row, ctoBySym[sym], livePrice, liveT);
+    const zm = buildGrowthZoneModel(row, ctoBySym[sym], trackPrice, liveT);
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
       planLabel: "Long Term plan",
@@ -4004,7 +4023,7 @@ function GrowthIdeasStrip({
       key: "meta",
       row,
       ctoItem: ctoBySym[sym],
-      livePrice,
+      livePrice: trackPrice,
       liveT,
       mode: "meta"
     })].filter(Boolean);
@@ -7711,6 +7730,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787277928652:195153779
+// cache-bust:1787316835438:995354474
 
-// cache-bust:1787277928652:195153779
+// cache-bust:1787316835438:995354474
