@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   assembleStHoldSetup,
   compactStHold,
+  compactStMagnet,
   detectEma233ReclaimFromSeries,
   detectSupertrendHoldFromSeries,
+  detectSupertrendMagnetFromSeries,
   detectTd13Then9,
   holdAgreesWithSide,
   isFlipExtendedChase,
+  magnetAgreesWithSide,
   pineDirToSide,
 } from "./supertrend-hold.js";
 import { scoreRootConfluence } from "./root-strategy.js";
@@ -145,6 +148,56 @@ describe("detectSupertrendHoldFromSeries", () => {
   });
 });
 
+describe("detectSupertrendMagnetFromSeries", () => {
+  it("flags a TSLA-shaped daily bear flat as a LONG magnet", () => {
+    // Daily ST parked bear at 356.77 while close walks 322 → 351 (0.35 ATR).
+    const atr = 16.5;
+    const { bars, stDir, stLine } = fill(16, PINE_BEAR, 356.77, (i) => 322 + i * 1.9);
+    const hit = detectSupertrendMagnetFromSeries({
+      bars, stDir, stLine, atr, lookback: 12,
+    });
+    expect(hit).toBeTruthy();
+    expect(hit.magnet).toBe(true);
+    expect(hit.held).toBe(false);
+    expect(hit.sideLabel).toBe("LONG");
+    expect(hit.kind).toBe("st_magnet_close");
+    expect(hit.approaching).toBe(true);
+    expect(hit.distSt).toBeLessThanOrEqual(1.0);
+    expect(magnetAgreesWithSide(hit, "LONG")).toBe(true);
+  });
+
+  it("flags a parked bull ST with price approaching from above as a SHORT magnet", () => {
+    const atr = 20;
+    const { bars, stDir, stLine } = fill(16, PINE_BULL, 100, (i) => 160 - i * 2);
+    const hit = detectSupertrendMagnetFromSeries({
+      bars, stDir, stLine, atr, lookback: 12,
+    });
+    expect(hit).toBeTruthy();
+    expect(hit.sideLabel).toBe("SHORT");
+    expect(hit.approaching).toBe(true);
+    expect(magnetAgreesWithSide(hit, "SHORT")).toBe(true);
+  });
+
+  it("does not treat a fresh flip as a magnet", () => {
+    const { bars, stDir, stLine } = fill(16, PINE_BEAR, 356.77, (i) => 322 + i * 2);
+    stDir[15] = PINE_BULL;
+    stLine[15] = 312;
+    bars[15] = bar(15, { o: 360, h: 365, l: 355, c: 363 });
+    const hit = detectSupertrendMagnetFromSeries({
+      bars, stDir, stLine, atr: 16.5, lookback: 12,
+    });
+    expect(hit).toBeNull();
+  });
+
+  it("does not fire when price is still more than 2 ATR from the line", () => {
+    const { bars, stDir, stLine } = fill(16, PINE_BEAR, 400, 300);
+    const hit = detectSupertrendMagnetFromSeries({
+      bars, stDir, stLine, atr: 16.5, lookback: 12,
+    });
+    expect(hit).toBeNull();
+  });
+});
+
 describe("detectTd13Then9", () => {
   it("fires on monthly TD13 then a later TD9", () => {
     const hit = detectTd13Then9({
@@ -232,6 +285,7 @@ describe("assembleStHoldSetup + flags + tf_tech", () => {
     expect(setup.ema233_reclaim.reclaim).toBe(true);
     expect(setup.confluence).toEqual({
       st_hold: true,
+      st_magnet: false,
       td13_then_9: true,
       ema233_reclaim: true,
     });
@@ -300,6 +354,36 @@ describe("assembleStHoldSetup + flags + tf_tech", () => {
     expect(setup.best.tf).toBe("D");
     expect(setup.best.held).toBe(false);
     expect(setup.best.kind).toBe("st_flip_extended");
+  });
+
+  it("surfaces a daily magnet when there is no same-side hold", () => {
+    const setup = assembleStHoldSetup({
+      bundles: {
+        D: {
+          stMagnet: {
+            magnet: true, kind: "st_magnet_close", side: 1, sideLabel: "LONG",
+            held: false, stLine: 356.77, distSt: 0.35, approaching: true,
+          },
+        },
+      },
+    });
+    expect(setup.magnet.tf).toBe("D");
+    expect(setup.magnet.sideLabel).toBe("LONG");
+    expect(setup.confluence.st_magnet).toBe(true);
+    expect(setup.confluence.st_hold).toBe(false);
+    expect(compactStMagnet(setup.magnet)).toMatchObject({
+      k: "st_magnet_close", s: 1, mag: true, line: 356.77, dSt: 0.35, app: true,
+    });
+  });
+
+  it("sets st_magnet flags from bundles", () => {
+    const flags = detectFlags({
+      D: { stMagnet: { magnet: true, kind: "st_magnet_close" } },
+      240: { stMagnet: { magnet: true, kind: "st_magnet_approach" } },
+    });
+    expect(flags.st_magnet_D).toBe(true);
+    expect(flags.st_magnet_4h).toBe(true);
+    expect(flags.st_magnet).toBe(true);
   });
 });
 
@@ -446,6 +530,73 @@ describe("scoreRootConfluence ST hold gate", () => {
     expect(c.supertrend_trigger.side).toBe("LONG");
     expect(c.supertrend_trigger.triggered).toBe(true);
     expect(c.supertrend_trigger.confirmed_tfs).toContain("W");
+  });
+
+  it("ignites 4H/1H swing slope into a flat daily bear SuperTrend magnet", () => {
+    const c = scoreRootConfluence(confluenceLongBase({
+      st_hold_setup: {
+        best: null,
+        magnet: {
+          magnet: true,
+          kind: "st_magnet_close",
+          side: 1,
+          sideLabel: "LONG",
+          held: false,
+          tf: "D",
+          stLine: 356.77,
+          distSt: 0.35,
+          approaching: true,
+        },
+        td13_then_9: { tf: "M", side: "LONG", td13_bars_ago: 2, td9_bars_ago: 0 },
+      },
+      tf_tech: {
+        D: {
+          ew: { dir: 1, fiboMatch: 1.618, detected: true },
+          fvg: { activeBull: 4, activeBear: 0, inBullGap: true },
+          pdz: { zone: "discount" },
+          sma200: 2000,
+          sq: { r: 1 },
+          ema: { ema21: 340 },
+          stDir: 1,
+          stSlope: 0,
+          stLine: 356.77,
+          ripster: { c72_89: { above: true } },
+        },
+        "4H": { stDir: -1, stSlope: 1, fvg: { activeBull: 2, activeBear: 0 } },
+        "1H": { stDir: -1, stSlope: 1 },
+        "6.5H": { stDir: 1, stSlope: 0 },
+        "9H": { stDir: 1, stSlope: 0 },
+      },
+    }));
+    expect(c.supertrend_trigger.triggered).toBe(true);
+    expect(c.supertrend_trigger.side).toBe("LONG");
+    expect(c.supertrend_trigger.freshness).not.toBe("htf_against");
+    expect(c.supertrend_trigger.confirmed_tfs).toEqual(expect.arrayContaining(["4H", "1H"]));
+    expect(c.st_treatment).toBe("slope");
+    expect(c.st_magnet?.kind).toBe("st_magnet_close");
+  });
+
+  it("still vetoes swing longs when daily SuperTrend is sloping against", () => {
+    const c = scoreRootConfluence(confluenceLongBase({
+      st_hold_setup: null,
+      tf_tech: {
+        D: {
+          ew: { dir: 1, fiboMatch: 1.618, detected: true },
+          fvg: { activeBull: 4, activeBear: 0, inBullGap: true },
+          pdz: { zone: "discount" },
+          sma200: 2000,
+          sq: { r: 1 },
+          ema: { ema21: 2550 },
+          stDir: 1,
+          stSlope: -1,
+          ripster: { c72_89: { above: true } },
+        },
+        "4H": { stDir: -1, stSlope: 1, fvg: { activeBull: 2, activeBear: 0 } },
+        "1H": { stDir: -1, stSlope: 1 },
+      },
+    }));
+    expect(c.supertrend_trigger.freshness).toBe("htf_against");
+    expect(c.supertrend_trigger.triggered).toBe(false);
   });
 
   it("keeps READY when confluence is high and ST is flat with no hold", () => {

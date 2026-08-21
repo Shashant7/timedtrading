@@ -5,6 +5,7 @@ import {
   classifyTradeAcrossTfs,
   pickStTreatment,
   recommendStTreatment,
+  stClassFromState,
 } from "./st-mtf-review.js";
 import { superTrendSeries } from "./indicators.js";
 
@@ -41,6 +42,19 @@ describe("classifyStAtEntry", () => {
     const hit = classifyStAtEntry({ bars, tradeSide: "SHORT" });
     expect(hit.class).toBe("against");
     expect(hit.agree).toBe(false);
+  });
+
+  it("splits sloping-against from a flat opposite-side magnet", () => {
+    expect(stClassFromState({
+      agree: false, sloping: true, slopeAgrees: false, hold: null, magnet: null,
+    })).toBe("against");
+    expect(stClassFromState({
+      agree: false, sloping: false, hold: null,
+      magnet: { magnet: true, sideLabel: "LONG" },
+    })).toBe("st_magnet");
+    expect(stClassFromState({
+      agree: false, sloping: false, hold: null, magnet: null,
+    })).toBe("flat_against");
   });
 
   it("computes a Pine SuperTrend dir on the fixture", () => {
@@ -128,5 +142,7 @@ describe("recommendStTreatment / pickStTreatment", () => {
     expect(pickStTreatment({ D: { class: "st_flip_retest" }, 10: { class: "st_flip_extended" } }).treatment).toBe("hold");
     expect(pickStTreatment({ D: { class: "st_flip_extended" }, 240: { class: "sloping_agree" } }).treatment).toBe("chase");
     expect(pickStTreatment({ D: { class: "sloping_agree" } }).treatment).toBe("slope");
+    expect(pickStTreatment({ D: { class: "st_magnet" }, 240: { class: "sloping_agree" } }).treatment).toBe("slope");
+    expect(pickStTreatment({ D: { class: "st_magnet" } }).treatment).toBe("magnet");
   });
 });

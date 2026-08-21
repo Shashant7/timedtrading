@@ -54,14 +54,20 @@ import {
   applyTimingOverlayToConfluence,
   computeTimingOverlay,
 } from "./timing-signals.js";
-import { holdAgreesWithSide, isFlipExtendedChase } from "./supertrend-hold.js";
+import {
+  holdAgreesWithSide,
+  isFlipExtendedChase,
+  isSupertrendSlopeFlat,
+  magnetAgreesWithSide,
+} from "./supertrend-hold.js";
 
 // ── Mode thresholds ────────────────────────────────────────────────────────
 // 8 layers identify the opportunity; SuperTrend ignites the trigger.
 //   confluence ≥6 + ST slope confirms direction          → RIDE
 //   confluence ≥6 + flat ST tested and held (same side)  → RIDE (defined-risk entry)
+//   confluence ≥6 + opposite-side flat ST magnet + swing slope → RIDE
 //   confluence ≥6 + ST flip extended off the 21 EMA      → READY (do not chase)
-//   confluence ≥6 + ST flat / not yet sloping            → READY (wait)
+//   confluence ≥6 + ST flat / magnet without swing slope → READY (wait)
 //   confluence ≥4 + ST slope already in motion           → DRIFT (in-motion late entry)
 //   confluence ≥4 + ST opposes                           → FADE candidate
 //   confluence <4                                        → WAIT
@@ -472,15 +478,23 @@ function scoreL7_Trend(t) {
   }
 
   // SuperTrend daily + slope (production fields).
+  // A parked (flat) daily color is the reversal magnet — it is not a vote.
+  // Do not rewrite the historic numeric inversion here (stDir === 1 as
+  // "bull" in this layer); only skip the color vote when the line is flat.
   const stDir = t?.tf_tech?.D?.stDir;
   const stSlope = Number(t?.tf_tech?.D?.stSlope || 0);
   const stDirStr = String(stDir || "").toUpperCase();
-  if (stDirStr === "BULL" || stDirStr === "LONG" || stDir === 1) {
-    bull += 0.5 + Math.min(0.3, Math.max(0, stSlope * 10));
-    parts.push(`ST bull (slope ${stSlope.toFixed(3)})`);
-  } else if (stDirStr === "BEAR" || stDirStr === "SHORT" || stDir === -1) {
-    bear += 0.5 + Math.min(0.3, Math.max(0, -stSlope * 10));
-    parts.push(`ST bear (slope ${stSlope.toFixed(3)})`);
+  const stFlat = isSupertrendSlopeFlat(stSlope);
+  if (!stFlat) {
+    if (stDirStr === "BULL" || stDirStr === "LONG" || stDir === 1) {
+      bull += 0.5 + Math.min(0.3, Math.max(0, stSlope * 10));
+      parts.push(`ST bull (slope ${stSlope.toFixed(3)})`);
+    } else if (stDirStr === "BEAR" || stDirStr === "SHORT" || stDir === -1) {
+      bear += 0.5 + Math.min(0.3, Math.max(0, -stSlope * 10));
+      parts.push(`ST bear (slope ${stSlope.toFixed(3)})`);
+    }
+  } else if (stDir != null && stDir !== 0 && stDir !== "") {
+    parts.push("ST daily flat (parked / magnet)");
   }
 
   // EMA regime daily (proxy for spacing). +2 = strong bull, -2 = strong bear.
@@ -505,6 +519,21 @@ function scoreL7_Trend(t) {
     }
   } else if (hold?.kind === "st_flip_extended") {
     parts.push("ST flip extended off 21 EMA (chase)");
+  }
+
+  const magnet = t?.st_hold_setup?.magnet;
+  if (magnet?.magnet && !hold?.held) {
+    const bonus = magnet.kind === "st_magnet_close" ? 0.25 : 0.15;
+    const tf = magnet.tf ? ` ${magnet.tf}` : "";
+    const lvl = Number.isFinite(magnet.stLine) ? ` @ ${magnet.stLine}` : "";
+    const dist = Number.isFinite(magnet.distSt) ? ` ${magnet.distSt} ATR` : "";
+    if (magnet.side === 1 || magnet.sideLabel === "LONG") {
+      bull += bonus;
+      parts.push(`ST${tf} magnet${lvl}${dist}`);
+    } else if (magnet.side === -1 || magnet.sideLabel === "SHORT") {
+      bear += bonus;
+      parts.push(`ST${tf} magnet${lvl}${dist}`);
+    }
   }
 
   const net = bull - bear;
@@ -593,7 +622,7 @@ const ST_TFS_INTRADAY = ["10", "30"];
 const ST_TFS_SWING    = ["1H", "4H", "D", "W", "M"];
 const ST_TFS_HARD_AGAINST = ["4H", "6.5H", "9H", "D"];
 
-function _tfDirAgainst(t, tf, side) {
+function _tfDirAgainst(t, tf, side, { requireSlope = false } = {}) {
   const st = _readSuperTrend(t, tf);
   if (!st || !side || side === "NEUTRAL") return false;
   const raw = st.dir;
@@ -604,7 +633,9 @@ function _tfDirAgainst(t, tf, side) {
     if (up === "BULL" || up === "LONG" || up === "UP") dirSide = "LONG";
     if (up === "BEAR" || up === "SHORT" || up === "DOWN") dirSide = "SHORT";
   }
-  return dirSide !== "NEUTRAL" && dirSide !== side;
+  if (dirSide === "NEUTRAL" || dirSide === side) return false;
+  if (requireSlope) return !!_stSloping(st).sloping;
+  return true;
 }
 
 function _readSuperTrend(t, tf) {
@@ -727,10 +758,16 @@ function computeSupertrendTrigger(t) {
     freshness = "intraday_only";
   }
 
-  // Direction-against on D / 4H / 6.5H / 9H is a hard veto unless weekly or
-  // monthly slope still agrees (monthly sloping-agree was the closed-book edge).
+  // Hard-against: LTF-only ignition still vetoes on HTF *color* (even a
+  // parked daily bear — that is a 10m chase). Swing ignition (1H/4H/D/W/M)
+  // vetoes only when the HTF line is still *sloping* against. A flat
+  // opposite-side daily is the reversal magnet, not a veto of the reclaim.
+  // Weekly/monthly slope remains an override either way.
   if (triggerSide !== "NEUTRAL") {
-    const hardAgainst = ST_TFS_HARD_AGAINST.some((tf) => _tfDirAgainst(t, tf, triggerSide));
+    const ltfOnly = freshness === "intraday_only";
+    const hardAgainst = ST_TFS_HARD_AGAINST.some((tf) =>
+      _tfDirAgainst(t, tf, triggerSide, { requireSlope: !ltfOnly })
+    );
     const wmSlopeAgrees = (triggerSide === "LONG" ? confirmedBullTfs : confirmedBearTfs)
       .some((tf) => tf === "W" || tf === "M");
     if (hardAgainst && !wmSlopeAgrees) {
@@ -758,8 +795,9 @@ function computeSupertrendTrigger(t) {
  * 8 layers identify the OPPORTUNITY; SuperTrend ignites the TRIGGER.
  *   High confluence + ST slope confirms direction          → RIDE
  *   High confluence + flat ST tested and held              → RIDE (defined-risk)
+ *   High confluence + opposite-side flat ST magnet + swing slope → RIDE
  *   High confluence + ST flip extended off the 21 EMA      → READY (do not chase)
- *   High confluence + ST flat / not yet sloping            → READY (entry pending)
+ *   High confluence + ST flat / magnet without swing slope → READY (entry pending)
  *   Medium confluence + ST slope in motion                 → DRIFT (late but in motion)
  *   Medium confluence + ST opposes                         → FADE candidate
  *   Low confluence                                         → WAIT
@@ -800,7 +838,9 @@ export function scoreRootConfluence(t) {
   // switch, not a vote.
   const stTrigger = computeSupertrendTrigger(t);
   const hold = t?.st_hold_setup?.best || null;
+  const magnet = t?.st_hold_setup?.magnet || null;
   const holdAgrees = holdAgreesWithSide(hold, dominantSide);
+  const magnetAgrees = magnetAgreesWithSide(magnet, dominantSide);
   const flipExtended = isFlipExtendedChase(hold, dominantSide);
 
   // ── Mode resolution (with ST gating) ────────────────────────────────────
@@ -887,13 +927,22 @@ export function scoreRootConfluence(t) {
       stLine: hold.stLine ?? null,
       side: hold.sideLabel || (hold.side > 0 ? "LONG" : hold.side < 0 ? "SHORT" : "NEUTRAL"),
     } : null,
+    st_magnet: magnet?.magnet ? {
+      kind: magnet.kind,
+      tf: magnet.tf || null,
+      side: magnet.sideLabel || (magnet.side > 0 ? "LONG" : magnet.side < 0 ? "SHORT" : "NEUTRAL"),
+      stLine: magnet.stLine ?? null,
+      distSt: magnet.distSt ?? null,
+      approaching: !!magnet.approaching,
+    } : null,
     st_treatment: holdAgrees ? "hold"
       : flipExtended ? "chase"
       : stAgrees ? "slope"
+      : magnetAgrees ? "magnet"
       : stOpposes ? "against"
       : "flat",
     actionable_summary: _buildActionableSummary({
-      mode, side, layers, score, longAgree, shortAgree, stTrigger, hold,
+      mode, side, layers, score, longAgree, shortAgree, stTrigger, hold, magnet,
     }),
   };
 
@@ -905,7 +954,7 @@ export function scoreRootConfluence(t) {
   }
 }
 
-function _buildActionableSummary({ mode, side, layers, score, longAgree, shortAgree, stTrigger, hold }) {
+function _buildActionableSummary({ mode, side, layers, score, longAgree, shortAgree, stTrigger, hold, magnet }) {
   const agree = side === "LONG" ? longAgree : shortAgree;
   const holdBit = hold?.held
     ? ` ST hold${hold.tf ? ` ${hold.tf}` : ""}${Number.isFinite(hold.stLine) ? ` @ ${hold.stLine}` : ""} (${hold.quality || "held"}; risk defined at the ST line).`
@@ -930,7 +979,13 @@ function _buildActionableSummary({ mode, side, layers, score, longAgree, shortAg
     if (hold?.kind === "st_flip_extended") {
       return `READY ${side} — confluence ${score}/100 (${agree}/8 layers) but SuperTrend flipped extended off the 21 EMA. ENTRY PENDING — wait for a retest and hold of the ST line (defined risk), not the stretch flip.`;
     }
-    return `READY ${side} — confluence ${score}/100 (${agree}/8 layers) but SuperTrend has not ignited. ENTRY PENDING — wait for ST(10,3) to start sloping ${side === "LONG" ? "up" : "down"} on W/D/9H/6.5H/4H, or for a test-and-hold of a flat ST line.`;
+    if (magnet?.magnet && magnetAgreesWithSide(magnet, side)) {
+      const tf = magnet.tf || "HTF";
+      const lvl = Number.isFinite(magnet.stLine) ? ` @ ${magnet.stLine}` : "";
+      const dist = Number.isFinite(magnet.distSt) ? ` (${magnet.distSt} ATR)` : "";
+      return `READY ${side} — confluence ${score}/100 (${agree}/8 layers). SuperTrend magnet ${tf}${lvl}${dist}: the parked opposite-side line is the target, not a veto. ENTRY PENDING — wait for 1H/4H slope or a 21 EMA reclaim, not the daily flip.`;
+    }
+    return `READY ${side} — confluence ${score}/100 (${agree}/8 layers) but SuperTrend has not ignited. ENTRY PENDING — wait for ST(10,3) to start sloping ${side === "LONG" ? "up" : "down"} on W/D/4H, or for a test-and-hold of a flat ST line.`;
   }
   if (mode === "FADE") {
     const fadeSrc = stTrigger.side === side ? "ST opposes confluence" : "Newton (RS/Wave/Ichi) opposes majority";

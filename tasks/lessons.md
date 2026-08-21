@@ -6,6 +6,43 @@
 
 ---
 
+## Opposite-side flat SuperTrend is the reversal magnet [2026-08-21]
+
+**Symptom:** TSLA week of Aug 17 was read as “Friday daily ST flip, not
+a hold; ride the Aug 13 21 EMA reclaim.” Operator correction: during a
+reversal the daily ST is *supposed* to still be bear and flat; price
+inching toward it means the ST is the confluence / magnet.
+
+**Root:** SuperTrend flips only after the close takes the line. A
+reversal therefore spends days with the *old* color parked overhead.
+TSLA daily ST sat at $356.77 BEAR from Aug 3–20 (zero line travel)
+while close walked 322 → 351 (distSt 1.87 → 0.35 ATR on Aug 19 high
+351.62). Aug 21 flip to bull jumped the line to $311.83 with close
+$363.37, 1.41 ATR off the 21 — confirmation, not the setup.
+
+The hold detector only scores **same-side** tests (`bearTest` = tag
+the bear line and close back below = SHORT continuation). Approaching
+a bear line from below as a long did not score. L7 voted daily color
+even when the line was flat. `_tfDirAgainst` used **dir**, not slope,
+so a flat daily bear zeroed a 4H/1H LONG trigger (`htf_against`).
+Closed-book `against` mixed sloping-against with parked-opposite
+(D-against n=68 · 33.8% WR) and the veto stayed blunt.
+
+**Fix:** two movies, both live —
+1. Same-side flat ST tested and held → continuation (ETH monthly).
+2. Opposite-side flat ST with the ATR gap closing → `st_magnet`
+   (TSLA daily). The flip is late.
+
+Hard-against split: LTF-only (10m/30m) still vetoes on HTF *color*
+(even flat). Swing (1H/4H/D/W/M) vetoes only when the HTF line is
+*sloping* against. W/M slope override unchanged. L7 skips the daily
+color vote when the line is flat and adds a small magnet bonus.
+`classifyStAtEntry` splits `against` (sloping) vs `st_magnet` /
+`flat_against`. Naked 10m momentum `tt_daily_st_conflict` stays —
+that path is a chase, not the reclaim.
+
+Skill: `skills/supertrend-hold.md`. Tape: `data/tsla-week-movie/movie.json`.
+
 ## OpEx PRE_OPEX mirrors dropped + DD shadow page at start cash [2026-08-21]
 
 **Symptom:** Sanity `investor_signal_bridge_coverage` failed on

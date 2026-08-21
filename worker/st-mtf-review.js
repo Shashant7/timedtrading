@@ -5,7 +5,11 @@
 // (treatment of hold vs flip-retest vs slope vs chase).
 
 import { atrSeries, emaSeries, superTrendSeries } from "./indicators.js";
-import { detectSupertrendHoldFromSeries, pineDirToSide } from "./supertrend-hold.js";
+import {
+  detectSupertrendHoldFromSeries,
+  detectSupertrendMagnetFromSeries,
+  pineDirToSide,
+} from "./supertrend-hold.js";
 import { synthesizeNineHourBars, synthesizeRthSessionBars } from "./session-tfs.js";
 
 export const NATIVE_REVIEW_TFS = ["10", "30", "60", "240", "D", "W", "M"];
@@ -27,6 +31,8 @@ export const ST_CLASSES = [
   "flat_no_test",
   "agree_no_setup",
   "against",
+  "st_magnet",
+  "flat_against",
   "insufficient",
 ];
 
@@ -112,12 +118,42 @@ export function classifyStAtEntry({ bars, tradeSide } = {}) {
     currentlyFlat: !!(hold?.currentlyFlat) || !sloping,
   };
 
-  if (!agree) return { ...base, class: "against" };
-  if (hold?.held && hold.kind) return { ...base, class: hold.kind };
-  if (hold?.kind === "st_flip_extended") return { ...base, class: "st_flip_extended" };
-  if (sloping && slopeAgrees) return { ...base, class: "sloping_agree" };
-  if (!sloping) return { ...base, class: "flat_no_test" };
-  return { ...base, class: "agree_no_setup" };
+  let magnet = null;
+  if (!agree && !sloping && atrN && !hold?.held) {
+    try {
+      magnet = detectSupertrendMagnetFromSeries({
+        bars,
+        stDir: st.dir,
+        stLine: st.line,
+        atr: atrN,
+        lookback: 12,
+      });
+    } catch (_) {
+      magnet = null;
+    }
+  }
+
+  const withMagnet = {
+    ...base,
+    magnet: !!magnet?.magnet,
+    magnetSide: magnet?.sideLabel || null,
+    distSt: magnet?.distSt ?? null,
+  };
+
+  return { ...withMagnet, class: stClassFromState({ agree, sloping, slopeAgrees, hold, magnet }) };
+}
+
+export function stClassFromState({ agree, sloping, slopeAgrees, hold, magnet } = {}) {
+  if (!agree) {
+    if (magnet?.magnet) return "st_magnet";
+    if (!sloping) return "flat_against";
+    return "against";
+  }
+  if (hold?.held && hold.kind) return hold.kind;
+  if (hold?.kind === "st_flip_extended") return "st_flip_extended";
+  if (sloping && slopeAgrees) return "sloping_agree";
+  if (!sloping) return "flat_no_test";
+  return "agree_no_setup";
 }
 
 export function attachSessionCandles(candlesByTf) {
@@ -209,6 +245,7 @@ export function classifyTradeAcrossTfs(trade, candlesByTf) {
     htf_held: REVIEW_TFS.some((tf) => HTF_REVIEW.has(tf) && HELD_CLASSES.has(perTf[tf]?.class)),
     ltf_chase: LTF_REVIEW.has("10") && (perTf["10"]?.class === "st_flip_extended" || perTf["30"]?.class === "st_flip_extended"),
     htf_against: ["D", "W", "M"].some((tf) => perTf[tf]?.class === "against"),
+    htf_magnet: ["D", "W", "M"].some((tf) => perTf[tf]?.class === "st_magnet"),
     later_htf_hold: REVIEW_TFS.some((tf) => HTF_REVIEW.has(tf) && perTf[tf]?.later_hold),
   };
 }
@@ -249,6 +286,7 @@ export function aggregateStMtfReview(rows) {
     htf_held: emptyStat(),
     ltf_chase: emptyStat(),
     htf_against: emptyStat(),
+    htf_magnet: emptyStat(),
     later_htf_hold: emptyStat(),
     htf_held_and_not_chase: emptyStat(),
     slope_only_no_hold: emptyStat(),
@@ -265,6 +303,7 @@ export function aggregateStMtfReview(rows) {
     if (r.htf_held) addStat(byFeature.htf_held, r);
     if (r.ltf_chase) addStat(byFeature.ltf_chase, r);
     if (r.htf_against) addStat(byFeature.htf_against, r);
+    if (r.htf_magnet) addStat(byFeature.htf_magnet, r);
     if (r.later_htf_hold) addStat(byFeature.later_htf_hold, r);
     if (r.htf_held && !r.ltf_chase) addStat(byFeature.htf_held_and_not_chase, r);
 
@@ -329,7 +368,7 @@ export function recommendStTreatment(agg, { minN = 25, lift = 0.04 } = {}) {
   if (against?.n >= minN && (against.lift_wr ?? 0) <= -lift) {
     recs.push({
       id: "block_htf_against",
-      action: "Do not ignite off LTF slope when D/W/M SuperTrend is against the trade",
+      action: "Do not ignite off LTF-only slope when D/W/M SuperTrend is sloping against the trade",
       evidence: against,
     });
   }
@@ -392,10 +431,12 @@ export function pickStTreatment(perTf) {
   let chase = false;
   let against = false;
   let slope = false;
+  let magnet = false;
   for (const tf of htf) {
     const s = perTf?.[tf];
     if (!s) continue;
     if (s.class === "against") against = true;
+    if (s.class === "st_magnet") magnet = true;
     if (s.class === "st_flip_extended") chase = true;
     if (s.class === "sloping_agree") slope = true;
     if (HELD_CLASSES.has(s.class)) {
@@ -406,6 +447,7 @@ export function pickStTreatment(perTf) {
   if (bestHold) return { treatment: "hold", ...bestHold };
   if (chase) return { treatment: "chase" };
   if (slope && !against) return { treatment: "slope" };
+  if (magnet && !against) return { treatment: "magnet" };
   if (against) return { treatment: "against" };
   return { treatment: "flat" };
 }

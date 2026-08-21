@@ -16,8 +16,10 @@ import { resolveMarketOpenCached } from "./market-calendar.js";
 import {
   assembleStHoldSetup,
   compactStHold,
+  compactStMagnet,
   detectEma233ReclaimFromSeries,
   detectSupertrendHoldFromSeries,
+  detectSupertrendMagnetFromSeries,
   refreshStHoldSetup,
 } from "./supertrend-hold.js";
 import { synthesizeNineHourBars, synthesizeRthSessionBars } from "./session-tfs.js";
@@ -25,7 +27,7 @@ import { synthesizeNineHourBars, synthesizeRthSessionBars } from "./session-tfs.
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
 // this version let us know exactly which logic produced them.
-export const SCORING_VERSION = "2.1.0-2026-08-21";
+export const SCORING_VERSION = "2.1.1-2026-08-21";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)
@@ -1647,6 +1649,20 @@ export function computeTfBundle(bars, anchors = null) {
     });
   } catch (_) { stHold = null; }
 
+  // Opposite-side parked ST — reversal magnet (not a same-side hold).
+  let stMagnet = null;
+  try {
+    if (!stHold?.held) {
+      stMagnet = detectSupertrendMagnetFromSeries({
+        bars,
+        stDir: st.dir,
+        stLine: st.line,
+        atr: atr14,
+        lookback: 12,
+      });
+    }
+  } catch (_) { stMagnet = null; }
+
   let ema233Reclaim = null;
   try {
     ema233Reclaim = detectEma233ReclaimFromSeries({
@@ -2013,7 +2029,7 @@ export function computeTfBundle(bars, anchors = null) {
     emaDepth, emaStructure, emaMomentum, ribbonSpread,
     stLine, stDir, stLinePrev, stSlopeUp, stSlopeDn,
     stFlip, stFlipDir, stFlip_ts, stBarsSinceFlip,
-    stHold, ema233Reclaim,
+    stHold, stMagnet, ema233Reclaim,
     sqOn, sqOnPrev, sqRelease, sqRelease_ts, mom, momStd,
     phaseOsc, phaseVelocity, phaseZone,
     satyPhase,
@@ -3496,6 +3512,13 @@ export function detectFlags(bundles) {
   if (flags.st_hold_M || flags.st_hold_W || flags.st_hold_D || flags.st_hold_4h) {
     flags.st_hold = true;
   }
+  if (bM?.stMagnet?.magnet) flags.st_magnet_M = true;
+  if (bW?.stMagnet?.magnet) flags.st_magnet_W = true;
+  if (bD?.stMagnet?.magnet) flags.st_magnet_D = true;
+  if (b4H?.stMagnet?.magnet) flags.st_magnet_4h = true;
+  if (flags.st_magnet_M || flags.st_magnet_W || flags.st_magnet_D || flags.st_magnet_4h) {
+    flags.st_magnet = true;
+  }
   if (bM?.stHold?.kind === "st_flip_extended" || bW?.stHold?.kind === "st_flip_extended"
     || bD?.stHold?.kind === "st_flip_extended" || b4H?.stHold?.kind === "st_flip_extended"
     || b65?.stHold?.kind === "st_flip_extended" || b9?.stHold?.kind === "st_flip_extended") {
@@ -4916,6 +4939,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       stSlope: b.stSlopeUp ? 1 : b.stSlopeDn ? -1 : 0,
       stLine: Number.isFinite(b.stLine) ? Math.round(b.stLine * 100) / 100 : undefined,
       stHold: compactStHold(b.stHold),
+      stMagnet: compactStMagnet(b.stMagnet),
       atr: atrBand ? { ...atrBand, ...(atrCross || {}) } : (atrCross || undefined),
       // Raw ATR(14) as % of price — the structural stop guard needs the
       // hourly ATR magnitude, not just the band labels above.

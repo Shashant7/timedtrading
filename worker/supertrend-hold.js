@@ -33,6 +33,14 @@ const DEFAULT_LOOKBACK = 12;
 const TD13_THEN_9_WINDOW = 12;
 const TF_RANK = { M: 4, W: 3, D: 2, "4H": 1, "240": 1 };
 
+// Opposite-side parked ST (TSLA daily Aug 2026): price walking into the
+// old-color line. Flip cannot print until the close takes the line.
+export const MAGNET_APPROACH_ATR = 2.0;
+export const MAGNET_CLOSE_ATR = 1.0;
+export const MAGNET_MIN_SAME_COLOR = 4;
+export const MAGNET_FLIP_COOLDOWN = 3;
+export const ST_SLOPE_FLAT_EPS = 0.0005;
+
 export function pineDirToSide(dir) {
   const n = Number(dir);
   if (!Number.isFinite(n) || n === 0) return 0;
@@ -243,6 +251,109 @@ export function compactStHold(hold) {
   };
 }
 
+export function isSupertrendSlopeFlat(slope, eps = ST_SLOPE_FLAT_EPS) {
+  const s = Number(slope);
+  if (!Number.isFinite(s)) return true;
+  return Math.abs(s) < eps;
+}
+
+export function compactStMagnet(magnet) {
+  if (!magnet?.magnet) return undefined;
+  return {
+    k: magnet.kind,
+    s: magnet.side,
+    mag: true,
+    line: magnet.stLine,
+    dSt: magnet.distSt,
+    app: !!magnet.approaching,
+  };
+}
+
+/**
+ * Opposite-side flat SuperTrend: the reversal magnet, not a same-side hold.
+ *
+ * Bear ST (dir +1) parked above price, ATR gap closing → magnet side LONG.
+ * Bull ST (dir -1) parked below price, ATR gap closing → magnet side SHORT.
+ * Fresh flips and same-side holds are not magnets.
+ */
+export function detectSupertrendMagnetFromSeries({
+  bars,
+  stDir,
+  stLine,
+  atr,
+  lookback = DEFAULT_LOOKBACK,
+} = {}) {
+  if (!Array.isArray(bars) || !Array.isArray(stDir) || !Array.isArray(stLine)) return null;
+  const n = bars.length - 1;
+  if (n < MAGNET_MIN_SAME_COLOR) return null;
+  const atrN = Number(atr);
+  if (!Number.isFinite(atrN) || atrN <= 0) return null;
+  if (stDir.length < bars.length || stLine.length < bars.length) return null;
+
+  const curDir = stDir[n];
+  const curLine = Number(stLine[n]);
+  const curClose = Number(bars[n]?.c);
+  if (!Number.isFinite(curDir) || curDir === 0 || !Number.isFinite(curLine) || !Number.isFinite(curClose)) {
+    return null;
+  }
+
+  const start = Math.max(1, n - lookback);
+  let lastFlip = -1;
+  for (let i = n; i >= start; i--) {
+    if (stDir[i] !== stDir[i - 1] && Number.isFinite(stDir[i]) && Number.isFinite(stDir[i - 1])) {
+      lastFlip = i;
+      break;
+    }
+  }
+  const barsSinceFlip = lastFlip >= 0 ? n - lastFlip : null;
+  if (barsSinceFlip != null && barsSinceFlip <= MAGNET_FLIP_COOLDOWN) return null;
+
+  let sameColor = 0;
+  for (let i = n; i >= 0 && stDir[i] === curDir; i--) sameColor++;
+  if (sameColor < MAGNET_MIN_SAME_COLOR) return null;
+
+  let flatBars = 0;
+  for (let i = start; i <= n; i++) {
+    if (isFlatDelta(Number(stLine[i]), Number(stLine[i - 1]), atrN)) flatBars++;
+  }
+  const currentlyFlat = isFlatDelta(curLine, Number(stLine[n - 1]), atrN);
+  const recentlyFlat = currentlyFlat || flatBars >= 3;
+  if (!recentlyFlat) return null;
+
+  const bearLine = curDir > 0;
+  const onAttackSide = bearLine ? curClose < curLine : curClose > curLine;
+  if (!onAttackSide) return null;
+
+  const distNow = Math.abs(curClose - curLine) / atrN;
+  const lookI = Math.max(0, n - lookback);
+  const thenClose = Number(bars[lookI]?.c);
+  const thenLine = Number(stLine[lookI]);
+  const distThen = Number.isFinite(thenClose) && Number.isFinite(thenLine)
+    ? Math.abs(thenClose - thenLine) / atrN
+    : distNow;
+  const approaching = distNow < distThen - 0.08;
+  if (distNow > MAGNET_APPROACH_ATR) return null;
+  if (!approaching && distNow > MAGNET_CLOSE_ATR) return null;
+
+  const magnetSide = -pineDirToSide(curDir);
+  const close = distNow <= MAGNET_CLOSE_ATR;
+  return {
+    kind: close ? "st_magnet_close" : "st_magnet_approach",
+    magnet: true,
+    held: false,
+    side: magnetSide,
+    sideLabel: magnetSide > 0 ? "LONG" : magnetSide < 0 ? "SHORT" : "NEUTRAL",
+    stLine: Math.round(curLine * 100) / 100,
+    distSt: Math.round(distNow * 100) / 100,
+    distStThen: Math.round(distThen * 100) / 100,
+    approaching,
+    currentlyFlat,
+    recentlyFlat,
+    barsSinceFlip,
+    quality: close ? "close" : "approach",
+  };
+}
+
 /**
  * Monthly (or HTF) TD13 followed by a later TD9 — ETH-style exhaustion then setup.
  * Prefers M, then W. 9 must be more recent than 13 (new setup after countdown).
@@ -339,8 +450,18 @@ function holdRank(h) {
   return s;
 }
 
+function magnetRank(m) {
+  if (!m?.magnet) return -1;
+  let s = (TF_RANK[m.tf] || 0) * 10;
+  if (m.kind === "st_magnet_close") s += 5;
+  if (m.approaching) s += 2;
+  const d = Number(m.distSt);
+  if (Number.isFinite(d)) s += Math.max(0, 4 - d);
+  return s;
+}
+
 /**
- * Pick the best ST-hold across M / W / D / 4H and attach TD + 233.
+ * Pick the best ST-hold across M / W / D / 4H and attach TD + 233 + magnet.
  * 6.5H / 9H stay on tf_tech for against-veto; they do not win RIDE.
  */
 export function assembleStHoldSetup({ bundles, tdSeq, tfTech } = {}) {
@@ -351,24 +472,31 @@ export function assembleStHoldSetup({ bundles, tdSeq, tfTech } = {}) {
     "4H": bundles?.["4H"] || bundles?.["240"],
   };
   const holds = [];
+  const magnets = [];
   for (const [tf, b] of Object.entries(map)) {
     if (b?.stHold) holds.push({ tf, ...b.stHold });
+    if (b?.stMagnet?.magnet && !b?.stHold?.held) magnets.push({ tf, ...b.stMagnet });
   }
   holds.sort((a, b) => holdRank(b) - holdRank(a));
+  magnets.sort((a, b) => magnetRank(b) - magnetRank(a));
   const best = holds[0] || null;
+  const magnet = magnets[0] || null;
   const td13_then_9 = detectTd13Then9(tdSeq?.per_tf || tdSeq);
   const ema233_reclaim = detectEma233Reclaim(tfTech)
     || (map["4H"]?.ema233Reclaim
       ? { tf: "4H", ...map["4H"].ema233Reclaim }
       : null);
-  if (!best && !td13_then_9 && !ema233_reclaim?.reclaim) return null;
+  if (!best && !td13_then_9 && !ema233_reclaim?.reclaim && !magnet) return null;
   return {
     best,
     holds,
+    magnet,
+    magnets,
     td13_then_9,
     ema233_reclaim: ema233_reclaim || null,
     confluence: {
       st_hold: !!(best?.held),
+      st_magnet: !!magnet,
       td13_then_9: !!td13_then_9,
       ema233_reclaim: !!ema233_reclaim?.reclaim,
     },
@@ -387,6 +515,11 @@ function holdSideLabel(hold) {
 export function holdAgreesWithSide(hold, dominantSide) {
   if (!hold?.held || !dominantSide) return false;
   return holdSideLabel(hold) === dominantSide;
+}
+
+export function magnetAgreesWithSide(magnet, dominantSide) {
+  if (!magnet?.magnet || !dominantSide) return false;
+  return holdSideLabel(magnet) === dominantSide;
 }
 
 export function isFlipExtendedChase(hold, dominantSide) {
