@@ -1,0 +1,790 @@
+{
+  "agg": {
+    "n": 846,
+    "baseline": {
+      "n": 846,
+      "wins": 399,
+      "losses": 447,
+      "wr": 0.472,
+      "avg_pnl_pct": 0.728,
+      "lift_wr": null
+    },
+    "by_tf_class": {
+      "10::insufficient": {
+        "n": 758,
+        "wins": 378,
+        "losses": 380,
+        "wr": 0.499,
+        "avg_pnl_pct": 1.047,
+        "lift_wr": 0.027
+      },
+      "30::insufficient": {
+        "n": 695,
+        "wins": 359,
+        "losses": 336,
+        "wr": 0.517,
+        "avg_pnl_pct": 1.358,
+        "lift_wr": 0.045
+      },
+      "60::insufficient": {
+        "n": 612,
+        "wins": 318,
+        "losses": 294,
+        "wr": 0.52,
+        "avg_pnl_pct": 1.226,
+        "lift_wr": 0.048
+      },
+      "240::insufficient": {
+        "n": 412,
+        "wins": 227,
+        "losses": 185,
+        "wr": 0.551,
+        "avg_pnl_pct": 1.482,
+        "lift_wr": 0.079
+      },
+      "D::insufficient": {
+        "n": 108,
+        "wins": 67,
+        "losses": 41,
+        "wr": 0.62,
+        "avg_pnl_pct": 2.585,
+        "lift_wr": 0.149
+      },
+      "W::against": {
+        "n": 101,
+        "wins": 45,
+        "losses": 56,
+        "wr": 0.446,
+        "avg_pnl_pct": 1.206,
+        "lift_wr": -0.026
+      },
+      "M::flat_no_test": {
+        "n": 442,
+        "wins": 185,
+        "losses": 257,
+        "wr": 0.419,
+        "avg_pnl_pct": 0.347,
+        "lift_wr": -0.053
+      },
+      "6.5H::insufficient": {
+        "n": 731,
+        "wins": 371,
+        "losses": 360,
+        "wr": 0.508,
+        "avg_pnl_pct": 1.151,
+        "lift_wr": 0.036
+      },
+      "9H::insufficient": {
+        "n": 646,
+        "wins": 335,
+        "losses": 311,
+        "wr": 0.519,
+        "avg_pnl_pct": 1.147,
+        "lift_wr": 0.047
+      },
+      "W::agree_no_setup": {
+        "n": 3,
+        "wins": 3,
+        "losses": 0,
+        "wr": 1,
+        "avg_pnl_pct": 1.158,
+        "lift_wr": 0.528
+      },
+      "D::flat_no_test": {
+        "n": 358,
+        "wins": 156,
+        "losses": 202,
+        "wr": 0.436,
+        "avg_pnl_pct": 0.065,
+        "lift_wr": -0.036
+      },
+      "W::flat_no_test": {
+        "n": 375,
+        "wins": 159,
+        "losses": 216,
+        "wr": 0.424,
+        "avg_pnl_pct": 0.543,
+        "lift_wr": -0.048
+      },
+      "M::sloping_agree": {
+        "n": 305,
+        "wins": 165,
+        "losses": 140,
+        "wr": 0.541,
+        "avg_pnl_pct": 1.22,
+        "lift_wr": 0.069
+      },
+      "W::sloping_agree": {
+        "n": 264,
+        "wins": 137,
+        "losses": 127,
+        "wr": 0.519,
+        "avg_pnl_pct": 0.873,
+        "lift_wr": 0.047
+      },
+      "W::st_hold": {
+        "n": 79,
+        "wins": 40,
+        "losses": 39,
+        "wr": 0.506,
+        "avg_pnl_pct": 0.185,
+        "lift_wr": 0.035
+      },
+      "M::st_hold": {
+        "n": 29,
+        "wins": 12,
+        "losses": 17,
+        "wr": 0.414,
+        "avg_pnl_pct": 0.467,
+        "lift_wr": -0.058
+      },
+      "D::st_hold": {
+        "n": 110,
+        "wins": 49,
+        "losses": 61,
+        "wr": 0.445,
+        "avg_pnl_pct": 0.899,
+        "lift_wr": -0.026
+      },
+      "D::sloping_agree": {
+        "n": 160,
+        "wins": 83,
+        "losses": 77,
+        "wr": 0.519,
+        "avg_pnl_pct": 0.828,
+        "lift_wr": 0.047
+      },
+      "W::insufficient": {
+        "n": 19,
+        "wins": 13,
+        "losses": 6,
+        "wr": 0.684,
+        "avg_pnl_pct": 2.193,
+        "lift_wr": 0.213
+      },
+      "W::st_flip_extended": {
+        "n": 5,
+        "wins": 2,
+        "losses": 3,
+        "wr": 0.4,
+        "avg_pnl_pct": 0.123,
+        "lift_wr": -0.072
+      },
+      "M::insufficient": {
+        "n": 30,
+        "wins": 20,
+        "losses": 10,
+        "wr": 0.667,
+        "avg_pnl_pct": 2.209,
+        "lift_wr": 0.195
+      },
+      "D::against": {
+        "n": 92,
+        "wins": 31,
+        "losses": 61,
+        "wr": 0.337,
+        "avg_pnl_pct": -0.67,
+        "lift_wr": -0.135
+      },
+      "M::against": {
+        "n": 40,
+        "wins": 17,
+        "losses": 23,
+        "wr": 0.425,
+        "avg_pnl_pct": 0.268,
+        "lift_wr": -0.047
+      },
+      "240::flat_no_test": {
+        "n": 189,
+        "wins": 69,
+        "losses": 120,
+        "wr": 0.365,
+        "avg_pnl_pct": -0.112,
+        "lift_wr": -0.107
+      },
+      "240::sloping_agree": {
+        "n": 49,
+        "wins": 24,
+        "losses": 25,
+        "wr": 0.49,
+        "avg_pnl_pct": -0.071,
+        "lift_wr": 0.018
+      },
+      "D::agree_no_setup": {
+        "n": 5,
+        "wins": 2,
+        "losses": 3,
+        "wr": 0.4,
+        "avg_pnl_pct": 2.378,
+        "lift_wr": -0.072
+      },
+      "240::st_hold": {
+        "n": 77,
+        "wins": 38,
+        "losses": 39,
+        "wr": 0.494,
+        "avg_pnl_pct": 2.626,
+        "lift_wr": 0.022
+      },
+      "240::against": {
+        "n": 110,
+        "wins": 36,
+        "losses": 74,
+        "wr": 0.327,
+        "avg_pnl_pct": -1.721,
+        "lift_wr": -0.144
+      },
+      "D::st_flip_extended": {
+        "n": 11,
+        "wins": 9,
+        "losses": 2,
+        "wr": 0.818,
+        "avg_pnl_pct": 11.756,
+        "lift_wr": 0.347
+      },
+      "30::st_hold": {
+        "n": 30,
+        "wins": 11,
+        "losses": 19,
+        "wr": 0.367,
+        "avg_pnl_pct": -1.028,
+        "lift_wr": -0.105
+      },
+      "240::st_flip_retest": {
+        "n": 4,
+        "wins": 2,
+        "losses": 2,
+        "wr": 0.5,
+        "avg_pnl_pct": 2.422,
+        "lift_wr": 0.028
+      },
+      "240::st_flip_extended": {
+        "n": 4,
+        "wins": 2,
+        "losses": 2,
+        "wr": 0.5,
+        "avg_pnl_pct": 0.671,
+        "lift_wr": 0.028
+      },
+      "60::flat_no_test": {
+        "n": 57,
+        "wins": 27,
+        "losses": 30,
+        "wr": 0.474,
+        "avg_pnl_pct": 2.584,
+        "lift_wr": 0.002
+      },
+      "60::st_hold": {
+        "n": 26,
+        "wins": 9,
+        "losses": 17,
+        "wr": 0.346,
+        "avg_pnl_pct": -1.529,
+        "lift_wr": -0.125
+      },
+      "60::sloping_agree": {
+        "n": 14,
+        "wins": 6,
+        "losses": 8,
+        "wr": 0.429,
+        "avg_pnl_pct": 3.644,
+        "lift_wr": -0.043
+      },
+      "60::against": {
+        "n": 131,
+        "wins": 37,
+        "losses": 94,
+        "wr": 0.282,
+        "avg_pnl_pct": -2.218,
+        "lift_wr": -0.189
+      },
+      "30::against": {
+        "n": 82,
+        "wins": 17,
+        "losses": 65,
+        "wr": 0.207,
+        "avg_pnl_pct": -2.7,
+        "lift_wr": -0.264
+      },
+      "60::st_flip_retest": {
+        "n": 2,
+        "wins": 1,
+        "losses": 1,
+        "wr": 0.5,
+        "avg_pnl_pct": 2.023,
+        "lift_wr": 0.028
+      },
+      "9H::st_hold": {
+        "n": 48,
+        "wins": 19,
+        "losses": 29,
+        "wr": 0.396,
+        "avg_pnl_pct": -0.072,
+        "lift_wr": -0.076
+      },
+      "9H::against": {
+        "n": 51,
+        "wins": 11,
+        "losses": 40,
+        "wr": 0.216,
+        "avg_pnl_pct": -0.831,
+        "lift_wr": -0.256
+      },
+      "9H::flat_no_test": {
+        "n": 84,
+        "wins": 24,
+        "losses": 60,
+        "wr": 0.286,
+        "avg_pnl_pct": -2.043,
+        "lift_wr": -0.186
+      },
+      "9H::sloping_agree": {
+        "n": 13,
+        "wins": 7,
+        "losses": 6,
+        "wr": 0.538,
+        "avg_pnl_pct": 2.211,
+        "lift_wr": 0.067
+      },
+      "D::st_flip_retest": {
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "wr": 1,
+        "avg_pnl_pct": 1.416,
+        "lift_wr": 0.528
+      },
+      "60::st_flip_extended": {
+        "n": 3,
+        "wins": 1,
+        "losses": 2,
+        "wr": 0.333,
+        "avg_pnl_pct": -0.446,
+        "lift_wr": -0.138
+      },
+      "10::flat_no_test": {
+        "n": 22,
+        "wins": 7,
+        "losses": 15,
+        "wr": 0.318,
+        "avg_pnl_pct": -0.497,
+        "lift_wr": -0.153
+      },
+      "30::flat_no_test": {
+        "n": 29,
+        "wins": 10,
+        "losses": 19,
+        "wr": 0.345,
+        "avg_pnl_pct": -0.888,
+        "lift_wr": -0.127
+      },
+      "30::st_flip_retest": {
+        "n": 2,
+        "wins": 1,
+        "losses": 1,
+        "wr": 0.5,
+        "avg_pnl_pct": -7.495,
+        "lift_wr": 0.028
+      },
+      "10::against": {
+        "n": 48,
+        "wins": 10,
+        "losses": 38,
+        "wr": 0.208,
+        "avg_pnl_pct": -1.997,
+        "lift_wr": -0.263
+      },
+      "240::st_pierce_held": {
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "wr": 1,
+        "avg_pnl_pct": 4.742,
+        "lift_wr": 0.528
+      },
+      "6.5H::against": {
+        "n": 19,
+        "wins": 4,
+        "losses": 15,
+        "wr": 0.211,
+        "avg_pnl_pct": -1.989,
+        "lift_wr": -0.261
+      },
+      "6.5H::flat_no_test": {
+        "n": 75,
+        "wins": 19,
+        "losses": 56,
+        "wr": 0.253,
+        "avg_pnl_pct": -2.505,
+        "lift_wr": -0.218
+      },
+      "6.5H::sloping_agree": {
+        "n": 6,
+        "wins": 3,
+        "losses": 3,
+        "wr": 0.5,
+        "avg_pnl_pct": 2.33,
+        "lift_wr": 0.028
+      },
+      "10::st_hold": {
+        "n": 13,
+        "wins": 3,
+        "losses": 10,
+        "wr": 0.231,
+        "avg_pnl_pct": -4.931,
+        "lift_wr": -0.241
+      },
+      "6.5H::st_hold": {
+        "n": 14,
+        "wins": 2,
+        "losses": 12,
+        "wr": 0.143,
+        "avg_pnl_pct": -0.966,
+        "lift_wr": -0.329
+      },
+      "30::sloping_agree": {
+        "n": 5,
+        "wins": 1,
+        "losses": 4,
+        "wr": 0.2,
+        "avg_pnl_pct": -5.393,
+        "lift_wr": -0.272
+      },
+      "10::sloping_agree": {
+        "n": 4,
+        "wins": 1,
+        "losses": 3,
+        "wr": 0.25,
+        "avg_pnl_pct": -0.566,
+        "lift_wr": -0.222
+      },
+      "6.5H::st_flip_retest": {
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "wr": 0,
+        "avg_pnl_pct": -0.177,
+        "lift_wr": -0.472
+      },
+      "9H::st_flip_retest": {
+        "n": 2,
+        "wins": 1,
+        "losses": 1,
+        "wr": 0.5,
+        "avg_pnl_pct": -4.316,
+        "lift_wr": 0.028
+      },
+      "30::agree_no_setup": {
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "wr": 0,
+        "avg_pnl_pct": -2.419,
+        "lift_wr": -0.472
+      },
+      "30::st_flip_extended": {
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "wr": 0,
+        "avg_pnl_pct": -2.547,
+        "lift_wr": -0.472
+      },
+      "10::st_flip_extended": {
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "wr": 0,
+        "avg_pnl_pct": -4.59,
+        "lift_wr": -0.472
+      },
+      "60::agree_no_setup": {
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "wr": 0,
+        "avg_pnl_pct": -4.59,
+        "lift_wr": -0.472
+      },
+      "9H::agree_no_setup": {
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "wr": 1,
+        "avg_pnl_pct": 17.921,
+        "lift_wr": 0.528
+      },
+      "9H::st_flip_extended": {
+        "n": 1,
+        "wins": 1,
+        "losses": 0,
+        "wr": 1,
+        "avg_pnl_pct": 54.687,
+        "lift_wr": 0.528
+      }
+    },
+    "by_setup": {
+      "TT Tt Gap Reversal Long": {
+        "n": 357,
+        "wins": 204,
+        "losses": 153,
+        "wr": 0.571,
+        "avg_pnl_pct": 1.109,
+        "lift_wr": 0.1
+      },
+      "TT Tt Pullback": {
+        "n": 63,
+        "wins": 30,
+        "losses": 33,
+        "wr": 0.476,
+        "avg_pnl_pct": -0.04,
+        "lift_wr": 0.005
+      },
+      "TT Tt N Test Support": {
+        "n": 74,
+        "wins": 28,
+        "losses": 46,
+        "wr": 0.378,
+        "avg_pnl_pct": -0.006,
+        "lift_wr": -0.093
+      },
+      "TT Tt Ath Breakout": {
+        "n": 75,
+        "wins": 31,
+        "losses": 44,
+        "wr": 0.413,
+        "avg_pnl_pct": -0.154,
+        "lift_wr": -0.058
+      },
+      "TT Tt Range Reversal Long": {
+        "n": 21,
+        "wins": 11,
+        "losses": 10,
+        "wr": 0.524,
+        "avg_pnl_pct": 0.542,
+        "lift_wr": 0.052
+      },
+      "TT Tt Gap Reversal Short": {
+        "n": 11,
+        "wins": 7,
+        "losses": 4,
+        "wr": 0.636,
+        "avg_pnl_pct": 1.828,
+        "lift_wr": 0.165
+      },
+      "TT Momentum": {
+        "n": 3,
+        "wins": 0,
+        "losses": 3,
+        "wr": 0,
+        "avg_pnl_pct": -2.746,
+        "lift_wr": -0.472
+      },
+      "TT Confirmed Long": {
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "wr": 0,
+        "avg_pnl_pct": -0.891,
+        "lift_wr": -0.472
+      },
+      "TT Tt N Test Resistance": {
+        "n": 13,
+        "wins": 5,
+        "losses": 8,
+        "wr": 0.385,
+        "avg_pnl_pct": -0.282,
+        "lift_wr": -0.087
+      },
+      "TT Tt Reclaim": {
+        "n": 2,
+        "wins": 2,
+        "losses": 0,
+        "wr": 1,
+        "avg_pnl_pct": 0.728,
+        "lift_wr": 0.528
+      },
+      "TT Tt Atl Breakdown": {
+        "n": 7,
+        "wins": 2,
+        "losses": 5,
+        "wr": 0.286,
+        "avg_pnl_pct": 0.259,
+        "lift_wr": -0.186
+      },
+      "TT Tt Momentum": {
+        "n": 3,
+        "wins": 2,
+        "losses": 1,
+        "wr": 0.667,
+        "avg_pnl_pct": 1.775,
+        "lift_wr": 0.195
+      },
+      "TT Setup": {
+        "n": 5,
+        "wins": 2,
+        "losses": 3,
+        "wr": 0.4,
+        "avg_pnl_pct": 2.695,
+        "lift_wr": -0.072
+      },
+      "TT ATH Breakout": {
+        "n": 35,
+        "wins": 12,
+        "losses": 23,
+        "wr": 0.343,
+        "avg_pnl_pct": -0.754,
+        "lift_wr": -0.129
+      },
+      "TT Support Bounce": {
+        "n": 30,
+        "wins": 9,
+        "losses": 21,
+        "wr": 0.3,
+        "avg_pnl_pct": -0.32,
+        "lift_wr": -0.172
+      },
+      "TT Pullback Reclaim": {
+        "n": 6,
+        "wins": 1,
+        "losses": 5,
+        "wr": 0.167,
+        "avg_pnl_pct": -1.376,
+        "lift_wr": -0.305
+      },
+      "TT Range Reversal (Long)": {
+        "n": 7,
+        "wins": 1,
+        "losses": 6,
+        "wr": 0.143,
+        "avg_pnl_pct": -2.6,
+        "lift_wr": -0.329
+      },
+      "TT Gap Reversal (Long)": {
+        "n": 1,
+        "wins": 0,
+        "losses": 1,
+        "wr": 0,
+        "avg_pnl_pct": -1.389,
+        "lift_wr": -0.472
+      },
+      "TT HTF Reclaim": {
+        "n": 4,
+        "wins": 1,
+        "losses": 3,
+        "wr": 0.25,
+        "avg_pnl_pct": -0.026,
+        "lift_wr": -0.222
+      },
+      "Investor exited": {
+        "n": 127,
+        "wins": 51,
+        "losses": 76,
+        "wr": 0.402,
+        "avg_pnl_pct": 2.04,
+        "lift_wr": -0.07
+      }
+    },
+    "by_book": {
+      "st": {
+        "n": 719,
+        "wins": 348,
+        "losses": 371,
+        "wr": 0.484,
+        "avg_pnl_pct": 0.497,
+        "lift_wr": 0.012
+      },
+      "investor": {
+        "n": 127,
+        "wins": 51,
+        "losses": 76,
+        "wr": 0.402,
+        "avg_pnl_pct": 2.04,
+        "lift_wr": -0.07
+      }
+    },
+    "by_feature": {
+      "htf_held": {
+        "n": 294,
+        "wins": 135,
+        "losses": 159,
+        "wr": 0.459,
+        "avg_pnl_pct": 0.931,
+        "lift_wr": -0.012
+      },
+      "ltf_chase": {
+        "n": 2,
+        "wins": 0,
+        "losses": 2,
+        "wr": 0,
+        "avg_pnl_pct": -3.569,
+        "lift_wr": -0.472
+      },
+      "htf_against": {
+        "n": 196,
+        "wins": 79,
+        "losses": 117,
+        "wr": 0.403,
+        "avg_pnl_pct": 0.354,
+        "lift_wr": -0.069
+      },
+      "later_htf_hold": {
+        "n": 78,
+        "wins": 21,
+        "losses": 57,
+        "wr": 0.269,
+        "avg_pnl_pct": -0.948,
+        "lift_wr": -0.202
+      },
+      "htf_held_and_not_chase": {
+        "n": 293,
+        "wins": 135,
+        "losses": 158,
+        "wr": 0.461,
+        "avg_pnl_pct": 0.95,
+        "lift_wr": -0.011
+      },
+      "slope_only_no_hold": {
+        "n": 349,
+        "wins": 174,
+        "losses": 175,
+        "wr": 0.499,
+        "avg_pnl_pct": 0.754,
+        "lift_wr": 0.027
+      }
+    }
+  },
+  "recs": [
+    {
+      "id": "block_htf_against",
+      "action": "Do not ignite off LTF slope when D/W/M SuperTrend is against the trade",
+      "evidence": {
+        "n": 196,
+        "wins": 79,
+        "losses": 117,
+        "wr": 0.403,
+        "avg_pnl_pct": 0.354,
+        "lift_wr": -0.069
+      }
+    },
+    {
+      "id": "respect_9H_against",
+      "action": "9H SuperTrend against the trade is a real veto — do not ignore it",
+      "evidence": {
+        "n": 51,
+        "wins": 11,
+        "losses": 40,
+        "wr": 0.216,
+        "avg_pnl_pct": -0.831,
+        "lift_wr": -0.256
+      }
+    },
+    {
+      "id": "include_wm_trigger",
+      "action": "Weekly and monthly SuperTrend belong in the swing trigger (not only 1H/4H/D)",
+      "evidence": {
+        "reason": "mtf_completeness"
+      }
+    }
+  ]
+}

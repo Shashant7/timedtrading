@@ -6,6 +6,24 @@
 
 ---
 
+## SuperTrend MTF: slope on W/M is the edge; session TFs are vetos [2026-08-21]
+
+**Symptom:** Operator asked whether winners/losers tested SuperTrend and
+held across 10m/30m/1H/4H/D/W/M, and whether 6.5H / 9H belong in the
+MTF stack.
+
+**Root:** The live trigger ignored W/M. Session charts did not exist.
+The ST closed book (719) is mostly Gap Reversal — flip-retest at entry
+is n&lt;8. Monthly sloping-agree is +6.3pp WR; daily/9H/6.5H *against*
+is 19–34% WR. 6.5H holds lost (16.7%). A later HTF hold after a bad
+entry is not an edge (26.9% WR).
+
+**Fix:** Swing slope = 1H/4H/D/W/M. Hard-against veto on 4H/6.5H/9H/D
+unless W or M slope agrees. 6.5H/9H synthesized from 30m/60m onto
+`tf_tech` but they do not set `flags.st_hold` / RIDE. Review:
+`tasks/2026-08-21-st-mtf-review.md`. Script:
+`scripts/analyze-st-mtf-trades.mjs`.
+
 ## Flat SuperTrend hold is the entry; stretch flip is the chase [2026-08-21]
 
 **Symptom:** ETHUSD monthly — July TD9 after a TD13, flat SuperTrend ~$1,550

@@ -973,6 +973,7 @@ Structural vintage bumped to **2026-07-07** (July Sector Allocation): Industrial
 - **Check merge state before pushing follow-ups to a PR branch (2026-08-12)**: PR #1223 merged mid-session; a hardening round pushed to the same branch afterward deployed live but never reached main. `gh pr view <n> --json state,mergedAt` first — if merged, cherry-pick onto a fresh branch off origin/main and open a new PR (#1224).
 - **`build:frontend` last (2026-08-21)**: Tailwind `@source`s `react-app/` including `shared-right-rail.compiled.js`. Running `build:rail` after `build:frontend` desyncs `tailwind.generated.css` and fails check-dist.
 - **Flat SuperTrend hold vs stretch flip (2026-08-21)**: do not treat ST only as a flip. A flat ST that is tested and holds is the defined-risk entry; a flip away from the 21 EMA is the chase. See `skills/supertrend-hold.md`.
+- **ST MTF closed-book (2026-08-21)**: 719 ST closes — monthly/weekly *slope* is the edge (+6.3pp / +3.6pp). Flat-no-test and 10m/30m/6.5H holds lose. 9H/6.5H/D *against* is a hard veto unless W/M slope agrees. Flip-retest almost never printed at ST entry. Swing trigger now includes W/M; session TFs are against-vetoes, not RIDE. See `tasks/2026-08-21-st-mtf-review.md`.
 
 ## Full Lessons
 

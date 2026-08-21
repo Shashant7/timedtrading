@@ -333,12 +333,15 @@ function holdRank(h) {
   const q = { high: 3, medium: 2, base: 2, low: 0 }[h.quality] ?? 0;
   let s = q * 10 + (TF_RANK[h.tf] || 0);
   if (h.held) s += 20;
+  if (h.kind === "st_flip_retest" || h.kind === "st_pierce_held") s += 8;
+  else if (h.kind === "st_hold") s += 4;
   if (h.kind === "st_flip_extended") s -= 15;
   return s;
 }
 
 /**
- * Pick the best ST-hold across M / W / D / 4H and attach TD + 233 confluence.
+ * Pick the best ST-hold across M / W / D / 4H and attach TD + 233.
+ * 6.5H / 9H stay on tf_tech for against-veto; they do not win RIDE.
  */
 export function assembleStHoldSetup({ bundles, tdSeq, tfTech } = {}) {
   const map = {
