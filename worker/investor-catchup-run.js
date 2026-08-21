@@ -20,6 +20,44 @@ import {
   CATCHUP_SIGNAL_TTL_RTH_MS,
 } from "./investor-catchup-gates.js";
 
+/** Hourly RTH + COO heal cap. Raised 8→24 after the 2026-08-21 OpEx storm. */
+export const CATCHUP_AUTO_MAX_OPS = 24;
+
+/**
+ * True when a client-ring row is a real broker place (not a burned
+ * `dedupe_skip`). A 2026-07-27 invariant: `{ ok:true, deduped:true }`
+ * has no order id and must NOT look like a fill.
+ *
+ * 2026-08-21 — Live Webull successes often stored `status:ok` +
+ * `http_status:200` with `rh_order_id:null` because the client only
+ * read `parsed.rh_order_id`. Those legacy rows are real places; treat
+ * them as mirrored so catch-up does not double-trim. New rows persist
+ * `order_id` / `deduped`.
+ */
+export function ringLooksLikeRealPlace(r) {
+  if (!r || String(r.status || "") !== "ok") return false;
+  if (r.deduped === true || r.dedupe_skip === true) return false;
+  const reject = String(r.reject_reason || r.error || "").toLowerCase();
+  if (reject.includes("dedup") || reject.includes("duplicate_client")) return false;
+  if (r.rh_order_id || r.broker_order_id || r.order_id) return true;
+  return Number(r.http_status) === 200;
+}
+
+/** Exits/trims before buys so a max_ops slice cannot starve unmatched sells. */
+export function prioritizeCatchupOps(ops = []) {
+  const rank = (op) => {
+    const k = String(op?.kind || "").toLowerCase();
+    if (k === "exit" || k === "close") return 0;
+    if (k === "trim" || k === "reduce" || k === "sell") return 1;
+    return 2;
+  };
+  return [...(ops || [])].sort((a, b) => {
+    const d = rank(a) - rank(b);
+    if (d !== 0) return d;
+    return (Number(a.lot_ts) || 0) - (Number(b.lot_ts) || 0);
+  });
+}
+
 async function kvJson(env, key) {
   try {
     const raw = await env?.KV_TIMED?.get(key);
@@ -156,8 +194,7 @@ export function planInvestorCatchupOps({
   const mirroredOkIds = new Set(
     (ring || [])
       .filter((r) => String(r?.trade_id || "").startsWith("inv-")
-        && r?.status === "ok"
-        && (r?.rh_order_id || r?.broker_order_id || r?.order_id))
+        && ringLooksLikeRealPlace(r))
       .map((r) => `${String(r.side || "").toLowerCase()}|${String(r.trade_id)}`),
   );
 
@@ -346,7 +383,7 @@ export async function runInvestorCatchup(env, opts = {}) {
     trustFreshLotMs,
   });
 
-  let planned = plannedFull.planned;
+  let planned = prioritizeCatchupOps(plannedFull.planned);
   let truncated = 0;
   if (maxOps != null && planned.length > maxOps) {
     truncated = planned.length - maxOps;

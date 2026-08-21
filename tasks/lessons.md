@@ -6,6 +6,39 @@
 
 ---
 
+## OpEx PRE_OPEX mirrors dropped + DD shadow page at start cash [2026-08-21]
+
+**Symptom:** Sanity `investor_signal_bridge_coverage` failed on
+PLTR/PNC `PRE_OPEX_RISK_REDUCTION`. Hourly catch-up re-fired already-ok
+trims (KO/NVDA/RGLD) and never reached PLTR. Portfolio DD shadow-paged
+28% from a $139k 20-day high with equity $100k and 0 positions.
+
+**Root:**
+1. Event-risk DID call `_bridgeMirrorInvestor` (not the KO 2026-07-27
+   missing-call bug). 17 parallel `waitUntil` mirrors (28s, Webull 2
+   req / 2s) — isolate teardown dropped the last two before `pushRing`.
+2. Ring stored only `parsed.rh_order_id`. Live Webull successes often
+   have `order_id` / null `rh_order_id`, so `lotAlreadyMirrored`
+   required a broker id and treated every ok trim as unmatched.
+3. Coverage was ±15 min with no last-signal-wins. PNC's 17:05
+   invalidation flatten hit the ring; the 14:04 PRE_OPEX lot still
+   paged.
+4. DD math was correct against a leftover 20-day high; a flat book at
+   start cash has nothing for a breaker to cut.
+
+**Fix:** Enqueue auto-rebalance mirrors and drain in one waitUntil at
+concurrency 2. Persist `order_id` / `broker_order_id` / `deduped` on
+the ring. Catch-up treats legacy ok+200 (no `deduped`) as mirrored;
+sort sells first; `max_ops` 8→24. Coverage last-signal-wins + later
+catch-up heals. DD skip when `open_count===0` and equity within 2% of
+start cash. Do not enable `portfolio_dd_breaker_enabled`. Live
+remediations: force catch-up PLTR only.
+
+Files: `worker/broker-bridge-client.js`, `investor-catchup-run.js`,
+`sanity-sweep.js`, `portfolio-risk.js`, auto-rebalance in
+`worker/index.js`, `coo-orchestrator.js`.
+Writeup: `tasks/2026-08-21-opex-bridge-coverage.md`.
+
 ## ETH monthly Saty Phase never hits official −61.8 [2026-08-21]
 
 **Symptom:** Operator asked how many names flashed TD 13 then 9, showed

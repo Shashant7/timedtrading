@@ -209,3 +209,18 @@ describe("DCA execute MUST notify + claim-before-write (2026-07-29)", () => {
     expect(/forwardInvestorMirror\s*\(/.test(src)).toBe(true);
   });
 });
+
+describe("auto-rebalance drains mirrors (OpEx 2026-08-21)", () => {
+  function autoRebalanceWindow() {
+    const start = lines.findIndex((l) => /routeKey\s*===\s*"POST \/timed\/investor\/auto-rebalance"/.test(l));
+    expect(start, "auto-rebalance route marker missing").toBeGreaterThan(0);
+    return lines.slice(start, start + 2500).join("\n");
+  }
+
+  it("enqueues _bridgeMirrorInvestor then flushPendingMirrors (no stampede waitUntil)", () => {
+    const src = autoRebalanceWindow();
+    expect(src).toMatch(/_pendingMirrorOps/);
+    expect(src).toMatch(/flushPendingMirrors\s*\(/);
+    expect(src).toMatch(/_runInvestorMirror/);
+  });
+});

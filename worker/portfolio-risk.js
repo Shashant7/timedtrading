@@ -147,9 +147,20 @@ export async function evaluatePortfolioRisk(env, { openRows, priceMap, realizedP
   const ddEnforced = String(daCfg.portfolio_dd_breaker_enabled ?? "false") === "true";
   const budgetEnforced = String(daCfg.portfolio_risk_budget_enabled ?? "false") === "true";
 
+  // 2026-08-21 — Flat paper book sitting on start cash: the 20-day high
+  // is leftover from a prior book (reset / phantom exclusion / full
+  // flatten back to cash). A breaker has nothing to cut — do not trip
+  // or Discord-page. Real realized losses that leave equity well off
+  // start cash still trip.
+  const start = Number(startCash) || 0;
+  const flatAtStartCash = book.open_count === 0
+    && start > 0
+    && Math.abs(book.equity - start) / start < 0.02;
+  const ddSuppressedReason = flatAtStartCash ? "flat_book_at_start_cash" : null;
+
   // DD trip needs at least 5 daily samples — a fresh ring would treat
   // the first red day as a 100%-confidence drawdown signal.
-  const ddTrip = samples >= 5 && ddPct >= ddThreshold;
+  const ddTrip = !flatAtStartCash && samples >= 5 && ddPct >= ddThreshold;
   const budgetTrip = book.open_notional_pct != null && book.open_notional_pct >= notionalThreshold;
 
   const sectorMaxPct = _num(daCfg.portfolio_sector_max_pct, 40);
@@ -159,7 +170,7 @@ export async function evaluatePortfolioRisk(env, { openRows, priceMap, realizedP
   // approaches the breaker threshold without blocking entries.
   const ddHaircutEnabled = String(daCfg.portfolio_dd_size_haircut_enabled ?? "true") !== "false";
   let dd_size_mult = 1.0;
-  if (ddHaircutEnabled && samples >= 5 && ddThreshold > 0) {
+  if (ddHaircutEnabled && !flatAtStartCash && samples >= 5 && ddThreshold > 0) {
     const ratio = ddPct / ddThreshold;
     if (ratio >= 1) dd_size_mult = 0.5;
     else if (ratio >= 0.8) dd_size_mult = 0.75;
@@ -177,6 +188,7 @@ export async function evaluatePortfolioRisk(env, { openRows, priceMap, realizedP
     dd_threshold_pct: ddThreshold,
     dd_trip: ddTrip,
     dd_enforced: ddEnforced,
+    dd_suppressed_reason: ddSuppressedReason,
     notional_threshold_pct: notionalThreshold,
     budget_trip: budgetTrip,
     budget_enforced: budgetEnforced,

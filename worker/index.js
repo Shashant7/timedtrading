@@ -97007,8 +97007,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           //     availability check (all from preflightOrder in
           //     bridge-guards.js). Scale-to-fit rounds the qty down further
           //     if the account can't support the full scaled position.
-          //   • Fire-and-forget (queueBackground) — never blocks the
-          //     auto-rebalance D1 writes.
+          //   • Enqueued then drained in ONE waitUntil at concurrency 2
+          //     after D1 writes finish (2026-08-21 OpEx: 17 parallel
+          //     waitUntils dropped PLTR + PNC before pushRing). Discord
+          //     / email stay fire-and-forget via queueBackground.
           //
           // Gated on BROKER_BRIDGE_URL + BROKER_BRIDGE_HMAC_KEY env vars
           // 2026-07-23 — BROKER_INVESTOR_MIRROR_ENABLED defaults ON via
@@ -97019,7 +97021,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // instead of a silent no-op.
           const { forwardInvestorMirror: _forwardInvestorMirror } = await import("./broker-bridge-client.js");
           const _MODEL_NOTIONAL_USD = INVESTOR_CAPITAL; // $100k by current config
-          const _bridgeMirrorInvestor = async (op) => {
+          const _pendingMirrorOps = [];
+          const _runInvestorMirror = async (op) => {
             // op = { kind: "open"|"add"|"trim", ticker, shares, price, reason, position_id, score, stage }
             const result = await _forwardInvestorMirror(env, {
               ...op,
@@ -97036,6 +97039,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               });
             }
             return result;
+          };
+          // Enqueue only. Call sites stay `_bridgeMirrorInvestor({...})`
+          // so the source-contract test still matches. flushPendingMirrors
+          // drains in one waitUntil at concurrency 2 (Webull 2 req / 2s).
+          const _bridgeMirrorInvestor = async (op) => {
+            if (op && typeof op === "object") _pendingMirrorOps.push(op);
+            return { queued: true };
+          };
+          const flushPendingMirrors = () => {
+            if (!_pendingMirrorOps.length) return;
+            const ops = _pendingMirrorOps.splice(0);
+            queueBackground((async () => {
+              let idx = 0;
+              const n = Math.min(2, ops.length);
+              const worker = async () => {
+                while (idx < ops.length) {
+                  const next = ops[idx++];
+                  try { await _runInvestorMirror(next); } catch (_) { /* ring + silent-failure already recorded */ }
+                }
+              };
+              await Promise.all(Array.from({ length: n }, () => worker()));
+            })());
           };
 
           // Phase 3.9k — skip new-position + add-to-existing paths if caller asked
@@ -98838,6 +98863,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             }
           } catch (_) { /* best-effort */ }
+
+          flushPendingMirrors();
 
           return sendJSON({
             ok: true,
@@ -104067,8 +104094,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // 2026-07-30 — Operator ask: when Webull rejects ETH fractionals (or any
     // other mirror miss), don't wait for a human to POST catchup-investor.
     // Hourly RTH pass reuses the adaptive gates (stage/score/price drift)
-    // and only forwards ops that still make sense. Caps at 8 ops/run so a
-    // backlog cannot flood the bridge. Skips tt-engine (monolith only).
+    // and only forwards ops that still make sense. Caps at 24 ops/run so an
+    // OpEx-sized backlog can drain (sells sorted first). Skips tt-engine.
     //
     // 2026-07-30 — After CRS/CW/NVDA buy+trim churn: planner is last-signal-
     // wins + 4h RTH TTL (ETH excluded). Gated by BROKER_CATCHUP_AUTO_RTH.
@@ -104091,11 +104118,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
             await KV.put(lockKey, String(Date.now()), { expirationTtl: 50 * 60 }).catch(() => {});
           }
-          const { runInvestorCatchup } = await import("./investor-catchup-run.js");
+          const { runInvestorCatchup, CATCHUP_AUTO_MAX_OPS } = await import("./investor-catchup-run.js");
           const out = await runInvestorCatchup(env, {
             dry_run: false,
             hours: 72,
-            max_ops: 8,
+            max_ops: CATCHUP_AUTO_MAX_OPS,
             source: "catchup_auto_rth",
             // 2026-08-12 — Fresh-lot fidelity (RTH-elapsed): a DCA executed
             // late in the session whose mirror died (NVDA 8/11 at 15:45,

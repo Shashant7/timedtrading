@@ -121,6 +121,40 @@ describe("evaluatePortfolioRisk", () => {
     expect(enforced.block_reason).toMatch(/^capital_budget_/);
   });
 
+  it("does not trip when the book is flat at start cash (OpEx 2026-08-21 shadow page)", async () => {
+    const days = ["2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20"];
+    const kv = makeKV({
+      "phase-c:equity-samples": JSON.stringify(days.map((day) => ({ day, equity: 139392.28 }))),
+    });
+    const env = { KV_TIMED: kv };
+    const state = await evaluatePortfolioRisk(env, baseArgs({
+      openRows: [],
+      realizedPnl: -2.8,
+      startCash: 100000,
+    }));
+    expect(state.equity).toBeCloseTo(99997.2, 1);
+    expect(state.dd_pct).toBeGreaterThan(20);
+    expect(state.dd_trip).toBe(false);
+    expect(state.dd_suppressed_reason).toBe("flat_book_at_start_cash");
+    expect(state.block_new_entries).toBe(false);
+    expect(state.dd_size_mult).toBe(1);
+  });
+
+  it("still trips a flat book whose realized PnL left equity well off start cash", async () => {
+    const days = ["2026-08-13", "2026-08-14", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20"];
+    const kv = makeKV({
+      "phase-c:equity-samples": JSON.stringify(days.map((day) => ({ day, equity: 139392.28 }))),
+    });
+    const env = { KV_TIMED: kv };
+    const state = await evaluatePortfolioRisk(env, baseArgs({
+      openRows: [],
+      realizedPnl: -39000,
+      startCash: 100000,
+    }));
+    expect(state.dd_trip).toBe(true);
+    expect(state.dd_suppressed_reason).toBeNull();
+  });
+
   it("stays quiet on a healthy book", async () => {
     const env = { KV_TIMED: makeKV() };
     const state = await evaluatePortfolioRisk(env, baseArgs({

@@ -46,10 +46,43 @@ async function hmacSign(key, payload) {
   return btoa(s);
 }
 
-// 2026-05-29 — A short ring buffer keeps the last 50 dispatches in KV
+// 2026-05-29 — A short ring buffer keeps recent dispatches in KV
 // (`bridge:client:recent`) for operator visibility from the main UI.
+// 2026-08-21 — 50 overflowed on the OpEx PRE_OPEX storm (17 investor
+// trims + trader traffic); coverage + catch-up then lost the tail.
 const RING_KEY = "bridge:client:recent";
-const RING_MAX = 50;
+const RING_MAX = 200;
+
+/**
+ * Bridge success bodies use several id names (`rh_order_id` for the
+ * Robinhood-era contract, Webull `order_id`, manifest `broker_order_id`).
+ * Deduped claims return `{ ok:true, deduped:true }` with no id.
+ */
+export function parseBridgeOrderIds(parsed) {
+  const nested = parsed?.response && typeof parsed.response === "object"
+    ? parsed.response
+    : null;
+  const data = parsed?.data && typeof parsed.data === "object"
+    ? parsed.data
+    : null;
+  const raw = parsed?.rh_order_id
+    || parsed?.order_id
+    || parsed?.broker_order_id
+    || nested?.rh_order_id
+    || nested?.order_id
+    || nested?.broker_order_id
+    || data?.rh_order_id
+    || data?.order_id
+    || data?.broker_order_id
+    || null;
+  const id = raw != null && String(raw).trim() !== "" ? String(raw) : null;
+  return {
+    order_id: id,
+    rh_order_id: id,
+    broker_order_id: id,
+    deduped: parsed?.deduped === true,
+  };
+}
 
 async function pushRing(env, entry) {
   const KV = env?.KV_TIMED;
@@ -407,9 +440,13 @@ export async function forwardOrderToBridge(env, order) {
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch (_) {}
     const ok = r.ok && parsed?.ok !== false;
+    const ids = parseBridgeOrderIds(parsed);
     ringEntry.status = ok ? "ok" : "error";
     ringEntry.http_status = r.status;
-    ringEntry.rh_order_id = parsed?.rh_order_id || null;
+    ringEntry.rh_order_id = ids.rh_order_id;
+    ringEntry.broker_order_id = ids.broker_order_id;
+    ringEntry.order_id = ids.order_id;
+    ringEntry.deduped = ids.deduped;
     ringEntry.reject_reason = parsed?.reject_reason || parsed?.error || parsed?.message || null;
     ringEntry.latency_ms = Date.now() - t0;
     await pushRing(env, ringEntry);

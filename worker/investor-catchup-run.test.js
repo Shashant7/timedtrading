@@ -3,6 +3,8 @@ import {
   planInvestorCatchupOps,
   selectLatestSignalLots,
   ringSidesForLotAction,
+  ringLooksLikeRealPlace,
+  prioritizeCatchupOps,
 } from "./investor-catchup-run.js";
 import {
   rthElapsedMs,
@@ -149,6 +151,35 @@ describe("planInvestorCatchupOps", () => {
       nowMs: NOW_RTH,
     });
     expect(out.planned).toHaveLength(1);
+  });
+
+  it("treats legacy ok+200 with null rh_order_id as a real place (OpEx 2026-08-21)", () => {
+    const out = planInvestorCatchupOps({
+      lots: [baseLot],
+      ring: [{
+        trade_id: "inv-CRDO-auto-1",
+        side: "buy",
+        status: "ok",
+        http_status: 200,
+        rh_order_id: null,
+      }],
+      scores: { CRDO: { stage: "accumulate", score: 70 } },
+      livePrices: { CRDO: 178 },
+      nowMs: NOW_RTH,
+    });
+    expect(out.planned).toHaveLength(0);
+    expect(ringLooksLikeRealPlace({ status: "ok", http_status: 200, rh_order_id: null })).toBe(true);
+    expect(ringLooksLikeRealPlace({ status: "ok", http_status: 200, deduped: true })).toBe(false);
+  });
+
+  it("prioritizeCatchupOps puts exits/trims ahead of buys before max_ops", () => {
+    const ranked = prioritizeCatchupOps([
+      { kind: "dca", lot_ts: 1, ticker: "AAA" },
+      { kind: "trim", lot_ts: 2, ticker: "PLTR" },
+      { kind: "exit", lot_ts: 3, ticker: "PNC" },
+      { kind: "add", lot_ts: 4, ticker: "BBB" },
+    ]);
+    expect(ranked.map((o) => o.kind)).toEqual(["exit", "trim", "dca", "add"]);
   });
 
   // 2026-08-12 — Fresh-lot fidelity (DCA sweep, NVDA 8/11): a buy the model

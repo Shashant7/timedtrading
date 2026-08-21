@@ -565,7 +565,11 @@ playbook in `skills/security-auth-patterns.md`)**
   SHADOW-FIRST: always computed hourly + KV state + Discord on trip;
   `qualifiesForEnter` blocks (reason `portfolio_risk_breaker`) only when
   `portfolio_dd_breaker_enabled` / `portfolio_risk_budget_enabled` are
-  true. Review shadow-trip loop events before enabling.
+  true. Review shadow-trip loop events before enabling. Do not trip
+  (or Discord-page) when the book is flat at start cash
+  (`open_count===0` and equity within 2% of start) — leftover 20-day
+  highs after a paper reset / full flatten are not a live breaker.
+  Never flip `portfolio_dd_breaker_enabled` from an alert alone.
 
 **CI / observability (2026-06-09)**
 - `npm test` gates every PR (`test.yml`) and every deploy. Bridge has its
@@ -984,6 +988,7 @@ Structural vintage bumped to **2026-07-07** (July Sector Allocation): Industrial
 - **`build:frontend` last (2026-08-21)**: Tailwind `@source`s `react-app/` including `shared-right-rail.compiled.js`. Running `build:rail` after `build:frontend` desyncs `tailwind.generated.css` and fails check-dist.
 - **Flat SuperTrend hold vs stretch flip (2026-08-21)**: do not treat ST only as a flip. A flat ST that is tested and holds is the defined-risk entry; a flip away from the 21 EMA is the chase. See `skills/supertrend-hold.md`.
 - **ST MTF closed-book (2026-08-21)**: 719 ST closes — monthly/weekly *slope* is the edge (+6.3pp / +3.6pp). Flat-no-test and 10m/30m/6.5H holds lose. 9H/6.5H/D *against* is a hard veto unless W/M slope agrees. Flip-retest almost never printed at ST entry. Swing trigger now includes W/M; session TFs are against-vetoes, not RIDE. See `tasks/2026-08-21-st-mtf-review.md`.
+- **OpEx investor mirrors must drain, not stampede (2026-08-21)**: 17 PRE_OPEX SELLs queued 17 parallel 28s `waitUntil`s; isolate dropped PLTR + PNC before `pushRing`. Enqueue then flush at concurrency 2. Ring must persist Webull `order_id` (not only `rh_order_id`) or catch-up re-fires already-ok trims and starves the misses. Coverage is last-signal-wins; later catch-up heals. Flat book at start cash must not shadow-page the DD breaker. See `tasks/2026-08-21-opex-bridge-coverage.md`.
 
 ## Full Lessons
 
