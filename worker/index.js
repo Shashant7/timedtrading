@@ -9553,7 +9553,15 @@ function assessTrendHealth(tickerData, direction) {
   const st15Dir = Number(tf15.stDir) || 0;
 
   const htf4HAligned = (isLong && st4HDir === -1) || (!isLong && st4HDir === 1);
-  const htfDAligned = (isLong && stDDir === -1) || (!isLong && stDDir === 1);
+  const stDSlope = Number(tfD.stSlope);
+  const dFlat = !Number.isFinite(stDSlope) || Math.abs(stDSlope) < 0.0005;
+  const mag = tickerData?.st_hold_setup?.magnet || tfD.stMagnet;
+  const magLabel = mag?.sideLabel
+    || (mag?.side === 1 || mag?.s === 1 ? "LONG"
+      : mag?.side === -1 || mag?.s === -1 ? "SHORT" : "");
+  const magnetAgrees = !!(mag && (mag.magnet || mag.mag) && magLabel === (isLong ? "LONG" : "SHORT"));
+  const htfDAligned = (isLong && stDDir === -1) || (!isLong && stDDir === 1)
+    || (dFlat && magnetAgrees);
   const ltf1HAligned = (isLong && st1HDir === -1) || (!isLong && st1HDir === 1);
   const ltf30Aligned = (isLong && st30Dir === -1) || (!isLong && st30Dir === 1);
   const ltf15Aligned = (isLong && st15Dir === -1) || (!isLong && st15Dir === 1);

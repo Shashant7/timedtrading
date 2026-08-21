@@ -21,16 +21,25 @@ while close walked 322 → 351 (distSt 1.87 → 0.35 ATR on Aug 19 high
 $363.37, 1.41 ATR off the 21 — confirmation, not the setup.
 
 The hold detector only scores **same-side** tests (`bearTest` = tag
-the bear line and close back below = SHORT continuation). L7 still
-votes D BEAR as bearish when the line is flat. `_tfDirAgainst` uses
-**dir**, not slope, so a flat daily bear is a hard LONG veto.
+the bear line and close back below = SHORT continuation). Approaching
+a bear line from below as a long did not score. L7 voted daily color
+even when the line was flat. `_tfDirAgainst` used **dir**, not slope,
+so a flat daily bear zeroed a 4H/1H LONG trigger (`htf_against`).
+Closed-book `against` mixed sloping-against with parked-opposite
+(D-against n=68 · 33.8% WR) and the veto stayed blunt.
 
-**Fix (docs / next engine pass):** two movies —
+**Fix:** two movies, both live —
 1. Same-side flat ST tested and held → continuation (ETH monthly).
-2. Opposite-side flat ST with the ATR gap closing → reversal magnet
-   (TSLA daily). The flip is late. Do not wait for D ST to turn bull
-   to call the setup. Hard-against should mean *sloping* against, not
-   a parked opposite color.
+2. Opposite-side flat ST with the ATR gap closing → `st_magnet`
+   (TSLA daily). The flip is late.
+
+Hard-against split: LTF-only (10m/30m) still vetoes on HTF *color*
+(even flat). Swing (1H/4H/D/W/M) vetoes only when the HTF line is
+*sloping* against. W/M slope override unchanged. L7 skips the daily
+color vote when the line is flat and adds a small magnet bonus.
+`classifyStAtEntry` splits `against` (sloping) vs `st_magnet` /
+`flat_against`. Naked 10m momentum `tt_daily_st_conflict` stays —
+that path is a chase, not the reclaim.
 
 Skill: `skills/supertrend-hold.md`. Tape: `data/tsla-week-movie/movie.json`.
 
