@@ -1656,6 +1656,17 @@ function IndexDayTradeStrip({
     }
     const band = exec.premium_band || null;
     const bandName = String(band?.band || "").toLowerCase();
+    const sizeLabel = String(exec.size?.label || "").toLowerCase();
+    if (sizeLabel === "light" || sizeLabel === "medium" || sizeLabel === "heavy") {
+      chipRow.push(h("span", {
+        key: "size",
+        className: "ds-chip ds-chip--sm",
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        },
+        title: exec.size?.scale_note || "Model day-trade size"
+      }, sizeLabel.toUpperCase()));
+    }
     if (bandName === "under" || bandName === "fair" || bandName === "over") {
       const bandCls = bandName === "under" ? "ds-chip--up" : bandName === "over" ? "ds-chip--dn" : "ds-chip--accent";
       chipRow.push(h("span", {
@@ -1702,7 +1713,15 @@ function IndexDayTradeStrip({
       className: "tt-dt-plan__row"
     }, h("span", {
       className: "tt-dt-plan__k tt-dt-plan__k--sell"
-    }, "SELL"), sellRule), exec.path_note && h("p", {
+    }, "SELL"), sellRule), exec.plan && h("p", {
+      className: "tt-dt-plan__row"
+    }, h("span", {
+      className: "tt-dt-plan__k"
+    }, "SETUP"), exec.plan.setup), exec.plan && h("p", {
+      className: "tt-dt-plan__row"
+    }, h("span", {
+      className: "tt-dt-plan__k"
+    }, "TRIG"), exec.plan.trigger), exec.path_note && h("p", {
       className: "tt-dt-plan__row"
     }, exec.path_note), exec.dte_note && h("p", {
       className: "tt-dt-plan__row"
@@ -7662,6 +7681,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787270677688:703385234
+// cache-bust:1787271401359:650694531
 
-// cache-bust:1787270677688:703385234
+// cache-bust:1787271401359:650694531
