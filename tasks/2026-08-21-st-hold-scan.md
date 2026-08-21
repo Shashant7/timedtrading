@@ -14,7 +14,9 @@ highs never entered the 0.15 ATR test band of that bear line.
 - 4H rode +1.4 to +2.8 ATR above a rising bull ST
 - Live `st_hold_setup` **null**; confluence **WAIT 16/100** (2 of 8
   layers). RIDE needs 6. Investor research_low / 35.
-- Desk published CTO magnets Aug 17 from $339 (P $342.95 / S1 $334.65)
+- Desk published CTO magnets Aug 17 from $339 (P $342.95 / S1 $334.65).
+  The rideable movie (Aug 13 21-reclaim + Aug 14 $349/$358/$363 ladder)
+  is in `tasks/2026-08-21-tsla-week-movie.md`.
 
 ## Book (316 names)
 

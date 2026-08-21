@@ -19,6 +19,20 @@ layers). A four-TF hold stack is rare (10 names) and a losing cut.
 **Fix:** Research only. Script `scripts/scan-st-hold-stack.mjs`.
 Writeup `tasks/2026-08-21-st-hold-scan.md`.
 
+## TSLA ride was last week's 21-reclaim, not Friday's flip [2026-08-21]
+
+**Symptom:** Operator asked what TSLA did from last week into this week
+that could have been observed and ridden up.
+
+**Root:** The move started Aug 12–13 (daily TD9 bear wash to $323.64,
+then 21 EMA reclaim at $340) on a 4H ST that had been bull since Aug 7.
+Aug 14 CTO already mapped $349 / $358 / $363 from $342. The book kept
+`HTF_BEAR_LTF_PULLBACK` and enter_now=0 because weekly ST was still
+bear. Friday's daily ST flip and 10am cloud-pivot were late.
+
+**Fix:** Research only. Script `scripts/tsla-week-movie.mjs`.
+Writeup `tasks/2026-08-21-tsla-week-movie.md`.
+
 ## SuperTrend MTF: slope on W/M is the edge; session TFs are vetos [2026-08-21]
 
 **Symptom:** Operator asked whether winners/losers tested SuperTrend and

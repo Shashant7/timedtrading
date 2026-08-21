@@ -92,6 +92,9 @@ data/pfvg/*-bars-*.json
 data/st-hold-scan/cache/
 data/st-hold-scan/results.json
 
+# TSLA week movie raw dump (report.md is committed)
+data/tsla-week-movie/movie.json
+
 # SuperTrend MTF review candle cache + raw exports (report.md + summary.json are committed)
 data/st-mtf-review/cache/
 data/st-mtf-review/trades.json
