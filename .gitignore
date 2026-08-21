@@ -95,6 +95,10 @@ data/st-hold-scan/results.json
 # TSLA week movie raw dump (report.md is committed)
 data/tsla-week-movie/movie.json
 
+# ETHUSD-like TD/phase/233 scan candle cache + raw dump
+data/eth-stack-scan/cache/
+data/eth-stack-scan/results.json
+
 # SuperTrend MTF review candle cache + raw exports (report.md + summary.json are committed)
 data/st-mtf-review/cache/
 data/st-mtf-review/trades.json

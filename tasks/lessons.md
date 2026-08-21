@@ -6,6 +6,23 @@
 
 ---
 
+## ETH monthly Saty Phase never hits official −61.8 [2026-08-21]
+
+**Symptom:** Operator asked how many names flashed TD 13 then 9, showed
+Phase Leaving on M/W/D/4H, reclaimed 233 on 4H+, then went higher —
+like ETHUSD July 2026.
+
+**Root:** Official Phase Leaving is `extDn` (−100) / `accum` (−61.8).
+ETH monthly osc only reached −33 at the June 2026 low (monthly ATR
+~$800). Weekly reached −58.4. No name in the 316-ticker book stacked
+official leave on all four TFs. The ETH movie is a TF-scaled washout
+turn-up, not the official four-TF leave flag.
+
+**Fix:** Phase Leaving is context only — not a gate or clock.
+Scan in `scripts/scan-eth-td-phase-233.mjs` is TD13→9 + 233 on 4H+.
+Monthly + 233 is ETHUSD only. Writeup:
+`tasks/2026-08-21-eth-stack-scan.md`.
+
 ## TSLA this week was a daily ST flip, not a hold [2026-08-21]
 
 **Symptom:** Operator asked why TSLA was not caught the week of Aug 17
