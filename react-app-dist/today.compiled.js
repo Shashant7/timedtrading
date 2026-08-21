@@ -1678,6 +1678,26 @@ function IndexDayTradeStrip({
         title: band.buy_ceil != null ? `Pay at or under $${Number(band.buy_ceil).toFixed(2)} (pin $${Number(band.pin).toFixed(2)} if close $${Number(band.expected_close).toFixed(2)})` : "Fair-market premium band"
       }, bandName === "under" ? "Under FMV" : bandName === "over" ? "Rich" : "Fair"));
     }
+    const rr = exec.rr || exec.plan?.rr || null;
+    if (rr && rr.rr != null) {
+      chipRow.push(h("span", {
+        key: "rr",
+        className: `ds-chip ds-chip--sm ${rr.positive ? "ds-chip--up" : "ds-chip--dn"}`,
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        },
+        title: rr.positive ? `R:R to the game-plan target is ${Number(rr.rr).toFixed(1)}:1` : "R:R to the target is below 1:1 — do not pay this print"
+      }, rr.positive ? `R:R ${Number(rr.rr).toFixed(1)}` : "R:R < 1"));
+    }
+    const holdOn = !!(exec.hold_overnight || exec.plan?.hold_overnight);
+    chipRow.push(h("span", {
+      key: "flat",
+      className: `ds-chip ds-chip--sm ${holdOn ? "ds-chip--accent" : ""}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: holdOn ? "Leftover R:R still justifies an overnight hold" : "Flatten before the cash close unless overnight hold is on"
+    }, holdOn ? "HOLD O/N" : "FLAT 15:45"));
     const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const rank = Number(liveT?.rank_position ?? liveT?.rank ?? p?.confluence_score) || null;
@@ -1693,7 +1713,11 @@ function IndexDayTradeStrip({
       trackTitle: flavor === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
     }) : null;
     const buyRule = exec.buy_rule || (Number.isFinite(Number(strike)) ? `Buy the ${sym} ${Number(strike).toFixed(0)}${flavor === "put" ? "P" : "C"} when ${sym} holds the 21 EMA and SuperTrend agrees. First pullback, not the open print.` : `Buy when ${sym} holds the 21 EMA and SuperTrend agrees.`);
-    const sellRule = exec.sell_rule || "Sell half at +40% premium. Close the rest at +100%, at the session time stop, or if the underlying crosses invalidation.";
+    const sellRule = exec.sell_rule || "Sell half at 1R. Close the rest at 2R, by 15:45 ET unless overnight hold is on, or if the underlying crosses invalidation.";
+    const br = exec.plan?.bracket || {};
+    const trimPx = br.trim ?? exec.rr?.trim;
+    const exitPx = br.exit ?? exec.rr?.exit;
+    const trimLine = [trimPx != null ? `half @ $${Number(trimPx).toFixed(2)} (1R)` : null, exitPx != null ? `rest @ $${Number(exitPx).toFixed(2)} (2R)` : null, holdOn ? "hold overnight — leftover R:R still ≥ 1" : "flat by 15:45 ET, before the cash close"].filter(Boolean).join(" · ");
     const hint = exec.headline || exec.why || `${sym} day-trade — stalk the 21 EMA.`;
     const kClass = action === "BUY" ? "tt-dt-plan__k--buy" : action === "SELL" ? "tt-dt-plan__k--sell" : "tt-dt-plan__k--wait";
     const hasTiers = Array.isArray(p.tiers) && p.tiers.length > 1;
@@ -1713,7 +1737,11 @@ function IndexDayTradeStrip({
       className: "tt-dt-plan__row"
     }, h("span", {
       className: "tt-dt-plan__k tt-dt-plan__k--sell"
-    }, "SELL"), sellRule), exec.plan && h("p", {
+    }, "SELL"), sellRule), trimLine && h("p", {
+      className: "tt-dt-plan__row"
+    }, h("span", {
+      className: "tt-dt-plan__k tt-dt-plan__k--sell"
+    }, "TRIM"), trimLine), exec.plan && h("p", {
       className: "tt-dt-plan__row"
     }, h("span", {
       className: "tt-dt-plan__k"
@@ -7681,6 +7709,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787271401359:650694531
+// cache-bust:1787272381362:906024897
 
-// cache-bust:1787271401359:650694531
+// cache-bust:1787272381362:906024897
