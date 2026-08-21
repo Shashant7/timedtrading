@@ -32,6 +32,11 @@ the page's `<script>` tag to load the pre-compiled bundle.
 
 `react-app-dist/` is what **Pages serves**, not `react-app/`.
 
+Always run `npm run build:frontend` **last**. Tailwind `@source`s all of
+`react-app/`, including `shared-right-rail.compiled.js`. Compiling the rail
+after the frontend build can change scanned utilities and fail CI
+(`react-app-dist must match react-app/` on `tailwind.generated.css`).
+
 ---
 
 ## "I added a new page, where do I register it?"
