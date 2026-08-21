@@ -407,6 +407,24 @@ describe("pickDayTradeExpiration", () => {
     const exp = pickDayTradeExpiration(MON_10AM_ET, { forceTomorrow: true });
     expect(exp.dte).toBe(1);
   });
+
+  it("Thursday 8:15 PM ET is Friday 1DTE, not a Sunday UTC overshoot", () => {
+    // 2026-08-20 20:15 ET = 2026-08-21 00:15 UTC. Adding 24h to the UTC
+    // Date used to land on the weekend and label Sunday Aug 23.
+    const THU_815PM_ET = new Date("2026-08-21T00:15:00.000Z").getTime();
+    const exp = pickDayTradeExpiration(THU_815PM_ET, { forceTomorrow: true });
+    expect(exp.dte).toBe(1);
+    expect(exp.iso).toBe("2026-08-21");
+    expect(exp.label).toMatch(/Aug 21/);
+    expect(exp.label).not.toMatch(/Aug 23/);
+  });
+
+  it("Friday after close rolls to Monday, not Saturday", () => {
+    const FRI_515PM_ET = new Date("2026-08-21T21:15:00.000Z").getTime();
+    const exp = pickDayTradeExpiration(FRI_515PM_ET, { forceTomorrow: true });
+    expect(exp.dte).toBe(1);
+    expect(exp.iso).toBe("2026-08-24");
+  });
 });
 
 describe("index ETF profile alignment", () => {

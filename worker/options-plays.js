@@ -436,13 +436,15 @@ export function pickLeapExpiration(now = Date.now(), { targetDte = 540 } = {}) {
    0DTE (same-day expiry, max gamma + max theta) or 1DTE (next-trading-
    day expiry, slightly more cushion). This picker:
 
-     - Before 3 PM ET on a weekday: returns TODAY's expiration as 0DTE.
-     - At/after 3 PM ET OR after close: returns the NEXT trading day's
+     - Before 3 PM ET on a weekday: returns TODAY's NY expiration as 0DTE.
+     - At/after 3 PM ET OR after close: returns the NEXT NY trading day's
        expiration as 1DTE. The final hour of RTH burns ~10% theta/hour
        on 0DTE — new entries there are not actionable scalps.
-     - Skips weekends (no expirations).
-     - Caller can force 1DTE via `{ forceTomorrow: true }` for the
-       conservative/moderate profiles. */
+     - Skips weekends (no listed daily expirations).
+     - Dates are NY civil dates. Do not add 24h to a UTC Date — after
+       20:00 ET the UTC date has already rolled and that overshoots
+       (Thu 20:15 ET became Sun).
+     - Caller can force 1DTE via `{ forceTomorrow: true }`. */
 function _nyEtClock(now = Date.now()) {
   try {
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -467,30 +469,33 @@ function _nyEtClock(now = Date.now()) {
 }
 
 export function pickDayTradeExpiration(now = Date.now(), { forceTomorrow = false } = {}) {
-  const _isWeekendUtc = (d) => { const dow = d.getUTCDay(); return dow === 0 || dow === 6; };
-  const _nextTradingDay = (d) => {
-    const next = new Date(d.getTime() + 86400000);
-    while (_isWeekendUtc(next)) next.setUTCDate(next.getUTCDate() + 1);
-    return next;
-  };
-  const nowDt = new Date(now);
   const { mins: _etMins, isWeekday: _etWeekday } = _nyEtClock(now);
   // 3 PM ET = 900 mins — final-hour theta cliff; 4 PM ET = 960 = RTH close.
   const _finalHour = _etWeekday && _etMins >= 900 && _etMins < 960;
   const _afterClose = !_etWeekday || _etMins >= 960 || _etMins < 240;
   const useTomorrow = forceTomorrow || _afterClose || _finalHour || !_etWeekday;
 
-  let expiry = useTomorrow ? _nextTradingDay(nowDt) : new Date(nowDt);
-  if (useTomorrow) {
-    while (_isWeekendUtc(expiry)) expiry = _nextTradingDay(expiry);
-  }
-  const iso = expiry.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  const labelDate = expiry.toLocaleDateString("en-US", {
+  const todayIso = new Date(now).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const shiftIso = (iso, days) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+  };
+  const isWeekendIso = (iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    return dow === 0 || dow === 6;
+  };
+  let iso = todayIso;
+  if (useTomorrow) iso = shiftIso(iso, 1);
+  while (isWeekendIso(iso)) iso = shiftIso(iso, 1);
+
+  const [y, m, d] = iso.split("-").map(Number);
+  const labelDate = new Date(Date.UTC(y, m - 1, d, 16, 0, 0)).toLocaleDateString("en-US", {
     timeZone: "America/New_York",
     month: "short",
     day: "numeric",
   });
-  const dte = useTomorrow ? 1 : 0;
+  const dte = iso === todayIso ? 0 : 1;
   return {
     iso,
     dte,
