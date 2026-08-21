@@ -119,4 +119,21 @@ describe("evaluateInvestorSignalCoverage — the KO event-risk scenario", () => 
     expect(an).toHaveLength(1);
     expect(an[0].missing.map((m) => m.ticker)).toEqual(["KO"]);
   });
+
+  it("last-signal-wins — a later invalidation ring covers the position (PNC 2026-08-21)", () => {
+    const sells = [
+      sell({ ticker: "PNC", minutesAgo: 180, reason: "PRE_OPEX_RISK_REDUCTION", position_id: "inv-PNC-auto-1" }),
+      sell({ ticker: "PNC", minutesAgo: 10, reason: "PRIMARY_INVALIDATION_BREACH", position_id: "inv-PNC-auto-1" }),
+    ];
+    const ring = [
+      ringEntry({ ticker: "PNC", minutesAgo: 10, side: "sell", status: "ok" }),
+    ];
+    expect(evaluateInvestorSignalCoverage({ sells, ring, nowMs })).toEqual([]);
+  });
+
+  it("accepts a catch-up ring hours after the lot (still inside the 6h window)", () => {
+    const sells = [sell({ ticker: "PLTR", minutesAgo: 180, reason: "PRE_OPEX_RISK_REDUCTION" })];
+    const ring = [ringEntry({ ticker: "PLTR", minutesAgo: 5, side: "trim", status: "ok" })];
+    expect(evaluateInvestorSignalCoverage({ sells, ring, nowMs })).toEqual([]);
+  });
 });

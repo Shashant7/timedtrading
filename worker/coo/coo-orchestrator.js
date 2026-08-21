@@ -402,7 +402,7 @@ export async function runSelfHealing(env, options = {}) {
     } else if (check.id === "investor_signal_bridge_coverage") {
       action = enabled
         ? await _healInvestorBridgeCatchup(env, baseUrl, adminKey)
-        : { ok: true, dry_run: true, would_do: "POST /timed/admin/broker-bridge/catchup-investor {dry_run:false,hours:72,max_ops:8}" };
+        : { ok: true, dry_run: true, would_do: "POST /timed/admin/broker-bridge/catchup-investor {dry_run:false,hours:72,max_ops:24}" };
     } else if (check.id === "compute_freshness") {
       action = enabled
         ? await _healComputeFreshness(env)
@@ -443,7 +443,7 @@ async function _healInvestorBridgeCatchup(env, baseUrl, adminKey) {
       body: JSON.stringify({
         dry_run: false,
         hours: 72,
-        max_ops: 8,
+        max_ops: 24,
         source: "catchup_coo_heal",
       }),
     });

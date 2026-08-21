@@ -63,11 +63,14 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   `kind="exit"` used to map to `side="buy"` (would place a BUY for an
 >   exit intent) — landmine fixed 2026-07-27.
 > - `catchup-investor` dedupe: key mirror-ok by `(side, trade_id)` (so a
->   prior BUY doesn't mask a later SELL) AND require a non-null broker
->   `order id` (so a bridge `dedupe_skip` — ok:true, null id — doesn't
->   look like a real place). Pass `retry_nonce` per catchup call so
+>   prior BUY doesn't mask a later SELL). A real place is ok + a broker
+>   id (`rh_order_id` / `order_id` / `broker_order_id`), or a legacy
+>   `ok`+HTTP 200 row without `deduped:true` (OpEx 2026-08-21: the
+>   client used to drop Webull `order_id`). `{ ok:true, deduped:true }`
+>   must NOT look like a fill. Pass `retry_nonce` per catchup call so
 >   `shortClientOrderId` produces a fresh id and the bridge idempotency
->   layer releases the retry.
+>   layer releases the retry. Sort exits/trims ahead of buys before
+>   `max_ops` (hourly/COO cap is 24).
 > - `readManifestRow` transparently aliases `inv-inv-*` ↔ `inv-*` trade
 >   IDs so legacy investor manifest rows (pre-normalization) don't
 >   reject `no_manifest_for_trade` on their first reducer lookup.
@@ -121,10 +124,15 @@ the operator audit log, or the `tt-broker-bridge` worker.
 > was different — the mirror call was missing so nothing stamped an
 > audit. The fast (15-min) sanity check `investor_signal_bridge_coverage`
 > compares recent `investor_lots` SELL rows against
-> `bridge:client:recent` on (ticker, reducer-side, ±15-min window). Any
-> SELL without a matching ring entry pages `fail` with the ticker +
-> reason. Together with the compile-time
-> `worker/investor-reducer-mirror-coverage.test.js` this catches:
+> `bridge:client:recent` on (ticker, reducer-side). Last-signal-wins
+> per position (a later invalidation flatten covers an earlier
+> PRE_OPEX lot). Ring may arrive later in the 6h window (catch-up
+> heals). ±15-min is only the "slightly before the lot" skew.
+> Auto-rebalance **enqueues** mirrors and drains them in one
+> `waitUntil` at concurrency 2 — do not fire 17 parallel 28s
+> waitUntils (OpEx 2026-08-21 dropped PLTR + PNC). Together with the
+> compile-time `worker/investor-reducer-mirror-coverage.test.js` this
+> catches:
 > - New code path missing a mirror call → source-contract test fails at PR time.
 > - Existing path silently degraded → runtime coverage flags within 15 min.
 > - Signal reached the bridge but broker didn't do what we asked →

@@ -4,6 +4,7 @@ import {
   readClientRing,
   isEquityMirrorVehicle,
   recordBridgeMirrorSkip,
+  parseBridgeOrderIds,
 } from "./broker-bridge-client.js";
 import { readSilentFailures, SILENT_FAILURE_RING_KEY } from "./silent-failure-log.js";
 
@@ -28,6 +29,16 @@ const ORDER = {
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
+
+describe("parseBridgeOrderIds", () => {
+  it("reads Webull order_id / broker_order_id aliases, not just rh_order_id", () => {
+    expect(parseBridgeOrderIds({ ok: true, order_id: "WB-9" }).rh_order_id).toBe("WB-9");
+    expect(parseBridgeOrderIds({ ok: true, broker_order_id: "M-1" }).order_id).toBe("M-1");
+    expect(parseBridgeOrderIds({ ok: true, response: { order_id: "NEST" } }).broker_order_id).toBe("NEST");
+    expect(parseBridgeOrderIds({ ok: true, deduped: true }).deduped).toBe(true);
+    expect(parseBridgeOrderIds({ ok: true, deduped: true }).order_id).toBeNull();
+  });
+});
 
 describe("isEquityMirrorVehicle", () => {
   it("treats shares / equity_long / empty as equity mirrors", () => {
@@ -99,6 +110,23 @@ describe("forwardOrderToBridge — transport (CF 1042 / 404 fix)", () => {
     expect(ring[0].side).toBe("buy");
     expect(ring[0].status).toBe("ok");
     expect(ring[0].transport).toBe("service-binding");
+  });
+
+  it("persists Webull order_id onto the ring (not only rh_order_id)", async () => {
+    const env = {
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      BROKER_BRIDGE_URL: "https://tt-broker-bridge.example.workers.dev",
+      KV_TIMED: makeKv(),
+      BROKER_BRIDGE: {
+        fetch: async () => new Response(JSON.stringify({ ok: true, order_id: "WB-77" }), { status: 200 }),
+      },
+    };
+    await forwardOrderToBridge(env, ORDER);
+    const ring = await readClientRing(env);
+    expect(ring[0].order_id).toBe("WB-77");
+    expect(ring[0].rh_order_id).toBe("WB-77");
+    expect(ring[0].broker_order_id).toBe("WB-77");
+    expect(ring[0].deduped).toBe(false);
   });
 
   it("falls back to HTTP fetch when no service binding is present", async () => {

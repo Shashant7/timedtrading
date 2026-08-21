@@ -930,6 +930,20 @@ export function evaluateInvestorSignalCoverage({
   const recent = sells.filter((s) => Number(s?.ts) >= cutoff);
   if (recent.length === 0) return anomalies;
 
+  // 2026-08-21 — Last-signal-wins per position (fallback ticker). An
+  // earlier PRE_OPEX trim must not page after a later invalidation
+  // flatten already hit the ring (PNC 14:04 vs 17:05).
+  const latestByKey = new Map();
+  for (const sell of recent) {
+    const key = String(sell?.position_id || sell?.ticker || "").toUpperCase();
+    if (!key) continue;
+    const prev = latestByKey.get(key);
+    if (!prev || (Number(sell.ts) || 0) > (Number(prev.ts) || 0)) {
+      latestByKey.set(key, sell);
+    }
+  }
+  const latest = [...latestByKey.values()];
+
   // Normalize ring entries once. The ring writes `inv-<pos_id>` for the
   // trade_id and side ∈ { buy, sell, trim }. Treat any of sell/trim/exit/
   // close as a reducer match.
@@ -939,14 +953,17 @@ export function evaluateInvestorSignalCoverage({
 
   const missing = [];
   const failedOnly = [];
-  for (const sell of recent) {
+  for (const sell of latest) {
     const ticker = String(sell?.ticker || "").toUpperCase();
     if (!ticker) continue;
     const sellTs = Number(sell?.ts) || 0;
     const candidates = reducerRing.filter((r) => {
       if (String(r?.ticker || "").toUpperCase() !== ticker) return false;
-      const dt = Math.abs(Number(r?.ts || 0) - sellTs);
-      return dt <= matchWindowMs;
+      const ringTs = Number(r?.ts || 0);
+      const dt = ringTs - sellTs;
+      // Slightly before the lot (clock skew) or any later ring inside
+      // the check window so a catch-up hours later heals coverage.
+      return dt >= -matchWindowMs && dt <= windowMs;
     });
     if (candidates.length === 0) {
       missing.push({ ticker, ts: sellTs, position_id: sell?.position_id || null, reason: sell?.reason || null });
