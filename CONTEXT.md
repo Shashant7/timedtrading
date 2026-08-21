@@ -462,6 +462,11 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   (narrative leads with the lean), and the Today **Index Options Plays**
   (`buildDayTradePlay` honors a conviction lean — 0/1DTE is same-day, so the day
   lean overrides the multi-day confluence gate; low conviction falls back).
+  **Index day-trade clock (2026-08-20):** headline is always **1 DTE** (skip
+  0 DTE 15:45 force-liq; hold the 15:45–16:15 close-auction, flatten after
+  16:15). Signal TF is **5m** EMA21 + SuperTrend (not 1m). BUY/SELL carry a
+  precomputed FMV band: pin = intrinsic at the game-plan expected close
+  (763P / 762.50 → buy ceiling $0.50); live premium under / fair / over.
   Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day) → Investor
   (long haul); keep each lane's horizon honest.
   **Product surface (2026-07-19):** AT vs Investor are the same actions

@@ -5,6 +5,7 @@ import {
   isRthEt,
   stIsBull,
   extractIndexTimingIndicators,
+  computePremiumValueBand,
   buildDayTradeZoneModel,
   reviveZoneModel,
   summarizeOptionPath,
@@ -32,7 +33,20 @@ describe("ny clock", () => {
 });
 
 describe("extractIndexTimingIndicators", () => {
-  it("prefers 15m EMA/ST over daily", () => {
+  it("prefers 5m EMA/ST over 15m and daily", () => {
+    const ind = extractIndexTimingIndicators({
+      tf_tech: {
+        D: { ema: { ema21: 760 }, stDir: 1 },
+        "15": { ema: { ema21: 764.1, priceAboveEma21: true }, stDir: -1 },
+        "5": { ema: { ema21: 763.4, priceAboveEma21: false }, stDir: 1 },
+      },
+    });
+    expect(ind.ema21).toBe(763.4);
+    expect(ind.tf).toBe("5");
+    expect(stIsBull(ind.st_dir)).toBe(false);
+    expect(ind.st_label).toBe("short");
+  });
+  it("falls back to 15m when 5m is missing", () => {
     const ind = extractIndexTimingIndicators({
       tf_tech: {
         D: { ema: { ema21: 760 }, stDir: 1 },
@@ -42,7 +56,40 @@ describe("extractIndexTimingIndicators", () => {
     expect(ind.ema21).toBe(764.1);
     expect(ind.tf).toBe("15");
     expect(stIsBull(ind.st_dir)).toBe(true);
-    expect(ind.st_label).toBe("long");
+  });
+});
+
+describe("computePremiumValueBand", () => {
+  it("pins a 763P at $0.50 when the expected close is 762.50", () => {
+    const band = computePremiumValueBand({
+      strike: 763,
+      flavor: "put",
+      spot: 762.84,
+      expectedClose: 762.50,
+      premium: 0.35,
+      dte: 1,
+      now: ts(`2026-08-20T10:05:00${ET}`),
+    });
+    expect(band.pin).toBe(0.5);
+    expect(band.buy_ceil).toBe(0.5);
+    expect(band.expected_close).toBe(762.5);
+    expect(band.under).toBeLessThanOrEqual(0.4);
+    expect(band.over).toBeGreaterThan(0.5);
+    expect(band.over).toBeLessThan(0.9);
+    expect(band.band).toBe("under");
+  });
+  it("marks 0.95 as rich vs a 0.50 pin", () => {
+    const band = computePremiumValueBand({
+      strike: 763,
+      flavor: "put",
+      spot: 762.84,
+      expectedClose: 762.50,
+      premium: 0.95,
+      dte: 1,
+      now: ts(`2026-08-20T15:50:00${ET}`),
+    });
+    expect(band.buy_ceil).toBe(0.5);
+    expect(band.band).toBe("over");
   });
 });
 
@@ -174,7 +221,7 @@ describe("buildExecutionClock", () => {
     expect(out.action).toBe("BUY");
     expect(out.buy_rule).toMatch(/765C/);
     expect(out.buy_rule).toMatch(/21 EMA/);
-    expect(out.sell_rule).toMatch(/15:30/);
+    expect(out.sell_rule).toMatch(/16:15/);
     expect(out.zone.inv).toBe(761);
     expect(out.headline).toMatch(/BUY/);
   });
@@ -242,7 +289,77 @@ describe("buildExecutionClock", () => {
       ...baseClock,
       now: ts(`2026-08-20T10:05:00${ET}`),
     });
-    const blob = [out.headline, out.why, out.buy_rule, out.sell_rule, out.path_note].join(" ");
+    const blob = [out.headline, out.why, out.buy_rule, out.sell_rule, out.path_note, out.dte_note].join(" ");
     expect(blob.toLowerCase()).not.toMatch(/\byou(r)?\b/);
+  });
+
+  it("WAITs when tape agrees but premium is rich vs the pin", () => {
+    const out = buildExecutionClock({
+      ticker: "SPY",
+      flavor: "put",
+      strike: 763,
+      expiration: { dte: 1, iso: "2026-08-21", label: "1 DTE" },
+      spot: 762.84,
+      premium: 0.95,
+      indicators: { ema21: 763.1, st_dir: 1, st_label: "short", tf: "5" },
+      gamePlan: { bear_target: 762.50, bear_trigger: 764, bull_trigger: 766 },
+      management: {
+        take_profit_1: { pct: 40, size: 0.5 },
+        take_profit_2: { pct: 100, size: 0.5 },
+        hard_stop_pct: -50,
+        time_stop_et: "16:15",
+        invalidation: { underlying_above: 766 },
+      },
+      now: ts(`2026-08-20T10:05:00${ET}`),
+    });
+    expect(out.action).toBe("WAIT");
+    expect(out.premium_band.band).toBe("over");
+    expect(out.premium_band.buy_ceil).toBe(0.5);
+    expect(out.why).toMatch(/rich vs FMV/);
+  });
+
+  it("SELLs 0 DTE after 15:15 even if SuperTrend still agrees", () => {
+    const out = buildExecutionClock({
+      ...baseClock,
+      expiration: { dte: 0, iso: "2026-08-20", label: "0 DTE" },
+      management: { ...baseClock.management, time_stop_et: "12:00" },
+      now: ts(`2026-08-20T15:20:00${ET}`),
+    });
+    expect(out.action).toBe("SELL");
+    expect(out.why).toMatch(/force-liquidation/);
+    expect(out.dte_note).toMatch(/15:45-16:15/);
+  });
+
+  it("holds 1 DTE through 15:50 instead of firing a 15:30 time-stop", () => {
+    const out = buildExecutionClock({
+      ticker: "SPY",
+      flavor: "put",
+      strike: 763,
+      expiration: { dte: 1, iso: "2026-08-21", label: "1 DTE" },
+      spot: 762.9,
+      premium: 0.38,
+      indicators: { ema21: 763.05, st_dir: 1, st_label: "short", tf: "5" },
+      gamePlan: { bear_target: 762.50, bear_trigger: 764, bull_trigger: 766 },
+      management: {
+        take_profit_1: { pct: 40, size: 0.5 },
+        take_profit_2: { pct: 100, size: 0.5 },
+        hard_stop_pct: -50,
+        time_stop_et: "15:30",
+        invalidation: { underlying_above: 766 },
+      },
+      now: ts(`2026-08-20T15:50:00${ET}`),
+    });
+    expect(out.action).toBe("BUY");
+    expect(out.dte_note).toMatch(/Close-auction/);
+    expect(out.premium_band.band).toBe("under");
+  });
+
+  it("SELLs 1 DTE after 16:15 when the close-auction run is done", () => {
+    const out = buildExecutionClock({
+      ...baseClock,
+      now: ts(`2026-08-20T16:16:00${ET}`),
+    });
+    expect(out.action).toBe("SELL");
+    expect(out.why).toMatch(/16:15/);
   });
 });

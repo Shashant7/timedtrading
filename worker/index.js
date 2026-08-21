@@ -94488,7 +94488,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 profile,
                 verdict: confluence,
                 expiration: _pickDayTradeExpiration(Date.now(), {
-                  forceTomorrow: profile === "conservative" || profile === "moderate",
+                  forceTomorrow: true,
                 }),
               });
             } catch (_) { /* best-effort */ }
@@ -94782,7 +94782,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const _dtTickers = Array.from(_optionsPlaysMod.DAY_TRADE_TICKERS);
             const _pickDtExp = _optionsPlaysMod.pickDayTradeExpiration;
             const _dtExpiration = _pickDtExp(Date.now(), {
-              forceTomorrow: profile === "conservative" || profile === "moderate",
+              forceTomorrow: true,
             });
             const _buildDayTrade = _optionsPlaysMod.buildDayTradePlay;
             const _validateDayTrade = _optionsPlaysMod.validateDayTradePlay;
@@ -94937,7 +94937,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     expiration: _dtPrimary?.expiration || _dtPlay.expiration,
                     spot: _dtPrice,
                     premium: _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid,
-                    indicators: _optClockIndicators(_dtTicker),
+                    indicators: { ..._optClockIndicators(_dtTicker), atr_pct: _dtAtrPct },
                     gamePlan: _dtGpSum,
                     management: _dtPrimary?.option_management || _dtPlay?.option_management,
                     now: Date.now(),

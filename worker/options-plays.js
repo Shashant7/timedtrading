@@ -2655,7 +2655,9 @@ export function buildDayTradePlay(ctx) {
   const verdictSide = ctx?.verdict?.side || direction;
   const atrPct = Number(ctx?.atrPct) || 0.012;
   const expiration = ctx?.expiration || pickDayTradeExpiration(Date.now(), {
-    forceTomorrow: profile === "conservative" || profile === "moderate",
+    // Index day-trade headlines 1 DTE so the book can hold 15:45-16:15
+    // and skip 0 DTE force-liq / late-day theta death.
+    forceTomorrow: true,
   });
   const chain = ctx?.chain || null;
   const wantsSingleLeg = profile === "speculator" || profile === "aggressive";
@@ -2809,7 +2811,7 @@ export function buildDayTradePlay(ctx) {
  *   • Take Profit 1: bank half at +40% premium
  *   • Take Profit 2: close remaining at +100% premium
  *   • Hard stop:     exit whole position at -50% premium
- *   • Time stop:     exit anything not working by 12:00 ET on 0 DTE
+ *   • Time stop:     0 DTE by 12:00 ET; 1 DTE after the 16:15 ET close-auction
  *   • Underlying invalidation: exit if spot crosses the OPPOSITE
  *     game-plan trigger (bull put → underlying breaks the bull
  *     trigger; bear call → underlying loses the bear trigger).
@@ -2831,7 +2833,7 @@ export function attachOptionManagement(play, ctx = {}) {
       ? { underlying_below: Number.isFinite(bearTrigger) ? bearTrigger : null }
       : null;
   const isDte0 = Number(play?.expiration?.dte) === 0;
-  const timeStopEt = isDte0 ? "12:00" : "15:30";
+  const timeStopEt = isDte0 ? "12:00" : "16:15";
   const management = {
     take_profit_1: { pct: 40, size: 0.5 },
     take_profit_2: { pct: 100, size: 0.5 },

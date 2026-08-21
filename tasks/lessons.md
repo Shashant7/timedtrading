@@ -5410,3 +5410,17 @@ Prompt rules: winners are not BAD_ENTRY; leftover under ~1% is noise.
 Open trades wait until flat. Movie reframe is a separate lesson: frames
 mechanism is fine, EMA-reclaim sequence as a general entry is the wrong
 question (`tasks/2026-08-18-movie-reframe.md`).
+
+## Index day-trade: 5m clock, pin FMV, headline 1 DTE [2026-08-20]
+
+**Symptom:** 0 DTE index premium (SPY 763P) printed 0.18 → 0.95 into
+the 16:00 close, then ~0.60 by 16:15. A 1-minute SuperTrend/EMA is
+noise; a naked BUY/SELL without a premium range chases rich prints;
+0 DTE is force-liquidated ~15:45 and misses the close-auction run.
+
+**Rule:** Signal TF is 5m (then 10/15). FMV is precomputed: pin =
+intrinsic at the game-plan expected close (763P / 762.50 → buy ceiling
+$0.50); live premium is under / fair / over. Headline expiration is
+always 1 DTE so the book can hold 15:45–16:15 and skip 0 DTE theta /
+force-liq. Flatten 1 DTE after 16:15; 0 DTE (if it appears) is flat
+by 15:15.
