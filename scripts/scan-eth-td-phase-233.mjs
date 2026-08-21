@@ -3,10 +3,10 @@
  * Historical scan: ETHUSD-like bounce stack.
  *
  * Template (ETHUSD Jul 2026):
- *   TD Sequential flashed 13 then 9 (bullish),
- *   Phase Leaving (oversold leave: extDn / accum) on M / W / D / 4H,
+ *   TD Sequential flashed 13 then 9 (bullish) on M / W / D / 4H,
  *   233 EMA reclaim on 4H or above,
  *   then at least mean-reverted or went higher.
+ * Phase Leaving is annotated only — operator confirmed it was not a signal.
  *
  * Reconstructs TD / Saty phase / EMA233 from stored candles — same formulas
  * as worker/indicators.js (computeTDSequential, satyPhaseSeries, emaSeries).
@@ -433,26 +433,19 @@ function scanTicker(ticker, series) {
     const reclaim4hPlus = ["240", "D", "W", "M"].filter((tf) => reclaimHit[tf]);
 
     const hasTd13Then9 = tdTfs.length > 0;
-    const phaseAll4 = TFS.every((tf) => phaseHit[tf]);
-    const turnAll4 = TFS.every((tf) => phaseTurn[tf]);
-    const phase3 = phaseTfs.length >= 3;
-    const turn3 = turnTfs.length >= 3;
-    const phase2 = phaseTfs.length >= 2;
     const hasReclaim = reclaim4hPlus.length > 0;
-    const tdHigher = !!(tdHit.M || tdHit.W);
+    const tdMonthly = !!tdHit.M;
+    const tdWeekly = !!tdHit.W;
+    const tdHigher = tdMonthly || tdWeekly;
+    if (!hasTd13Then9 || !hasReclaim) continue;
 
-    let tier = null;
-    if (hasTd13Then9 && phaseAll4 && hasReclaim) tier = "strict";
-    else if (hasTd13Then9 && turnAll4 && hasReclaim) tier = "movie-strict";
-    else if (hasTd13Then9 && tdHigher && phase3 && hasReclaim) tier = "eth-like";
-    else if (hasTd13Then9 && tdHigher && turn3 && hasReclaim) tier = "movie-eth";
-    else if (hasTd13Then9 && phase2 && hasReclaim) tier = "strong";
-    else if (hasTd13Then9 && phaseTfs.length >= 1 && hasReclaim) tier = "loose";
-    else continue;
+    // Phase Leaving is context, not a gate (operator 2026-08-21).
+    let tier = "ltf";
+    if (tdMonthly) tier = "monthly";
+    else if (tdWeekly) tier = "weekly";
 
-    const latestPhase = Math.max(0, ...Object.values(phaseHit).map((p) => Date.parse(`${p.at}T00:00:00Z`) || 0));
     const latestReclaim = Math.max(0, ...Object.values(reclaimHit).map((p) => Date.parse(`${p.at}T00:00:00Z`) || 0));
-    const signalT = Math.max(a.t, latestPhase, latestReclaim);
+    const signalT = Math.max(a.t, latestReclaim);
     const oc = outcomeFromDaily(dA, signalT);
 
     clusters.push({
@@ -468,6 +461,7 @@ function scanTicker(ticker, series) {
       phaseTurn,
       reclaimHit,
       tdTfs,
+      tdHigher,
       phaseTfs,
       turnTfs,
       reclaimTfs: reclaim4hPlus,
@@ -587,9 +581,10 @@ function summarize(results) {
     };
   };
 
+  const htf = [...(byTier.monthly || []), ...(byTier.weekly || [])];
   const uniqueBest = [];
   const seen = new Set();
-  for (const tier of ["strict", "movie-strict", "eth-like", "movie-eth", "strong", "loose"]) {
+  for (const tier of ["monthly", "weekly", "ltf"]) {
     for (const c of (byTier[tier] || [])) {
       if (seen.has(c.ticker)) continue;
       seen.add(c.ticker);
@@ -602,35 +597,21 @@ function summarize(results) {
     errors: results.filter((r) => r?.error).length,
     clusters: allClusters.length,
     uniqueNamesAny: names(allClusters).length,
-    uniqueNamesStrict: names(byTier.strict || []).length,
-    uniqueNamesEthLike: names([...(byTier.strict || []), ...(byTier["eth-like"] || [])]).length,
-    uniqueNamesMovie: names([
-      ...(byTier.strict || []),
-      ...(byTier["movie-strict"] || []),
-      ...(byTier["eth-like"] || []),
-      ...(byTier["movie-eth"] || []),
-    ]).length,
+    uniqueNamesHtf: names(htf).length,
     byTier: {
-      strict: hitRate(byTier.strict || []),
-      "movie-strict": hitRate(byTier["movie-strict"] || []),
-      "eth-like": hitRate(byTier["eth-like"] || []),
-      "movie-eth": hitRate(byTier["movie-eth"] || []),
-      strong: hitRate(byTier.strong || []),
-      loose: hitRate(byTier.loose || []),
+      monthly: hitRate(byTier.monthly || []),
+      weekly: hitRate(byTier.weekly || []),
+      htf: hitRate(htf),
+      ltf: hitRate(byTier.ltf || []),
+      any: hitRate(allClusters),
     },
     uniqueBestHit: hitRate(uniqueBest),
     names: {
-      strict: names(byTier.strict || []),
-      movieStrict: names([...(byTier.strict || []), ...(byTier["movie-strict"] || [])]),
-      ethLike: names([...(byTier.strict || []), ...(byTier["eth-like"] || [])]),
-      movieEth: names([
-        ...(byTier.strict || []),
-        ...(byTier["movie-strict"] || []),
-        ...(byTier["eth-like"] || []),
-        ...(byTier["movie-eth"] || []),
-      ]),
-      strong: names(byTier.strong || []),
-      loose: names(byTier.loose || []),
+      monthly: names(byTier.monthly || []),
+      weekly: names(byTier.weekly || []),
+      htf: names(htf),
+      ltf: names(byTier.ltf || []),
+      any: names(allClusters),
     },
   };
 }
@@ -638,120 +619,96 @@ function summarize(results) {
 function mdReport(summary, results) {
   const ok = results.filter((r) => r && !r.error);
   const eth = ok.find((r) => r.ticker === "ETHUSD");
+  const all = ok.flatMap((r) => r.clusters || []).sort((a, b) =>
+    String(a.signalDate).localeCompare(String(b.signalDate)) || a.ticker.localeCompare(b.ticker)
+  );
+  const htf = all.filter((c) => c.tier === "monthly" || c.tier === "weekly");
+  const monthly = all.filter((c) => c.tier === "monthly");
+  const weekly = all.filter((c) => c.tier === "weekly");
   const lines = [];
-  lines.push("# ETHUSD-like TD / Phase Leaving / 233 stack");
+  const row = (c) => {
+    const o = c.outcome || {};
+    return `| ${c.ticker} | ${c.signalDate} | ${c.tier} | ${c.tdTfs.join(",")} | ${c.td13} → ${c.td9} | ${c.reclaimTfs.join(",")} | ${o.ret20d != null ? o.ret20d.toFixed(1) + "%" : "—"} | ${o.mfe20d != null ? o.mfe20d.toFixed(1) + "%" : "—"} | ${o.ret60d != null ? o.ret60d.toFixed(1) + "%" : "—"} |`;
+  };
+
+  lines.push("# ETHUSD-like TD 13→9 + 233 reclaim");
   lines.push("");
   lines.push(`Scanned **${summary.tickersScanned}** tickers over stored D / W / M / 4H candles.`);
   lines.push("");
   lines.push("## What was required");
   lines.push("");
-  lines.push("Same reconstruction as scoring (`computeTDSequential`, Saty phase osc, EMA 233):");
+  lines.push("Same reconstruction as scoring (`computeTDSequential`, EMA 233), walked every bar:");
   lines.push("");
   lines.push("- **TD 13 then 9** (bullish Sequential) on Monthly, Weekly, Daily, or 4H — prep-9 after lead-up-13, within 12 bars on that TF.");
-  lines.push("- **Phase Leaving** on the oversold side (`extDn` leave −100, and/or `accum` leave −61.8).");
-  lines.push("- **233 reclaim** on 4H or above (4H / D / W; monthly 233 is almost never computable — ETHUSD has ~104 monthly bars).");
-  lines.push("- **Outcome** from the daily close at signal: went ≥1% higher within 60d, or last 20d close > signal, **or** mean-reverted back through / halfway to the 21 EMA within 20d.");
+  lines.push("- **233 reclaim** on 4H or above (4H / D / W; monthly 233 is almost never computable).");
+  lines.push("- **Outcome** from the daily close at the later of TD9 and the 233 reclaim: closed-higher +20d / +60d is the honest bar. “Went higher or mean-reverted” is kept only as a loose check.");
   lines.push("");
-  lines.push("Tiers (so the four-TF Phase Leaving ask is not flattened):");
+  lines.push("**Phase Leaving is not a signal.** Operator confirmed 2026-08-21. Official Saty leave (`extDn` −100 / `accum` −61.8) never printed on ETH monthly (June 2026 trough −33). It is stored as context only and does not gate or clock the stack.");
   lines.push("");
-  lines.push("| Tier | TD | Phase Leaving | 233 |");
-  lines.push("|---|---|---|---|");
-  lines.push("| **strict** | 13→9 on any of M/W/D/4H | official leave on all four TFs | 4H+ |");
-  lines.push("| **movie-strict** | 13→9 on any | washout turn-up on all four TFs | 4H+ |");
-  lines.push("| **eth-like** | 13→9 on Monthly or Weekly | official leave on ≥3 of four TFs | 4H+ |");
-  lines.push("| **movie-eth** | 13→9 on Monthly or Weekly | washout turn-up on ≥3 of four TFs | 4H+ |");
-  lines.push("| **strong** | 13→9 on any | official leave on ≥2 of four TFs | 4H+ |");
-  lines.push("| **loose** | 13→9 on any | official leave on ≥1 TF | 4H+ |");
-  lines.push("");
-  lines.push("Official Phase Leaving is `extDn` (−100) / `accum` (−61.8). ETHUSD monthly never reached −61.8 (June 2026 trough −33), so the ETH movie uses a TF-scaled washout turn-up (M −20, W −40, D/4H −50) plus a lift.");
+  lines.push("| Tier | Meaning |");
+  lines.push("|---|---|");
+  lines.push("| **monthly** | TD13→9 on Monthly + 233 on 4H+ |");
+  lines.push("| **weekly** | TD13→9 on Weekly (no monthly pair in-window) + 233 on 4H+ |");
+  lines.push("| **ltf** | TD13→9 only on Daily or 4H + 233 on 4H+ |");
   lines.push("");
   lines.push("## Headline");
   lines.push("");
-  const s = summary.byTier.strict;
-  const ms = summary.byTier["movie-strict"];
-  const e = summary.byTier["eth-like"];
-  const me = summary.byTier["movie-eth"];
-  const st = summary.byTier.strong;
-  lines.push(`- **Strict (official Phase Leaving on M+W+D+4H):** ${s.names} names / ${s.setups} setups. Of ${s.scored} with ≥10d follow-through, **${s.success} (${s.pct}%)** mean-reverted or went higher. Avg +20d ${s.avgRet20}%, MFE ${s.avgMfe20}%.`);
-  lines.push(`- **Movie-strict (washout turn-up on all four TFs — ETH July template):** ${ms.names} names / ${ms.setups} setups. Easy bar (higher or mean-revert): **${ms.success}/${ms.scored} (${ms.pct}%)**. Closed higher +20d: **${ms.ret20Up}/${ms.scored}**. Closed higher +60d: **${ms.ret60Up}/${ms.scored}**. Avg +20d ${ms.avgRet20}%, MFE ${ms.avgMfe20}%, +60d ${ms.avgRet60}%.`);
-  lines.push(`- **ETH-like (HTF TD13→9 + official leave on ≥3 TFs):** ${e.names} names / ${e.setups} setups. ${e.scored} scored → **${e.success} (${e.pct}%)**.`);
-  lines.push(`- **Movie-ETH (HTF TD13→9 + turn-up on ≥3 TFs):** ${me.names} names / ${me.setups} setups. ${me.scored} scored → **${me.success} (${me.pct}%)**.`);
-  lines.push(`- **Strong (≥2 TF official leave + 233):** ${st.names} names / ${st.setups} setups. ${st.scored} scored → **${st.success} (${st.pct}%)**.`);
-  lines.push(`- **Any stack (loose+):** ${summary.uniqueNamesAny} unique names, ${summary.clusters} clusters.`);
+  const m = summary.byTier.monthly;
+  const w = summary.byTier.weekly;
+  const h = summary.byTier.htf;
+  const a = summary.byTier.any;
+  lines.push(`- **Monthly TD13→9 + 233 (ETH July template):** ${m.names} names / ${m.setups} setups. Closed higher +20d **${m.ret20Up}/${m.scored}**, +60d **${m.ret60Up}/${m.scored}**. Avg +20d ${m.avgRet20}%, +60d ${m.avgRet60}%.`);
+  lines.push(`- **Weekly TD13→9 + 233:** ${w.names} names / ${w.setups} setups. Closed higher +20d **${w.ret20Up}/${w.scored}**, +60d **${w.ret60Up}/${w.scored}**. Avg +20d ${w.avgRet20}%, +60d ${w.avgRet60}%.`);
+  lines.push(`- **HTF (monthly or weekly) + 233:** ${h.names} names / ${h.setups} setups. Closed higher +20d **${h.ret20Up}/${h.scored}**, +60d **${h.ret60Up}/${h.scored}**. Avg +20d ${h.avgRet20}%, +60d ${h.avgRet60}%.`);
+  lines.push(`- **Any TF TD13→9 + 233:** ${a.names} names / ${a.setups} setups. Closed higher +20d **${a.ret20Up}/${a.scored}**, +60d **${a.ret60Up}/${a.scored}**. Avg +20d ${a.avgRet20}%, +60d ${a.avgRet60}%.`);
   lines.push("");
   if (eth) {
     lines.push("## ETHUSD sanity");
     lines.push("");
     lines.push("Coverage: " + TFS.map((tf) => `${tf} ${eth.coverage[tf].n} bars ${eth.coverage[tf].first}→${eth.coverage[tf].last}`).join("; ") + ".");
     lines.push("");
-    if (!eth.clusters.length) {
-      lines.push("No cluster matched the stacked definition on stored candles. Per-TF TD pairs / phase leaves / 233 reclaim counts:");
-      lines.push("");
-      lines.push("| TF | bars | TD9 bull | TD13 bull | 13→9 pairs | phase leaves | 233 reclaim |");
-      lines.push("|---|---:|---:|---:|---:|---:|---:|");
-      for (const tf of TFS) {
-        const c = eth.coverage[tf];
-        lines.push(`| ${tf} | ${c.n} | ${c.td9bull} | ${c.td13bull} | ${c.pairs} | ${c.phaseBullLeaves} | ${c.reclaim233} |`);
-      }
-    } else {
-      lines.push("| Date | Tier | Anchor TF | TD TFs | Official leave | Turn-up | 233 TFs | +20d | +60d | Success |");
-      lines.push("|---|---|---|---|---|---|---|---:|---:|---|");
-      for (const c of eth.clusters) {
-        const o = c.outcome || {};
-        lines.push(`| ${c.signalDate} | ${c.tier} | ${c.anchorTf} | ${c.tdTfs.join(",")} | ${(c.phaseTfs || []).join(",") || "—"} | ${(c.turnTfs || []).join(",") || "—"} | ${c.reclaimTfs.join(",")} | ${o.ret20d != null ? o.ret20d.toFixed(1) + "%" : "—"} | ${o.ret60d != null ? o.ret60d.toFixed(1) + "%" : "—"} | ${o.success ? "yes" : "no"} |`);
-      }
+    lines.push("| Date | Tier | TD TFs | TD13 → TD9 | 233 | +20d | +60d |");
+    lines.push("|---|---|---|---|---|---:|---:|");
+    for (const c of eth.clusters) {
+      const o = c.outcome || {};
+      lines.push(`| ${c.signalDate} | ${c.tier} | ${c.tdTfs.join(",")} | ${c.td13} → ${c.td9} | ${c.reclaimTfs.join(",")} | ${o.ret20d != null ? o.ret20d.toFixed(1) + "%" : "—"} | ${o.ret60d != null ? o.ret60d.toFixed(1) + "%" : "—"} |`);
     }
     lines.push("");
   }
-  const movieClusters = ok.flatMap((r) => (r.clusters || []).filter((c) =>
-    ["strict", "movie-strict", "eth-like", "movie-eth"].includes(c.tier)
-  )).sort((a, b) => String(a.signalDate).localeCompare(String(b.signalDate)) || a.ticker.localeCompare(b.ticker));
-  const htfMovie = movieClusters.filter((c) => (c.tdTfs || []).some((tf) => tf === "M" || tf === "W"));
-
-  lines.push("## Closest to the ETH movie (HTF TD13→9 + multi-TF phase + 233)");
+  lines.push("## Monthly TD13→9 + 233");
   lines.push("");
-  if (!htfMovie.length) {
+  if (!monthly.length) {
     lines.push("_none_");
   } else {
-    lines.push("| Ticker | Date | Tier | TD TF | TD13 → TD9 | Official leave | Turn-up | 233 | +20d | +60d |");
-    lines.push("|---|---|---|---|---|---|---|---|---:|---:|");
-    for (const c of htfMovie) {
-      const o = c.outcome || {};
-      lines.push(`| ${c.ticker} | ${c.signalDate} | ${c.tier} | ${c.tdTfs.join(",")} | ${c.td13} → ${c.td9} | ${(c.phaseTfs || []).join(",") || "—"} | ${(c.turnTfs || []).join(",") || "—"} | ${c.reclaimTfs.join(",")} | ${o.ret20d != null ? o.ret20d.toFixed(1) + "%" : "—"} | ${o.ret60d != null ? o.ret60d.toFixed(1) + "%" : "—"} |`);
-    }
+    lines.push("| Ticker | Date | Tier | TD | TD13 → TD9 | 233 | +20d | MFE20 | +60d |");
+    lines.push("|---|---|---|---|---|---|---:|---:|---:|");
+    for (const c of monthly) lines.push(row(c));
   }
   lines.push("");
-  lines.push("## All movie-strict / movie-ETH setups");
+  lines.push("## Weekly TD13→9 + 233");
   lines.push("");
-  if (!movieClusters.length) {
+  if (!weekly.length) {
     lines.push("_none_");
   } else {
-    lines.push("| Ticker | Date | Tier | Anchor | TD | Official leave | Turn-up | 233 | +20d | MFE20 | +60d |");
-    lines.push("|---|---|---|---|---|---|---|---|---:|---:|---:|");
-    for (const c of movieClusters) {
-      const o = c.outcome || {};
-      lines.push(`| ${c.ticker} | ${c.signalDate} | ${c.tier} | ${c.anchorTf} | ${c.tdTfs.join(",")} | ${(c.phaseTfs || []).join(",") || "—"} | ${(c.turnTfs || []).join(",") || "—"} | ${c.reclaimTfs.join(",")} | ${o.ret20d != null ? o.ret20d.toFixed(1) + "%" : "—"} | ${o.mfe20d != null ? o.mfe20d.toFixed(1) + "%" : "—"} | ${o.ret60d != null ? o.ret60d.toFixed(1) + "%" : "—"} |`);
-    }
+    lines.push("| Ticker | Date | Tier | TD | TD13 → TD9 | 233 | +20d | MFE20 | +60d |");
+    lines.push("|---|---|---|---|---|---|---:|---:|---:|");
+    for (const c of weekly) lines.push(row(c));
   }
   lines.push("");
-  lines.push("## Names — official strict");
+  lines.push("## Names — monthly");
   lines.push("");
-  lines.push(summary.names.strict.length ? summary.names.strict.join(", ") : "_none_");
+  lines.push(summary.names.monthly.length ? summary.names.monthly.join(", ") : "_none_");
   lines.push("");
-  lines.push("## Names — movie-strict (ETH July template, includes official strict)");
+  lines.push("## Names — HTF (monthly or weekly)");
   lines.push("");
-  lines.push(summary.names.movieStrict.length ? summary.names.movieStrict.join(", ") : "_none_");
-  lines.push("");
-  lines.push("## Names — movie-ETH (HTF TD + turn-up on ≥3 TFs)");
-  lines.push("");
-  lines.push(summary.names.movieEth.length ? summary.names.movieEth.join(", ") : "_none_");
+  lines.push(summary.names.htf.length ? summary.names.htf.join(", ") : "_none_");
   lines.push("");
   lines.push("## Caveats");
   lines.push("");
   lines.push("- 4H history starts ~Aug 2024 for most names (ETHUSD 4H from Aug 2025). Monthly 233 is not in the data.");
   lines.push("- Daily store starts 2022 for most equity names; weekly ~2019; monthly much longer.");
-  lines.push("- Phase Leaving on all four TFs in the same window is rare — that is why tiers exist.");
-  lines.push("- Forward returns use daily closes after the last piece of the stack (TD9 / phase / 233). Crypto vs equity vol is mixed in the averages.");
+  lines.push("- Phase Leaving is annotated in the raw dump only. It does not admit or reject a stack.");
+  lines.push("- Forward returns use daily closes after the later of TD9 and the 233 reclaim. Crypto / vol ETFs / equity are mixed in the averages.");
   lines.push("");
   return lines.join("\n");
 }

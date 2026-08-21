@@ -18,8 +18,9 @@ ETH monthly osc only reached −33 at the June 2026 low (monthly ATR
 official leave on all four TFs. The ETH movie is a TF-scaled washout
 turn-up, not the official four-TF leave flag.
 
-**Fix:** Scan in `scripts/scan-eth-td-phase-233.mjs`. Closest HTF
-matches: ETHUSD and SRAD. Writeup:
+**Fix:** Phase Leaving is context only — not a gate or clock.
+Scan in `scripts/scan-eth-td-phase-233.mjs` is TD13→9 + 233 on 4H+.
+Monthly + 233 is ETHUSD only. Writeup:
 `tasks/2026-08-21-eth-stack-scan.md`.
 
 ## TSLA this week was a daily ST flip, not a hold [2026-08-21]
