@@ -101,5 +101,15 @@ describe("notify coalesce helpers", () => {
       const m = meaningForSyncState(state);
       expect(m.toLowerCase()).not.toMatch(/\byou(r)?\b/);
     }
+    const mismatch = meaningForSyncState("reconcile_error", "intent_unit_mismatch reduce_pct");
+    expect(mismatch.toLowerCase()).not.toMatch(/\byou(r)?\b/);
+    expect(mismatch).not.toMatch(/could not fetch broker positions/i);
+    expect(mismatch).toMatch(/flatten the lot/i);
+    const orphan = meaningForSyncState(
+      "mothership_orphan",
+      "model_open expected 1.425 but broker holds 0 (user closed manually?)",
+    );
+    expect(orphan).toMatch(/do not auto-rebuy/i);
+    expect(orphan).not.toMatch(/closed manually at the broker/i);
   });
 });

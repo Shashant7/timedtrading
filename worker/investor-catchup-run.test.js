@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   planInvestorCatchupOps,
+  reducePctForCatchupTrim,
   selectLatestSignalLots,
   ringSidesForLotAction,
   ringLooksLikeRealPlace,
@@ -265,9 +266,11 @@ describe("planInvestorCatchupOps", () => {
       scores: { CRDO: { stage: "reduce", score: 20 } },
       livePrices: { CRDO: 190 },
       nowMs: NOW_RTH,
+      remainingByPosition: { "inv-CRDO-auto-1": 18 },
     });
     expect(out.planned).toHaveLength(1);
     expect(out.planned[0].kind).toBe("trim");
+    expect(out.planned[0].reduce_pct).toBeCloseTo(2 / 20, 4);
   });
 
   it("skipBuys defers DCA/add until RTH (Webull fractional)", () => {
@@ -357,8 +360,10 @@ describe("planInvestorCatchupOps", () => {
       scores: { CRS: { stage: "accumulate", score: 70 } },
       livePrices: { CRS: 501 },
       nowMs: NOW_RTH,
+      remainingByPosition: { "inv-CRS-auto-1": 10 },
     });
     expect(out.planned.map((p) => p.kind)).toEqual(["trim"]);
+    expect(out.planned[0].reduce_pct).toBeCloseTo(0.5925 / 10.5925, 4);
     expect(out.planned[0].lot_id).toBe(sell.id);
     expect(out.skipped_gates.some((s) => s.skip_reason === "superseded_by_newer_signal")).toBe(true);
   });
@@ -379,5 +384,65 @@ describe("planInvestorCatchupOps", () => {
     });
     expect(out.planned).toHaveLength(0);
     expect(out.skipped_gates[0].skip_reason).toBe("signal_expired_rth");
+  });
+
+  it("recovers PLTR-style OpEx trim percent from remaining + lot shares", () => {
+    expect(reducePctForCatchupTrim(2.249, 42.7321)).toBeCloseTo(0.05, 3);
+    expect(reducePctForCatchupTrim(2.249, null)).toBeNull();
+    expect(reducePctForCatchupTrim(2.249, undefined)).toBeNull();
+    expect(reducePctForCatchupTrim(2.249, "")).toBeNull();
+  });
+
+  it("promotes a remaining-zero trim to exit instead of a percent", () => {
+    const sell = {
+      ...baseLot,
+      id: "lot-FULL-trim",
+      ticker: "META",
+      position_id: "inv-META-auto-1",
+      action: "SELL",
+      reason: "PRE_EARNINGS_RISK_REDUCTION",
+      shares: 0.9021,
+      ts: Date.UTC(2026, 6, 30, 14, 0, 0),
+    };
+    const out = planInvestorCatchupOps({
+      lots: [sell],
+      ring: [],
+      scores: { META: { stage: "reduce", score: 20 } },
+      livePrices: { META: 500 },
+      nowMs: NOW_RTH,
+      remainingByPosition: { "inv-META-auto-1": 0 },
+    });
+    expect(out.planned).toHaveLength(1);
+    expect(out.planned[0].kind).toBe("exit");
+    expect(out.planned[0].reduce_pct).toBeUndefined();
+  });
+
+  it("refuses to plan a trim without a remaining-share basis", () => {
+    const sell = {
+      ...baseLot,
+      id: "lot-PLTR-opex",
+      ticker: "PLTR",
+      position_id: "inv-PLTR-auto-1",
+      action: "SELL",
+      reason: "PRE_OPEX_RISK_REDUCTION",
+      shares: 2.249,
+      ts: Date.UTC(2026, 6, 30, 14, 0, 0),
+    };
+    const out = planInvestorCatchupOps({
+      lots: [sell],
+      ring: [],
+      scores: { PLTR: { stage: "reduce", score: 40 } },
+      livePrices: { PLTR: 173 },
+      nowMs: NOW_RTH,
+    });
+    expect(out.planned).toHaveLength(0);
+    expect(out.skipped_gates[0].skip_reason).toBe("trim_missing_reduce_pct");
+  });
+
+  it("catch-up source forwards reduce_pct on the live mirror call", async () => {
+    const src = await import("node:fs").then((fs) =>
+      fs.readFileSync(new URL("./investor-catchup-run.js", import.meta.url), "utf8"),
+    );
+    expect(src).toMatch(/reduce_pct:\s*op\.reduce_pct/);
   });
 });

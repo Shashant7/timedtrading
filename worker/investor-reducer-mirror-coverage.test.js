@@ -210,6 +210,22 @@ describe("DCA execute MUST notify + claim-before-write (2026-07-29)", () => {
   });
 });
 
+describe("investor catch-up trim MUST send reduce_pct (PLTR 2026-08-21)", () => {
+  const CATCHUP_PATH = join(__dirname, "investor-catchup-run.js");
+  const catchup = readFileSync(CATCHUP_PATH, "utf8");
+
+  it("catch-up planner computes reduce_pct from remaining shares", () => {
+    expect(catchup).toMatch(/function reducePctForCatchupTrim\s*\(/);
+    expect(catchup).toMatch(/op\.reduce_pct\s*=\s*reducePct/);
+  });
+
+  it("catch-up forwardInvestorMirror trim forwards op.reduce_pct (never raw model qty alone)", () => {
+    expect(catchup).toMatch(/kind:\s*op\.kind/);
+    expect(catchup).toMatch(/reduce_pct:\s*op\.reduce_pct/);
+    expect(catchup).toMatch(/trim_missing_reduce_pct/);
+  });
+});
+
 describe("auto-rebalance drains mirrors (OpEx 2026-08-21)", () => {
   function autoRebalanceWindow() {
     const start = lines.findIndex((l) => /routeKey\s*===\s*"POST \/timed\/investor\/auto-rebalance"/.test(l));
