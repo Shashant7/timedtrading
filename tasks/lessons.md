@@ -5471,3 +5471,21 @@ Signal ids include the NY date, so the paper book is pointed from
 on paper BUY / TRIM / EXIT / STOP with a Saty five-box plan +
 light/medium/heavy size — not on WAIT, and not on every 5-min tick
 while the clock stays BUY.
+
+## Index day-trade: no BUY before 09:30 ET; name the expiration [2026-08-21]
+
+**Symptom:** QQQ 720C fired two paper BUY alerts at **06:30 ET** (premarket)
+and again before the cash open. The clock comment said WAIT before 09:45,
+but `openPrint` is only 09:30–09:45, so premarket + SuperTrend + under-FMV
+became BUY. Discord titled `BUY QQQ 720C · 1 DTE` with no calendar date.
+The Today zone bar sat on the RTH close ($710.93) while EXT printed $716.44.
+Card copy dumped BUY / SELL / TRIM / SETUP / TRIG walls.
+
+**Rule:** Index options are not tradeable until the 09:30 ET cash open.
+`buildExecutionClock` WAITs when NY minutes < 09:30. BUY also requires
+`isRthEt` and not the 09:30–09:45 open print (first pullback after 09:45).
+`classifyPaperEvent` refuses a paper BUY outside `isOptionsBuyWindowEt`
+(09:45–16:00) even if a stale clock still says BUY. Alerts and headlines
+name **Aug 22** (from `expiration.iso`), not just `1 DTE`. Zone / progress
+bars use `getTrackPrice()` (EXT/`ahp` outside RTH); `getHeadlinePrice()`
+stays the RTH close. Card copy is punchline + scan line + one why.

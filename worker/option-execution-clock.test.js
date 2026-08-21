@@ -263,6 +263,45 @@ describe("buildExecutionClock", () => {
     expect(out.why).toMatch(/open/);
   });
 
+  it("WAITs at 06:30 ET even when SuperTrend agrees and premium is cheap", () => {
+    const out = buildExecutionClock({
+      ticker: "QQQ",
+      flavor: "call",
+      strike: 720,
+      expiration: { dte: 1, iso: "2026-08-22", label: "1 DTE" },
+      spot: 716.44,
+      premium: 1.45,
+      indicators: { ema21: 715.8, st_dir: -1, st_label: "long", tf: "5" },
+      gamePlan: { bear_trigger: 710, bull_target: 725, bull_trigger: 718 },
+      management: {
+        take_profit_1: { pct: 50, size: 0.5 },
+        take_profit_2: { pct: 100, size: 0.5 },
+        hard_stop_pct: -50,
+        time_stop_et: "15:45",
+        invalidation: { underlying_below: 710 },
+      },
+      now: ts(`2026-08-21T06:30:00${ET}`),
+    });
+    expect(out.action).toBe("WAIT");
+    expect(out.why).toMatch(/09:30/);
+    expect(out.why).toMatch(/not tradeable/i);
+    expect(out.headline).toMatch(/Aug 22/);
+    expect(out.headline).toMatch(/1 DTE/);
+    expect(out.scan_line).toMatch(/Aug 22/);
+    expect(out.contract.exp_bit).toBe("Aug 22");
+  });
+
+  it("names the expiration on a 10:05 BUY punchline", () => {
+    const out = buildExecutionClock({
+      ...baseClock,
+      now: ts(`2026-08-20T10:05:00${ET}`),
+    });
+    expect(out.action).toBe("BUY");
+    expect(out.headline).toMatch(/Aug 21/);
+    expect(out.scan_line).toMatch(/Pay ≤/);
+    expect(out.scan_line).toMatch(/15:45/);
+  });
+
   it("does not gate an overnight trim at the open", () => {
     const out = buildExecutionClock({
       ...baseClock,
@@ -377,7 +416,7 @@ describe("buildExecutionClock", () => {
       ...baseClock,
       now: ts(`2026-08-20T10:05:00${ET}`),
     });
-    const blob = [out.headline, out.why, out.buy_rule, out.sell_rule, out.path_note, out.dte_note].join(" ");
+    const blob = [out.headline, out.scan_line, out.why, out.buy_rule, out.sell_rule, out.path_note, out.dte_note].join(" ");
     expect(blob.toLowerCase()).not.toMatch(/\byou(r)?\b/);
   });
 

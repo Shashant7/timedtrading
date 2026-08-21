@@ -8,10 +8,14 @@ import {
   computePremiumRr,
   shouldHoldOvernight,
   isOvernightCarry,
+  formatExpirationShort,
+  isOptionsBuyWindowEt,
 } from "./option-day-trade-plan.js";
 
 const ET = "-04:00";
 const ts = (iso) => Date.parse(iso);
+const RTH_NOW = ts(`2026-08-20T10:12:00${ET}`);
+const PREMARKET_NOW = ts(`2026-08-21T06:30:00${ET}`);
 
 const clockBuy = {
   action: "BUY",
@@ -198,6 +202,22 @@ describe("buildSatyDayTradePlan", () => {
   });
 });
 
+describe("formatExpirationShort", () => {
+  it("prints Aug 22 from ISO, not 1 DTE", () => {
+    expect(formatExpirationShort({ dte: 1, iso: "2026-08-22", label: "1 DTE" })).toBe("Aug 22");
+    expect(formatExpirationShort({ dte: 1, label: "1 DTE" })).toBe("");
+  });
+});
+
+describe("isOptionsBuyWindowEt", () => {
+  it("is closed at 06:30 ET and open at 10:12 ET", () => {
+    expect(isOptionsBuyWindowEt(PREMARKET_NOW)).toBe(false);
+    expect(isOptionsBuyWindowEt(ts(`2026-08-20T09:35:00${ET}`))).toBe(false);
+    expect(isOptionsBuyWindowEt(RTH_NOW)).toBe(true);
+    expect(isOptionsBuyWindowEt(ts(`2026-08-20T16:00:00${ET}`))).toBe(false);
+  });
+});
+
 describe("classifyPaperEvent", () => {
   it("BUYs from flat when the clock says BUY", () => {
     const out = classifyPaperEvent({
@@ -205,10 +225,21 @@ describe("classifyPaperEvent", () => {
       book: null,
       premium: 0.38,
       size: { label: "medium", contracts: 2 },
+      now: RTH_NOW,
     });
     expect(out.event).toBe("BUY");
     expect(out.nextBook.status).toBe("open");
     expect(out.nextBook.entry_premium).toBe(0.38);
+  });
+  it("does not paper-BUY at 06:30 ET even if a stale clock still says BUY", () => {
+    const out = classifyPaperEvent({
+      clock: clockBuy,
+      book: null,
+      premium: 1.45,
+      size: { label: "light", contracts: 1 },
+      now: PREMARKET_NOW,
+    });
+    expect(out.event).toBeNull();
   });
   it("does not re-BUY on every tick while still BUY", () => {
     const out = classifyPaperEvent({
@@ -299,7 +330,7 @@ describe("buildDayTradeSignalEmbed", () => {
       ticker: "SPY",
       flavor: "put",
       strike: 763,
-      expiration: { dte: 1 },
+      expiration: { dte: 1, iso: "2026-08-21" },
       spot: 762.8,
       premium: 0.38,
       execution: clockBuy,
@@ -315,7 +346,10 @@ describe("buildDayTradeSignalEmbed", () => {
       spot: 762.8,
     });
     expect(embed.title).toMatch(/BUY/);
+    expect(embed.title).toMatch(/Aug 21/);
+    expect(embed.title).toMatch(/1 DTE/);
     expect(embed.title).toMatch(/HEAVY|MEDIUM|LIGHT/);
+    expect(embed.description).toMatch(/Aug 21/);
     const names = embed.fields.map((f) => f.name);
     expect(names).toEqual(expect.arrayContaining(["Setup / Thesis", "Trigger", "Entry", "Exits", "Stop", "Bracket"]));
     const blob = [embed.title, embed.description, ...embed.fields.map((f) => f.value)].join(" ");

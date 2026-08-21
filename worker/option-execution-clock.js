@@ -8,7 +8,14 @@
 //
 // Pure. No I/O. Caller attaches D1 marks + ticker tf_tech.
 
-import { computePremiumRr, shouldHoldOvernight, isOvernightCarry, SESSION_FLAT_ET, HARD_STOP_PCT } from "./option-day-trade-plan.js";
+import {
+  computePremiumRr,
+  shouldHoldOvernight,
+  isOvernightCarry,
+  formatExpirationShort,
+  SESSION_FLAT_ET,
+  HARD_STOP_PCT,
+} from "./option-day-trade-plan.js";
 
 const NY_TZ = "America/New_York";
 
@@ -349,10 +356,12 @@ function contractLabel({ ticker, strike, flavor, expiration } = {}) {
   const right = String(flavor || "").toLowerCase() === "put" ? "P" : "C";
   const dte = num(expiration?.dte);
   const dteBit = dte === 0 ? "0 DTE" : dte === 1 ? "1 DTE" : (expiration?.label || "");
+  const expBit = formatExpirationShort(expiration);
   const strikeBit = k != null ? String(Number.isInteger(k) ? k : k.toFixed(0)) : "";
   return {
     occ_short: `${t} ${strikeBit}${right}`,
     dte_bit: dteBit,
+    exp_bit: expBit,
     right,
   };
 }
@@ -369,8 +378,8 @@ function distPct(price, ema) {
  *
  * action:
  *   SELL — invalidation, hard stop, time stop, or TP1 already printed
- *   BUY  — SuperTrend with the lean, price in/near the 21 EMA band, not the open print
- *   WAIT — everything else (chase, against-trend, before 09:45)
+ *   BUY  — SuperTrend with the lean, price in/near the 21 EMA band, cash RTH after 09:45
+ *   WAIT — everything else (premarket, chase, against-trend, 09:30-09:45 open print)
  */
 export function buildExecutionClock({
   ticker,
@@ -405,8 +414,10 @@ export function buildExecutionClock({
     invalidation: mgmt.invalidation,
     ema21,
   });
-  const { occ_short, dte_bit } = contractLabel({ ticker: sym, strike, flavor: flav, expiration });
+  const { occ_short, dte_bit, exp_bit } = contractLabel({ ticker: sym, strike, flavor: flav, expiration });
   const ny = nyParts(now);
+  const rth = isRthEt(now);
+  const beforeCashOpen = ny.minutes < 9 * 60 + 30;
   const dte0 = num(expiration?.dte) === 0;
   const expectedClose = isPut
     ? (num(gp.bear_target) ?? px)
@@ -519,6 +530,11 @@ export function buildExecutionClock({
   } else if (carryOvernight && openPrint) {
     action = "WAIT";
     why = "Overnight book — trim and exit are live from 09:30. Do not wait for 09:45; the open is often the profit-taking print.";
+  } else if (beforeCashOpen) {
+    action = "WAIT";
+    why = carryOvernight
+      ? "Overnight book is still open. Index options are not tradeable until the 09:30 ET cash open. Trim and exit stay live at the open."
+      : "Index options are not tradeable until the 09:30 ET cash open. Stalk the first pullback after 09:45.";
   } else if (path && prem != null && path.trough_mid > 0 && prem <= path.trough_mid * (1 + hardStop / 100 + 0.02) && path.peak_mid && prem < path.peak_mid * 0.55) {
     action = "WAIT";
     why = `Premium already bled from $${path.peak_mid} (${path.peak_et} ET) to $${round2(prem)}. Do not chase a dead contract.`;
@@ -533,13 +549,13 @@ export function buildExecutionClock({
     why = holdOvernight
       ? "Too late for a new ticket. Existing book may hold overnight — leftover R:R is still ≥ 1."
       : "Too late for a new ticket. Flatten any open book by 15:45 ET; do not wait until 16:15.";
-  } else if (stWith && nearEma && !openPrint && !extended && !premiumRich) {
+  } else if (rth && stWith && nearEma && !openPrint && !extended && !premiumRich) {
     action = "BUY";
     why = `${sym} is holding the ${ind.tf || "5"}-minute 21 EMA${ema21 ? ` ($${ema21})` : ""} with SuperTrend ${ind.st_label || "aligned"}. Premium is ${value?.band || "unpriced"} vs FMV $${value?.fmv ?? "—"}.`;
-  } else if (stWith && atTrough && !openPrint && !premiumRich) {
+  } else if (rth && stWith && atTrough && !openPrint && !premiumRich) {
     action = "BUY";
     why = `This contract is at the session trough ($${path.trough_mid} at ${path.trough_et} ET) while SuperTrend still agrees.`;
-  } else if (stWith && premiumCheap && !openPrint && !extended) {
+  } else if (rth && stWith && premiumCheap && !openPrint && !extended) {
     action = "BUY";
     why = `Premium $${round2(prem)} is under FMV $${value.fmv} (expected close $${value.expected_close}) and SuperTrend agrees.`;
   } else if (stAgainst) {
@@ -561,12 +577,13 @@ export function buildExecutionClock({
     why = "Overnight book is still open. Trim and exit stay live — do not add a new ticket until this book is flat.";
   }
 
+  const contractBit = `${occ_short}${exp_bit ? ` ${exp_bit}` : ""}${dte_bit ? ` (${dte_bit})` : ""}`;
   const emaBit = ema21 != null ? ` the ${ind.tf || "5"}-minute 21 EMA ($${ema21})` : " the 5-minute 21 EMA";
   const stBit = `SuperTrend is ${isPut ? "short" : "long"}`;
   const fmvBit = value
     ? ` Pay at or under $${value.buy_ceil} (FMV $${value.fmv} if ${sym} closes $${value.expected_close}; rich ≥ $${value.over}).`
     : "";
-  const buyRule = `Buy the ${occ_short}${dte_bit ? ` (${dte_bit})` : ""} when ${sym} holds${emaBit} and ${stBit}.${fmvBit} Typical trough ${tod.buy_window_et} ET — first pullback, not the open print.`;
+  const buyRule = `Buy the ${contractBit} when ${sym} holds${emaBit} and ${stBit}.${fmvBit} Typical trough ${tod.buy_window_et} ET — first pullback, not the open print.`;
   const invBit = invPx != null
     ? (isPut ? ` or if ${sym} reclaims $${round2(invPx)}` : ` or if ${sym} loses $${round2(invPx)}`)
     : "";
@@ -589,19 +606,31 @@ export function buildExecutionClock({
       : "Flatten by 15:45 ET unless leftover R:R still justifies holding overnight. Do not wait until 16:15 to take an intended exit.";
 
   const headline = action === "BUY"
-    ? `BUY ${occ_short} — ${premiumCheap ? "under FMV" : "pullback into"}${premiumCheap ? "" : emaBit}`
+    ? `BUY ${contractBit} — ${premiumCheap ? "under FMV" : "pullback into"}${premiumCheap ? "" : emaBit}`
     : action === "TRIM"
-      ? `TRIM ${occ_short} — take the open, do not wait for 09:45`
+      ? `TRIM ${contractBit} — take the open, do not wait for 09:45`
       : action === "SELL"
-        ? `SELL ${occ_short} — ${why.split("—")[0].trim()}`
-        : `WAIT on ${occ_short} — ${carryOvernight && openPrint
-          ? "trim/exit live at the open"
-          : (premiumRich ? `rich vs FMV $${value?.fmv}` : `stalk ${tod.buy_window_et} ET`)}`;
+        ? `SELL ${contractBit} — ${why.split("—")[0].trim()}`
+        : `WAIT on ${contractBit} — ${beforeCashOpen
+          ? "index options open 09:30 ET"
+          : (carryOvernight && openPrint
+            ? "trim/exit live at the open"
+            : (premiumRich ? `rich vs FMV $${value?.fmv}` : `stalk ${tod.buy_window_et} ET`))}`;
+
+  const scanParts = [
+    value?.buy_ceil != null ? `Pay ≤ $${Number(value.buy_ceil).toFixed(2)}` : null,
+    rr?.trim != null ? `trim $${Number(rr.trim).toFixed(2)}` : null,
+    rr?.exit != null ? `exit $${Number(rr.exit).toFixed(2)}` : null,
+    holdOvernight || carryOvernight ? "hold overnight" : `flat ${SESSION_FLAT_ET} ET`,
+    exp_bit || null,
+    dte_bit || null,
+  ].filter(Boolean);
 
   return {
     action,
     sell_kind: sellKind,
     headline,
+    scan_line: scanParts.join(" · "),
     why,
     buy_rule: buyRule,
     sell_rule: sellRule,
@@ -623,7 +652,15 @@ export function buildExecutionClock({
     rr,
     hold_overnight: holdOvernight,
     carry_overnight: carryOvernight,
-    contract: { ticker: sym, flavor: flav, strike: num(strike), expiration: expiration || null, label: occ_short, dte: dte_bit },
+    contract: {
+      ticker: sym,
+      flavor: flav,
+      strike: num(strike),
+      expiration: expiration || null,
+      label: occ_short,
+      dte: dte_bit,
+      exp_bit: exp_bit || "",
+    },
   };
 }
 

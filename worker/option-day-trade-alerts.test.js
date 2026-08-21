@@ -26,6 +26,7 @@ const payload = {
   flavor: "put",
   strike: 763,
   expiration: { dte: 1, iso: "2026-08-21" },
+  now: Date.parse("2026-08-20T10:12:00-04:00"),
   spot: 762.8,
   premium: 0.38,
   execution: {
@@ -51,6 +52,7 @@ describe("maybeNotifyDayTradePaperEvent", () => {
     const embed = notifyDiscord.mock.calls[0][0] ? notifyDiscord.mock.calls[0][1] : null;
     expect(notifyDiscord.mock.calls[0][2]).toBe("trade");
     expect(embed.title).toMatch(/BUY/);
+    expect(embed.title).toMatch(/Aug 21/);
     expect(embed.fields.some((f) => f.name === "Bracket")).toBe(true);
 
     const second = await maybeNotifyDayTradePaperEvent(env, payload);
