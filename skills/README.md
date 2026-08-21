@@ -45,6 +45,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | **Newton Upticks monthly adds/deletes / fast-track conviction** | [upticks-monthly.md](upticks-monthly.md) |
 | Connect Cursor to X API for interactive post/search/debug (not worker ingest) | [x-mcp-cursor.md](x-mcp-cursor.md) |
 | **Delta One filtered stream DO — deploy, health, poll fallback, smoke test** | [x-wire-stream.md](x-wire-stream.md) |
+| **SuperTrend hold vs flip / flat ST retest / do not chase a stretch flip** | [supertrend-hold.md](supertrend-hold.md) |
 
 ## When to ADD a new skill
 

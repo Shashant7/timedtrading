@@ -13,6 +13,13 @@ import { resolveRegimeVocabulary } from "./regime-vocabulary.js";
 import { recordAdaptiveLineageFact } from "./adaptive-lineage.js";
 import { computeFreshnessBlock, computeMarketSessionReference } from "./freshness.js";
 import { resolveMarketOpenCached } from "./market-calendar.js";
+import {
+  assembleStHoldSetup,
+  compactStHold,
+  detectEma233ReclaimFromSeries,
+  detectSupertrendHoldFromSeries,
+  refreshStHoldSetup,
+} from "./supertrend-hold.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
@@ -1626,6 +1633,29 @@ export function computeTfBundle(bars, anchors = null) {
     lookbackFeatures.stBarsSinceFlip = stBarsSinceFlip;
   }
 
+  // Flat SuperTrend test-and-hold (entry) vs stretched flip (chase).
+  let stHold = null;
+  try {
+    stHold = detectSupertrendHoldFromSeries({
+      bars,
+      stDir: st.dir,
+      stLine: st.line,
+      ema21: e21s,
+      atr: atr14,
+      lookback: 12,
+    });
+  } catch (_) { stHold = null; }
+
+  let ema233Reclaim = null;
+  try {
+    ema233Reclaim = detectEma233ReclaimFromSeries({
+      closes,
+      ema233: e233s,
+      // 72 bars: 4H ≈ 12 sessions — enough to see reclaim → coil → breakout.
+      lookback: 72,
+    });
+  } catch (_) { ema233Reclaim = null; }
+
   // ── V16 Setup #4: 52w / ATH proximity (daily TF only) ──
   //
   // Track 52w high/low + 5-day base tightness for the ATH-breakout
@@ -1982,6 +2012,7 @@ export function computeTfBundle(bars, anchors = null) {
     emaDepth, emaStructure, emaMomentum, ribbonSpread,
     stLine, stDir, stLinePrev, stSlopeUp, stSlopeDn,
     stFlip, stFlipDir, stFlip_ts, stBarsSinceFlip,
+    stHold, ema233Reclaim,
     sqOn, sqOnPrev, sqRelease, sqRelease_ts, mom, momStd,
     phaseOsc, phaseVelocity, phaseZone,
     satyPhase,
@@ -3423,6 +3454,8 @@ export function detectFlags(bundles) {
   const b60 = bundles?.["60"];
   const bD = bundles?.["D"];
   const b4H = bundles?.["240"];
+  const bW = bundles?.W;
+  const bM = bundles?.M;
 
   // SuperTrend flips (with timestamps)
   if (b30?.stFlip) { flags.st_flip_30m = true; flags.st_flip_30m_ts = b30.stFlip_ts; }
@@ -3446,6 +3479,20 @@ export function detectFlags(bundles) {
       b60?.stFlipDir === 1 ? (b60.stFlip_ts || 0) : 0,
       b4H?.stFlipDir === 1 ? (b4H.stFlip_ts || 0) : 0
     );
+  }
+
+  // Flat SuperTrend tested and held (defined-risk entry). Flip-without-retest
+  // is a chase flag, not a hold.
+  if (bM?.stHold?.held) flags.st_hold_M = true;
+  if (bW?.stHold?.held) flags.st_hold_W = true;
+  if (bD?.stHold?.held) flags.st_hold_D = true;
+  if (b4H?.stHold?.held) flags.st_hold_4h = true;
+  if (flags.st_hold_M || flags.st_hold_W || flags.st_hold_D || flags.st_hold_4h) {
+    flags.st_hold = true;
+  }
+  if (bM?.stHold?.kind === "st_flip_extended" || bW?.stHold?.kind === "st_flip_extended"
+    || bD?.stHold?.kind === "st_flip_extended" || b4H?.stHold?.kind === "st_flip_extended") {
+    flags.st_flip_extended = true;
   }
 
   // EMA 13/48 crosses (with timestamps)
@@ -4850,9 +4897,13 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         // longs want LTF reclaim / break through EMA-233, not sit under it.
         ema233: Number.isFinite(b.e233) ? Math.round(b.e233 * 100) / 100 : undefined,
         priceAboveEma233: Number.isFinite(b.px) && Number.isFinite(b.e233) ? b.px >= b.e233 : null,
+        reclaimedEma233: b.ema233Reclaim?.reclaim === true,
       },
+      ema233Reclaim: b.ema233Reclaim || undefined,
       stDir: Number.isFinite(b.stDir) ? b.stDir : 0,
       stSlope: b.stSlopeUp ? 1 : b.stSlopeDn ? -1 : 0,
+      stLine: Number.isFinite(b.stLine) ? Math.round(b.stLine * 100) / 100 : undefined,
+      stHold: compactStHold(b.stHold),
       atr: atrBand ? { ...atrBand, ...(atrCross || {}) } : (atrCross || undefined),
       // Raw ATR(14) as % of price — the structural stop guard needs the
       // hourly ATR magnitude, not just the band labels above.
@@ -5090,6 +5141,11 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     lead_intraday_tf: leadingLtf,
     flags,
     tf_tech: tfTech,
+    st_hold_setup: assembleStHoldSetup({
+      bundles,
+      tdSeq: existingData?.td_sequential,
+      tfTech,
+    }),
     atr_d: ATRd ? Math.round(ATRd * 100) / 100 : undefined,
     atr_w: ATRw ? Math.round(ATRw * 100) / 100 : undefined,
     // ── Precision scoring fields ──
@@ -5237,16 +5293,18 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     })(),
     // ── Investor-grade monthly data (Phase 1A) ──
     monthly_bundle: bM ? {
-      supertrend_dir: bM.stDir,       // 1 = bullish, -1 = bearish
+      supertrend_dir: bM.stDir,       // Pine: -1 = bull, +1 = bear
       supertrend_line: bM.stLine ? Math.round(bM.stLine * 100) / 100 : undefined,
       ema_depth: bM.emaDepth,         // 0-10 conviction ladder
       ema_structure: Math.round((bM.emaStructure || 0) * 1000) / 1000,
       ema_momentum: Math.round((bM.emaMomentum || 0) * 1000) / 1000,
       ema200: bM.e200 ? Math.round(bM.e200 * 100) / 100 : undefined,
+      ema21: bM.e21 ? Math.round(bM.e21 * 100) / 100 : undefined,
       rsi: bM.rsi ? Math.round(bM.rsi * 10) / 10 : undefined,
       atr14: bM.atr14 ? Math.round(bM.atr14 * 100) / 100 : undefined,
       phase_osc: bM.phaseOsc ? Math.round(bM.phaseOsc * 10) / 10 : undefined,
       px: bM.px ? Math.round(bM.px * 100) / 100 : undefined,
+      st_hold: compactStHold(bM.stHold),
     } : undefined,
     /* 2026-06-01 — weekly_bundle (mirror of monthly_bundle) so the Investor
        thesis generator can quote actual price levels alongside the
@@ -5261,6 +5319,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       ema21: Number.isFinite(bW.e21) ? Math.round(bW.e21 * 100) / 100 : undefined,
       rsi: bW.rsi ? Math.round(bW.rsi * 10) / 10 : undefined,
       px: bW.px ? Math.round(bW.px * 100) / 100 : undefined,
+      st_hold: compactStHold(bW.stHold),
     } : undefined,
     // ── Daily structural profile (Phase E 2026-04-19) ──
     // Surfaces the raw D-EMA values + derived position/slope metrics the
@@ -5415,6 +5474,10 @@ export function computeTDSequential(candles, tf, opts = {}) {
     tv_count: 0,
     tv_count_side: null,
     tv_setup_complete: false,
+    last_td9_bullish_bars_ago: null,
+    last_td9_bearish_bars_ago: null,
+    last_td13_bullish_bars_ago: null,
+    last_td13_bearish_bars_ago: null,
   };
 
   if (!candles || candles.length < PREP_COMP + PREP_LEN) return result;
@@ -5430,6 +5493,10 @@ export function computeTDSequential(candles, tf, opts = {}) {
   let bearPrepCount = 0;
   let bullLeadupCount = 0;
   let bearLeadupCount = 0;
+  let lastTd9Bull = -1;
+  let lastTd9Bear = -1;
+  let lastTd13Bull = -1;
+  let lastTd13Bear = -1;
 
   // TV-parity counters (EMA-filtered, regime-aware).
   let tvBullCount = 0; // counts during bull regime (close > EMA21, close > close[4])
@@ -5505,6 +5572,11 @@ export function computeTDSequential(candles, tf, opts = {}) {
         bearLeadupCount += 1;
       }
     }
+
+    if (bullPrepCount === PREP_LEN) lastTd9Bull = i;
+    if (bearPrepCount === PREP_LEN) lastTd9Bear = i;
+    if (bullLeadupCount === LEADUP_LEN) lastTd13Bull = i;
+    if (bearLeadupCount === LEADUP_LEN) lastTd13Bear = i;
   }
 
   // Final state from the last bar
@@ -5547,6 +5619,12 @@ export function computeTDSequential(candles, tf, opts = {}) {
   // Exit signals
   result.exit_long = result.td9_bearish || result.td13_bearish;
   result.exit_short = result.td9_bullish || result.td13_bullish;
+
+  const lastBar = candles.length - 1;
+  result.last_td9_bullish_bars_ago = lastTd9Bull >= 0 ? lastBar - lastTd9Bull : null;
+  result.last_td9_bearish_bars_ago = lastTd9Bear >= 0 ? lastBar - lastTd9Bear : null;
+  result.last_td13_bullish_bars_ago = lastTd13Bull >= 0 ? lastBar - lastTd13Bull : null;
+  result.last_td13_bearish_bars_ago = lastTd13Bear >= 0 ? lastBar - lastTd13Bear : null;
 
   // Boost calculation (mirrors Pine Script logic)
   const htfBull = opts.htfBull != null ? opts.htfBull : true; // default to bull bias
@@ -6987,6 +7065,8 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
       }
     }
   }
+
+  refreshStHoldSetup(tickerData, bundleMap);
 
   return tickerData;
 }

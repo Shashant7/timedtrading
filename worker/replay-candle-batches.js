@@ -12,6 +12,7 @@ import {
   sequenceTrailSnapshotEnabled,
 } from "./foundation/sequence-snapshot.js";
 import { buildEarningsClusterWindowsFromEvents, JULY_2025_EARNINGS_CLUSTER_FALLBACK } from "./pipeline/earnings-cluster-gate.js";
+import { refreshStHoldSetup } from "./supertrend-hold.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // V13 Focus Tier — helpers
@@ -344,6 +345,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               delete result.td_sequential;
             }
           }
+          refreshStHoldSetup(result, bundleMap);
 
           {
             const sector = SECTOR_MAP[ticker] || "Unknown";

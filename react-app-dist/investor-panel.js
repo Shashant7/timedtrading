@@ -472,6 +472,40 @@
           style: { fontFamily: "var(--tt-font-mono)" },
           title: "Relative strength made a new 3-month high",
         }, "RS HI"),
+        (() => {
+          const hold = t.st_hold_setup?.best;
+          if (hold?.held) {
+            const tf = hold.tf ? ` ${hold.tf}` : "";
+            const line = Number.isFinite(hold.stLine) ? ` @ ${hold.stLine}` : "";
+            return React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                color: "rgb(52,211,153)",
+                background: "rgba(52,211,153,0.14)",
+                borderColor: "rgba(52,211,153,0.45)",
+                fontWeight: 800,
+                letterSpacing: "0.04em",
+              },
+              title: `SuperTrend tested and held${tf}${line}. Risk defined at the ST line.`,
+            }, "ST HOLD");
+          }
+          if (hold?.kind === "st_flip_extended" || t.flags?.st_flip_extended) {
+            return React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                color: "rgb(251,191,36)",
+                background: "rgba(251,191,36,0.12)",
+                borderColor: "rgba(251,191,36,0.40)",
+                fontWeight: 800,
+                letterSpacing: "0.04em",
+              },
+              title: "SuperTrend flipped extended off the 21 EMA. Wait for a retest of the ST line.",
+            }, "ST FLIP");
+          }
+          return null;
+        })(),
         earnLabel && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--accent",
           style: { fontFamily: "var(--tt-font-mono)" },
@@ -1467,4 +1501,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1787273003135:523289185
+// cache-bust:1787277928652:195153779

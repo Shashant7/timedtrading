@@ -54,11 +54,14 @@ import {
   applyTimingOverlayToConfluence,
   computeTimingOverlay,
 } from "./timing-signals.js";
+import { holdAgreesWithSide, isFlipExtendedChase } from "./supertrend-hold.js";
 
 // ── Mode thresholds ────────────────────────────────────────────────────────
-// 8 layers identify the opportunity; SuperTrend slope ignites the trigger.
+// 8 layers identify the opportunity; SuperTrend ignites the trigger.
 //   confluence ≥6 + ST slope confirms direction          → RIDE
-//   confluence ≥6 + ST flat/not yet sloping in direction → READY (wait)
+//   confluence ≥6 + flat ST tested and held (same side)  → RIDE (defined-risk entry)
+//   confluence ≥6 + ST flip extended off the 21 EMA      → READY (do not chase)
+//   confluence ≥6 + ST flat / not yet sloping            → READY (wait)
 //   confluence ≥4 + ST slope already in motion           → DRIFT (in-motion late entry)
 //   confluence ≥4 + ST opposes                           → FADE candidate
 //   confluence <4                                        → WAIT
@@ -404,17 +407,22 @@ function scoreL5_Carter(t) {
 }
 
 function scoreL6_DeMark(t) {
-  // TD Sequential — wave maturity. Weekly + Daily drive extension timing.
+  // TD Sequential — wave maturity. Monthly + Weekly + Daily drive extension timing.
   // td9_bullish = buy setup complete (seller exhaustion → bullish reversal risk).
   // td9_bearish = sell setup complete (buyer exhaustion → bearish reversal / trim).
+  // ETH-style "TD13 then TD9" is a separate bonus: countdown exhaustion, then a new setup.
   const tdSeq = t?.td_sequential || t?.td_seq || t?._td_seq;
   const perTf = tdSeq?.per_tf || (tdSeq ? { D: tdSeq } : null);
   if (!perTf) return { side: "NEUTRAL", strength: 0, evidence: "Wave count unavailable" };
   let bull = 0, bear = 0, parts = [];
-  for (const tf of ["W", "D", "4H", "240"]) {
-    const row = perTf[tf] || (tf === "W" ? perTf["1W"] : null) || (tf === "D" ? perTf["1D"] : null);
+  for (const tf of ["M", "W", "D", "4H"]) {
+    const row = perTf[tf]
+      || (tf === "M" ? perTf["1M"] : null)
+      || (tf === "W" ? perTf["1W"] : null)
+      || (tf === "D" ? perTf["1D"] : null)
+      || (tf === "4H" ? perTf["240"] : null);
     if (!row) continue;
-    const w = tf === "W" ? 1.2 : tf === "D" ? 1.0 : 0.7;
+    const w = tf === "M" ? 1.4 : tf === "W" ? 1.2 : tf === "D" ? 1.0 : 0.7;
     const bullPrep = Number(row.bullish_prep_count || row.buy_setup || row.buyCount || 0);
     const bearPrep = Number(row.bearish_prep_count || row.sell_setup || row.sellCount || 0);
     if (row.td9_bullish === true) { bull += 0.55 * w; parts.push(`TD${tf} 9 buy setup (seller exhaustion)`); }
@@ -430,6 +438,14 @@ function scoreL6_DeMark(t) {
     } else if (row.tv_count_side === "bear" && row.tv_count >= 3 && row.tv_count <= 7) {
       bear += 0.3; parts.push(`TD${tf} tv ${row.tv_count} bear`);
     }
+  }
+  const seq = t?.st_hold_setup?.td13_then_9;
+  if (seq?.side === "LONG") {
+    bull += 0.45;
+    parts.push(`TD${seq.tf} 13 then 9 (exhaustion then setup)`);
+  } else if (seq?.side === "SHORT") {
+    bear += 0.45;
+    parts.push(`TD${seq.tf} 13 then 9 (exhaustion then setup)`);
   }
   const net = bull - bear;
   const total = bull + bear;
@@ -472,6 +488,23 @@ function scoreL7_Trend(t) {
   if (Number.isFinite(emaReg)) {
     if (emaReg >= 1) { bull += 0.2 * Math.min(1, emaReg / 2); parts.push(`EMA regime +${emaReg}`); }
     else if (emaReg <= -1) { bear += 0.2 * Math.min(1, -emaReg / 2); parts.push(`EMA regime ${emaReg}`); }
+  }
+
+  // Flat SuperTrend test-and-hold outranks a naked sloping flip.
+  const hold = t?.st_hold_setup?.best;
+  if (hold?.held) {
+    const bonus = hold.quality === "high" ? 0.4 : hold.quality === "base" ? 0.25 : 0.3;
+    const tf = hold.tf ? ` ${hold.tf}` : "";
+    const lvl = Number.isFinite(hold.stLine) ? ` @ ${hold.stLine}` : "";
+    if (hold.side === 1 || hold.sideLabel === "LONG") {
+      bull += bonus;
+      parts.push(`ST${tf} hold${lvl}`);
+    } else if (hold.side === -1 || hold.sideLabel === "SHORT") {
+      bear += bonus;
+      parts.push(`ST${tf} hold${lvl}`);
+    }
+  } else if (hold?.kind === "st_flip_extended") {
+    parts.push("ST flip extended off 21 EMA (chase)");
   }
 
   const net = bull - bear;
@@ -544,7 +577,8 @@ function scoreL8_Saty(t) {
 // multiple TFs and report:
 //   • direction:           BULL (line below price as support) / BEAR (line above as resistance)
 //   • sloping:             is the ST line itself moving in its direction (rising in BULL,
-//                          falling in BEAR)? Flat ST = no fuel even if BULL.
+//                          falling in BEAR)? A sloping flip far from the 21 EMA is a chase.
+//                          A flat ST that is tested and holds is the defined-risk entry.
 //   • slope_just_started:  did the slope turn from flat to active in the last N bars?
 //                          This is the highest-edge entry (fresh ignition).
 //   • timeframe_confirmed: which TFs report sloping in the same direction.
@@ -692,8 +726,10 @@ function computeSupertrendTrigger(t) {
 /**
  * Compute the root strategy confluence for a single ticker snapshot.
  *
- * 8 layers identify the OPPORTUNITY; SuperTrend slope ignites the TRIGGER.
+ * 8 layers identify the OPPORTUNITY; SuperTrend ignites the TRIGGER.
  *   High confluence + ST slope confirms direction          → RIDE
+ *   High confluence + flat ST tested and held              → RIDE (defined-risk)
+ *   High confluence + ST flip extended off the 21 EMA      → READY (do not chase)
  *   High confluence + ST flat / not yet sloping            → READY (entry pending)
  *   Medium confluence + ST slope in motion                 → DRIFT (late but in motion)
  *   Medium confluence + ST opposes                         → FADE candidate
@@ -734,6 +770,9 @@ export function scoreRootConfluence(t) {
   // action when the ST line is sloping." So ST slope is the ignition
   // switch, not a vote.
   const stTrigger = computeSupertrendTrigger(t);
+  const hold = t?.st_hold_setup?.best || null;
+  const holdAgrees = holdAgreesWithSide(hold, dominantSide);
+  const flipExtended = isFlipExtendedChase(hold, dominantSide);
 
   // ── Mode resolution (with ST gating) ────────────────────────────────────
   let mode = "WAIT";
@@ -746,12 +785,20 @@ export function scoreRootConfluence(t) {
 
   if (dominantCount >= RIDE_MIN_LAYERS) {
     side = dominantSide;
-    if (stAgrees) {
-      // ✅ Highest conviction — confluence + ST slope agree.
+    if (holdAgrees) {
+      // Flat (or recently flat) ST tested and held — defined-risk ignition.
+      mode = "RIDE";
+      ride = true; wait = false;
+    } else if (flipExtended && stAgrees) {
+      // Slope agrees but the flip is stretched off the 21 EMA. Do not chase.
+      mode = "READY";
+      ready = true; wait = false;
+    } else if (stAgrees) {
+      // Highest conviction — confluence + ST slope agree.
       mode = "RIDE";
       ride = true; wait = false;
     } else if (stTrigger.side === "NEUTRAL") {
-      // Confluence is there but ST hasn't ignited. Wait for the slope.
+      // Confluence is there but ST hasn't ignited. Wait for slope or a hold.
       mode = "READY";
       ready = true; wait = false;
     } else {
@@ -803,8 +850,16 @@ export function scoreRootConfluence(t) {
     short_strength: Math.round(shortStrength * 100) / 100,
     layers: layerSummary,
     supertrend_trigger: stTrigger,
+    st_hold: hold ? {
+      kind: hold.kind,
+      held: !!hold.held,
+      quality: hold.quality || null,
+      tf: hold.tf || null,
+      stLine: hold.stLine ?? null,
+      side: hold.sideLabel || (hold.side > 0 ? "LONG" : hold.side < 0 ? "SHORT" : "NEUTRAL"),
+    } : null,
     actionable_summary: _buildActionableSummary({
-      mode, side, layers, score, longAgree, shortAgree, stTrigger,
+      mode, side, layers, score, longAgree, shortAgree, stTrigger, hold,
     }),
   };
 
@@ -816,22 +871,32 @@ export function scoreRootConfluence(t) {
   }
 }
 
-function _buildActionableSummary({ mode, side, layers, score, longAgree, shortAgree, stTrigger }) {
+function _buildActionableSummary({ mode, side, layers, score, longAgree, shortAgree, stTrigger, hold }) {
+  const agree = side === "LONG" ? longAgree : shortAgree;
+  const holdBit = hold?.held
+    ? ` ST hold${hold.tf ? ` ${hold.tf}` : ""}${Number.isFinite(hold.stLine) ? ` @ ${hold.stLine}` : ""} (${hold.quality || "held"}; risk defined at the ST line).`
+    : "";
   if (mode === "RIDE") {
     const topLayers = Object.entries(layers)
       .filter(([_, l]) => l.side === side && l.strength > 0.4)
       .sort((a, b) => b[1].strength - a[1].strength)
       .slice(0, 3)
       .map(([k, l]) => `${k.replace(/L\d_/, "")}: ${l.evidence}`);
+    if (hold?.held) {
+      return `RIDE ${side} — confluence ${score}/100, ${agree}/8 layers agree.${holdBit} Strongest: ${topLayers.join(" · ")}.`;
+    }
     const freshness = stTrigger.freshness === "fresh" ? " (ST just sloped — fresh trigger)"
                     : stTrigger.freshness === "in_motion" ? " (ST in motion)"
                     : stTrigger.freshness === "mature" ? " (ST sloping mature)"
                     : "";
     const tfs = (stTrigger.confirmed_tfs || []).join("/");
-    return `RIDE ${side} — confluence ${score}/100, ${side === "LONG" ? longAgree : shortAgree}/8 layers agree, ST slope ${tfs}${freshness}. Strongest: ${topLayers.join(" · ")}.`;
+    return `RIDE ${side} — confluence ${score}/100, ${agree}/8 layers agree, ST slope ${tfs}${freshness}. Strongest: ${topLayers.join(" · ")}.`;
   }
   if (mode === "READY") {
-    return `READY ${side} — confluence ${score}/100 (${side === "LONG" ? longAgree : shortAgree}/8 layers) but SuperTrend slope hasn't ignited yet. ENTRY PENDING — wait for ST(10,3) to start sloping ${side === "LONG" ? "up" : "down"} on D/4H/60m.`;
+    if (hold?.kind === "st_flip_extended") {
+      return `READY ${side} — confluence ${score}/100 (${agree}/8 layers) but SuperTrend flipped extended off the 21 EMA. ENTRY PENDING — wait for a retest and hold of the ST line (defined risk), not the stretch flip.`;
+    }
+    return `READY ${side} — confluence ${score}/100 (${agree}/8 layers) but SuperTrend has not ignited. ENTRY PENDING — wait for ST(10,3) to start sloping ${side === "LONG" ? "up" : "down"} on D/4H/60m, or for a test-and-hold of a flat ST line.`;
   }
   if (mode === "FADE") {
     const fadeSrc = stTrigger.side === side ? "ST opposes confluence" : "Newton (RS/Wave/Ichi) opposes majority";
