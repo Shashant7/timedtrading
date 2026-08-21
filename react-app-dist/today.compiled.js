@@ -1654,6 +1654,19 @@ function IndexDayTradeStrip({
         title: "Day lean"
       }, `Lean ${p.day_lean}`));
     }
+    const band = exec.premium_band || null;
+    const bandName = String(band?.band || "").toLowerCase();
+    if (bandName === "under" || bandName === "fair" || bandName === "over") {
+      const bandCls = bandName === "under" ? "ds-chip--up" : bandName === "over" ? "ds-chip--dn" : "ds-chip--accent";
+      chipRow.push(h("span", {
+        key: "fmv",
+        className: `ds-chip ds-chip--sm ${bandCls}`,
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        },
+        title: band.buy_ceil != null ? `Pay at or under $${Number(band.buy_ceil).toFixed(2)} (pin $${Number(band.pin).toFixed(2)} if close $${Number(band.expected_close).toFixed(2)})` : "Fair-market premium band"
+      }, bandName === "under" ? "Under FMV" : bandName === "over" ? "Rich" : "Fair"));
+    }
     const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const rank = Number(liveT?.rank_position ?? liveT?.rank ?? p?.confluence_score) || null;
@@ -1691,7 +1704,11 @@ function IndexDayTradeStrip({
       className: "tt-dt-plan__k tt-dt-plan__k--sell"
     }, "SELL"), sellRule), exec.path_note && h("p", {
       className: "tt-dt-plan__row"
-    }, exec.path_note), h("div", {
+    }, exec.path_note), exec.dte_note && h("p", {
+      className: "tt-dt-plan__row"
+    }, exec.dte_note), band && Number.isFinite(Number(band.buy_ceil)) && h("p", {
+      className: `tt-dt-plan__fmv tt-dt-plan__band--${bandName || "fair"}`
+    }, `Pay ≤ $${Number(band.buy_ceil).toFixed(2)} · FMV $${Number(band.fmv).toFixed(2)} · pin $${Number(band.pin).toFixed(2)} if ${sym} closes $${Number(band.expected_close).toFixed(2)}${bandName ? ` · ${bandName}` : ""}`), h("div", {
       className: "tt-dt-plan__prem"
     }, h(LivePremium, {
       ticker: sym,
@@ -7645,6 +7662,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787269330430:774799472
+// cache-bust:1787270677688:703385234
 
-// cache-bust:1787269330430:774799472
+// cache-bust:1787270677688:703385234
