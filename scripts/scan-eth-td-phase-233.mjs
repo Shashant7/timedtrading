@@ -580,6 +580,10 @@ function summarize(results) {
       meanReverted: scored.filter((c) => c.outcome.meanReverted).length,
       avgRet20: scored.length ? +(scored.reduce((s, c) => s + (c.outcome.ret20d || 0), 0) / scored.length).toFixed(2) : null,
       avgMfe20: scored.length ? +(scored.reduce((s, c) => s + (c.outcome.mfe20d || 0), 0) / scored.length).toFixed(2) : null,
+      avgRet60: scored.length ? +(scored.reduce((s, c) => s + (c.outcome.ret60d || 0), 0) / scored.length).toFixed(2) : null,
+      ret20Up: scored.filter((c) => (c.outcome.ret20d || 0) > 0).length,
+      ret60Up: scored.filter((c) => (c.outcome.ret60d || 0) > 0).length,
+      mfe20ge5: scored.filter((c) => (c.outcome.mfe20d || 0) >= 5).length,
     };
   };
 
@@ -669,7 +673,7 @@ function mdReport(summary, results) {
   const me = summary.byTier["movie-eth"];
   const st = summary.byTier.strong;
   lines.push(`- **Strict (official Phase Leaving on M+W+D+4H):** ${s.names} names / ${s.setups} setups. Of ${s.scored} with ≥10d follow-through, **${s.success} (${s.pct}%)** mean-reverted or went higher. Avg +20d ${s.avgRet20}%, MFE ${s.avgMfe20}%.`);
-  lines.push(`- **Movie-strict (washout turn-up on all four TFs — ETH July template):** ${ms.names} names / ${ms.setups} setups. ${ms.scored} scored → **${ms.success} (${ms.pct}%)**. Avg +20d ${ms.avgRet20}%, MFE ${ms.avgMfe20}%.`);
+  lines.push(`- **Movie-strict (washout turn-up on all four TFs — ETH July template):** ${ms.names} names / ${ms.setups} setups. Easy bar (higher or mean-revert): **${ms.success}/${ms.scored} (${ms.pct}%)**. Closed higher +20d: **${ms.ret20Up}/${ms.scored}**. Closed higher +60d: **${ms.ret60Up}/${ms.scored}**. Avg +20d ${ms.avgRet20}%, MFE ${ms.avgMfe20}%, +60d ${ms.avgRet60}%.`);
   lines.push(`- **ETH-like (HTF TD13→9 + official leave on ≥3 TFs):** ${e.names} names / ${e.setups} setups. ${e.scored} scored → **${e.success} (${e.pct}%)**.`);
   lines.push(`- **Movie-ETH (HTF TD13→9 + turn-up on ≥3 TFs):** ${me.names} names / ${me.setups} setups. ${me.scored} scored → **${me.success} (${me.pct}%)**.`);
   lines.push(`- **Strong (≥2 TF official leave + 233):** ${st.names} names / ${st.setups} setups. ${st.scored} scored → **${st.success} (${st.pct}%)**.`);
@@ -699,6 +703,37 @@ function mdReport(summary, results) {
     }
     lines.push("");
   }
+  const movieClusters = ok.flatMap((r) => (r.clusters || []).filter((c) =>
+    ["strict", "movie-strict", "eth-like", "movie-eth"].includes(c.tier)
+  )).sort((a, b) => String(a.signalDate).localeCompare(String(b.signalDate)) || a.ticker.localeCompare(b.ticker));
+  const htfMovie = movieClusters.filter((c) => (c.tdTfs || []).some((tf) => tf === "M" || tf === "W"));
+
+  lines.push("## Closest to the ETH movie (HTF TD13→9 + multi-TF phase + 233)");
+  lines.push("");
+  if (!htfMovie.length) {
+    lines.push("_none_");
+  } else {
+    lines.push("| Ticker | Date | Tier | TD TF | TD13 → TD9 | Official leave | Turn-up | 233 | +20d | +60d |");
+    lines.push("|---|---|---|---|---|---|---|---|---:|---:|");
+    for (const c of htfMovie) {
+      const o = c.outcome || {};
+      lines.push(`| ${c.ticker} | ${c.signalDate} | ${c.tier} | ${c.tdTfs.join(",")} | ${c.td13} → ${c.td9} | ${(c.phaseTfs || []).join(",") || "—"} | ${(c.turnTfs || []).join(",") || "—"} | ${c.reclaimTfs.join(",")} | ${o.ret20d != null ? o.ret20d.toFixed(1) + "%" : "—"} | ${o.ret60d != null ? o.ret60d.toFixed(1) + "%" : "—"} |`);
+    }
+  }
+  lines.push("");
+  lines.push("## All movie-strict / movie-ETH setups");
+  lines.push("");
+  if (!movieClusters.length) {
+    lines.push("_none_");
+  } else {
+    lines.push("| Ticker | Date | Tier | Anchor | TD | Official leave | Turn-up | 233 | +20d | MFE20 | +60d |");
+    lines.push("|---|---|---|---|---|---|---|---|---:|---:|---:|");
+    for (const c of movieClusters) {
+      const o = c.outcome || {};
+      lines.push(`| ${c.ticker} | ${c.signalDate} | ${c.tier} | ${c.anchorTf} | ${c.tdTfs.join(",")} | ${(c.phaseTfs || []).join(",") || "—"} | ${(c.turnTfs || []).join(",") || "—"} | ${c.reclaimTfs.join(",")} | ${o.ret20d != null ? o.ret20d.toFixed(1) + "%" : "—"} | ${o.mfe20d != null ? o.mfe20d.toFixed(1) + "%" : "—"} | ${o.ret60d != null ? o.ret60d.toFixed(1) + "%" : "—"} |`);
+    }
+  }
+  lines.push("");
   lines.push("## Names — official strict");
   lines.push("");
   lines.push(summary.names.strict.length ? summary.names.strict.join(", ") : "_none_");
@@ -746,6 +781,7 @@ async function main() {
 
   const summary = summarize(results);
   writeFileSync(join(OUT_DIR, "results.json"), JSON.stringify({ summary, results }, null, 2));
+  writeFileSync(join(OUT_DIR, "summary.json"), JSON.stringify(summary, null, 2));
   const md = mdReport(summary, results);
   writeFileSync(join(OUT_DIR, "report.md"), md);
   console.log(JSON.stringify(summary, null, 2));
