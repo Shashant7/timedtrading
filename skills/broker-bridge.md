@@ -71,6 +71,11 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   `shortClientOrderId` produces a fresh id and the bridge idempotency
 >   layer releases the retry. Sort exits/trims ahead of buys before
 >   `max_ops` (hourly/COO cap is 24).
+> - Catch-up trims MUST send `reduce_pct = lot.shares / (remaining +
+>   lot.shares)` from `investor_positions.total_shares`. Replaying raw
+>   model-space `investor_lots.shares` is the META flatten (PLTR OpEx
+>   2026-08-21 sold the leftover 1.425 broker sh). Skip when remaining
+>   is unknown. Never force-replay a lot that already placed.
 > - `readManifestRow` transparently aliases `inv-inv-*` ↔ `inv-*` trade
 >   IDs so legacy investor manifest rows (pre-normalization) don't
 >   reject `no_manifest_for_trade` on their first reducer lookup.

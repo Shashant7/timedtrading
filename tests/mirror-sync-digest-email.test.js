@@ -66,6 +66,20 @@ describe("buildMirrorSyncDigestEmail", () => {
     expect(digest.text).toContain("PLTR");
   });
 
+  it("does not describe a reducer unit mismatch as a fetch failure", () => {
+    const digest = buildMirrorSyncDigestEmail([{
+      severity: "warn",
+      ticker: "PLTR",
+      mode: "investor",
+      instrument_type: "equity",
+      sync_state: "reconcile_error",
+      sync_note: "reducer discrepancy: trim requestedQty > modelRemaining without reduce_pct — likely model-space shares being treated as broker-space. Caller MUST send reduce_pct to size correctly.",
+    }]);
+    expect(digest.html).toMatch(/model-share quantity|percent of the mirrored holding/i);
+    expect(digest.html).not.toMatch(/could not fetch broker positions/i);
+    expect(digest.html.toLowerCase()).not.toMatch(/\byou(r)?\b/);
+  });
+
   it("returns null when only healthy events remain", () => {
     expect(buildMirrorSyncDigestEmail([
       { severity: "warn", ticker: "NVDA", sync_state: "in_sync", sync_note: "ok" },

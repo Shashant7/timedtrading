@@ -6,6 +6,28 @@
 
 ---
 
+## Catch-up flattened PLTR by replaying model shares [2026-08-21]
+
+**Symptom:** Mirror sync email at 15:00 ET: PLTR `reducer discrepancy:
+trim requestedQty > modelRemaining without reduce_pct`. "What this
+means" said the bridge could not fetch positions (wrong template).
+
+**Root:** The 10:04 ET PRE_OPEX path *did* send `reduce_pct=5%` and
+sold 0.075 of 1.5 broker sh (correct). Catch-up later replayed the
+same lot as `qty=2.249` with no pct (`explicit_qty` →
+`capped_to_model_portion` → sold the remaining 1.425 = flatten).
+Manifest is now `mothership_orphan` (broker 0) while the model is
+still OPEN at 42.73 sh. The magnet-branch worker deploy overwrote the
+unmerged #1292 ring (`RING_MAX` 200 + `ringLooksLikeRealPlace`), so
+the first trim fell out of the 50-entry ring and catch-up treated it
+as unmatched.
+
+**Fix:** Catch-up derives `reduce_pct = lot.shares / (remaining +
+lot.shares)` from `investor_positions.total_shares` or skips
+(`trim_missing_reduce_pct`). Email/notification copy keys off the
+discrepancy note, not `reconcile_error`. Redeploy restores #1292
+matching. Do **not** auto-rebuy the flattened broker lot.
+
 ## Opposite-side flat SuperTrend is the reversal magnet [2026-08-21]
 
 **Symptom:** TSLA week of Aug 17 was read as “Friday daily ST flip, not

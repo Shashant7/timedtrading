@@ -77,6 +77,43 @@ export function ringSidesForLotAction(action) {
   return ["buy"];
 }
 
+/**
+ * Recover the model's trim fraction after the lot already reduced
+ * `investor_positions.total_shares`. Catch-up must send this as
+ * `reduce_pct` — never raw model-space `shares` — or the bridge treats
+ * those shares as broker-space and can flatten (PLTR 2026-08-21).
+ *
+ *   reduce_pct = lotShares / (remaining + lotShares)
+ */
+export function reducePctForCatchupTrim(lotShares, remainingShares) {
+  // `Number(null) === 0` — a missing remaining basis must not look like
+  // a fully-sold book (that would emit reduce_pct=1 and flatten).
+  if (remainingShares == null || remainingShares === "") return null;
+  const sold = Number(lotShares);
+  const rem = Number(remainingShares);
+  if (!(sold > 0) || !Number.isFinite(rem) || rem < 0) return null;
+  const basis = rem + sold;
+  if (!(basis > 0)) return null;
+  const pct = sold / basis;
+  if (!(pct > 0) || pct > 1) return null;
+  return Math.round(pct * 10000) / 10000;
+}
+
+function remainingForLot(lot, remainingByPosition) {
+  if (!remainingByPosition || typeof remainingByPosition !== "object") return null;
+  const posId = lot?.position_id != null ? String(lot.position_id) : "";
+  if (posId && remainingByPosition[posId] != null) {
+    const n = Number(remainingByPosition[posId]);
+    return Number.isFinite(n) ? n : null;
+  }
+  const ticker = String(lot?.ticker || "").toUpperCase();
+  if (ticker && remainingByPosition[ticker] != null) {
+    const n = Number(remainingByPosition[ticker]);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 function lotAlreadyMirrored(mirroredOkIds, tradeId, action) {
   const ids = [String(tradeId), `inv-${tradeId}`];
   for (const side of ringSidesForLotAction(action)) {
@@ -190,6 +227,7 @@ export function planInvestorCatchupOps({
   // kept. RTH-based so a 15:45 ET DCA whose mirror died (NVDA 8/11) is
   // still trusted at the next morning's catch-up pass. 0 = off.
   trustFreshLotMs = 0,
+  remainingByPosition = null,
 } = {}) {
   const mirroredOkIds = new Set(
     (ring || [])
@@ -296,6 +334,31 @@ export function planInvestorCatchupOps({
       ttl_ms: freshness.ttl_ms,
     };
 
+    if (kind === "trim") {
+      const remaining = remainingForLot(lot, remainingByPosition);
+      // `null <= 0.0001` is true in JS — require a numeric remaining
+      // before promoting to exit or emitting a percent.
+      const reducePct = remaining == null
+        ? null
+        : reducePctForCatchupTrim(op.shares, remaining);
+      if (reducePct == null) {
+        skippedGates.push({
+          ...op,
+          skip_reason: "trim_missing_reduce_pct",
+          detail: {
+            note: "Catch-up will not forward model-space trim shares without a percent. Load investor_positions.total_shares (post-lot remaining) so reduce_pct = lot.shares / (remaining + lot.shares).",
+            remaining,
+          },
+        });
+        continue;
+      }
+      if (reducePct >= 0.999 || remaining <= 0.0001) {
+        op.kind = "exit";
+      } else {
+        op.reduce_pct = reducePct;
+      }
+    }
+
     if (!gate.allow) {
       skippedGates.push({
         ...op,
@@ -368,6 +431,22 @@ export async function runInvestorCatchup(env, opts = {}) {
     livePrices[ticker] = resolveCatchupLivePrice(pricesMap[ticker], latest);
   }
 
+  const remainingByPosition = {};
+  const posIds = [...new Set((lots || []).map((l) => l?.position_id).filter(Boolean))];
+  if (env.DB && posIds.length) {
+    try {
+      const placeholders = posIds.map((_, i) => `?${i + 1}`).join(",");
+      const { results: posRows } = await env.DB.prepare(
+        `SELECT id, ticker, total_shares FROM investor_positions WHERE id IN (${placeholders})`,
+      ).bind(...posIds).all();
+      for (const row of posRows || []) {
+        const rem = Number(row.total_shares);
+        if (!Number.isFinite(rem)) continue;
+        remainingByPosition[String(row.id)] = rem;
+      }
+    } catch (_) { /* planner skips trims without a basis */ }
+  }
+
   const plannedFull = planInvestorCatchupOps({
     lots: lots || [],
     ring: ring || [],
@@ -381,6 +460,7 @@ export async function runInvestorCatchup(env, opts = {}) {
     nowMs: Date.now(),
     ttlRthMs,
     trustFreshLotMs,
+    remainingByPosition,
   });
 
   let planned = prioritizeCatchupOps(plannedFull.planned);
@@ -403,6 +483,7 @@ export async function runInvestorCatchup(env, opts = {}) {
         reason: op.reason,
         source,
         retry_nonce: retryNonce,
+        ...(op.reduce_pct != null ? { reduce_pct: op.reduce_pct } : {}),
       });
       results.push({
         ticker: op.ticker,

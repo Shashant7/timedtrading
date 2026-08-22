@@ -313,6 +313,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   5-decimal Webull precision no longer leaves phantom 0.00001 rows. Source
   contract test (`investor-reducer-mirror-coverage.test.js`) fails a PR
   that adds a partial-trim mirror block without a `reduce_pct` hint.
+  Catch-up (`investor-catchup-run.js`) was the remaining hole: it replayed
+  raw `investor_lots.shares` (PLTR PRE_OPEX 2.249 model sh on 2026-08-21)
+  and flattened the 1.425 broker remainder. Catch-up now derives
+  `reduce_pct = lot.shares / (remaining + lot.shares)` or skips.
 - **Post-execution audit MUST be awaited on Workers (2026-07-29 silent audit)**:
   `writeLastActionAudit` was fire-and-forget without `ctx.waitUntil()` — the
   Worker runtime cancelled the pending D1 UPDATE the moment the reducer

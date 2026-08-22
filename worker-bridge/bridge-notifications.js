@@ -131,7 +131,14 @@ export function shouldDispatchDriftNotification(row, severity) {
 }
 
 /** Plain-language guidance for a sync state (compliance: no "you/your"). */
-export function meaningForSyncState(syncState) {
+export function meaningForSyncState(syncState, syncNote) {
+  const note = String(syncNote || "");
+  if (/intent_unit_mismatch|reduce_pct|model-space/i.test(note)) {
+    return "A trim was sent as model-share quantity instead of a percent of the mirrored holding. The bridge can cap that quantity to the remaining mirrored shares and flatten the lot. Confirm broker quantity before another catch-up; do not force-replay the same lot.";
+  }
+  if (/model_open expected/i.test(note) && /broker holds 0/i.test(note)) {
+    return "The model still shows an open position but the broker is flat. This can follow a manual close or a reducer that sold the remaining mirrored shares. Do not auto-rebuy; decide whether the sleeve should be remirrored.";
+  }
   switch (String(syncState || "").toLowerCase()) {
     case "partial_fill":
       return "The broker filled less than the model intended. Future TRIM/EXIT actions will be scaled proportionally.";
@@ -177,7 +184,7 @@ export function buildDriftEmailContent(row, severity) {
     `Detail:   ${note}`,
     "",
     "What this means:",
-    meaningForSyncState(syncState),
+    meaningForSyncState(syncState, note),
   ];
 
   const text = `${subject}\n\n${lines.join("\n")}\n\nReview: https://timed-trading.com/account/brokers\n`;

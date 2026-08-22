@@ -3243,7 +3243,14 @@ export function groupMirrorNotifyItemsByUser(items) {
   return map;
 }
 
-function _mirrorMeaning(syncState) {
+function _mirrorMeaning(syncState, syncNote) {
+  const note = String(syncNote || "");
+  if (/intent_unit_mismatch|reduce_pct|model-space/i.test(note)) {
+    return "A trim was sent as model-share quantity instead of a percent of the mirrored holding. The bridge can cap that quantity to the remaining mirrored shares and flatten the lot. Confirm broker quantity before another catch-up; do not force-replay the same lot.";
+  }
+  if (/model_open expected/i.test(note) && /broker holds 0/i.test(note)) {
+    return "The model still shows an open position but the broker is flat. This can follow a manual close or a reducer that sold the remaining mirrored shares. Do not auto-rebuy; decide whether the sleeve should be remirrored.";
+  }
   switch (String(syncState || "").toLowerCase()) {
     case "partial_fill":
       return "The broker filled less than the model intended. Future TRIM/EXIT actions will be scaled proportionally.";
@@ -3280,7 +3287,7 @@ function _buildMirrorEventCard(ev) {
   const struct = ev.options_structure ? `:${_esc(ev.options_structure)}` : "";
   const state = _esc(String(ev.sync_state || "unknown").replace(/_/g, " "));
   const note = _esc(ev.sync_note || "");
-  const meaning = _esc(_mirrorMeaning(ev.sync_state));
+  const meaning = _esc(_mirrorMeaning(ev.sync_state, ev.sync_note));
   return `<div style="margin:0 0 12px;padding:14px 16px;border:1px solid ${BRAND.border};border-radius:12px;background:${BRAND.dark}">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">
       <div>
@@ -3507,7 +3514,7 @@ export function buildMirrorSyncDigestEmail(events, opts = {}) {
       return [
         `• ${e.ticker} (${e.mode}/${e.instrument_type}) — ${sev} · ${e.sync_state}`,
         `  ${e.sync_note || ""}`,
-        `  ${_mirrorMeaning(e.sync_state)}`,
+        `  ${_mirrorMeaning(e.sync_state, e.sync_note)}`,
         "",
       ].join("\n");
     }),
