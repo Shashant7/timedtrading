@@ -883,8 +883,23 @@ function setupFamilyActionHint(p) {
   const state = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
   if (p?.slice_family === "tt_cloud_pivot" || p?.tt_cloud_pivot) {
     const sess = p?.session || p?.sequence_paper_queue?.session || null;
+    const plan = p?.session_plan || null;
+    const mag = p?.cloud_magnet || null;
+    const magPx = Number(mag?.px);
+    const longOver = Number(plan?.long_over);
+    const shortUnder = Number(plan?.short_under);
+    const dir = String(p?.direction || plan?.bias || "").toUpperCase();
+    if (plan && dir === "LONG" && Number.isFinite(longOver)) {
+      return `Cloud Pivot — long over $${longOver.toFixed(2)}${Number.isFinite(magPx) ? `; magnet $${magPx.toFixed(2)}` : ""}. Size stays paper.`;
+    }
+    if (plan && dir === "SHORT" && Number.isFinite(shortUnder)) {
+      return `Cloud Pivot — short under $${shortUnder.toFixed(2)}${Number.isFinite(magPx) ? `; magnet $${magPx.toFixed(2)}` : ""}. Size stays paper.`;
+    }
     if (state === "queued") {
       return sess ? `Cloud Pivot queued (paper) — ${String(sess).replace(/_/g, " ")} window on 10m 5/12; size stays tiny.` : "Cloud Pivot queued (paper) — 10m 5/12 curl; size stays tiny until attribution clears.";
+    }
+    if (Number.isFinite(magPx)) {
+      return `Cloud Pivot — ride the 10m 5/12 toward $${magPx.toFixed(2)}; exit when the candle loses the cloud.`;
     }
     return "Cloud Pivot — ride the 10m 5/12; exit when the candle loses the cloud.";
   }
@@ -1078,6 +1093,38 @@ function SetupFamiliesStrip({
         className: "ds-chip ds-chip--sm ds-chip--accent",
         title: "10m 5/12 curl / open-midday Cloud Pivot (paper)"
       }, sess ? String(sess).replace(/_/g, " ") : "5/12 curl"));
+      const magPx = Number(p.cloud_magnet?.px);
+      if (Number.isFinite(magPx) && magPx > 0) {
+        const magLabel = p.cloud_magnet?.label ? String(p.cloud_magnet.label).replace(/_/g, " ") : "magnet";
+        chipRow.push(h("span", {
+          key: "magnet",
+          className: "ds-chip ds-chip--sm",
+          title: `Higher-timeframe cloud magnet (${magLabel})`,
+          style: {
+            fontFamily: "var(--tt-font-mono)"
+          }
+        }, `→ $${magPx.toFixed(2)}`));
+      }
+      const plan = p.session_plan;
+      const dir = String(p.direction || plan?.bias || "").toUpperCase();
+      const gatePx = dir === "SHORT" ? Number(plan?.short_under) : Number(plan?.long_over);
+      if (plan && Number.isFinite(gatePx)) {
+        chipRow.push(h("span", {
+          key: "ifthen",
+          className: "ds-chip ds-chip--sm ds-chip--solid",
+          title: "Catalyst if/then from premarket / prior-day / 1H cloud",
+          style: {
+            fontFamily: "var(--tt-font-mono)"
+          }
+        }, dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}`));
+      }
+      if (p.leader_follow?.leader) {
+        chipRow.push(h("span", {
+          key: "leader",
+          className: "ds-chip ds-chip--sm ds-chip--accent",
+          title: `Same-side 10m 5/12 curl as ${p.leader_follow.leader}`
+        }, String(p.leader_follow.leader)));
+      }
     } else if (p.momentum_continuation === true && familyKey !== "confirm_stack_ema21") {
       chipRow.push(h("span", {
         key: "cont",
@@ -7730,6 +7777,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787316835438:995354474
+// cache-bust:1787359311051:291402363
 
-// cache-bust:1787316835438:995354474
+// cache-bust:1787359311051:291402363
