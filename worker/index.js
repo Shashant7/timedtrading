@@ -12346,13 +12346,23 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         trimmedPct: currentTrimPct,
         daCfg: tickerData?._env?._deepAuditConfig || {},
       });
-      if (openPosition?.__tradeRef && typeof openPosition.__tradeRef === "object"
-        && openPosition.tt_cloud_pivot_pending_5_12 != null) {
-        openPosition.__tradeRef.tt_cloud_pivot_pending_5_12 = openPosition.tt_cloud_pivot_pending_5_12;
+      if (openPosition?.__tradeRef && typeof openPosition.__tradeRef === "object") {
+        if (openPosition.tt_cloud_pivot_pending_5_12 != null) {
+          openPosition.__tradeRef.tt_cloud_pivot_pending_5_12 = openPosition.tt_cloud_pivot_pending_5_12;
+        }
+        if (openPosition.tt_cloud_pivot_ribbon) {
+          openPosition.__tradeRef.tt_cloud_pivot_ribbon = openPosition.tt_cloud_pivot_ribbon;
+        }
+        if (openPosition.tt_cloud_pivot_trail_px != null) {
+          openPosition.__tradeRef.tt_cloud_pivot_trail_px = openPosition.tt_cloud_pivot_trail_px;
+        }
       }
       if (_cpDec?.stage === "exit" || _cpDec?.stage === "trim" || _cpDec?.stage === "defend") {
         tickerData.__exit_reason = _cpDec.reason;
         tickerData.__exit_family = CLOUD_PIVOT_FAMILY;
+        if (_cpDec.metadata?.trail_px != null) {
+          tickerData.__suggested_sl = _cpDec.metadata.trail_px;
+        }
         return _cpDec.stage;
       }
     } catch (_) { /* never break manage path */ }
@@ -26887,6 +26897,9 @@ async function processTradeSimulation(
             }
             if (_cpEntry?.tt_cloud_pivot) tickerData.tt_cloud_pivot = true;
             if (_cpEntry?._cloud_pivot_detect) tickerData._cloud_pivot_detect = _cpEntry._cloud_pivot_detect;
+            if (_cpEntry?._cloud_magnet) tickerData._cloud_magnet = _cpEntry._cloud_magnet;
+            if (_cpEntry?._cloud_session_plan) tickerData._cloud_session_plan = _cpEntry._cloud_session_plan;
+            if (_cpEntry?._cloud_leader_follow) tickerData._cloud_leader_follow = _cpEntry._cloud_leader_follow;
             if (_cpEntry?._model_play && !tickerData.__model_play) {
               tickerData._model_play = _cpEntry._model_play;
             }
@@ -48186,6 +48199,9 @@ const TRADE_EXIT_REASON_DISPLAY_MAP = {
   tt_cloud_pivot_5_12_close_trim: "Cloud Pivot — 10-min candle lost the 5/12 ride; trimming to lock the move",
   tt_cloud_pivot_5_12_close_exit: "Cloud Pivot — 10-min candle closed through 5/12; exiting to avoid giveback",
   tt_cloud_pivot_34_50_mtf_exit: "Cloud Pivot — 10-min and 1H 34/50 bias both flipped against the position; exiting",
+  tt_cloud_pivot_magnet_tag_trim: "Cloud Pivot — price tagged the higher-timeframe cloud magnet; trimming into the attractor",
+  tt_cloud_pivot_magnet_tag_cover: "Cloud Pivot — price tagged the higher-timeframe cloud magnet; covering the remaining runner",
+  tt_cloud_pivot_ribbon_trail: "Cloud Pivot — ride still held; trailing the stop to the last held 5/12 then 34/50 ribbon",
   KANBAN_EXIT: "Engine exit lane triggered — model recommends closing the position",
 };
 
@@ -48671,6 +48687,9 @@ function createTradeClosedEmbed(
   exitReasonMap.tt_cloud_pivot_5_12_close_trim = "Cloud Pivot — 10-min candle lost the 5/12 ride; trimming to lock the move";
   exitReasonMap.tt_cloud_pivot_5_12_close_exit = "Cloud Pivot — 10-min candle closed through 5/12; exiting to avoid giveback";
   exitReasonMap.tt_cloud_pivot_34_50_mtf_exit = "Cloud Pivot — 10-min and 1H 34/50 bias both flipped against the position; exiting";
+  exitReasonMap.tt_cloud_pivot_magnet_tag_trim = "Cloud Pivot — price tagged the higher-timeframe cloud magnet; trimming into the attractor";
+  exitReasonMap.tt_cloud_pivot_magnet_tag_cover = "Cloud Pivot — price tagged the higher-timeframe cloud magnet; covering the remaining runner";
+  exitReasonMap.tt_cloud_pivot_ribbon_trail = "Cloud Pivot — ride still held; trailing the stop to the last held 5/12 then 34/50 ribbon";
   const rawReason = exitReason || "";
   // Fallback: strip 'ripster' / 'saty' indicator-author jargon entirely
   // (was previously rewritten as 'TT ' which still looked odd).
@@ -107818,6 +107837,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 const _cp = stampTtCloudPivotThinSlice(result, _daThin);
                 if (_cp?.tt_cloud_pivot) result.tt_cloud_pivot = true;
                 if (_cp?._cloud_pivot_detect) result._cloud_pivot_detect = _cp._cloud_pivot_detect;
+                if (_cp?._cloud_magnet) result._cloud_magnet = _cp._cloud_magnet;
+                if (_cp?._cloud_session_plan) result._cloud_session_plan = _cp._cloud_session_plan;
+                if (_cp?._cloud_leader_follow) result._cloud_leader_follow = _cp._cloud_leader_follow;
                 if (_cp?._sequence_queue_proposal) {
                   result._sequence_queue_proposal = _cp._sequence_queue_proposal;
                 }

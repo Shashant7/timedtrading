@@ -95,6 +95,9 @@ export function extractSliceFields(t = {}) {
       session: paperQ.session || null,
       trigger: paperQ.trigger || null,
     } : null,
+    cloud_magnet: t._cloud_magnet || t._cloud_pivot_detect?.cloud_magnet || paperQ?.cloud_magnet || null,
+    session_plan: t._cloud_session_plan || t._cloud_pivot_detect?.session_plan || paperQ?.session_plan || null,
+    leader_follow: t._cloud_leader_follow || t._cloud_pivot_detect?.leader_follow || null,
   };
 }
 
@@ -185,6 +188,9 @@ export function buildTodayPlaysQueue({
       business_character: slice.business_character,
       sequence_entry_ready: slice.sequence_entry_ready,
       sequence_posture: slice.sequence_posture,
+      cloud_magnet: slice.cloud_magnet,
+      session_plan: slice.session_plan,
+      leader_follow: slice.leader_follow,
       source: "options_all",
     });
   }
@@ -215,6 +221,9 @@ export function buildTodayPlaysQueue({
       business_character: slice.business_character,
       sequence_entry_ready: slice.sequence_entry_ready,
       sequence_posture: slice.sequence_posture,
+      cloud_magnet: slice.cloud_magnet,
+      session_plan: slice.session_plan,
+      leader_follow: slice.leader_follow,
       source: "ready_setups",
     });
   }
@@ -281,6 +290,9 @@ export function buildTodayPlaysQueue({
       sequence_posture: slice.sequence_posture,
       sequence_paper_queue: slice.sequence_paper_queue,
       session: slice.sequence_paper_queue?.session || s._cloud_pivot_detect?.session || null,
+      cloud_magnet: slice.cloud_magnet,
+      session_plan: slice.session_plan,
+      leader_follow: slice.leader_follow,
       source: "cloud_pivot_scan",
     });
   }

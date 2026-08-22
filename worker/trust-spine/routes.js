@@ -4,6 +4,7 @@ import { sendJSON } from "../api.js";
 import { resolveAutonomyConfig, evaluateRungGates } from "./autonomy-ladder.js";
 import { attachCalibratedEdge } from "./calibrated-edge.js";
 import { buildTodayPlaysQueue } from "./plays-today.js";
+import { annotateCloudPivotLeaderFollows } from "../foundation/tt-cloud-pivot.js";
 import { mergeWhyFeed, formatDecisionWhyRow } from "./why-feed.js";
 import { scoreEpochMetrics } from "./scorecard.js";
 import { loadFamilyAttribution } from "./family-attribution.js";
@@ -39,6 +40,7 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
       const entries = Array.isArray(map)
         ? map.map((t) => ({ sym: String(t?.ticker || "").toUpperCase(), t }))
         : Object.entries(map).map(([sym, t]) => ({ sym: String(sym).toUpperCase(), t }));
+      try { annotateCloudPivotLeaderFollows(entries); } catch { /* */ }
       for (const { sym, t } of entries) {
         if (!sym || !t || typeof t !== "object") continue;
         const stage = String(t?.kanban_stage || "").toLowerCase();
