@@ -128,6 +128,7 @@ describe("plays-today", () => {
     expect(q.slices.tt_cloud_pivot.plays[0].ticker).toBe("AMD");
     expect(q.slices.tt_cloud_pivot.plays[0].cloud_magnet?.px).toBe(142.5);
     expect(q.slices.tt_cloud_pivot.plays[0].session_plan?.long_over).toBe(138.2);
+    expect(q.desk?.watching?.some((w) => w.ticker === "AMD")).toBe(true);
     expect(q.slices.momentum_continuation.count).toBe(0);
     expect(q.slice.plays.some((p) => p.slice_family === "tt_cloud_pivot")).toBe(true);
   });

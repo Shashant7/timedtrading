@@ -60,6 +60,7 @@ should read. It tells you what to look at, in what order, and why.
 | Cron / deploy / "which worker runs X?" (post-decomposition) | [skills/worker-topology.md](skills/worker-topology.md) |
 | Add scripts/styles to a page, slow loads, caching, page-switch speed | [skills/frontend-performance.md](skills/frontend-performance.md) |
 | SuperTrend hold vs flip / flat ST retest / stretch-flip chase | [skills/supertrend-hold.md](skills/supertrend-hold.md) |
+| Watch the Cloud Pivot tape / "be the minions" | [skills/cloud-pivot-desk.md](skills/cloud-pivot-desk.md) |
 
 If the operation you need isn't here, search the skills folder for
 keywords first, then [tasks/lessons.md](tasks/lessons.md). If you still

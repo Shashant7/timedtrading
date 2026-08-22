@@ -7,6 +7,8 @@ import {
   evaluateTtCloudPivotExit,
   resolveCloudPivotSession,
   resolveCloudMagnet,
+  inspectTtCloudPivot,
+  buildCloudPivotDesk,
   buildCloudSessionPlan,
   annotateCloudPivotLeaderFollows,
   cloudPivotFollowersOf,
@@ -363,6 +365,7 @@ describe("tt_cloud_pivot", () => {
     expect(cloudPivotFollowersOf("BTCUSD")).toEqual(
       expect.arrayContaining(["SPY", "QQQ", "COIN", "MSTR"]),
     );
+    expect(cloudPivotFollowersOf("SPY")).not.toContain("BTCUSD");
     const curl = {
       ripster: {
         c5_12: {
@@ -393,5 +396,48 @@ describe("tt_cloud_pivot", () => {
     expect(d?.fires).toBe(true);
     expect(d.session).toBe("leader_curl");
     expect(d.reasons).toContain("leader_follow_btcusd");
+  });
+
+  it("inspects clouds on a weekend without requiring a session fire", () => {
+    const saturday = Date.parse("2026-08-22T16:00:00Z");
+    expect(resolveCloudPivotSession(saturday)).toBeNull();
+    const p = payload({
+      ts: saturday,
+      price: 100,
+      tt_cloud_pivot: true,
+      tf_tech: {
+        "10": payload().tf_tech["10"],
+        "1H": {
+          ripster: {
+            c34_50: { bull: true, above: false, lo: 102, hi: 104, fastSlope: 0.1 },
+          },
+        },
+      },
+    });
+    expect(detectTtCloudPivot(p, {}, { asOfTs: saturday })).toBeNull();
+    const insp = inspectTtCloudPivot(p);
+    expect(insp?.curl?.direction).toBe("LONG");
+    expect(insp.magnet?.px).toBe(102);
+    const desk = buildCloudPivotDesk([{ sym: "NVDA", t: p }], { asOfTs: saturday });
+    expect(desk.watching[0].ticker).toBe("NVDA");
+    expect(desk.watching[0].role).toBe("fire");
+    expect(desk.watching[0].why).toContain("fires");
+  });
+
+  it("ranks a BTC leader curl onto COIN on the desk", () => {
+    const curl = {
+      ripster: {
+        c5_12: {
+          bull: true, inCloud: true, crossUp: true, crossDn: false, fastSlope: 0.3,
+        },
+        c34_50: { bull: true, above: true, lo: 90, hi: 92 },
+      },
+    };
+    const desk = buildCloudPivotDesk([
+      { sym: "BTCUSD", t: { price: 100000, tf_tech: { "10": curl, "1H": { ripster: { c34_50: { bull: true, lo: 101000, hi: 102000 } } } } } },
+      { sym: "COIN", t: { price: 280, tf_tech: { "10": curl, "1H": { ripster: { c34_50: { bull: true, lo: 290, hi: 300 } } } } } },
+    ], { skipDetect: true, minScore: 20 });
+    expect(desk.leaders.map((x) => x.ticker)).toEqual(expect.arrayContaining(["BTCUSD", "COIN"]));
+    expect(desk.watching.find((x) => x.ticker === "COIN")?.leader_follow?.leader).toBe("BTCUSD");
   });
 });

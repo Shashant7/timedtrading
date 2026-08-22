@@ -389,9 +389,6 @@ export function cloudPivotFollowersOf(leaderSym) {
         for (const p of meta.peers) if (p) out.add(String(p).toUpperCase());
       }
     }
-    if (Array.isArray(meta?.leads) && meta.leads.some((x) => String(x).toUpperCase() === L)) {
-      out.add(S);
-    }
   }
   out.delete(L);
   return [...out];
@@ -867,4 +864,161 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
   }
 
   return null;
+}
+
+/**
+ * Session-free tape read. Ripster's minions still stare on nights/weekends;
+ * detectTtCloudPivot stays gated to RTH windows for paper entries.
+ */
+export function inspectTtCloudPivot(payload = {}) {
+  if (!payload || typeof payload !== "object") return null;
+  const px = cloudPivotMarkPx(payload);
+  const curl = detectTenMinCurl(payload);
+  const rt10 = tfRipster(payload, "10");
+  const rt1h = tfRipsterAny(payload, ["1H", "60"]);
+  if (!rt10?.c5_12 && !rt1h?.c34_50) return null;
+  const bias10 = cloudSide(rt10?.c34_50);
+  const bias1h = cloudSide(rt1h?.c34_50);
+  const direction = curl?.direction || bias1h || bias10 || null;
+  const magnet = resolveCloudMagnet(payload, direction, px);
+  const plan = buildCloudSessionPlan(payload, direction);
+  const atr = cloudPivotAtr(payload);
+  let distPct = null;
+  if (px != null && magnet?.px != null && px > 0) {
+    distPct = (Math.abs(px - magnet.px) / px) * 100;
+  }
+  const approaching = distPct != null && distPct <= 0.40;
+  const mixed = !!(curl?.direction && bias10 && bias10 !== curl.direction);
+  return {
+    px,
+    atr,
+    direction,
+    curl,
+    bias10,
+    bias1h,
+    mixed,
+    magnet,
+    dist_pct: distPct,
+    approaching,
+    tagged: px != null && cloudMagnetTagged(px, magnet, atr),
+    session_plan: plan,
+    day2: isDay2CurlEligible(payload),
+    catalyst: hasLiveCatalyst(payload),
+    one_h_sloping_against: cloudSlopingAgainst(rt1h?.c34_50, direction),
+    leader: payload._cloud_leader || null,
+    leader_follow: payload._cloud_leader_follow || null,
+  };
+}
+
+export function rankCloudPivotDeskRow(ticker, payload = {}, opts = {}) {
+  const insp = inspectTtCloudPivot(payload);
+  const det = opts.skipDetect ? null : detectTtCloudPivot(payload, opts.daCfg || {}, opts);
+  const fires = !!(det?.fires || payload.tt_cloud_pivot === true
+    || payload._cloud_pivot_detect?.fires === true);
+  if (!insp) {
+    if (!fires) return null;
+    return {
+      ticker: String(ticker || payload.ticker || "").toUpperCase(),
+      role: "fire",
+      score: 100,
+      direction: det?.direction || payload._cloud_pivot_detect?.direction || null,
+      why: ["fires"],
+      fires: true,
+      session: det?.session || payload._cloud_pivot_detect?.session || null,
+      px: cloudPivotMarkPx(payload),
+      curl: null,
+      bias10: null,
+      bias1h: null,
+      mixed: false,
+      magnet: payload._cloud_magnet || null,
+      dist_pct: null,
+      approaching: false,
+      session_plan: payload._cloud_session_plan || null,
+      day2: false,
+      leader: payload._cloud_leader || null,
+      leader_follow: payload._cloud_leader_follow || null,
+    };
+  }
+  let score = 0;
+  const why = [];
+  if (fires) { score += 100; why.push("fires"); }
+  if (insp.curl) { score += 20; why.push(insp.curl.trigger); }
+  if (insp.magnet?.ahead) { score += 20; why.push(`magnet_${insp.magnet.label}`); }
+  if (insp.tagged) { score += 18; why.push("magnet_tag"); }
+  else if (insp.approaching) { score += 25; why.push("magnet_close"); }
+  else if (insp.dist_pct != null && insp.dist_pct <= 1.0) { score += 12; why.push("magnet_near"); }
+  if (insp.mixed && insp.magnet?.ahead) { score += 15; why.push("mixed_cloud"); }
+  if (insp.day2) { score += 20; why.push("day2"); }
+  if (insp.leader) { score += 25; why.push(`leader_${insp.leader.symbol || ticker}`); }
+  if (insp.leader_follow) { score += 20; why.push(`follow_${insp.leader_follow.leader}`); }
+  if (insp.session_plan) { score += 10; why.push("ifthen"); }
+  if (insp.curl && insp.bias1h && insp.curl.direction === insp.bias1h) {
+    score += 8;
+    why.push("1h_aligned");
+  }
+  if (insp.one_h_sloping_against && !insp.magnet?.ahead) {
+    score -= 40;
+    why.push("1h_against_no_magnet");
+  }
+
+  let role = "watch";
+  if (fires) role = "fire";
+  else if (insp.leader) role = "leader";
+  else if (insp.leader_follow && insp.curl) role = "follow";
+  else if (insp.session_plan && (insp.curl || insp.approaching)) role = "catalyst";
+  else if (score >= 40) role = "stalk";
+
+  return {
+    ticker: String(ticker || payload.ticker || "").toUpperCase(),
+    role,
+    score,
+    direction: det?.direction || insp.direction || null,
+    why,
+    fires,
+    session: det?.session || null,
+    px: insp.px,
+    curl: insp.curl,
+    bias10: insp.bias10,
+    bias1h: insp.bias1h,
+    mixed: insp.mixed,
+    magnet: insp.magnet,
+    dist_pct: insp.dist_pct,
+    approaching: insp.approaching,
+    session_plan: insp.session_plan,
+    day2: insp.day2,
+    leader: insp.leader,
+    leader_follow: insp.leader_follow,
+  };
+}
+
+/**
+ * Book-wide Cloud Pivot desk — the super-minion pass.
+ * Annotates leader/follower curls, then ranks fire / stalk / leader / if-then.
+ */
+export function buildCloudPivotDesk(rows = [], opts = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+  try { annotateCloudPivotLeaderFollows(list); } catch { /* */ }
+  const minScore = Number.isFinite(Number(opts.minScore)) ? Number(opts.minScore) : 30;
+  const limit = Math.min(Math.max(Number(opts.limit) || 24, 1), 80);
+  const items = [];
+  for (const row of list) {
+    const sym = String(row?.sym || row?.ticker || row?.t?.ticker || "").toUpperCase();
+    const t = row?.t && typeof row.t === "object" ? row.t : row;
+    if (!sym || !t || typeof t !== "object") continue;
+    const ranked = rankCloudPivotDeskRow(sym, t, opts);
+    if (!ranked || ranked.score < minScore) continue;
+    items.push(ranked);
+  }
+  items.sort((a, b) => (b.score - a.score) || a.ticker.localeCompare(b.ticker));
+  const watching = items.slice(0, limit);
+  return {
+    generated_at: Date.now(),
+    scanned: list.length,
+    count: watching.length,
+    watching,
+    fires: watching.filter((x) => x.role === "fire"),
+    leaders: watching.filter((x) => x.role === "leader" || x.role === "follow" || x.leader || x.leader_follow),
+    catalysts: watching.filter((x) => x.role === "catalyst" || x.session_plan),
+    stalks: watching.filter((x) => x.role === "stalk"),
+  };
 }

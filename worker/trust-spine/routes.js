@@ -31,6 +31,7 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
     let confirmStackTickers = [];
     let cloudPivotTickers = [];
     let continuationTickers = [];
+    let cloudDeskRows = [];
     try {
       const all = await kvGetJSON(KV, "timed:all:snapshot")
         || await kvGetJSON(KV, "timed:all:micro")
@@ -41,6 +42,7 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
         ? map.map((t) => ({ sym: String(t?.ticker || "").toUpperCase(), t }))
         : Object.entries(map).map(([sym, t]) => ({ sym: String(sym).toUpperCase(), t }));
       try { annotateCloudPivotLeaderFollows(entries); } catch { /* */ }
+      cloudDeskRows = entries;
       for (const { sym, t } of entries) {
         if (!sym || !t || typeof t !== "object") continue;
         const stage = String(t?.kanban_stage || "").toLowerCase();
@@ -87,8 +89,14 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
       confirmStackTickers,
       cloudPivotTickers,
       continuationTickers,
+      cloudDeskRows,
       limit,
     });
+    try {
+      if (KV && queue?.desk) {
+        await KV.put("timed:cloud-pivot:desk", JSON.stringify(queue.desk), { expirationTtl: 6 * 3600 });
+      }
+    } catch { /* */ }
     return sendJSON({ ok: true, ...queue }, 200, corsHeaders(env, req));
   }
 
