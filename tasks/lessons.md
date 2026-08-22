@@ -6,6 +6,18 @@
 
 ---
 
+## Super minions watch the Cloud Pivot desk, not one chart [2026-08-22]
+
+**Symptom:** Ripster (or that desk) stares at many tapes. TT only fired
+`tt_cloud_pivot` inside RTH session windows, so Saturday/Sunday and
+"just watching" names went dark.
+
+**Fix:** `inspectTtCloudPivot` + `buildCloudPivotDesk` rank fire / stalk /
+leader / day2 / if-then across the scored book with no session gate.
+`GET /timed/plays/today` returns `desk.watching`. Agents run
+`node scripts/scan-cloud-pivot-desk.mjs`. Do not port the 3m kitchen sink.
+Skill: `skills/cloud-pivot-desk.md`.
+
 ## Cloud Pivot ships magnet / if-then / mixed-cloud — not the 3m tape [2026-08-21]
 
 **Symptom:** Ripster/Tenet tapes (BTC 10m curl, T mixed-cloud, QQQ MTF

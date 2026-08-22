@@ -1,0 +1,1975 @@
+{
+  "generated_at": 1787374427053,
+  "scanned": 257,
+  "count": 20,
+  "watching": [
+    {
+      "ticker": "BTCUSD",
+      "role": "fire",
+      "score": 212,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "leader_BTCUSD",
+        "follow_ETHUSD"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 62910.629,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "SHORT",
+      "mixed": true,
+      "magnet": {
+        "px": 63474.96161251441,
+        "lo": 63474.96161251441,
+        "hi": 63569.234463188695,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.8970385791475849,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": {
+        "role": "leader",
+        "symbol": "BTCUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      },
+      "leader_follow": {
+        "leader": "ETHUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      }
+    },
+    {
+      "ticker": "ETHUSD",
+      "role": "fire",
+      "score": 197,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "leader_ETHUSD",
+        "follow_BTCUSD"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 1872,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "SHORT",
+      "mixed": false,
+      "magnet": {
+        "px": 1885.1252501708855,
+        "lo": 1885.1252501708855,
+        "hi": 1886.224437145177,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.7011351587011466,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": {
+        "role": "leader",
+        "symbol": "ETHUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      },
+      "leader_follow": {
+        "leader": "BTCUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      }
+    },
+    {
+      "ticker": "COIN",
+      "role": "fire",
+      "score": 193,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_4H_72_89",
+        "magnet_close",
+        "follow_BTCUSD",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 153.9,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": false,
+      "magnet": {
+        "px": 154.13524688599315,
+        "lo": 154.13524688599315,
+        "hi": 155.59482056065534,
+        "tf": "4H",
+        "band": "72_89",
+        "label": "4H_72_89",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.15285697595396305,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": {
+        "leader": "BTCUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "role": "fire",
+      "score": 192,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_curl_reject",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "leader_QQQ"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 732.07,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 727.8412964987174,
+        "lo": 725.9405692500611,
+        "hi": 727.8412964987174,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.5776364966851075,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": {
+        "role": "leader",
+        "symbol": "QQQ",
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject"
+      },
+      "leader_follow": null
+    },
+    {
+      "ticker": "APLD",
+      "role": "fire",
+      "score": 188,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 30.62,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 30.70258201103219,
+        "lo": 30.511506723406697,
+        "hi": 30.70258201103219,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": true
+      },
+      "dist_pct": 0.26969957881185713,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "FN",
+      "role": "fire",
+      "score": 188,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_cross_up",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 566.49,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_cross_up",
+        "cross": true,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 568.3431524922747,
+        "lo": 562.6750974554047,
+        "hi": 568.3431524922747,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": true
+      },
+      "dist_pct": 0.3271288976459808,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "GOLD",
+      "role": "fire",
+      "score": 188,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 43.81,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 43.91170778556039,
+        "lo": 43.78271727342233,
+        "hi": 43.91170778556039,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": true
+      },
+      "dist_pct": 0.23215655229487753,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "XOM",
+      "role": "fire",
+      "score": 188,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_cross_up",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 158.61,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_cross_up",
+        "cross": true,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 158.89713480448503,
+        "lo": 158.56767243513312,
+        "hi": 158.89713480448503,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": true
+      },
+      "dist_pct": 0.1810319680253583,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "AAPL",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_cross_dn",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 305.26,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_cross_dn",
+        "cross": true,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 304.7238934562423,
+        "lo": 304.06342017674183,
+        "hi": 304.7238934562423,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.17562292595088863,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "BG",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_curl_reject",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 112.73,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 112.44801755072783,
+        "lo": 112.03778868958875,
+        "hi": 112.44801755072783,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.2501396693623506,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "CF",
+      "role": "fire",
+      "score": 180,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 117.05,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "SHORT",
+      "mixed": true,
+      "magnet": {
+        "px": 117.4545504892534,
+        "lo": 117.4545504892534,
+        "hi": 117.52489380872791,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.3456219472476803,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "GRNY",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_cross_dn",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 28.21,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_cross_dn",
+        "cross": true,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 28.11111043651584,
+        "lo": 28.061922631738977,
+        "hi": 28.11111043651584,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.3505479031696577,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "IONQ",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_curl_reject",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 44.98,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 44.84420909964649,
+        "lo": 44.36906505325724,
+        "hi": 44.84420909964649,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.30189173044354295,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "IWM",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_curl_reject",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 303.5,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 302.6702908448012,
+        "lo": 302.23456898384535,
+        "hi": 302.6702908448012,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.2733802817788558,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "RPG",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_curl_reject",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 59.81,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 59.5780659230379,
+        "lo": 59.354193305128746,
+        "hi": 59.5780659230379,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.38778478007374184,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "AMD",
+      "role": "fire",
+      "score": 175,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 483.01,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 485.34837373679596,
+        "lo": 485.34837373679596,
+        "hi": 486.50805895407,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.48412532593444696,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "KLAC",
+      "role": "fire",
+      "score": 175,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_4H_72_89",
+        "magnet_near",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 209.37,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 210.82922946485093,
+        "lo": 210.82922946485093,
+        "hi": 225.5327830948002,
+        "tf": "4H",
+        "band": "72_89",
+        "label": "4H_72_89",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.6969620599182886,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "MCD",
+      "role": "fire",
+      "score": 175,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 272.25,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 273.4776035095666,
+        "lo": 273.4776035095666,
+        "hi": 273.49666538499645,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.4509103800061047,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "RKLB",
+      "role": "fire",
+      "score": 175,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 80.1,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 80.4502300903927,
+        "lo": 80.4502300903927,
+        "hi": 80.79220240485934,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.4372410616637945,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "UNG",
+      "role": "fire",
+      "score": 175,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 9.97,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 10.04569169292201,
+        "lo": 10.04569169292201,
+        "hi": 10.048790857992037,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.7591945127583611,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    }
+  ],
+  "fires": [
+    {
+      "ticker": "BTCUSD",
+      "role": "fire",
+      "score": 212,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "leader_BTCUSD",
+        "follow_ETHUSD"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 62910.629,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "SHORT",
+      "mixed": true,
+      "magnet": {
+        "px": 63474.96161251441,
+        "lo": 63474.96161251441,
+        "hi": 63569.234463188695,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.8970385791475849,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": {
+        "role": "leader",
+        "symbol": "BTCUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      },
+      "leader_follow": {
+        "leader": "ETHUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      }
+    },
+    {
+      "ticker": "ETHUSD",
+      "role": "fire",
+      "score": 197,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "leader_ETHUSD",
+        "follow_BTCUSD"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 1872,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "SHORT",
+      "mixed": false,
+      "magnet": {
+        "px": 1885.1252501708855,
+        "lo": 1885.1252501708855,
+        "hi": 1886.224437145177,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.7011351587011466,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": {
+        "role": "leader",
+        "symbol": "ETHUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      },
+      "leader_follow": {
+        "leader": "BTCUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      }
+    },
+    {
+      "ticker": "COIN",
+      "role": "fire",
+      "score": 193,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_4H_72_89",
+        "magnet_close",
+        "follow_BTCUSD",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 153.9,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": false,
+      "magnet": {
+        "px": 154.13524688599315,
+        "lo": 154.13524688599315,
+        "hi": 155.59482056065534,
+        "tf": "4H",
+        "band": "72_89",
+        "label": "4H_72_89",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.15285697595396305,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": {
+        "leader": "BTCUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "role": "fire",
+      "score": 192,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_curl_reject",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "leader_QQQ"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 732.07,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 727.8412964987174,
+        "lo": 725.9405692500611,
+        "hi": 727.8412964987174,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.5776364966851075,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": {
+        "role": "leader",
+        "symbol": "QQQ",
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject"
+      },
+      "leader_follow": null
+    },
+    {
+      "ticker": "APLD",
+      "role": "fire",
+      "score": 188,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 30.62,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 30.70258201103219,
+        "lo": 30.511506723406697,
+        "hi": 30.70258201103219,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": true
+      },
+      "dist_pct": 0.26969957881185713,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "FN",
+      "role": "fire",
+      "score": 188,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_cross_up",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 566.49,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_cross_up",
+        "cross": true,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 568.3431524922747,
+        "lo": 562.6750974554047,
+        "hi": 568.3431524922747,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": true
+      },
+      "dist_pct": 0.3271288976459808,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "GOLD",
+      "role": "fire",
+      "score": 188,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 43.81,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 43.91170778556039,
+        "lo": 43.78271727342233,
+        "hi": 43.91170778556039,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": true
+      },
+      "dist_pct": 0.23215655229487753,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "XOM",
+      "role": "fire",
+      "score": 188,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_cross_up",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 158.61,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_cross_up",
+        "cross": true,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 158.89713480448503,
+        "lo": 158.56767243513312,
+        "hi": 158.89713480448503,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": true
+      },
+      "dist_pct": 0.1810319680253583,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "AAPL",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_cross_dn",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 305.26,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_cross_dn",
+        "cross": true,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 304.7238934562423,
+        "lo": 304.06342017674183,
+        "hi": 304.7238934562423,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.17562292595088863,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "BG",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_curl_reject",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 112.73,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 112.44801755072783,
+        "lo": 112.03778868958875,
+        "hi": 112.44801755072783,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.2501396693623506,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "CF",
+      "role": "fire",
+      "score": 180,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 117.05,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "SHORT",
+      "mixed": true,
+      "magnet": {
+        "px": 117.4545504892534,
+        "lo": 117.4545504892534,
+        "hi": 117.52489380872791,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.3456219472476803,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "GRNY",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_cross_dn",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 28.21,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_cross_dn",
+        "cross": true,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 28.11111043651584,
+        "lo": 28.061922631738977,
+        "hi": 28.11111043651584,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.3505479031696577,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "IONQ",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_curl_reject",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 44.98,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 44.84420909964649,
+        "lo": 44.36906505325724,
+        "hi": 44.84420909964649,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.30189173044354295,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "IWM",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_curl_reject",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 303.5,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 302.6702908448012,
+        "lo": 302.23456898384535,
+        "hi": 302.6702908448012,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.2733802817788558,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "RPG",
+      "role": "fire",
+      "score": 180,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_curl_reject",
+        "magnet_1H_34_50",
+        "magnet_close",
+        "mixed_cloud"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 59.81,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 59.5780659230379,
+        "lo": 59.354193305128746,
+        "hi": 59.5780659230379,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.38778478007374184,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "AMD",
+      "role": "fire",
+      "score": 175,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 483.01,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 485.34837373679596,
+        "lo": 485.34837373679596,
+        "hi": 486.50805895407,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.48412532593444696,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "KLAC",
+      "role": "fire",
+      "score": 175,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_4H_72_89",
+        "magnet_near",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 209.37,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 210.82922946485093,
+        "lo": 210.82922946485093,
+        "hi": 225.5327830948002,
+        "tf": "4H",
+        "band": "72_89",
+        "label": "4H_72_89",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.6969620599182886,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "MCD",
+      "role": "fire",
+      "score": 175,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 272.25,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 273.4776035095666,
+        "lo": 273.4776035095666,
+        "hi": 273.49666538499645,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.4509103800061047,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "RKLB",
+      "role": "fire",
+      "score": 175,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 80.1,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 80.4502300903927,
+        "lo": 80.4502300903927,
+        "hi": 80.79220240485934,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.4372410616637945,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    },
+    {
+      "ticker": "UNG",
+      "role": "fire",
+      "score": 175,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 9.97,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 10.04569169292201,
+        "lo": 10.04569169292201,
+        "hi": 10.048790857992037,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.7591945127583611,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": null
+    }
+  ],
+  "leaders": [
+    {
+      "ticker": "BTCUSD",
+      "role": "fire",
+      "score": 212,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "leader_BTCUSD",
+        "follow_ETHUSD"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 62910.629,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "SHORT",
+      "bias1h": "SHORT",
+      "mixed": true,
+      "magnet": {
+        "px": 63474.96161251441,
+        "lo": 63474.96161251441,
+        "hi": 63569.234463188695,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.8970385791475849,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": {
+        "role": "leader",
+        "symbol": "BTCUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      },
+      "leader_follow": {
+        "leader": "ETHUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      }
+    },
+    {
+      "ticker": "ETHUSD",
+      "role": "fire",
+      "score": 197,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "leader_ETHUSD",
+        "follow_BTCUSD"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 1872,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "SHORT",
+      "mixed": false,
+      "magnet": {
+        "px": 1885.1252501708855,
+        "lo": 1885.1252501708855,
+        "hi": 1886.224437145177,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.7011351587011466,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": {
+        "role": "leader",
+        "symbol": "ETHUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      },
+      "leader_follow": {
+        "leader": "BTCUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      }
+    },
+    {
+      "ticker": "COIN",
+      "role": "fire",
+      "score": 193,
+      "direction": "LONG",
+      "why": [
+        "fires",
+        "5_12_curl_bounce",
+        "magnet_4H_72_89",
+        "magnet_close",
+        "follow_BTCUSD",
+        "1h_aligned"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 153.9,
+      "curl": {
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": false,
+      "magnet": {
+        "px": 154.13524688599315,
+        "lo": 154.13524688599315,
+        "hi": 155.59482056065534,
+        "tf": "4H",
+        "band": "72_89",
+        "label": "4H_72_89",
+        "direction": "LONG",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.15285697595396305,
+      "approaching": true,
+      "session_plan": null,
+      "day2": false,
+      "leader": null,
+      "leader_follow": {
+        "leader": "BTCUSD",
+        "direction": "LONG",
+        "trigger": "5_12_curl_bounce"
+      }
+    },
+    {
+      "ticker": "QQQ",
+      "role": "fire",
+      "score": 192,
+      "direction": "SHORT",
+      "why": [
+        "fires",
+        "5_12_curl_reject",
+        "magnet_1H_34_50",
+        "magnet_near",
+        "mixed_cloud",
+        "leader_QQQ"
+      ],
+      "fires": true,
+      "session": null,
+      "px": 732.07,
+      "curl": {
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject",
+        "cross": false,
+        "ride": true
+      },
+      "bias10": "LONG",
+      "bias1h": "LONG",
+      "mixed": true,
+      "magnet": {
+        "px": 727.8412964987174,
+        "lo": 725.9405692500611,
+        "hi": 727.8412964987174,
+        "tf": "1H",
+        "band": "34_50",
+        "label": "1H_34_50",
+        "direction": "SHORT",
+        "ahead": true,
+        "in_cloud": false
+      },
+      "dist_pct": 0.5776364966851075,
+      "approaching": false,
+      "session_plan": null,
+      "day2": false,
+      "leader": {
+        "role": "leader",
+        "symbol": "QQQ",
+        "direction": "SHORT",
+        "trigger": "5_12_curl_reject"
+      },
+      "leader_follow": null
+    }
+  ],
+  "catalysts": [],
+  "stalks": []
+}

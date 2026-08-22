@@ -46,6 +46,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | Connect Cursor to X API for interactive post/search/debug (not worker ingest) | [x-mcp-cursor.md](x-mcp-cursor.md) |
 | **Delta One filtered stream DO — deploy, health, poll fallback, smoke test** | [x-wire-stream.md](x-wire-stream.md) |
 | **SuperTrend hold vs flip / flat ST retest / do not chase a stretch flip** | [supertrend-hold.md](supertrend-hold.md) |
+| **Cloud Pivot desk / "be the minions" / weekend 10m+1H stare** | [cloud-pivot-desk.md](cloud-pivot-desk.md) |
 
 ## When to ADD a new skill
 

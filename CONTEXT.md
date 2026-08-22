@@ -396,6 +396,9 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   Family attribution: `GET /timed/admin/trust-spine/family-attribution`.
   Confirm-stack thin slice: sequence `entry_ready` → paper Queued (0.1×);
   move-ending/conviction auto-promote only after family n≥30 + keep≥0.35.
+  Cloud Pivot desk (`buildCloudPivotDesk` / `scripts/scan-cloud-pivot-desk.mjs`)
+  is the super-minion pass: inspects 10m/1H magnets on nights and weekends
+  even when the RTH detector is dark. Skill: `skills/cloud-pivot-desk.md`.
   `tt_cloud_pivot` thin slice (not ripster_*): 10m 5/12 curl + 34/50 + 1H MTF,
   paper Queued 0.1×; exit when 10m candle loses 5/12. Magnet = next 1H/4H
   34/50 (then 72/89) — cover/trim on tag. Catalyst names get a one-card

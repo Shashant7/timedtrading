@@ -7,7 +7,7 @@
 // Experts (sequence, character, RIDE, conviction) are inputs/chips — not modes.
 
 import { hasMomentumContinuation } from "../foundation/continuation-paper-queue.js";
-import { hasTtCloudPivot } from "../foundation/tt-cloud-pivot.js";
+import { hasTtCloudPivot, buildCloudPivotDesk } from "../foundation/tt-cloud-pivot.js";
 
 const MODE_RANK = { RIDE: 0, READY: 1, DRIFT: 2, FADE: 3, WAIT: 4, UNKNOWN: 5 };
 const PLAY_LABELS = { shares: "Shares", letf: "Leveraged ETF", options: "Options" };
@@ -158,6 +158,7 @@ export function buildTodayPlaysQueue({
   confirmStackTickers = [],
   cloudPivotTickers = [],
   continuationTickers = [],
+  cloudDeskRows = null,
   limit = 20,
 } = {}) {
   const items = [];
@@ -362,10 +363,16 @@ export function buildTodayPlaysQueue({
   const contPlays = deduped.filter((p) => p.slice_family === CONTINUATION_FAMILY);
   const familyPlays = [...confirmPlays, ...cloudPlays, ...contPlays];
 
+  const desk = buildCloudPivotDesk(cloudDeskRows || cloudPivotTickers || [], {
+    limit: Math.min(limit + 4, 28),
+    minScore: 30,
+  });
+
   return {
     generated_at: Date.now(),
     count: deduped.length,
     plays: deduped,
+    desk,
     // Backward-compat: `slice` remains confirm-stack primary.
     slice: {
       family: CONFIRM_FAMILY,

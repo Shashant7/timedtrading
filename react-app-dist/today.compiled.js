@@ -963,7 +963,8 @@ function SetupFamiliesStrip({
           setSlice({
             ...(j.slice || {}),
             plays: familyPlays,
-            slices: j.slices || null
+            slices: j.slices || null,
+            desk: j.desk || null
           });
         } else setSlice({
           plays: []
@@ -1030,7 +1031,8 @@ function SetupFamiliesStrip({
     }, "Loading families…")));
   }
   const plays = Array.isArray(slice?.plays) ? slice.plays : [];
-  if (!plays.length) {
+  const deskWatch = Array.isArray(slice?.desk?.watching) ? slice.desk.watching : [];
+  if (!plays.length && !deskWatch.length) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__empty",
       style: {
@@ -1040,7 +1042,40 @@ function SetupFamiliesStrip({
   }
   const LaneCard = window.TTLaneCard;
   const VU = window.TimedVerdictUI;
-  return wrap(h(React.Fragment, null, head, h("div", {
+  const deskStrip = deskWatch.length ? h("div", {
+    key: "cloud-desk",
+    style: {
+      marginTop: 10
+    }
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "CLOUD DESK"), h("p", {
+    className: "tt-ready__sub",
+    style: {
+      marginBottom: 6
+    }
+  }, "Watching 10m 5/12, 1H magnets, day2, and BTC/ETH/SPY/QQQ leaders. Paper until a family fire."), h("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 6
+    }
+  }, deskWatch.slice(0, 16).map(w => {
+    const magPx = Number(w.magnet?.px);
+    const label = [w.ticker, w.role, w.direction, Number.isFinite(magPx) ? `→ $${magPx.toFixed(2)}` : null].filter(Boolean).join(" · ");
+    return h("button", {
+      key: w.ticker,
+      type: "button",
+      className: "ds-chip ds-chip--sm",
+      title: (w.why || []).join(", ") || "Cloud desk watch",
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        cursor: "pointer"
+      },
+      onClick: () => onSelectTicker && onSelectTicker(w.ticker, "SNAPSHOT")
+    }, label);
+  }))) : null;
+  return wrap(h(React.Fragment, null, head, deskStrip, plays.length ? h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
     role: "list",
     style: {
@@ -1240,7 +1275,7 @@ function SetupFamiliesStrip({
     }, h("div", null, sym), h("p", {
       className: "tt-strip-card__hint"
     }, hint));
-  }))));
+  })) : null));
 }
 function ConvexityPlaysStrip({
   onSelectTicker,
@@ -7777,6 +7812,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787359311051:291402363
+// cache-bust:1787374463737:143353135
 
-// cache-bust:1787359311051:291402363
+// cache-bust:1787374463737:143353135
