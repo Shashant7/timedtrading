@@ -99,6 +99,8 @@ describe("plays-today", () => {
         direction: "LONG",
         confluence_mode: "RIDE",
         tt_cloud_pivot: true,
+        _cloud_magnet: { px: 142.5, label: "1H_34_50", ahead: true },
+        _cloud_session_plan: { bias: "LONG", long_over: 138.2, catalyst: "earnings", dte: 1 },
         _sequence_queue_proposal: {
           family: "tt_cloud_pivot",
           paper: true,
@@ -124,6 +126,8 @@ describe("plays-today", () => {
     });
     expect(q.slices.tt_cloud_pivot.count).toBe(1);
     expect(q.slices.tt_cloud_pivot.plays[0].ticker).toBe("AMD");
+    expect(q.slices.tt_cloud_pivot.plays[0].cloud_magnet?.px).toBe(142.5);
+    expect(q.slices.tt_cloud_pivot.plays[0].session_plan?.long_over).toBe(138.2);
     expect(q.slices.momentum_continuation.count).toBe(0);
     expect(q.slice.plays.some((p) => p.slice_family === "tt_cloud_pivot")).toBe(true);
   });

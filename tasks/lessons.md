@@ -6,6 +6,26 @@
 
 ---
 
+## Cloud Pivot ships magnet / if-then / mixed-cloud — not the 3m tape [2026-08-21]
+
+**Symptom:** Ripster/Tenet tapes (BTC 10m curl, T mixed-cloud, QQQ MTF
+short, BABA day2, leader/follower) were stronger than the first
+`tt_cloud_pivot` slice, which required aligned 10m+1H 34/50 and had no
+attractor or session card. An ETH 3-minute TD9/fib/bear-div dump was
+sent by accident.
+
+**Fix:** stay on `tt_cloud_pivot` (do not rename UI "Ripster", do not
+flip `ENTRY_ENGINE`). Stamp `_cloud_magnet` (next 1H/4H 34/50 then
+72/89) and cover/trim on tag. Catalyst names only get `{bias, support,
+resistance, long_over, short_under}`. Allow 10m 5/12 against 10m 34/50
+when the 1H magnet is ahead; veto only if 1H slopes against and nothing
+is left to tag. Open window still needs a real 5/12 cross. After MFE,
+trail to the last held 5/12 then 34/50; keep the hard 5/12-loss exit.
+Day2/3 (earnings/guidance ≤2 sessions, 1H 34/50 holds) stays eligible;
+BTC/ETH/SPY/QQQ 10m curls fan `TICKER_PROXY_MAP` followers. Ignore the
+ETH 3-minute kitchen sink. Stay paper 0.1× until family attribution
+says magnet cover keeps MFE.
+
 ## Catch-up flattened PLTR by replaying model shares [2026-08-21]
 
 **Symptom:** Mirror sync email at 15:00 ET: PLTR `reducer discrepancy:

@@ -397,8 +397,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   Confirm-stack thin slice: sequence `entry_ready` → paper Queued (0.1×);
   move-ending/conviction auto-promote only after family n≥30 + keep≥0.35.
   `tt_cloud_pivot` thin slice (not ripster_*): 10m 5/12 curl + 34/50 + 1H MTF,
-  paper Queued 0.1×; exit when 10m candle loses 5/12. Priority:
-  confirm-stack > cloud pivot > momentum_continuation.
+  paper Queued 0.1×; exit when 10m candle loses 5/12. Magnet = next 1H/4H
+  34/50 (then 72/89) — cover/trim on tag. Catalyst names get a one-card
+  if/then (long over X). Mixed-cloud 5/12 vs 10m 34/50 is allowed when the
+  1H magnet is ahead; veto only if 1H slopes against with no magnet left.
+  After MFE, trail to held 5/12 then 34/50. Day2/3 (earnings ≤2 sessions,
+  1H holds) and BTC/ETH/SPY/QQQ leader curls fan proxy followers. Do not
+  port the 3m kitchen sink. Priority: confirm-stack > cloud pivot >
+  momentum_continuation.
   Calibration trust loop: SI **Run Analysis** = trusted live scope
   `live-trades` (newest closed trades); autopsy PK is `scope::trade_id`.
   Reports stamp `data_quality` + provenance; SL/TP Apply blocked when

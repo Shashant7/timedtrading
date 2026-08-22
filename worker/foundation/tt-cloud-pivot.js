@@ -6,9 +6,19 @@
 //   10m 34/50 = bias / risk
 //   1H 34/50  = MTF magnet
 // Exit anti-giveback: 10m candle loses 5/12 → trim/exit.
+//
+// 2026-08-21 slices (not a 3m kitchen sink):
+//   A. Cloud magnet — next 1H/4H 34/50 (then 72/89) as cover/trim attractor
+//   B. Session if/then — catalyst names only: long-over / short-under gate
+//   C. Mixed-cloud curl — 10m 5/12 vs 10m 34/50 OK when 1H magnet is ahead
+//   D. Ribbon trail — after MFE, ratchet stop to held 5/12 then 34/50
+//   E. Day2/3 + leader curl — fresh earnings hold; BTC/ETH/SPY/QQQ fans followers
+
+import { TICKER_PROXY_MAP } from "../sector-mapping.js";
 
 export const CLOUD_PIVOT_FAMILY = "tt_cloud_pivot";
 export const CLOUD_PIVOT_PAPER_SIZE_MULT = 0.1;
+export const CLOUD_PIVOT_LEADERS = ["BTCUSD", "ETHUSD", "SPY", "QQQ"];
 
 /** Session windows (America/New_York minutes from midnight). */
 export const CLOUD_PIVOT_WINDOWS = {
@@ -16,6 +26,19 @@ export const CLOUD_PIVOT_WINDOWS = {
   ten_am: { startMin: 10 * 60 + 0, endMin: 10 * 60 + 45, label: "ten_am" },
   midday: { startMin: 10 * 60 + 45, endMin: 13 * 60 + 30, label: "midday_curl" },
 };
+
+const RTH_START_MIN = 9 * 60 + 30;
+const RTH_END_MIN = 16 * 60;
+const MAGNET_TF_KEYS = [
+  ["1H", "1H"],
+  ["60", "1H"],
+  ["4H", "4H"],
+  ["240", "4H"],
+];
+const MAGNET_BANDS = [
+  ["c34_50", "34_50"],
+  ["c72_89", "72_89"],
+];
 
 export function loadCloudPivotConfig(daCfg = {}) {
   const enabled = String(daCfg.deep_audit_tt_cloud_pivot_paper_queue_enabled ?? "true") === "true";
@@ -36,8 +59,31 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Reject null/"" so Number(null)===0 cannot look like a real price or DTE. */
+function finiteOrNull(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function firstFinite(...vals) {
+  for (const v of vals) {
+    const n = finiteOrNull(v);
+    if (n != null) return n;
+  }
+  return null;
+}
+
 function tfRipster(payload, key) {
   return payload?.tf_tech?.[key]?.ripster || null;
+}
+
+function tfRipsterAny(payload, keys) {
+  for (const k of keys) {
+    const rt = tfRipster(payload, k);
+    if (rt) return rt;
+  }
+  return null;
 }
 
 /** NY minutes from midnight for a ms timestamp. */
@@ -60,12 +106,15 @@ export function nyMinutesFromMidnight(ts = Date.now()) {
   return hour * 60 + minute;
 }
 
-export function resolveCloudPivotSession(ts = Date.now()) {
+export function resolveCloudPivotSession(ts = Date.now(), opts = {}) {
   const mins = nyMinutesFromMidnight(ts);
   if (mins == null) return null;
   for (const w of Object.values(CLOUD_PIVOT_WINDOWS)) {
     if (mins >= w.startMin && mins < w.endMin) return w.label;
   }
+  if (mins < RTH_START_MIN || mins >= RTH_END_MIN) return null;
+  if (opts.allowDay2) return "day2_curl";
+  if (opts.allowLeader) return "leader_curl";
   return null;
 }
 
@@ -74,6 +123,319 @@ function cloudSide(cloud) {
   if (cloud.bull === true || cloud.above === true) return "LONG";
   if (cloud.bear === true || cloud.below === true) return "SHORT";
   return null;
+}
+
+export function cloudPivotMarkPx(payload = {}, fallback = null) {
+  return firstFinite(
+    payload._live_price,
+    payload.price,
+    payload.close,
+    payload.p,
+    fallback,
+  );
+}
+
+function cloudPivotAtr(payload = {}) {
+  return firstFinite(
+    payload.atr,
+    payload.atr14,
+    payload.__atr,
+    payload.tf_tech?.["10"]?.atr,
+    payload.tf_tech?.D?.atr,
+  );
+}
+
+export function earningsSessionsAgo(payload = {}) {
+  return firstFinite(
+    payload.days_to_earnings,
+    payload.earnings_dte,
+    payload.earningsDte,
+    payload.daysToEarnings,
+  );
+}
+
+/** Upcoming (0..2) or just-reported (0..-2) catalyst window. */
+export function hasLiveCatalyst(payload = {}) {
+  const dte = earningsSessionsAgo(payload);
+  if (dte != null && dte <= 2 && dte >= -2) {
+    return { kind: "earnings", dte };
+  }
+  const ev = payload.event_risk || payload._event_risk || payload.event_risk_window;
+  if (ev === true) return { kind: "event_risk", dte: null };
+  if (ev && typeof ev === "object" && (ev.active || ev.armed || ev.window || ev.reason)) {
+    return { kind: "event_risk", dte: dte };
+  }
+  return null;
+}
+
+/** Post-print hold: earnings/guidance ≤2 sessions old and 1H 34/50 still a side. */
+export function isDay2CurlEligible(payload = {}) {
+  const dte = earningsSessionsAgo(payload);
+  if (dte == null || dte > 0 || dte < -2) return false;
+  const c1h = tfRipsterAny(payload, ["1H", "60"])?.c34_50;
+  return !!cloudSide(c1h);
+}
+
+function pickPivots(payload = {}) {
+  return payload.pivots
+    || payload.ticker_scenario?.pivots
+    || payload.scenario?.pivots
+    || payload.prediction_levels?.pivots
+    || payload.prediction_levels
+    || null;
+}
+
+/**
+ * Catalyst-only session card: bias / support / resistance / long_over / short_under.
+ * Soft gate — never shrinks the non-catalyst book.
+ */
+export function buildCloudSessionPlan(payload = {}, direction = null) {
+  const cat = hasLiveCatalyst(payload);
+  if (!cat) return null;
+  const c1h = tfRipsterAny(payload, ["1H", "60"])?.c34_50 || null;
+  const piv = pickPivots(payload);
+  const pmh = firstFinite(
+    payload.premarket_high,
+    payload.pm_high,
+    payload.premarketHigh,
+    payload.ah_high,
+    piv?.prevHigh,
+  );
+  const pdl = firstFinite(
+    payload.prev_day_low,
+    payload.pd_low,
+    payload.prev_low,
+    payload.prevLow,
+    piv?.prevLow,
+    payload.day_low,
+  );
+  const r1 = firstFinite(piv?.r1, piv?.R1, piv?.resistance, piv?.pivot_r1);
+  const s1 = firstFinite(piv?.s1, piv?.S1, piv?.support, piv?.pivot_s1);
+  const resistance = firstFinite(pmh, r1, c1h?.hi);
+  const support = firstFinite(pdl, s1, c1h?.lo);
+  // If/then gate is PMH/PDL + pivots. 1H cloud is the magnet, not a second
+  // hard gate — only fall back to the 1H edge when no session level exists
+  // and price is still on the wrong side of that edge.
+  const px = cloudPivotMarkPx(payload);
+  let longOver = firstFinite(pmh, r1);
+  if (longOver == null) {
+    const hi = finiteOrNull(c1h?.hi);
+    const lo = finiteOrNull(c1h?.lo);
+    // Only a breakout gate when price is still under the whole 1H band.
+    if (hi != null && px != null && lo != null && px < lo) longOver = hi;
+  }
+  let shortUnder = firstFinite(pdl, s1);
+  if (shortUnder == null) {
+    const lo = finiteOrNull(c1h?.lo);
+    const hi = finiteOrNull(c1h?.hi);
+    if (lo != null && px != null && hi != null && px > hi) shortUnder = lo;
+  }
+  const bias = direction || cloudSide(c1h) || null;
+  if (longOver == null && shortUnder == null && support == null && resistance == null) {
+    return null;
+  }
+  return {
+    bias,
+    support,
+    resistance,
+    long_over: longOver,
+    short_under: shortUnder,
+    catalyst: cat.kind,
+    dte: cat.dte,
+  };
+}
+
+export function sessionPlanAllows(plan, direction, price) {
+  if (!plan) return true;
+  const px = finiteOrNull(price);
+  const dir = String(direction || "").toUpperCase();
+  if (dir === "LONG") {
+    const gate = finiteOrNull(plan.long_over);
+    if (gate == null || px == null) return true;
+    return px >= gate * 0.999;
+  }
+  if (dir === "SHORT") {
+    const gate = finiteOrNull(plan.short_under);
+    if (gate == null || px == null) return true;
+    return px <= gate * 1.001;
+  }
+  return true;
+}
+
+function magnetTol(price, atr) {
+  const px = finiteOrNull(price);
+  if (px == null || px <= 0) return 0;
+  const atrN = finiteOrNull(atr);
+  return Math.max(px * 0.0015, atrN != null ? atrN * 0.1 : 0);
+}
+
+/**
+ * Next 1H then 4H 34/50 (then 72/89) band as attractor.
+ * LONG = first band above (near edge = lo); SHORT = first band below (near edge = hi).
+ * In-cloud: far edge (hi for long / lo for short) is the push-through.
+ */
+export function resolveCloudMagnet(payload = {}, direction = null, priceIn = null) {
+  const px = cloudPivotMarkPx(payload, priceIn);
+  if (px == null) return null;
+  const dir = String(direction || cloudSide(tfRipsterAny(payload, ["1H", "60"])?.c34_50) || "").toUpperCase();
+  if (dir !== "LONG" && dir !== "SHORT") return null;
+
+  const seen = new Set();
+  for (const [tfKey, tfLabel] of MAGNET_TF_KEYS) {
+    const rt = tfRipster(payload, tfKey);
+    if (!rt) continue;
+    for (const [bandKey, bandLabel] of MAGNET_BANDS) {
+      const stamp = `${tfLabel}_${bandLabel}`;
+      if (seen.has(stamp)) continue;
+      const cloud = rt[bandKey];
+      const lo = finiteOrNull(cloud?.lo);
+      const hi = finiteOrNull(cloud?.hi);
+      if (lo == null || hi == null || hi < lo) continue;
+      seen.add(stamp);
+
+      const inCloud = px >= lo && px <= hi;
+      const overhead = lo > px;
+      const under = hi < px;
+      let tagPx = null;
+      let ahead = false;
+      if (dir === "LONG") {
+        if (overhead) {
+          tagPx = lo;
+          ahead = true;
+        } else if (inCloud) {
+          tagPx = hi;
+          ahead = true;
+        }
+      } else if (under) {
+        tagPx = hi;
+        ahead = true;
+      } else if (inCloud) {
+        tagPx = lo;
+        ahead = true;
+      }
+      if (tagPx == null) continue;
+      return {
+        px: tagPx,
+        lo,
+        hi,
+        tf: tfLabel,
+        band: bandLabel,
+        label: stamp,
+        direction: dir,
+        ahead,
+        in_cloud: inCloud,
+      };
+    }
+  }
+  return null;
+}
+
+export function cloudMagnetTagged(price, magnet, atr) {
+  const px = finiteOrNull(price);
+  const mag = finiteOrNull(magnet?.px);
+  if (px == null || mag == null) return false;
+  return Math.abs(px - mag) <= magnetTol(px, atr);
+}
+
+function cloudSlopingAgainst(cloud, direction) {
+  if (!cloud || typeof cloud !== "object") return false;
+  const slope = firstFinite(cloud.fastSlope, cloud.slowSlope);
+  const dir = String(direction || "").toUpperCase();
+  if (dir === "LONG") {
+    return !!(cloud.bear || cloud.below) && slope != null && slope < 0;
+  }
+  if (dir === "SHORT") {
+    return !!(cloud.bull || cloud.above) && slope != null && slope > 0;
+  }
+  return false;
+}
+
+/** 10m 5/12 cross or curl ride — used by detect and leader fan-out. */
+export function detectTenMinCurl(payload = {}) {
+  const rt10 = tfRipster(payload, "10");
+  const c512 = rt10?.c5_12;
+  if (!c512) return null;
+  const crossUp = c512.crossUp === true;
+  const crossDn = c512.crossDn === true;
+  const bullRide = !!(c512.bull && (c512.above || c512.inCloud) && num(c512.fastSlope) >= 0);
+  const bearRide = !!(c512.bear && (c512.below || c512.inCloud) && num(c512.fastSlope) <= 0);
+  if (crossUp || bullRide) {
+    return { direction: "LONG", trigger: crossUp ? "5_12_cross_up" : "5_12_curl_bounce", cross: crossUp, ride: bullRide };
+  }
+  if (crossDn || bearRide) {
+    return { direction: "SHORT", trigger: crossDn ? "5_12_cross_dn" : "5_12_curl_reject", cross: crossDn, ride: bearRide };
+  }
+  return null;
+}
+
+export function cloudPivotFollowersOf(leaderSym) {
+  const L = String(leaderSym || "").toUpperCase();
+  if (!L) return [];
+  const out = new Set();
+  const map = TICKER_PROXY_MAP || {};
+  const self = map[L];
+  if (Array.isArray(self?.leads)) {
+    for (const f of self.leads) if (f) out.add(String(f).toUpperCase());
+  }
+  if (Array.isArray(self?.peers)) {
+    for (const p of self.peers) if (p) out.add(String(p).toUpperCase());
+  }
+  for (const [sym, meta] of Object.entries(map)) {
+    const S = String(sym).toUpperCase();
+    if (S === L) continue;
+    if (String(meta?.crypto_proxy || "").toUpperCase() === L) {
+      out.add(S);
+      if (Array.isArray(meta?.peers)) {
+        for (const p of meta.peers) if (p) out.add(String(p).toUpperCase());
+      }
+    }
+    if (Array.isArray(meta?.leads) && meta.leads.some((x) => String(x).toUpperCase() === L)) {
+      out.add(S);
+    }
+  }
+  out.delete(L);
+  return [...out];
+}
+
+/**
+ * Stamp `_cloud_leader_follow` on same-side follower curls when a leader prints 10m 5/12.
+ * `rows` is `[{ sym, t }]`. Mutates ticker objects in place.
+ */
+export function annotateCloudPivotLeaderFollows(rows = []) {
+  const bySym = new Map();
+  for (const row of rows || []) {
+    const sym = String(row?.sym || row?.ticker || row?.t?.ticker || "").toUpperCase();
+    const t = row?.t || row;
+    if (!sym || !t || typeof t !== "object") continue;
+    bySym.set(sym, t);
+  }
+  for (const leader of CLOUD_PIVOT_LEADERS) {
+    const leadTd = bySym.get(leader);
+    if (!leadTd) continue;
+    const leadCurl = detectTenMinCurl(leadTd);
+    if (!leadCurl?.direction) continue;
+    leadTd._cloud_leader = {
+      role: "leader",
+      symbol: leader,
+      direction: leadCurl.direction,
+      trigger: leadCurl.trigger,
+    };
+    for (const f of cloudPivotFollowersOf(leader)) {
+      const fol = bySym.get(f);
+      if (!fol) continue;
+      const folCurl = detectTenMinCurl(fol);
+      if (!folCurl || folCurl.direction !== leadCurl.direction) continue;
+      fol._cloud_leader_follow = {
+        leader,
+        direction: leadCurl.direction,
+        trigger: folCurl.trigger,
+      };
+    }
+  }
+}
+
+function curlSession(session) {
+  return session === "midday_curl" || session === "day2_curl" || session === "leader_curl";
 }
 
 /**
@@ -89,7 +451,12 @@ export function detectTtCloudPivot(payload = {}, daCfg = {}, opts = {}) {
   if (prior?.family === "confirm_stack_ema21" && prior?.paper) return null;
 
   const asOf = Number(opts.asOfTs || payload.ts || payload.ingest_ts || Date.now());
-  const session = resolveCloudPivotSession(asOf);
+  const day2Eligible = isDay2CurlEligible(payload);
+  const leaderFollow = payload._cloud_leader_follow || null;
+  const session = resolveCloudPivotSession(asOf, {
+    allowDay2: day2Eligible,
+    allowLeader: !!(leaderFollow?.direction),
+  });
   if (!session) return null;
 
   // Opening noise: skip pure momentum chase in first N minutes of RTH for open window.
@@ -99,7 +466,7 @@ export function detectTtCloudPivot(payload = {}, daCfg = {}, opts = {}) {
   }
 
   const rt10 = tfRipster(payload, "10");
-  const rt1H = tfRipster(payload, "1H") || tfRipster(payload, "60");
+  const rt1H = tfRipsterAny(payload, ["1H", "60"]);
   if (!rt10?.c5_12) return null;
 
   const c512 = rt10.c5_12;
@@ -111,19 +478,20 @@ export function detectTtCloudPivot(payload = {}, daCfg = {}, opts = {}) {
   const crossDn = c512.crossDn === true;
   const bullRide = !!(c512.bull && (c512.above || c512.inCloud) && num(c512.fastSlope) >= 0);
   const bearRide = !!(c512.bear && (c512.below || c512.inCloud) && num(c512.fastSlope) <= 0);
+  const allowCurlHold = curlSession(session);
 
   let direction = null;
   let trigger = null;
-  if (crossUp || (session === "midday_curl" && bullRide && (c512.inCloud || crossUp))) {
+  if (crossUp || (allowCurlHold && bullRide && (c512.inCloud || crossUp))) {
     direction = "LONG";
     trigger = crossUp ? "5_12_cross_up" : "5_12_curl_bounce";
-  } else if (crossDn || (session === "midday_curl" && bearRide && (c512.inCloud || crossDn))) {
+  } else if (crossDn || (allowCurlHold && bearRide && (c512.inCloud || crossDn))) {
     direction = "SHORT";
     trigger = crossDn ? "5_12_cross_dn" : "5_12_curl_reject";
-  } else if (session !== "midday_curl" && bullRide && (crossUp || c89?.crossUp || c89?.bull)) {
+  } else if (session !== "midday_curl" && session !== "day2_curl" && bullRide && (crossUp || c89?.crossUp || c89?.bull)) {
     direction = "LONG";
     trigger = "5_12_open_hold";
-  } else if (session !== "midday_curl" && bearRide && (crossDn || c89?.crossDn || c89?.bear)) {
+  } else if (session !== "midday_curl" && session !== "day2_curl" && bearRide && (crossDn || c89?.crossDn || c89?.bear)) {
     direction = "SHORT";
     trigger = "5_12_open_hold";
   }
@@ -132,14 +500,26 @@ export function detectTtCloudPivot(payload = {}, daCfg = {}, opts = {}) {
   // Open window: require an actual cross (avoid noise chase).
   if (session === "open" && !(crossUp || crossDn)) return null;
 
+  const px = cloudPivotMarkPx(payload);
+  const magnet = resolveCloudMagnet(payload, direction, px);
+  const plan = buildCloudSessionPlan(payload, direction);
+  if (plan && !sessionPlanAllows(plan, direction, px)) return null;
+
   const bias10 = cloudSide(c3450_10);
   const bias1h = cloudSide(c3450_1h);
-  // Midday curls may flip vs morning bias (Ripster short→long). Soft check:
-  // prefer aligned; allow opposed only on midday with a fresh cross.
   const opposed10 = bias10 && bias10 !== direction;
   const opposed1h = bias1h && bias1h !== direction;
-  if (session !== "midday_curl" && opposed10 && opposed1h) return null;
-  if (session === "midday_curl" && opposed10 && opposed1h && !(crossUp || crossDn)) return null;
+  const magnetAhead = magnet?.ahead === true;
+  const oneHSlopingAgainst = cloudSlopingAgainst(c3450_1h, direction);
+  // Mixed-cloud: 10m 5/12 against 10m 34/50 is OK when the 1H band is the magnet.
+  // Veto only when 1H is sloping against AND nothing overhead/under is left to tag.
+  if (oneHSlopingAgainst && !magnetAhead) return null;
+  if (session !== "midday_curl" && session !== "day2_curl" && opposed10 && opposed1h && !magnetAhead) {
+    return null;
+  }
+  if (session === "midday_curl" && opposed10 && opposed1h && !(crossUp || crossDn) && !magnetAhead) {
+    return null;
+  }
 
   const life = String(payload._model_lifecycle?.state || payload.model_lifecycle?.state || "").toLowerCase();
   if (["bought", "held", "trimming", "exited"].includes(life)) return null;
@@ -149,7 +529,13 @@ export function detectTtCloudPivot(payload = {}, daCfg = {}, opts = {}) {
   const reasons = [session, trigger];
   if (bias10) reasons.push(`10m_34_50_${bias10.toLowerCase()}`);
   if (bias1h) reasons.push(`1h_34_50_${bias1h.toLowerCase()}`);
-  if (opposed10 || opposed1h) reasons.push("mtf_soft_oppose_ok");
+  if (opposed10 && magnetAhead) reasons.push("mixed_cloud_curl");
+  else if (opposed10 || opposed1h) reasons.push("mtf_soft_oppose_ok");
+  if (magnetAhead && magnet?.label) reasons.push(`magnet_${magnet.label}`);
+  if (plan?.catalyst) reasons.push(`catalyst_${plan.catalyst}`);
+  if (leaderFollow?.leader && leaderFollow.direction === direction) {
+    reasons.push(`leader_follow_${String(leaderFollow.leader).toLowerCase()}`);
+  }
 
   return {
     fires: true,
@@ -158,6 +544,9 @@ export function detectTtCloudPivot(payload = {}, daCfg = {}, opts = {}) {
     session,
     trigger,
     reasons,
+    cloud_magnet: magnet,
+    session_plan: plan,
+    leader_follow: leaderFollow && leaderFollow.direction === direction ? leaderFollow : null,
     clouds: {
       c5_12: {
         bull: !!c512.bull,
@@ -181,6 +570,16 @@ export function hasTtCloudPivot(payload = {}, daCfg = {}) {
     || !!detectTtCloudPivot(payload, daCfg)?.fires;
 }
 
+function attachCloudContext(out, payload, det) {
+  const magnet = det?.cloud_magnet || resolveCloudMagnet(payload, det?.direction);
+  const plan = det?.session_plan || buildCloudSessionPlan(payload, det?.direction);
+  if (magnet) out._cloud_magnet = magnet;
+  if (plan) out._cloud_session_plan = plan;
+  if (det?.leader_follow) out._cloud_leader_follow = det.leader_follow;
+  if (payload?._cloud_leader) out._cloud_leader = payload._cloud_leader;
+  return out;
+}
+
 export function buildCloudPivotPaperQueueProposal(payload = {}, daCfg = {}) {
   const cfg = loadCloudPivotConfig(daCfg);
   if (!cfg.enabled) return null;
@@ -196,6 +595,8 @@ export function buildCloudPivotPaperQueueProposal(payload = {}, daCfg = {}) {
     session: det.session,
     trigger: det.trigger,
     tt_cloud_pivot: true,
+    cloud_magnet: det.cloud_magnet || null,
+    session_plan: det.session_plan || null,
     ts: Date.now(),
   };
 }
@@ -205,9 +606,9 @@ export function buildCloudPivotOptionsFirstPlay(payload = {}, daCfg = {}) {
   if (!enabled) return null;
   const det = detectTtCloudPivot(payload, daCfg);
   if (!det?.fires) return null;
-  // Intraday curls are natural options expressions when RIDE or midday.
+  // Intraday curls are natural options expressions when RIDE or midday/day2.
   const mode = String(payload.confluence_mode || payload._confluence?.mode || "").toUpperCase();
-  if (mode !== "RIDE" && det.session !== "midday_curl") return null;
+  if (mode !== "RIDE" && !curlSession(det.session)) return null;
   return {
     play_vehicle: "options",
     vehicle: "options",
@@ -230,7 +631,11 @@ export function stampTtCloudPivotThinSlice(payload, daCfg = {}) {
       daCfg,
     );
     if (!det?.fires) return payload;
-    return { ...payload, tt_cloud_pivot: true, _cloud_pivot_detect: det };
+    return attachCloudContext(
+      { ...payload, tt_cloud_pivot: true, _cloud_pivot_detect: det },
+      payload,
+      det,
+    );
   }
 
   const proposal = buildCloudPivotPaperQueueProposal(payload, daCfg);
@@ -238,7 +643,11 @@ export function stampTtCloudPivotThinSlice(payload, daCfg = {}) {
   if (!proposal && !play) {
     const det = detectTtCloudPivot(payload, daCfg);
     if (!det?.fires) return payload;
-    return { ...payload, tt_cloud_pivot: true, _cloud_pivot_detect: det };
+    return attachCloudContext(
+      { ...payload, tt_cloud_pivot: true, _cloud_pivot_detect: det },
+      payload,
+      det,
+    );
   }
 
   const out = { ...payload, tt_cloud_pivot: true };
@@ -253,8 +662,9 @@ export function stampTtCloudPivotThinSlice(payload, daCfg = {}) {
       out._model_play = { ...(existing || {}), ...play };
     }
   }
-  out._cloud_pivot_detect = detectTtCloudPivot(payload, daCfg);
-  return out;
+  const det = detectTtCloudPivot(payload, daCfg);
+  out._cloud_pivot_detect = det;
+  return attachCloudContext(out, payload, det);
 }
 
 export function cloudPivotPaperSizeMult(tickerData, daCfg = {}) {
@@ -286,8 +696,26 @@ export function isTtCloudPivotTrade(trade = {}, tickerData = null) {
   return path.includes("tt_cloud_pivot") || path.includes("cloud_pivot");
 }
 
+function isTighterStop(direction, nextPx, prevPx) {
+  const next = finiteOrNull(nextPx);
+  if (next == null) return false;
+  const prev = finiteOrNull(prevPx);
+  if (prev == null) return true;
+  return direction === "LONG" ? next > prev + 1e-9 : next < prev - 1e-9;
+}
+
+function persistRibbon(openPosition, tickerData, ribbon) {
+  if (openPosition && typeof openPosition === "object") {
+    openPosition.tt_cloud_pivot_ribbon = ribbon;
+    if (ribbon?.trail_px != null) openPosition.tt_cloud_pivot_trail_px = ribbon.trail_px;
+  }
+  if (tickerData && typeof tickerData === "object") {
+    tickerData.__tt_cloud_pivot_ribbon = ribbon;
+  }
+}
+
 /**
- * Family-specific exit — anti-giveback.
+ * Family-specific exit — anti-giveback + magnet cover + ribbon trail.
  * @returns {null|{ stage, reason, family, metadata }}
  */
 export function evaluateTtCloudPivotExit(ctx = {}) {
@@ -308,7 +736,7 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
   const direction = String(dirIn || openPosition?.direction || "LONG").toUpperCase() === "SHORT"
     ? "SHORT" : "LONG";
   const rt10 = tfRipster(tickerData, "10");
-  const rt1H = tfRipster(tickerData, "1H") || tfRipster(tickerData, "60");
+  const rt1H = tfRipsterAny(tickerData, ["1H", "60"]);
   const c512 = rt10?.c5_12;
   if (!c512) return null;
 
@@ -325,6 +753,16 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
   const age = Number(positionAgeMin) || 0;
   const pnl = Number(pnlPct) || 0;
   const trimmed = Number(trimmedPct) || 0;
+  const px = firstFinite(currentPrice, cloudPivotMarkPx(tickerData));
+  const atr = cloudPivotAtr(tickerData);
+  const mfe = Math.abs(firstFinite(
+    ctx.mfePct,
+    openPosition?.maxFavorableExcursion,
+    openPosition?.max_favorable_excursion,
+    openPosition?.mfePct,
+    openPosition?.__tradeRef?.maxFavorableExcursion,
+    tickerData?.__mfe_pct,
+  ) || 0);
 
   // Pending debounce on payload/position (scoring cycles ≈ bars).
   const prev = Math.max(
@@ -334,6 +772,28 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
   const pending = lose512 ? prev + 1 : 0;
   if (openPosition) openPosition.tt_cloud_pivot_pending_5_12 = pending;
   if (tickerData) tickerData.__tt_cloud_pivot_pending_5_12 = pending;
+
+  const magnet = tickerData?._cloud_magnet
+    || resolveCloudMagnet(tickerData, direction, px);
+  if (age >= 5 && px != null && cloudMagnetTagged(px, magnet, atr)) {
+    const meta = { direction, currentPrice: px, magnet, mfePct: mfe };
+    if (pnl > 0.2 && trimmed < 0.5) {
+      return {
+        stage: "trim",
+        reason: "tt_cloud_pivot_magnet_tag_trim",
+        family: CLOUD_PIVOT_FAMILY,
+        metadata: meta,
+      };
+    }
+    if (trimmed >= 0.5) {
+      return {
+        stage: "exit",
+        reason: "tt_cloud_pivot_magnet_tag_cover",
+        family: CLOUD_PIVOT_FAMILY,
+        metadata: meta,
+      };
+    }
+  }
 
   // Primary Ripster rule: lose 5/12 → get out (after brief confirm).
   if (age >= 10 && lose512) {
@@ -366,8 +826,44 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
       stage: "exit",
       reason: "tt_cloud_pivot_34_50_mtf_exit",
       family: CLOUD_PIVOT_FAMILY,
-      metadata: { direction, currentPrice },
+      metadata: { direction, currentPrice: px },
     };
+  }
+
+  // Ribbon trail: after MFE, ratchet stop to last held 5/12, then 34/50.
+  // Does not replace the hard 5/12-loss exit above.
+  if (age >= 10 && !lose512 && mfe >= 0.5 && px != null) {
+    const held512 = direction === "LONG"
+      ? finiteOrNull(c512.lo)
+      : finiteOrNull(c512.hi);
+    const held34 = direction === "LONG"
+      ? firstFinite(c34_10?.lo, c34_1h?.lo)
+      : firstFinite(c34_10?.hi, c34_1h?.hi);
+    const use34 = mfe >= 1.2 && held34 != null;
+    const trailPx = use34 ? held34 : held512;
+    const band = use34 ? "34_50" : "5_12";
+    const stillHeld = direction === "LONG"
+      ? (trailPx != null && px > trailPx)
+      : (trailPx != null && px < trailPx);
+    const prevRibbon = openPosition?.tt_cloud_pivot_ribbon
+      || tickerData?.__tt_cloud_pivot_ribbon
+      || null;
+    const prevTrail = firstFinite(
+      prevRibbon?.trail_px,
+      openPosition?.tt_cloud_pivot_trail_px,
+      openPosition?.sl,
+      openPosition?.stop_loss,
+    );
+    if (stillHeld && isTighterStop(direction, trailPx, prevTrail)) {
+      const ribbon = { band, trail_px: trailPx, mfePct: mfe, ts: Date.now() };
+      persistRibbon(openPosition, tickerData, ribbon);
+      return {
+        stage: "defend",
+        reason: "tt_cloud_pivot_ribbon_trail",
+        family: CLOUD_PIVOT_FAMILY,
+        metadata: { direction, trail_px: trailPx, band, mfePct: mfe },
+      };
+    }
   }
 
   return null;

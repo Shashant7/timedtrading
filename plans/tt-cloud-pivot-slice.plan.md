@@ -17,6 +17,9 @@ todos:
   - id: attrib
     content: 'Family attribution + tests; widen on MFE keep for holds <1 session.'
     status: completed
+  - id: magnet-ifthen-ribbon
+    content: 'Cloud magnet + catalyst if/then + mixed-cloud curl + ribbon trail + day2/leader (not 3m kitchen sink).'
+    status: completed
 isProject: true
 ---
 
@@ -40,6 +43,11 @@ TT family: **`tt_cloud_pivot`**.
 | Session window: open / 10am / midday | Timing |
 | Paper Queued 0.1× | No capital-scale yet |
 | Exit: 10m candle loses 5/12 | Anti-giveback |
+| 1H/4H 34/50 (then 72/89) magnet | Cover/trim when tagged |
+| Catalyst if/then (PMH/PDL + 1H + pivots) | Soft long-over / short-under gate |
+| Mixed-cloud 10m 5/12 vs 10m 34/50 | Allowed when 1H magnet is ahead |
+| Ribbon trail after MFE | Stop to last held 5/12, then 34/50 |
+| Day2/3 + BTC/ETH/SPY/QQQ leader curl | Keep eligible; fan same-side followers |
 
 ## Explicitly not
 
@@ -47,6 +55,9 @@ TT family: **`tt_cloud_pivot`**.
 - Flipping full `ENTRY_ENGINE` to `ripster_core`
 - Unlocking ATH Speculative capital matrix
 - Overnight swing management on this family
+- ETH/BTC 3-minute kitchen sink (TD9 + fib + bear-div + monthly 21)
+- 13F QoQ as a day-trade trigger
+- Chat-style alerts
 
 ## Done looks like
 
