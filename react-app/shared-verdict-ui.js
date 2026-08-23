@@ -1322,7 +1322,6 @@
             var lane = row.lane || tv.lane || "trader";
             var tRow = (tickerData && tickerData[sym]) || {};
             var price = row.price != null ? row.price : tv.price;
-            var rank = row.rank != null ? row.rank : tv.rank;
             var disp = row.display || resolveReadySetupCardDisplay(row, tRow);
             var railTab = "NOW";
             var confluence = Array.isArray(row.confluence) ? row.confluence : [];
@@ -1351,7 +1350,6 @@
             if (row.traderPrimed && row.traderZone) primaryZone = row.traderZone;
             else if (row.investorPrimed && row.investorZone) primaryZone = row.investorZone;
             else if (zones.length) primaryZone = zones[0];
-            var extLine = LaneCard && LaneCard.extLineFromTicker ? LaneCard.extLineFromTicker(tRow) : null;
             var sparkSvg = LaneCard && LaneCard.sparkSvgFromCache
               ? LaneCard.sparkSvgFromCache(sym, Number(price), dir, sparkCache, ensureSpark)
               : "";
@@ -1375,14 +1373,7 @@
               }, c.label));
             });
 
-            var metrics = LaneCard && LaneCard.rankScoreMetricChips
-              ? LaneCard.rankScoreMetricChips({
-                  rank: rank,
-                  score: Number.isFinite(Number(row.score)) ? Math.round(Number(row.score)) : null,
-                  rankTitle: rank != null ? ("Ready rank " + rank + " — model shortlist for capital") : null,
-                  scoreTitle: "Ready-setup confluence score",
-                })
-              : [];
+            var metrics = [];
 
             var midBody = primaryZone && LaneCard && LaneCard.zoneBarTrack
               ? LaneCard.zoneBarTrack(primaryZone, {
@@ -1421,7 +1412,7 @@
                     dayPct: dayPct,
                     dayChg: dayChg,
                     dir: dir,
-                    extLine: extLine,
+                    extLine: null,
                   },
                   sparkSvg: sparkSvg,
                   midBody: midBody,
