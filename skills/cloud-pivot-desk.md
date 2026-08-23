@@ -48,8 +48,9 @@ cd worker
 
 - Weekend: `inspectTtCloudPivot` returns magnet/curl while
   `detectTtCloudPivot` is null.
-- Today Families strip shows a CLOUD DESK chip row when `desk.watching`
-  is non-empty.
+- Today Families strip shows a CLOUD DESK horizontal card row
+  (`TTLaneCard` + punch/scan) when `desk.watching` is non-empty. FIRE is
+  a 10m print, not a sized ticket; leaders are BTCUSD/ETHUSD/SPY/QQQ.
 - Unit: `npx vitest run worker/foundation/tt-cloud-pivot.test.js`
 
 ## Source

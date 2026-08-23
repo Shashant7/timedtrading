@@ -535,6 +535,13 @@ scan / premium). Convexity lotto and moonshot cards use that same stack —
 chips for action / Call or Put / LOTTO or MOONSHOT / strike / expiry,
 then punchline and scan under the card. No emoji in labels.
 
+### Families / Cloud Desk strip cards
+
+Tracked structure families and the Cloud Desk watchlist use the same
+`TTLaneCard` + punch / scan stack. Cloud Desk is inspect-only (FIRE is a
+10m 5/12 print, not a sized ticket). Leaders are BTCUSD / ETHUSD / SPY /
+QQQ. Magnet chips are the cover. No wrap-of-pills desk row.
+
 ### Ticker Cards (CompactCard)
 
 The primary unit of the Active Trader view. Uses `card` tokens with an
