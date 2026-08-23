@@ -401,7 +401,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   historical replay. Observational clock scan:
   `scripts/program-timing-scan.mjs` (skill: `skills/program-timing.md`)
   slices fills by program × ET session/hour and crowns best MFE / least
-  MAE. Measure live 0.1× MFE keep, then widen.
+  MAE. Full-book pollution check: `scripts/program-book-autopsy.mjs` —
+  a canonical `entry_path` stays core even with a paper stamp (coincident);
+  standalone experiment fills are family stamps without a canonical path.
+  Measure live 0.1× MFE keep, then widen.
   Confirm-stack thin slice: sequence `entry_ready` → paper Queued (0.1×);
   move-ending/conviction auto-promote only after family n≥30 + keep≥0.35.
   Cloud Pivot desk (`buildCloudPivotDesk` / `scripts/scan-cloud-pivot-desk.mjs`)
