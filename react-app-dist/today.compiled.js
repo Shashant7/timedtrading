@@ -956,23 +956,126 @@ function planFactList(facts) {
     className: f.tone ? `tt-plan-facts__v--${f.tone}` : null
   }, f.value))));
 }
+function deskCoverProgressBar({
+  price,
+  lastPx,
+  nextPx
+}) {
+  const last = Number(lastPx);
+  const next = Number(nextPx);
+  const px = Number(price);
+  const vals = [last, px, next].filter(n => Number.isFinite(n) && n > 0);
+  if (vals.length < 2) return null;
+  const minPx = Math.min(...vals);
+  const maxPx = Math.max(...vals);
+  const span = maxPx - minPx || 1;
+  const pctOf = n => Math.max(0, Math.min(100, (n - minPx) / span * 100));
+  const lastOk = Number.isFinite(last) && last > 0;
+  const nextOk = Number.isFinite(next) && next > 0;
+  const liveOk = Number.isFinite(px) && px > 0;
+  const lastPct = lastOk ? pctOf(last) : null;
+  const nextPct = nextOk ? pctOf(next) : null;
+  const livePct = liveOk ? pctOf(px) : null;
+  const ticks = [];
+  if (lastOk) {
+    ticks.push({
+      pct: lastPct,
+      label: "LAST",
+      color: "var(--ds-text-muted, var(--tt-text-muted))",
+      px: last
+    });
+  }
+  if (nextOk) {
+    ticks.push({
+      pct: nextPct,
+      label: "COVER",
+      color: "var(--tt-success)",
+      px: next
+    });
+  }
+  if (liveOk && (lastPct == null || Math.abs(livePct - lastPct) >= 10) && (nextPct == null || Math.abs(livePct - nextPct) >= 10)) {
+    ticks.push({
+      pct: livePct,
+      label: "NOW",
+      color: "var(--ds-accent)",
+      px
+    });
+  }
+  ticks.sort((a, b) => a.pct - b.pct);
+  const pathLo = lastPct != null && nextPct != null ? Math.min(lastPct, nextPct) : null;
+  const pathHi = lastPct != null && nextPct != null ? Math.max(lastPct, nextPct) : null;
+  const fillLo = lastPct != null && livePct != null ? Math.min(lastPct, livePct) : null;
+  const fillW = lastPct != null && livePct != null ? Math.abs(livePct - lastPct) : 0;
+  const towardCover = lastOk && nextOk && liveOk ? next >= last ? px >= last && px <= next : px <= last && px >= next : true;
+  return h("div", {
+    className: "tt-zone-plan tt-zone-plan--compact tt-desk-progress"
+  }, h("div", {
+    className: "tt-lane-card__position tt-zone-plan__bar"
+  }, h("div", {
+    className: "tt-lane-card__pos-track"
+  }, pathLo != null && h("div", {
+    className: "tt-zone-plan__shade tt-zone-plan__shade--inv",
+    style: {
+      left: "0%",
+      width: `${pathLo}%`
+    }
+  }), pathLo != null && h("div", {
+    className: "tt-zone-plan__shade tt-zone-plan__shade--pb",
+    style: {
+      left: `${pathLo}%`,
+      width: `${Math.max(0, pathHi - pathLo)}%`
+    }
+  }), pathHi != null && h("div", {
+    className: "tt-zone-plan__shade tt-zone-plan__shade--tgt",
+    style: {
+      left: `${pathHi}%`,
+      width: `${Math.max(0, 100 - pathHi)}%`
+    }
+  }), fillW > 0.4 && h("div", {
+    className: "tt-zone-plan__fill",
+    style: {
+      left: `${fillLo}%`,
+      width: `${fillW}%`,
+      background: towardCover ? "var(--ds-up-bg)" : "var(--ds-dn-bg)"
+    }
+  }), ...ticks.map((tick, i) => h("div", {
+    key: "tick-" + i,
+    className: "tt-zone-plan__tick",
+    style: {
+      left: `${tick.pct}%`
+    },
+    title: `${tick.label} $${tick.px.toFixed(2)}`
+  }, h("div", {
+    className: "tt-zone-plan__tick-line",
+    style: {
+      background: tick.color
+    }
+  }))), liveOk && h("div", {
+    className: "tt-zone-plan__dot",
+    style: {
+      left: `${livePct}%`
+    },
+    title: `Live $${px.toFixed(2)}`
+  })), h("div", {
+    className: "tt-lane-card__pos-labels"
+  }, ...ticks.map((tick, i) => h("span", {
+    key: "lbl-" + i,
+    className: "tt-zone-plan__tick-label",
+    style: {
+      left: `${tick.pct}%`,
+      color: tick.color
+    },
+    title: `${tick.label} $${tick.px.toFixed(2)}`
+  }, tick.label)))));
+}
 function setupFamilyPlanCopy(p, liveT) {
   const ticker = String(p?.ticker || "").toUpperCase();
   const lifeState = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
   const modelEntry = tickerIsModelEntry(liveT, p);
   const action = modelEntry ? "ENTER" : lifeState === "trimming" ? "TRIM" : lifeState === "bought" || lifeState === "held" ? "HOLD" : "WAIT";
-  const actionTone = action === "ENTER" ? "enter" : action === "TRIM" ? "trim" : action === "WAIT" ? "wait" : null;
   const magPx = Number(p?.cloud_magnet?.px);
   const lifeLabel = p?.lifecycle?.label || (lifeState === "watching" || lifeState === "watch" ? "Watching" : lifeState === "queued" ? "Queued" : lifeState === "bought" ? "Bought" : lifeState === "held" ? "Held" : lifeState ? lifeState.replace(/_/g, " ") : null);
-  const playName = setupFamilyLabel(p);
   const facts = [{
-    label: "Call",
-    value: action,
-    tone: actionTone
-  }, {
-    label: "Play",
-    value: playName
-  }, {
     label: "Size",
     value: "Paper 0.1×"
   }, {
@@ -1122,20 +1225,9 @@ function cloudDeskPlanCopy(w, opts) {
     punch = `WAIT on ${ticker} — 10m Cloud Desk watch.`;
   }
   const facts = [{
-    label: "Call",
-    value: action,
-    tone: action === "BUY" ? "buy" : "wait"
-  }, {
-    label: "Side",
-    value: side || null
-  }, {
     label: "Cover",
     value: coverLine || null,
     tone: next ? null : relation === "behind" ? "behind" : null
-  }, {
-    label: "Last",
-    value: lastLine || null,
-    tone: "behind"
   }, {
     label: "Size",
     value: size
@@ -1294,19 +1386,13 @@ function SetupFamiliesStrip({
     const sym = String(w.ticker || "").toUpperCase();
     const liveT = data && data[sym] ? data[sym] : {};
     let livePrice = null;
-    let trackPrice = null;
     try {
       const hp = window.TimedPriceUtils?.getHeadlinePrice?.(liveT);
       if (Number.isFinite(Number(hp)) && Number(hp) > 0) livePrice = Number(hp);
     } catch (_) {}
-    try {
-      const tp = window.TimedPriceUtils?.getTrackPrice?.(liveT);
-      if (Number.isFinite(Number(tp)) && Number(tp) > 0) trackPrice = Number(tp);
-    } catch (_) {}
     if (livePrice == null && Number.isFinite(Number(w.px))) livePrice = Number(w.px);
     if (livePrice == null && Number.isFinite(Number(liveT?._live_price))) livePrice = Number(liveT._live_price);
     if (livePrice == null && Number.isFinite(Number(liveT?.price))) livePrice = Number(liveT.price);
-    if (trackPrice == null) trackPrice = livePrice;
     let dayPct = null;
     let dayChg = null;
     try {
@@ -1323,8 +1409,6 @@ function SetupFamiliesStrip({
     });
     const dir = String(w.direction || "").toUpperCase();
     const biasCls = dir === "SHORT" ? "ds-chip--dn" : dir === "LONG" ? "ds-chip--up" : "ds-chip--solid";
-    const plan = w.session_plan;
-    const gatePx = dir === "SHORT" ? Number(plan?.short_under) : Number(plan?.long_over);
     const nextPx = Number(copy.nextCover?.px);
     const lastPx = Number(copy.lastCover?.px);
     const chipRow = [];
@@ -1346,61 +1430,12 @@ function SetupFamiliesStrip({
         title: "10-minute Cloud Desk side — not the index options lean"
       }, dir));
     }
-    if (Number.isFinite(nextPx) && nextPx > 0) {
-      chipRow.push(h("span", {
-        key: "cover",
-        className: "ds-chip ds-chip--sm",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: copy.nextCover?.source === "rail" ? `Next cover from the ${copy.nextCover.label} — same Short Term / Long Term rail level.` : "Next 1H/4H cloud cover — trim when tagged. Not a breakout destination."
-      }, `cover $${nextPx.toFixed(2)}`));
-    }
-    if (Number.isFinite(lastPx) && lastPx > 0) {
-      chipRow.push(h("span", {
-        key: "last",
-        className: "ds-chip ds-chip--sm",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: "1H/4H cloud cover already behind the live print. Not where the tape is headed."
-      }, `last $${lastPx.toFixed(2)}`));
-    }
-    if (plan && Number.isFinite(gatePx) && gatePx > 0) {
-      chipRow.push(h("span", {
-        key: "ifthen",
-        className: "ds-chip ds-chip--sm ds-chip--solid",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: "Catalyst if/then gate — not a market order"
-      }, dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}`));
-    }
-    if (w.day2) {
-      chipRow.push(h("span", {
-        key: "day2",
-        className: "ds-chip ds-chip--sm ds-chip--accent",
-        title: "Day2/3 — keep watching while 1H holds"
-      }, "DAY2"));
-    }
-    if (copy.role === "fire") {
-      chipRow.push(h("span", {
-        key: "paper",
-        className: "ds-chip ds-chip--sm",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: copy.ticketNow ? "Paper 0.1× sim + broker ticket" : copy.role === "fire" ? "Desk pick — ticket waits for the regular session" : "Watch only"
-      }, "PAPER"));
-    }
-    const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
-    const rank = Number(liveT?.rank_position ?? liveT?.rank ?? w?.score) || null;
-    const score = Number(liveT?.score ?? w?.score) || null;
-    const metrics = LaneCard?.rankScoreMetricChips ? LaneCard.rankScoreMetricChips({
-      rank,
-      score
-    }) : [];
+    const midBody = deskCoverProgressBar({
+      price: livePrice,
+      lastPx,
+      nextPx
+    });
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
@@ -1430,11 +1465,11 @@ function SetupFamiliesStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine
+          extLine: null
         },
         sparkSvg,
-        midBody: null,
-        metrics
+        midBody,
+        metrics: []
       }), h("div", {
         className: "tt-strip-card__foot"
       }, footEls));
@@ -1483,24 +1518,19 @@ function SetupFamiliesStrip({
     } catch (_) {}
     const quoteDir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
     const modelDir = String(p.direction || "").toUpperCase() || window.TimedPriceUtils?.inferModelDirection?.(liveT) || "";
-    const lifeState = String(p.lifecycle?.state || p.mode || "").toLowerCase();
-    const lifeLabel = p.lifecycle?.label || (lifeState === "watching" || lifeState === "watch" ? "Watching" : lifeState === "queued" ? "Queued" : lifeState === "bought" ? "Bought" : lifeState === "held" ? "Held" : lifeState ? lifeState.replace(/_/g, " ") : null);
     const biasCls = modelDir === "SHORT" ? "ds-chip--dn" : modelDir === "LONG" ? "ds-chip--up" : "ds-chip--solid";
     const biasLabel = modelDir === "SHORT" ? "Bearish" : modelDir === "LONG" ? "Bullish" : "Neutral";
     const chipRow = [];
-    const familyKey = String(p.slice_family || p.kind || "confirm_stack_ema21");
     const familyLabel = setupFamilyLabel(p);
     const familyCopy = setupFamilyPlanCopy(p, liveT);
-    if (familyCopy.modelEntry) {
-      chipRow.push(h("span", {
-        key: "enter",
-        className: "ds-chip ds-chip--sm ds-chip--up",
-        title: "Model called this entry. Follow the plan — do not time the print.",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        }
-      }, "ENTER"));
-    }
+    chipRow.push(h("span", {
+      key: "act",
+      className: actionChipClass(familyCopy.action),
+      title: familyCopy.punch,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, familyCopy.action));
     chipRow.push(h("span", {
       key: "family",
       className: "ds-chip ds-chip--sm",
@@ -1509,62 +1539,6 @@ function SetupFamiliesStrip({
         fontFamily: "var(--tt-font-mono)"
       }
     }, familyLabel));
-    if ((p.tt_cloud_pivot === true || familyKey === "tt_cloud_pivot") && familyKey !== "confirm_stack_ema21") {
-      const sess = p.session || p.sequence_paper_queue?.session;
-      chipRow.push(h("span", {
-        key: "cloud",
-        className: "ds-chip ds-chip--sm ds-chip--accent",
-        title: "10m 5/12 curl / open-midday Cloud Pivot (paper)"
-      }, sess ? String(sess).replace(/_/g, " ") : "5/12 curl"));
-      const magPx = Number(p.cloud_magnet?.px);
-      if (Number.isFinite(magPx) && magPx > 0) {
-        const magLabel = p.cloud_magnet?.label ? String(p.cloud_magnet.label).replace(/_/g, " ") : "magnet";
-        chipRow.push(h("span", {
-          key: "magnet",
-          className: "ds-chip ds-chip--sm",
-          title: `Higher-timeframe cloud magnet (${magLabel})`,
-          style: {
-            fontFamily: "var(--tt-font-mono)"
-          }
-        }, `→ $${magPx.toFixed(2)}`));
-      }
-      const plan = p.session_plan;
-      const dir = String(p.direction || plan?.bias || "").toUpperCase();
-      const gatePx = dir === "SHORT" ? Number(plan?.short_under) : Number(plan?.long_over);
-      if (plan && Number.isFinite(gatePx)) {
-        chipRow.push(h("span", {
-          key: "ifthen",
-          className: "ds-chip ds-chip--sm ds-chip--solid",
-          title: "Catalyst if/then from premarket / prior-day / 1H cloud",
-          style: {
-            fontFamily: "var(--tt-font-mono)"
-          }
-        }, dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}`));
-      }
-      if (p.leader_follow?.leader) {
-        chipRow.push(h("span", {
-          key: "leader",
-          className: "ds-chip ds-chip--sm ds-chip--accent",
-          title: `Same-side 10m 5/12 curl as ${p.leader_follow.leader}`
-        }, String(p.leader_follow.leader)));
-      }
-    } else if (p.momentum_continuation === true && familyKey !== "confirm_stack_ema21") {
-      chipRow.push(h("span", {
-        key: "cont",
-        className: "ds-chip ds-chip--sm ds-chip--accent",
-        title: "Impulse + HTF alignment (paper continuation family)"
-      }, "Impulse on"));
-    }
-    if (lifeLabel) {
-      chipRow.push(h("span", {
-        key: "life",
-        className: "ds-chip ds-chip--sm ds-chip--solid",
-        title: p.lifecycle?.why || "Where this name sits inside the family",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        }
-      }, lifeLabel));
-    }
     chipRow.push(h("span", {
       key: "bias",
       className: `ds-chip ds-chip--sm ${biasCls}`,
@@ -1572,56 +1546,18 @@ function SetupFamiliesStrip({
         fontFamily: "var(--tt-font-mono)"
       },
       title: "Model direction"
-    }, biasLabel));
-    if (!familyCopy.modelEntry && p.confirm_stack === true) {
-      chipRow.push(h("span", {
-        key: "confirm",
-        className: "ds-chip ds-chip--sm ds-chip--accent",
-        title: "Structure stack aligned (trend flip + squeeze + reclaim) on this family"
-      }, "Structure on"));
-    }
-    if (p.runway_full === true) {
-      chipRow.push(h("span", {
-        key: "runway",
-        className: "ds-chip ds-chip--sm ds-chip--up",
-        title: "Room left to the target"
-      }, "Room to run"));
-    }
-    if (p.play_label) {
-      chipRow.push(h("span", {
-        key: "play",
-        className: "ds-chip ds-chip--sm",
-        title: p.play_why || "How the model would express the trade"
-      }, p.play_label));
-    }
-    const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
+    }, modelDir === "SHORT" || modelDir === "LONG" ? modelDir : biasLabel));
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
-    const rank = Number(liveT?.rank_position ?? liveT?.rank ?? p?.confluence_score) || null;
-    const score = Number(liveT?.score ?? p?.confluence_score) || null;
-    const metrics = LaneCard?.rankScoreMetricChips ? LaneCard.rankScoreMetricChips({
-      rank,
-      score
-    }) : [];
     const zm = VU?.buildTraderZoneModel?.(liveT, trackPrice) || VU?.buildInvestorZoneModel?.(liveT, trackPrice) || null;
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
       planLabel: zm.lane === "investor" ? "Long Term plan" : "Short Term plan",
       trackTitle: zm.lane === "investor" ? "Long Term lane — invalidation floor, add-on-pullback zone, and target." : "Short Term plan — stop, add zone, and first target."
     }) : null;
-    const footEls = [];
-    if (familyCopy.modelEntry) {
-      footEls.push(h("p", {
-        key: "enter",
-        className: "tt-strip-card__enter"
-      }, "ENTER — model called this. Follow the plan."));
-    }
-    footEls.push(h("div", {
+    const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
-    }, planFactList(familyCopy.facts)));
-    if (zm && LaneCard?.zoneBarMeta) {
-      footEls.push(LaneCard.zoneBarMeta(zm, {}));
-    }
+    }, planFactList(familyCopy.facts))];
     const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
     if (LaneCard?.create) {
       return h("div", {
@@ -1644,11 +1580,11 @@ function SetupFamiliesStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine
+          extLine: null
         },
         sparkSvg,
         midBody,
-        metrics,
+        metrics: [],
         isSaved,
         onToggleSaved
       }), h("div", {
@@ -1693,9 +1629,6 @@ function formatExpShort(exp) {
   if (m) return m[1];
   return /^\d+\s*DTE$/i.test(label) ? "" : label.replace(/\s*\(\d+\s*DTE\)/i, "").trim();
 }
-function stripUiEmoji(s) {
-  return String(s || "").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "").replace(/\s+/g, " ").trim();
-}
 function actionChipClass(action) {
   const a = String(action || "").toUpperCase();
   if (a === "BUY" || a === "ENTER") return "ds-chip ds-chip--sm ds-chip--up";
@@ -1727,45 +1660,6 @@ function convexityPlanCopy(card) {
     expShort,
     contractBit
   };
-}
-function LivePremium({
-  ticker,
-  exp,
-  strike,
-  right,
-  fallbackMid
-}) {
-  const [q, setQ] = useState(null);
-  useEffect(() => {
-    if (!ticker || !exp || !(Number(strike) > 0) || !right) return undefined;
-    let alive = true;
-    const url = `${API_BASE || ""}/timed/options/quote?ticker=${encodeURIComponent(ticker)}&exp=${encodeURIComponent(exp)}&strike=${encodeURIComponent(strike)}&right=${encodeURIComponent(right)}`;
-    const fetchQuote = async () => {
-      try {
-        const r = await fetch(url, {
-          credentials: "include",
-          cache: "no-store"
-        });
-        if (!r.ok) return;
-        const j = await r.json();
-        if (alive && j?.ok) setQ(j);
-      } catch (_) {}
-    };
-    fetchQuote();
-    const pollIv = setInterval(() => {
-      if (document.visibilityState === "visible") fetchQuote();
-    }, 20 * 1000);
-    return () => {
-      alive = false;
-      clearInterval(pollIv);
-    };
-  }, [ticker, exp, strike, right]);
-  const mid = Number(q?.mid);
-  const showMid = Number.isFinite(mid) && mid > 0 ? mid : Number(fallbackMid);
-  const isLive = q != null && Number.isFinite(mid);
-  return h("span", {
-    title: q?.bid != null && q?.ask != null ? `bid ${Number(q.bid).toFixed(2)} · ask ${Number(q.ask).toFixed(2)}` : isLive ? "live from options chain" : "estimated · not live"
-  }, Number.isFinite(showMid) ? `Prem $${Number(showMid).toFixed(2)}` : "Prem —", isLive ? " live" : "");
 }
 function ConvexityPlaysStrip({
   onSelectTicker,
@@ -1871,15 +1765,6 @@ function ConvexityPlaysStrip({
       }
     }, "No options lotto/moonshot alignments right now — the strip stays empty until direction, floor, and timing clear together.")));
   }
-  const fmtAsOf = ms => {
-    const n = Number(ms);
-    if (!Number.isFinite(n) || n <= 0) return "";
-    return new Date(n).toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: "America/New_York"
-    });
-  };
   const LaneCard = window.TTLaneCard;
   const VU = window.TimedVerdictUI;
   return wrap(h(React.Fragment, null, head, h("div", {
@@ -1908,7 +1793,6 @@ function ConvexityPlaysStrip({
       flavor: String(p.direction || "").toUpperCase() === "SHORT" ? "put" : "call",
       expShort: formatExpShort(p.expiration)
     } : convexityPlanCopy(p);
-    const isMoon = p.play_class === "moonshot";
     const flavor = copy.flavor;
     const action = copy.action;
     const strike = Number(p.strike);
@@ -1933,24 +1817,6 @@ function ConvexityPlaysStrip({
       },
       title: "Contract side"
     }, flavor === "put" ? "Put" : "Call"));
-    chipRow.push(h("span", {
-      key: "class",
-      className: `ds-chip ds-chip--sm ${isMoon ? "ds-chip--solid" : "ds-chip--accent"}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: isMoon ? "Moonshot — multi-bagger if momentum continues" : "Lotto — sized for total premium loss"
-    }, isMoon ? "MOONSHOT" : "LOTTO"));
-    if (p.earnings_prep) {
-      chipRow.push(h("span", {
-        key: "earn",
-        className: "ds-chip ds-chip--sm ds-chip--accent",
-        title: "Advisory OTM into earnings — IV crush risk; not a share entry",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        }
-      }, "EARNINGS PREP"));
-    }
     if (Number.isFinite(strike) && strike > 0) {
       chipRow.push(h("span", {
         key: "strike",
@@ -1961,41 +1827,13 @@ function ConvexityPlaysStrip({
         title: exp?.label || "Strike"
       }, `$${Math.round(strike)}${flavor === "put" ? "P" : "C"}`));
     }
-    if (expShort) {
-      chipRow.push(h("span", {
-        key: "exp",
-        className: "ds-chip ds-chip--sm",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        }
-      }, expShort));
-    }
-    if (p.confluence_mode) {
-      chipRow.push(h("span", {
-        key: "mode",
-        className: "ds-chip ds-chip--sm",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: "Confluence mode"
-      }, String(p.confluence_mode)));
-    }
-    const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
-    const rank = Number(liveT?.rank_position ?? liveT?.rank ?? p?.confluence_score) || null;
-    const score = Number(liveT?.score ?? p?.confluence_score) || null;
-    const metrics = LaneCard?.rankScoreMetricChips ? LaneCard.rankScoreMetricChips({
-      rank,
-      score
-    }) : [];
     const zm = VU?.buildTraderZoneModel?.(liveT, trackPrice) || VU?.buildInvestorZoneModel?.(liveT, trackPrice) || null;
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
       planLabel: "Convexity plan",
       trackTitle: flavor === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
     }) : null;
-    const whyLine = stripUiEmoji(p.rationale_short || p.label || "");
-    const asOf = fmtAsOf(p.as_of_ms);
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
@@ -2003,22 +1841,7 @@ function ConvexityPlaysStrip({
       className: `tt-dt-plan__punch ${kClass}`
     }, copy.punch), copy.scan && h("p", {
       className: "tt-dt-plan__scan"
-    }, copy.scan), whyLine && whyLine !== copy.punch && h("p", {
-      className: "tt-dt-plan__why"
-    }, whyLine), h("div", {
-      className: "tt-dt-plan__prem"
-    }, h(LivePremium, {
-      ticker: sym,
-      exp: exp?.iso || null,
-      strike,
-      right: flavor === "put" ? "P" : "C",
-      fallbackMid: p.premium_mid
-    }), (expShort || exp?.label) && h("span", null, [expShort, exp?.label && exp.label !== expShort ? stripUiEmoji(exp.label) : null].filter(Boolean).join(" · "))), h("p", {
-      className: "tt-dt-plan__row"
-    }, "Premium may go to zero.", asOf ? ` · as of ${asOf} ET` : ""))];
-    if (zm && LaneCard?.zoneBarMeta) {
-      footEls.push(LaneCard.zoneBarMeta(zm, {}));
-    }
+    }, copy.scan))];
     if (LaneCard?.create) {
       return h("div", {
         key: sym + (p.play_class || ""),
@@ -2040,11 +1863,11 @@ function ConvexityPlaysStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine
+          extLine: null
         },
         sparkSvg,
         midBody,
-        metrics
+        metrics: []
       }), h("div", {
         className: "tt-strip-card__foot"
       }, footEls));
@@ -2075,7 +1898,6 @@ function IndexDayTradeStrip({
   const initial = CACHE && window._ttIsPro ? CACHE.peek(url) : null;
   const [payload, setPayload] = useState(initial);
   const [loading, setLoading] = useState(!initial);
-  const [openCard, setOpenCard] = useState(null);
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -2220,7 +2042,6 @@ function IndexDayTradeStrip({
     const flavor = primary._day_trade_flavor || p._day_trade_flavor || (String(p.direction || "").toUpperCase() === "SHORT" ? "put" : String(p.direction || "").toUpperCase() === "LONG" ? "call" : "call");
     const strike = primary?.strikes?.primary ?? p.strike;
     const exp = primary?.expiration || p.expiration || {};
-    const prem = primary?.premium?.mid ?? p?.premium?.mid;
     const exec = p.execution || {};
     const action = String(exec.action || "WAIT").toUpperCase();
     const lean = String(p.day_lean || exec.contract?.flavor || flavor).toUpperCase();
@@ -2243,24 +2064,6 @@ function IndexDayTradeStrip({
       },
       title: "Contract side"
     }, biasLabel));
-    if (p.primary_tier) {
-      chipRow.push(h("span", {
-        key: "tier",
-        className: "ds-chip ds-chip--sm",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: "Ladder tier"
-      }, String(p.primary_tier).replace(/_/g, " ")));
-    } else {
-      chipRow.push(h("span", {
-        key: "dt",
-        className: "ds-chip ds-chip--sm",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        }
-      }, "Day-trade"));
-    }
     if (Number.isFinite(Number(strike))) {
       chipRow.push(h("span", {
         key: "strike",
@@ -2272,76 +2075,9 @@ function IndexDayTradeStrip({
       }, `$${Number(strike).toFixed(0)}${flavor === "put" ? "P" : "C"}`));
     }
     const expShort = exec.contract?.exp_bit || formatExpShort(exp);
-    if (expShort) {
-      chipRow.push(h("span", {
-        key: "exp",
-        className: "ds-chip ds-chip--sm",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: exp?.iso || expShort
-      }, expShort));
-    }
-    if (p.day_lean) {
-      chipRow.push(h("span", {
-        key: "lean",
-        className: "ds-chip ds-chip--sm",
-        title: "Day lean"
-      }, `Lean ${p.day_lean}`));
-    }
     const band = exec.premium_band || null;
-    const bandName = String(band?.band || "").toLowerCase();
-    const sizeLabel = String(exec.size?.label || "").toLowerCase();
-    if (sizeLabel === "light" || sizeLabel === "medium" || sizeLabel === "heavy") {
-      chipRow.push(h("span", {
-        key: "size",
-        className: "ds-chip ds-chip--sm",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: exec.size?.scale_note || "Model day-trade size"
-      }, sizeLabel.toUpperCase()));
-    }
-    if (bandName === "under" || bandName === "fair" || bandName === "over") {
-      const bandCls = bandName === "under" ? "ds-chip--up" : bandName === "over" ? "ds-chip--dn" : "ds-chip--accent";
-      chipRow.push(h("span", {
-        key: "fmv",
-        className: `ds-chip ds-chip--sm ${bandCls}`,
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: band.buy_ceil != null ? `Pay at or under $${Number(band.buy_ceil).toFixed(2)} (pin $${Number(band.pin).toFixed(2)} if close $${Number(band.expected_close).toFixed(2)})` : "Fair-market premium band"
-      }, bandName === "under" ? "Under FMV" : bandName === "over" ? "Rich" : "Fair"));
-    }
-    const rr = exec.rr || exec.plan?.rr || null;
-    if (rr && rr.rr != null) {
-      chipRow.push(h("span", {
-        key: "rr",
-        className: `ds-chip ds-chip--sm ${rr.positive ? "ds-chip--up" : "ds-chip--dn"}`,
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: rr.positive ? `R:R to the game-plan target is ${Number(rr.rr).toFixed(1)}:1` : "R:R to the target is below 1:1 — do not pay this print"
-      }, rr.positive ? `R:R ${Number(rr.rr).toFixed(1)}` : "R:R < 1"));
-    }
     const holdOn = !!(exec.hold_overnight || exec.plan?.hold_overnight);
-    const carryOn = !!exec.carry_overnight;
-    chipRow.push(h("span", {
-      key: "flat",
-      className: `ds-chip ds-chip--sm ${holdOn || carryOn ? "ds-chip--accent" : ""}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: carryOn ? "Overnight book — trim and exit are live from 09:30. Do not wait for 09:45." : holdOn ? "Leftover R:R still justifies an overnight hold. Trim/exit stay live at the next open." : "Flatten before the cash close unless overnight hold is on"
-    }, carryOn ? "CARRY" : holdOn ? "HOLD O/N" : "FLAT 15:45"));
-    const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
-    const rank = Number(liveT?.rank_position ?? liveT?.rank ?? p?.confluence_score) || null;
-    const score = Number(liveT?.score ?? p?.confluence_score) || null;
-    const metrics = LaneCard?.rankScoreMetricChips ? LaneCard.rankScoreMetricChips({
-      rank,
-      score
-    }) : [];
     const zm = reviveZone(p.zone || exec.zone, trackPrice);
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
@@ -2350,11 +2086,7 @@ function IndexDayTradeStrip({
     }) : null;
     const punchline = exec.headline || exec.why || `${sym} day-trade — stalk the 21 EMA.`;
     const scanLine = exec.scan_line || [band && Number.isFinite(Number(band.buy_ceil)) ? `Pay ≤ $${Number(band.buy_ceil).toFixed(2)}` : null, exec.rr?.trim != null ? `trim $${Number(exec.rr.trim).toFixed(2)}` : null, exec.rr?.exit != null ? `exit $${Number(exec.rr.exit).toFixed(2)}` : null, holdOn ? "hold overnight" : "flat 15:45 ET", expShort || null].filter(Boolean).join(" · ");
-    const whyLine = exec.why && exec.why !== exec.headline ? exec.why : null;
     const kClass = action === "BUY" ? "tt-dt-plan__k--buy" : action === "TRIM" || action === "SELL" ? "tt-dt-plan__k--sell" : "tt-dt-plan__k--wait";
-    const hasTiers = Array.isArray(p.tiers) && p.tiers.length > 1;
-    const isOpen = openCard === sym;
-    const otherTiers = hasTiers ? p.tiers.filter(t => t._tier !== p.primary_tier) : [];
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
@@ -2362,50 +2094,7 @@ function IndexDayTradeStrip({
       className: `tt-dt-plan__punch ${kClass}`
     }, punchline), scanLine && h("p", {
       className: "tt-dt-plan__scan"
-    }, scanLine), whyLine && h("p", {
-      className: "tt-dt-plan__why"
-    }, whyLine), band && Number.isFinite(Number(band.buy_ceil)) && h("p", {
-      className: `tt-dt-plan__fmv tt-dt-plan__band--${bandName || "fair"}`
-    }, `FMV $${Number(band.fmv).toFixed(2)} · pin $${Number(band.pin).toFixed(2)} if ${sym} closes $${Number(band.expected_close).toFixed(2)}${bandName ? ` · ${bandName}` : ""}`), h("div", {
-      className: "tt-dt-plan__prem"
-    }, h(LivePremium, {
-      ticker: sym,
-      exp: exp?.iso || null,
-      strike,
-      right: flavor === "put" ? "P" : "C",
-      fallbackMid: prem
-    }), (expShort || exp?.label) && h("span", null, [expShort, exp?.label && exp.label !== expShort ? exp.label : null].filter(Boolean).join(" · "))), hasTiers && h("button", {
-      type: "button",
-      onClick: e => {
-        e.stopPropagation();
-        setOpenCard(isOpen ? null : sym);
-      },
-      style: {
-        marginTop: 2,
-        fontSize: 10.5,
-        fontWeight: 600,
-        color: "var(--tt-info)",
-        background: "transparent",
-        border: "none",
-        padding: "4px 0",
-        cursor: "pointer",
-        textAlign: "left",
-        fontFamily: "var(--tt-font)"
-      }
-    }, isOpen ? "Hide other tiers" : `Show ${otherTiers.length} more tier${otherTiers.length === 1 ? "" : "s"}`), hasTiers && isOpen && h("div", {
-      className: "tt-dt-plan__tiers"
-    }, otherTiers.map(t => {
-      const tStrike = t?.strikes?.primary ?? t.strike;
-      const tExp = t?.expiration?.label || "";
-      const tPrem = t?.premium?.mid;
-      return h("div", {
-        key: `${sym}:${t._tier}`,
-        className: "tt-dt-plan__tier"
-      }, `${String(t._tier || "").toUpperCase()}  ${Number.isFinite(Number(tStrike)) ? `$${Number(tStrike).toFixed(0)}` : ""}${flavor === "put" ? "P" : "C"}  ${tExp}${Number.isFinite(Number(tPrem)) ? `  $${Number(tPrem).toFixed(2)}` : ""}`);
-    })))];
-    if (zm && LaneCard?.zoneBarMeta) {
-      footEls.push(LaneCard.zoneBarMeta(zm, {}));
-    }
+    }, scanLine))];
     if (LaneCard?.create) {
       return h("div", {
         key: sym,
@@ -2427,11 +2116,11 @@ function IndexDayTradeStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine
+          extLine: null
         },
         sparkSvg,
         midBody,
-        metrics
+        metrics: []
       }), h("div", {
         className: "tt-strip-card__foot"
       }, footEls));
@@ -4583,14 +4272,7 @@ function GrowthIdeasStrip({
         if (Number.isFinite(Number(dc?.dayChg))) dayChg = Number(dc.dayChg);
       }
     } catch (_) {}
-    const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT || {}) : null;
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, dir, sparkCache, ensureSpark) : "";
-    const rank = Number(liveT?.rank_position ?? liveT?.rank ?? row?.rank) || null;
-    const score = Number(liveT?.investor_score ?? row?.investor_score) || null;
-    const metrics = LaneCard?.rankScoreMetricChips ? LaneCard.rankScoreMetricChips({
-      rank,
-      score
-    }) : [];
     const chipRow = [];
     if (row.tier_label) {
       chipRow.push(h("span", {
@@ -4644,11 +4326,11 @@ function GrowthIdeasStrip({
           dayPct: liveDayPct,
           dayChg,
           dir,
-          extLine
+          extLine: null
         },
         sparkSvg,
         midBody,
-        metrics,
+        metrics: [],
         isSaved,
         onToggleSaved
       }), h("div", {
@@ -8346,6 +8028,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787514550705:579920283
+// cache-bust:1787515478820:894954600
 
-// cache-bust:1787514550705:579920283
+// cache-bust:1787515478820:894954600
