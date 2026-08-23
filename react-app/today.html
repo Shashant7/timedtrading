@@ -1987,6 +1987,73 @@
         flex-direction: column;
         gap: 5px;
       }
+      .tt-plan-facts {
+        display: grid;
+        gap: 3px;
+        margin: 0;
+      }
+      .tt-plan-facts__row {
+        display: grid;
+        grid-template-columns: 52px minmax(0, 1fr);
+        gap: 8px;
+        align-items: baseline;
+        margin: 0;
+      }
+      .tt-plan-facts dt {
+        margin: 0;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--ds-text-muted, var(--tt-text-muted));
+      }
+      .tt-plan-facts dd {
+        margin: 0;
+        font-size: 11.5px;
+        font-weight: 550;
+        line-height: 1.3;
+        color: var(--ds-text, var(--tt-text));
+      }
+      .tt-plan-facts__v--enter { color: var(--tt-success); font-weight: 700; }
+      .tt-plan-facts__v--wait { color: var(--tt-warning); }
+      .tt-plan-facts__v--trim { color: var(--tt-danger); }
+      .tt-strip-card--enter {
+        border-radius: 10px;
+        box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.28);
+      }
+      .tt-strip-card__enter {
+        margin: 0;
+        padding: 5px 8px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 650;
+        line-height: 1.35;
+        color: var(--tt-success);
+        background: rgba(52, 211, 153, 0.10);
+      }
+      .tt-desk-guide {
+        margin: 6px 0 0;
+      }
+      .tt-desk-guide > summary {
+        cursor: pointer;
+        list-style: none;
+        font-size: 11px;
+        font-weight: 650;
+        color: var(--ds-text-muted, var(--tt-text-muted));
+      }
+      .tt-desk-guide > summary::-webkit-details-marker { display: none; }
+      .tt-desk-guide[open] > summary { color: var(--ds-text, var(--tt-text)); }
+      .tt-desk-guide__body {
+        margin-top: 6px;
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--ds-text-muted, var(--tt-text-muted));
+      }
+      .tt-desk-guide__body p { margin: 0 0 6px; }
+      .tt-desk-guide__body ul {
+        margin: 0;
+        padding-left: 16px;
+      }
       .tt-dt-plan__punch {
         margin: 0;
         font-size: 12px;
@@ -3616,21 +3683,38 @@
         return familyKey.replace(/_/g, " ");
       }
 
-      function setupFamilyPlanCopy(p) {
+      function tickerIsModelEntry(t, play) {
+        if (play?.sequence_entry_ready === true) return true;
+        if (t?.sequence_entry_ready === true) return true;
+        const stage = String(t?.kanban_stage || play?.kanban_stage || "").toLowerCase();
+        if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return true;
+        const seqs = Array.isArray(t?.setup_sequences) ? t.setup_sequences : [];
+        return seqs.some((s) => String(s?.status || "").toLowerCase() === "entry_ready");
+      }
+
+      function planFactList(facts) {
+        const rows = (Array.isArray(facts) ? facts : []).filter((f) => f && f.value);
+        if (!rows.length) return null;
+        return h("dl", { className: "tt-plan-facts" },
+          rows.map((f) => h("div", { key: f.label, className: "tt-plan-facts__row" },
+            h("dt", null, f.label),
+            h("dd", { className: f.tone ? `tt-plan-facts__v--${f.tone}` : null }, f.value),
+          )),
+        );
+      }
+
+      function setupFamilyPlanCopy(p, liveT) {
         const ticker = String(p?.ticker || "").toUpperCase();
         const lifeState = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
-        const action = p?.sequence_entry_ready ? "BUY"
+        const modelEntry = tickerIsModelEntry(liveT, p);
+        const action = modelEntry ? "ENTER"
           : lifeState === "trimming" ? "TRIM"
           : (lifeState === "bought" || lifeState === "held") ? "HOLD"
           : "WAIT";
-        const hint = setupFamilyActionHint(p);
-        const shortHint = String(hint || "")
-          .replace(/\s+Size stays (paper|tiny)[^.]*\.?/i, "")
-          .replace(/\s+size stays tiny[^.]*\.?/i, "")
-          .trim();
-        const punch = shortHint
-          ? `${action} on ${ticker} — ${shortHint}`
-          : `${action} on ${ticker}`;
+        const actionTone = action === "ENTER" ? "enter"
+          : action === "TRIM" ? "trim"
+          : action === "WAIT" ? "wait"
+          : null;
         const magPx = Number(p?.cloud_magnet?.px);
         const lifeLabel = p?.lifecycle?.label
           || (lifeState === "watching" || lifeState === "watch" ? "Watching"
@@ -3638,14 +3722,15 @@
             : lifeState === "bought" ? "Bought"
             : lifeState === "held" ? "Held"
             : lifeState ? lifeState.replace(/_/g, " ") : null);
-        const scan = [
-          "Paper 0.1×",
-          setupFamilyLabel(p),
-          lifeLabel,
-          Number.isFinite(magPx) && magPx > 0 ? `magnet $${magPx.toFixed(2)}` : null,
-          p?.sequence_entry_ready ? "entry ready" : null,
-        ].filter(Boolean).join(" · ");
-        return { action, punch, scan };
+        const playName = setupFamilyLabel(p);
+        const facts = [
+          { label: "Call", value: action, tone: actionTone },
+          { label: "Play", value: playName },
+          { label: "Size", value: "Paper 0.1×" },
+          { label: "State", value: lifeLabel },
+          { label: "Magnet", value: Number.isFinite(magPx) && magPx > 0 ? `$${magPx.toFixed(2)}` : null },
+        ];
+        return { action, modelEntry, facts, punch: `${action} on ${ticker}` };
       }
 
       function cloudDeskPlanCopy(w) {
@@ -3654,31 +3739,28 @@
         const dir = String(w?.direction || "").toUpperCase();
         const magPx = Number(w?.magnet?.px);
         const magBit = Number.isFinite(magPx) && magPx > 0 ? `$${magPx.toFixed(2)}` : "";
-        const action = role === "fire" ? "BUY" : "WAIT";
+        const action = "WAIT";
         const leader = String(w?.leader_follow?.leader || w?.leader?.symbol || "").toUpperCase();
-        const playWord = role === "fire" ? "Cloud Pivot fire, paper size"
-          : role === "leader" ? "leader curl"
-          : role === "follow" ? `follow ${leader || "leader"}`
-          : role === "catalyst" ? "catalyst if/then"
-          : role === "stalk" ? "magnet stalk"
-          : "desk watch";
-        const punchBits = [playWord];
-        if (magBit) punchBits.push(`toward ${magBit}`);
-        const punch = `${action} on ${ticker} — ${punchBits.join(" ")}`.replace(/\s+/g, " ").trim();
+        const playWord = role === "fire" ? "Cloud Pivot print (paper)"
+          : role === "leader" ? "Leader curl"
+          : role === "follow" ? `Follow ${leader || "leader"}`
+          : role === "catalyst" ? "Catalyst if/then"
+          : role === "stalk" ? "Magnet stalk"
+          : "Desk watch";
         const plan = w?.session_plan;
         const gatePx = dir === "SHORT" ? Number(plan?.short_under) : Number(plan?.long_over);
-        const scan = [
-          role === "fire" ? "Paper 0.1×" : "Watch only",
-          magBit ? `magnet ${magBit}` : null,
-          Number.isFinite(gatePx) && gatePx > 0
-            ? (dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}`)
-            : null,
-          w?.day2 ? "day2" : null,
-          w?.mixed ? "mixed cloud OK" : null,
-          leader && role !== "follow" ? `lead ${leader}` : null,
-          w?.session ? String(w.session).replace(/_/g, " ") : "10m 5/12",
-        ].filter(Boolean).join(" · ");
-        return { action, role, punch, scan, magBit, leader };
+        const gate = Number.isFinite(gatePx) && gatePx > 0
+          ? (dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}`)
+          : null;
+        const facts = [
+          { label: "Call", value: "WAIT", tone: "wait" },
+          { label: "Play", value: playWord },
+          { label: "Size", value: role === "fire" ? "Paper 0.1× — not a ticket" : "Watch only" },
+          { label: "Magnet", value: magBit || null },
+          { label: "Gate", value: gate },
+          { label: "Lead", value: leader || null },
+        ];
+        return { action, role, facts, magBit, leader, punch: `WAIT on ${ticker}` };
       }
 
       function deskRoleChipClass(role) {
@@ -3757,7 +3839,7 @@
           h("div", { className: "tt-sec-title" }, "FAMILIES"),
           h("h2", { className: "tt-ready__title" }, "Tracked structure families"),
           h("p", { className: "tt-ready__sub" },
-            "Admitted runners — Confirm-stack, Cloud Pivot, Continuation. Cloud Desk above is the weekend/night watch. Size stays paper until attribution holds.",
+            "The model calls the entry. Cards stay WATCH until a card shows ENTER.",
           ),
         );
 
@@ -3787,12 +3869,18 @@
           ? h("div", { key: "cloud-desk", style: { marginTop: 10 } },
               h("div", { className: "tt-sec-title" }, "CLOUD DESK"),
               h("p", { className: "tt-ready__sub" },
-                "Inspect the 10m 5/12 tape, 1H magnets, day2 holds, and BTC/ETH/SPY/QQQ leaders. Not a sized ticket — paper until a Families card admits the name.",
+                "Weekend / night watch. FIRE is a paper print — not a ticket. Enter only when a Families card says ENTER.",
               ),
-              h("ul", { className: "tt-desk-howto" },
-                h("li", null, "FIRE is a 10m 5/12 print, not a sized entry. Paper 0.1× until a Families card below admits the name."),
-                h("li", null, "Leaders first: BTCUSD, ETHUSD, SPY, QQQ. A follower only matters on the same side as the leader curl."),
-                h("li", null, "Magnet is the cover. Ride toward the arrow; flatten when tagged. If/then chips are gates (long over X / short under Y), not market orders."),
+              h("details", { className: "tt-desk-guide" },
+                h("summary", null, "How the desk reads"),
+                h("div", { className: "tt-desk-guide__body" },
+                  h("p", null, "Inspect the 10m 5/12 tape and 1H magnets. Size stays paper until a Families card admits the name."),
+                  h("ul", { className: "tt-desk-howto" },
+                    h("li", null, "FIRE = 10m 5/12 print, paper 0.1×. Not a sized entry."),
+                    h("li", null, "Leaders first: BTCUSD, ETHUSD, SPY, QQQ. Followers only on the same side."),
+                    h("li", null, "Magnet is the cover. If/then chips are gates, not market orders."),
+                  ),
+                ),
               ),
               h("div", { className: "tt-ready-scroll tt-opp-scroll", role: "list", style: { marginTop: 8 } },
                 deskWatch.slice(0, 16).map((w) => {
@@ -3829,7 +3917,6 @@
                   const biasCls = dir === "SHORT" ? "ds-chip--dn"
                     : dir === "LONG" ? "ds-chip--up"
                     : "ds-chip--solid";
-                  const kClass = copy.action === "BUY" ? "tt-dt-plan__k--buy" : "tt-dt-plan__k--wait";
                   const plan = w.session_plan;
                   const gatePx = dir === "SHORT" ? Number(plan?.short_under) : Number(plan?.long_over);
                   const magPx = Number(w.magnet?.px);
@@ -3916,8 +4003,7 @@
 
                   const footEls = [
                     h("div", { key: "plan", className: "tt-dt-plan" },
-                      h("p", { className: `tt-dt-plan__punch ${kClass}` }, copy.punch),
-                      copy.scan && h("p", { className: "tt-dt-plan__scan" }, copy.scan),
+                      planFactList(copy.facts),
                     ),
                   ];
                   if (zm && LaneCard?.zoneBarMeta) {
@@ -3956,8 +4042,7 @@
                     onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
                   },
                     h("div", { className: "tt-dt-plan" },
-                      h("p", { className: `tt-dt-plan__punch ${kClass}` }, copy.punch),
-                      copy.scan && h("p", { className: "tt-dt-plan__scan" }, copy.scan),
+                      planFactList(copy.facts),
                     ),
                   );
                 }),
@@ -4017,6 +4102,15 @@
               const chipRow = [];
               const familyKey = String(p.slice_family || p.kind || "confirm_stack_ema21");
               const familyLabel = setupFamilyLabel(p);
+              const familyCopy = setupFamilyPlanCopy(p, liveT);
+              if (familyCopy.modelEntry) {
+                chipRow.push(h("span", {
+                  key: "enter",
+                  className: "ds-chip ds-chip--sm ds-chip--up",
+                  title: "Model called this entry. Follow the plan — do not time the print.",
+                  style: { fontFamily: "var(--tt-font-mono)" },
+                }, "ENTER"));
+              }
               chipRow.push(h("span", {
                 key: "family",
                 className: "ds-chip ds-chip--sm",
@@ -4082,13 +4176,7 @@
                 style: { fontFamily: "var(--tt-font-mono)" },
                 title: "Model direction",
               }, biasLabel));
-              if (p.sequence_entry_ready) {
-                chipRow.push(h("span", {
-                  key: "entry",
-                  className: "ds-chip ds-chip--sm ds-chip--up",
-                  title: "Entry window on this ticker's plan",
-                }, "Entry ready"));
-              } else if (p.confirm_stack === true) {
+              if (!familyCopy.modelEntry && p.confirm_stack === true) {
                 chipRow.push(h("span", {
                   key: "confirm",
                   className: "ds-chip ds-chip--sm ds-chip--accent",
@@ -4133,17 +4221,15 @@
                   })
                 : null;
 
-              const familyCopy = setupFamilyPlanCopy(p);
-              const kClass = familyCopy.action === "BUY" ? "tt-dt-plan__k--buy"
-                : familyCopy.action === "TRIM" ? "tt-dt-plan__k--sell"
-                : familyCopy.action === "HOLD" ? "tt-dt-plan__k--wait"
-                : "tt-dt-plan__k--wait";
-              const footEls = [
-                h("div", { key: "plan", className: "tt-dt-plan" },
-                  h("p", { className: `tt-dt-plan__punch ${kClass}` }, familyCopy.punch),
-                  familyCopy.scan && h("p", { className: "tt-dt-plan__scan" }, familyCopy.scan),
-                ),
-              ];
+              const footEls = [];
+              if (familyCopy.modelEntry) {
+                footEls.push(h("p", { key: "enter", className: "tt-strip-card__enter" },
+                  "ENTER — model called this. Follow the plan.",
+                ));
+              }
+              footEls.push(h("div", { key: "plan", className: "tt-dt-plan" },
+                planFactList(familyCopy.facts),
+              ));
               if (zm && LaneCard?.zoneBarMeta) {
                 footEls.push(LaneCard.zoneBarMeta(zm, {}));
               }
@@ -4151,7 +4237,7 @@
               const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
 
               if (LaneCard?.create) {
-                return h("div", { key: sym + (p.kind || ""), className: "tt-strip-card", role: "listitem" },
+                return h("div", { key: sym + (p.kind || ""), className: `tt-strip-card${familyCopy.modelEntry ? " tt-strip-card--enter" : ""}`, role: "listitem" },
                   LaneCard.create({
                     sym,
                     button: {
@@ -4184,7 +4270,8 @@
                 onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
               },
                 h("div", null, sym),
-                h("p", { className: "tt-dt-plan__punch" }, familyCopy.punch),
+                familyCopy.modelEntry && h("p", { className: "tt-strip-card__enter" }, "ENTER — model called this. Follow the plan."),
+                planFactList(familyCopy.facts),
               );
             }),
           ) : null,
@@ -4225,7 +4312,7 @@
       }
       function actionChipClass(action) {
         const a = String(action || "").toUpperCase();
-        if (a === "BUY") return "ds-chip ds-chip--sm ds-chip--up";
+        if (a === "BUY" || a === "ENTER") return "ds-chip ds-chip--sm ds-chip--up";
         if (a === "TRIM") return "ds-chip ds-chip--sm ds-chip--accent";
         if (a === "SELL") return "ds-chip ds-chip--sm ds-chip--dn";
         return "ds-chip ds-chip--sm ds-chip--accent";
@@ -7454,6 +7541,11 @@
         return TRADER_TRIGGER_STAGES.has(String(t?.kanban_stage || "").toLowerCase());
       }
 
+      function isTraderModelEntry(t) {
+        if (hasOpenTradeDir(t)) return false;
+        return tickerIsModelEntry(t, null);
+      }
+
       // Viewport action chips — mirror Active Trader Watchlist / Trigger Ready
       // lanes and Investor Queued (shared-signal-grammar.js labels).
       function viewportActionChips(t) {
@@ -7465,11 +7557,17 @@
             title: "Long Term — queued for next rebalance.",
           });
         }
-        if (isTraderTriggerReady(t)) {
+        if (isTraderModelEntry(t)) {
+          chips.push({
+            label: "ENTER",
+            cls: "ds-chip--up",
+            title: "Model called this entry. Follow the plan — do not time the print.",
+          });
+        } else if (isTraderTriggerReady(t)) {
           chips.push({
             label: "Trigger Ready",
             cls: "ds-chip--accent",
-            title: "Short Term — trigger ready for review or entry.",
+            title: "Short Term — trigger ready for review. Wait for ENTER.",
           });
         } else if (isTraderWatchlist(t)) {
           chips.push({
@@ -8230,6 +8328,9 @@
         // etc.). See computeEffectiveStage + the allTickers useMemo.
         const stage = String(t?.kanban_stage || "").toLowerCase();
         const stageChip = (() => {
+          if (isTraderModelEntry(t) || stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
+            return { label: "ENTER", cls: "ds-chip--up" };
+          }
           if (stage === "trim") return { label: "Trim", cls: "ds-chip--accent" };
           if (stage === "defend") return { label: "Defend", cls: "ds-chip--dn" };
           if (stage === "exit") return { label: "Exit", cls: "ds-chip--dn" };
