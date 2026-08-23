@@ -499,7 +499,11 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   New BUY is cash-session only: **WAIT before 09:30 ET** (index options are
   not tradeable in premarket — 06:30 ET is not a ticket) and through the
   **09:30-09:45** open print. SELL / TRIM / invalidation flatten are live
-  **09:30–16:15 ET** — invalidation does **not** flatten a book in premarket. Signal TF is **5m** EMA21 + SuperTrend (not 1m).
+  **09:30–16:15 ET** on trading days — invalidation does **not** flatten a
+  book in premarket. **Debit long only** — chip **FLAT** (not SELL) when
+  closing; scan line **Debit ≤** / **collect trim** / **collect exit**
+  (sell-to-close premium). No open book → WAIT at session flatten (weekends
+  do not show a phantom FLAT). Signal TF is **5m** EMA21 + SuperTrend (not 1m).
   FMV pin = buy ceiling (763P / 762.50 → $0.50). BUY requires leftover
   R:R ≥ 1:1 vs the **game-plan target** (not the pin). Trim is **1R**
   (min +$0.15 over entry; $0.45 → $0.68), not +40%. Flatten 1 DTE at

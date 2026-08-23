@@ -5740,3 +5740,19 @@ stays the RTH close. Card copy is punchline + scan line + one why.
 in premarket — wait for the 09:30 cash open. `classifyPaperEvent` refuses
 STOP / TRIM / EXIT outside `isOptionsSellWindowEt`. Do not write
 "invalidation can flatten before 09:30."
+
+## Index day-trade: FLAT not SELL; debit trim/exit copy [2026-08-23]
+
+**Symptom:** Index Day-Trade cards on Sunday showed **SELL Call** with
+`Pay ≤ $1.63 · trim $1.98 · exit $2.64` — reads like sell-to-open /
+collect premium at entry, but these plays are **debit long calls** (BUY
+to open). Trim/exit above entry is correct for sell-to-close, not wrong
+math for a credit spread.
+
+**Rule:** `buildDayTradePlay` always opens debit legs. `buildExecutionClock`
+maps close actions to chip **FLAT** (`display_action`) and headline **FLAT**
+(not SELL). Scan line: **Debit ≤** entry, **collect trim** / **collect exit**
+(sell-to-close targets). `hasLiveBook` gates FLAT — no phantom flatten on
+weekends or when flat. `isOptionsSellWindowEt` uses equity **trading day**
+(not `isNyRegularMarketOpenStatic`, which ends at 16:00) so the 16:00–16:15
+close-auction window stays live through 16:14.

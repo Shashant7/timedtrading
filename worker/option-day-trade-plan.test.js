@@ -220,7 +220,7 @@ describe("isOptionsBuyWindowEt", () => {
 });
 
 describe("isOptionsSellWindowEt", () => {
-  it("is live 09:30 to before 16:15, not premarket", () => {
+  it("is live 09:30 to before 16:15 on trading days, not premarket", () => {
     expect(isOptionsSellWindowEt(PREMARKET_NOW)).toBe(false);
     expect(isOptionsSellWindowEt(ts(`2026-08-20T09:29:00${ET}`))).toBe(false);
     expect(isOptionsSellWindowEt(ts(`2026-08-20T09:30:00${ET}`))).toBe(true);
@@ -228,6 +228,9 @@ describe("isOptionsSellWindowEt", () => {
     expect(isOptionsSellWindowEt(RTH_NOW)).toBe(true);
     expect(isOptionsSellWindowEt(ts(`2026-08-20T16:14:00${ET}`))).toBe(true);
     expect(isOptionsSellWindowEt(ts(`2026-08-20T16:15:00${ET}`))).toBe(false);
+  });
+  it("is closed on weekends even during the 09:30-16:15 window", () => {
+    expect(isOptionsSellWindowEt(ts(`2026-08-23T16:12:00${ET}`))).toBe(false);
   });
 });
 
@@ -398,6 +401,7 @@ describe("clock sell_kind", () => {
       indicators: { ema21: 764.1, st_dir: -1, st_label: "long", tf: "5" },
       gamePlan: { bull_target: 772, bear_trigger: 761 },
       management: { time_stop_et: "12:00", invalidation: { underlying_below: 761 } },
+      openBook: { status: "open", entry_premium: 1.2, entry_ts: ts(`2026-08-20T09:45:00${ET}`) },
       now: ts(`2026-08-20T15:20:00${ET}`),
     });
     expect(force.action).toBe("SELL");
@@ -413,6 +417,7 @@ describe("clock sell_kind", () => {
       indicators: { ema21: 763.05, st_dir: 1, st_label: "short", tf: "5" },
       gamePlan: { bear_target: 762.50, bear_trigger: 764, bull_trigger: 766 },
       management: { time_stop_et: "16:15", invalidation: { underlying_above: 766 } },
+      openBook: { status: "open", entry_premium: 0.38, entry_ts: ts(`2026-08-20T10:00:00${ET}`) },
       now: ts(`2026-08-20T16:00:00${ET}`),
     });
     expect(flat.action).toBe("SELL");

@@ -479,6 +479,8 @@ export function buildExecutionClock({
   const offPeak = path && prem != null && path.peak_mid > 0 && prem <= path.peak_mid * 0.80;
   const openPrint = ny.minutes >= 9 * 60 + 30 && ny.minutes < 9 * 60 + 45;
   const carryOvernight = isOvernightCarry(openBook, now);
+  const bookStatus = String(openBook?.status || "").toLowerCase();
+  const hasLiveBook = carryOvernight || bookStatus === "open" || bookStatus === "trimmed";
   const bookEntry = num(openBook?.entry_premium) ?? prem;
   const bookRr = carryOvernight && bookEntry > 0
     ? computePremiumRr({
@@ -514,24 +516,38 @@ export function buildExecutionClock({
   } else if (!sellWindow) {
     action = "WAIT";
     why = "Index options session is closed. Sells are live 09:30-16:15 ET.";
-  } else if (invalidated) {
+  } else if (invalidated && hasLiveBook) {
     action = "SELL";
     sellKind = "invalidation";
     why = isPut
       ? `${sym} reclaimed the invalidation at $${round2(invPx)} — the put thesis is done.`
       : `${sym} lost the invalidation at $${round2(invPx)} — the call thesis is done.`;
-  } else if (forceLiqWindow) {
+  } else if (invalidated) {
+    action = "WAIT";
+    why = isPut
+      ? `${sym} reclaimed $${round2(invPx)} — put thesis is done. Do not open a new ${flav}.`
+      : `${sym} lost $${round2(invPx)} — call thesis is done. Do not open a new ${flav}.`;
+  } else if (forceLiqWindow && hasLiveBook) {
     action = "SELL";
     sellKind = "force_liq";
     why = "0 DTE is in the broker force-liquidation window (from 15:15 ET, typically flat by 15:45). Roll to 1 DTE to hold the 15:45-16:15 close run.";
-  } else if (sessionFlatten) {
+  } else if (forceLiqWindow) {
+    action = "WAIT";
+    why = "0 DTE force-liq window — flatten any open 0 DTE before 15:45 ET. Roll to 1 DTE to hold the close run.";
+  } else if (sessionFlatten && hasLiveBook) {
     action = "SELL";
     sellKind = "session_close";
     why = `Flatten by ${SESSION_FLAT_ET} ET — before the cash close. Overnight risk can erase the gain; 16:15 is not the planned exit.`;
-  } else if (dte0 && ny.minutes >= timeStopMin) {
+  } else if (sessionFlatten) {
+    action = "WAIT";
+    why = `If this ${flav} is still open, flatten by ${SESSION_FLAT_ET} ET before the cash close.`;
+  } else if (dte0 && ny.minutes >= timeStopMin && hasLiveBook) {
     action = "SELL";
     sellKind = "time_stop";
     why = `0 DTE time stop is ${timeStop} ET. Flat anything that is not working; do not hold into 15:45 force-liq.`;
+  } else if (dte0 && ny.minutes >= timeStopMin) {
+    action = "WAIT";
+    why = `0 DTE time stop is ${timeStop} ET — flatten any open 0 DTE that is not working.`;
   } else if (carryOvernight && openPrint && manageExit != null && prem != null && prem + 1e-9 >= manageExit) {
     action = "SELL";
     sellKind = "open_exit";
@@ -603,7 +619,7 @@ export function buildExecutionClock({
       : `Flatten by ${SESSION_FLAT_ET} ET, before the cash close. Overnight only if leftover R:R stays ≥ 1.`);
   const trimBit = rr?.trim != null ? ` $${Number(rr.trim).toFixed(2)} (1R)` : ` +${tp1}%`;
   const exitBit = rr?.exit != null ? ` $${Number(rr.exit).toFixed(2)} (2R)` : ` +${num(mgmt.take_profit_2?.pct) ?? 100}%`;
-  const sellRule = `Sell half at${trimBit} premium${overBit}. Close the rest at${exitBit}, at the ${timeStop === "overnight" ? "next-session" : `${timeStop} ET`} time stop, on a ${hardStop}% premium stop${invBit}. ${flattenBit}`;
+  const sellRule = `Collect half at${trimBit} premium${overBit}. Close the rest at${exitBit}, at the ${timeStop === "overnight" ? "next-session" : `${timeStop} ET`} time stop, on a ${hardStop}% premium stop${invBit}. ${flattenBit}`;
   const pathNote = path
     ? `This contract bottomed at $${path.trough_mid} (${path.trough_et} ET) and peaked at $${path.peak_mid} (${path.peak_et} ET).`
     : (tod.note || null);
@@ -618,7 +634,7 @@ export function buildExecutionClock({
     : action === "TRIM"
       ? `TRIM ${contractBit} — take the open, do not wait for 09:45`
       : action === "SELL"
-        ? `SELL ${contractBit} — ${why.split("—")[0].trim()}`
+        ? `FLAT ${contractBit} — ${why.split("—")[0].trim()}`
         : `WAIT on ${contractBit} — ${beforeCashOpen
           ? (invalidated ? "flatten at 09:30 ET" : "index options open 09:30 ET")
           : (!sellWindow
@@ -628,16 +644,20 @@ export function buildExecutionClock({
               : (premiumRich ? `rich vs FMV $${value?.fmv}` : `stalk ${tod.buy_window_et} ET`)))}`;
 
   const scanParts = [
-    value?.buy_ceil != null ? `Pay ≤ $${Number(value.buy_ceil).toFixed(2)}` : null,
-    rr?.trim != null ? `trim $${Number(rr.trim).toFixed(2)}` : null,
-    rr?.exit != null ? `exit $${Number(rr.exit).toFixed(2)}` : null,
+    value?.buy_ceil != null ? `Debit ≤ $${Number(value.buy_ceil).toFixed(2)}` : null,
+    rr?.trim != null ? `collect trim $${Number(rr.trim).toFixed(2)}` : null,
+    rr?.exit != null ? `collect exit $${Number(rr.exit).toFixed(2)}` : null,
     holdOvernight || carryOvernight ? "hold overnight" : `flat ${SESSION_FLAT_ET} ET`,
     exp_bit || null,
     dte_bit || null,
   ].filter(Boolean);
 
+  const displayAction = action === "SELL" ? "FLAT" : action;
+
   return {
     action,
+    display_action: displayAction,
+    leg_side: "debit",
     sell_kind: sellKind,
     headline,
     scan_line: scanParts.join(" · "),
