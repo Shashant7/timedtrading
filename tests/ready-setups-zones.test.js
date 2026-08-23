@@ -112,9 +112,10 @@ describe("Ready Setups zone-bar cards", () => {
     expect(container.textContent).toMatch(/INV/);
     expect(container.textContent).toMatch(/PB/);
     expect(container.textContent).toMatch(/TGT/);
-    expect(container.textContent).toMatch(/Inv\s+\$/);
-    expect(container.textContent).toMatch(/PB\s+\$/);
-    expect(container.textContent).toMatch(/Tgt\s+\$/);
+    expect(html).toContain("tt-plan-facts");
+    expect(container.textContent).toMatch(/Inv\$480/);
+    expect(container.textContent).toMatch(/PB\$495/);
+    expect(container.textContent).toMatch(/Tgt\$540/);
     // Both lane badges present (model-first labels: Short / Long Term).
     expect(container.textContent).toMatch(/SHORT\s*TERM/);
     expect(container.textContent).toMatch(/LONG\s*TERM/);
