@@ -6,6 +6,19 @@
 
 ---
 
+## Today blanks when Cloud Desk uses undeclared `role` [2026-08-23]
+
+**Symptom:** Today `#root` empty (nav + Recent Activity + footer still
+show). Console: `ReferenceError: role is not defined` in
+`SetupFamiliesStrip` (`today.compiled.js` map over `desk.watching`).
+
+**Cause:** PAPER chip title used bare `role` after `cloudDeskPlanCopy`
+moved the local into `copy.role`. Weekend desk names still render, so
+the map always ran and unmounted the whole React tree.
+
+**Fix:** `copy.role === "fire"`. Activity strip action word is BUY not
+FORMING (`normalizeDisplayAction` + `verdictWordFromActivity`).
+
 ## Super minions watch the Cloud Pivot desk, not one chart [2026-08-22]
 
 **Symptom:** Ripster (or that desk) stares at many tapes. TT only fired

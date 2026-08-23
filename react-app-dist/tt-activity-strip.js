@@ -219,18 +219,25 @@
     return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
   }
 
-  // Phase D4 — verdict word as the action label (BUY/SELL/TIGHTEN/HOLD/FORMING).
+  // Phase D4 — verdict word as the action label (BUY/SELL/TIGHTEN/HOLD).
+  // Recent activity is model actions. FORMING/WATCH/SETUP/REVIEW are buy-side
+  // setup words — show Buy, not the lifecycle jargon.
   function normalizeDisplayAction(meta) {
     const SG = window.TimedSignalGrammar;
     if (SG && typeof SG.verdictWordFromActivity === "function") {
-      return SG.verdictWordFromActivity(meta);
+      const word = String(SG.verdictWordFromActivity(meta) || "").toUpperCase();
+      if (word === "FORMING" || word === "WATCH" || word === "SETUP" || word === "REVIEW" || word === "UPDATE") {
+        return "BUY";
+      }
+      return word;
     }
     const label = String(meta?.label || "").toUpperCase();
     const evType = String(meta?.evType || "").toUpperCase();
     if (label === "TRIM" || evType === "TRIM" || label === "REDUCE" || evType.indexOf("TRIM") >= 0) return "TIGHTEN";
     if (label === "EXIT" || evType === "EXIT" || /EXIT|SL_HIT|TP_HIT_EXIT/.test(evType)) return "SELL";
-    if (label === "ENTER" || label === "ENTRY" || evType === "ENTRY") return "BUY";
-    return "FORMING";
+    if (label === "HOLD") return "HOLD";
+    if (label === "SELL") return "SELL";
+    return "BUY";
   }
 
   function scopeDisplayLabel(scope) {
@@ -887,10 +894,11 @@
     activityPunchClass,
     activityActionToneClass,
     activityDirChipClass,
+    normalizeDisplayAction,
   };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);
   else mount();
 })();
 
-// cache-bust:1787506112208:474717788
+// cache-bust:1787510225532:4494082
