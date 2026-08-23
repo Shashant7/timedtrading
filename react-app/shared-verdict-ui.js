@@ -322,6 +322,7 @@
       ".tt-ready{margin-bottom:18px}",
       ".tt-universe-panel .tt-ready{margin-bottom:0}",
       ".tt-universe-panel__ready{margin:0}",
+      ".tt-universe-panel .tt-ready__head{margin-bottom:4px}",
       ".tt-ready__head{margin-bottom:10px}",
       ".tt-ready__title{font-family:var(--tt-font-display,inherit);font-size:18px;font-weight:800;color:var(--ds-text-headline,#f4f5f7);letter-spacing:-.02em;margin:2px 0 0}",
       ".tt-ready__sub{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);line-height:1.45;margin:4px 0 0;max-width:52em}",

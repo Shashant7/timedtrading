@@ -136,16 +136,16 @@
         width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
       }
       .tt-dcc-spotlight-row {
-        display: flex; flex-direction: column; align-items: stretch; gap: 8px;
-        margin-bottom: 14px;
+        display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+        margin-bottom: 8px;
       }
       .tt-dcc-shifts-row {
         display: flex; flex-direction: column; align-items: stretch; gap: 8px;
         margin-bottom: 10px;
       }
       .tt-dcc-rotation-row {
-        display: flex; flex-direction: column; align-items: stretch; gap: 8px;
-        margin-bottom: 12px;
+        display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+        margin-bottom: 8px;
       }
       /* Sector Flow — horizontal rails + compact leader cards (mobile-first) */
       .tt-sf-rail {
@@ -163,16 +163,9 @@
       .tt-sf-rail-wrap {
         position: relative;
         margin: 0 -2px;
+        overflow: hidden;
       }
       .tt-sf-rail-wrap > .tt-sf-rail { margin: 0; }
-      /* Soft right fade hints that more names are off-screen */
-      .tt-sf-rail-wrap::after {
-        content: "";
-        position: absolute; top: 0; right: 0; bottom: 8px; width: 22px;
-        pointer-events: none;
-        background: linear-gradient(90deg, transparent, rgba(8, 18, 14, 0.72));
-        border-radius: 0 10px 10px 0;
-      }
       .tt-sf-card {
         position: relative;
         flex: 0 0 auto; width: min(148px, 70vw); min-width: 124px;
@@ -1583,7 +1576,7 @@
         border-color: rgba(255,255,255,0.12);
       }
       .tt-mp-sector-block {
-        margin-bottom: 12px;
+        margin-bottom: 8px;
       }
       .tt-mp-sector-block--detail {
         padding: 10px 12px;
@@ -1967,7 +1960,7 @@
         display: flex;
         flex-direction: column;
         gap: 0;
-        padding: 16px 16px 12px;
+        padding: 12px 16px 8px;
       }
       .tt-universe-panel__ready,
       .tt-universe-panel__growth,
@@ -2219,12 +2212,16 @@
       .tt-universe-panel__divider {
         height: 1px;
         background: var(--tt-border, rgba(255,255,255,0.08));
-        margin: 18px 0 14px;
+        margin: 6px 0 4px;
       }
-      .tt-universe-panel .tt-ready__head { margin-bottom: 10px; }
-      .tt-universe-panel .tt-ready__title { margin-top: 2px; }
-      .tt-universe-panel .tt-ready__sub { margin-top: 4px; }
-      .tt-universe-panel .tt-strip-subhead { margin: 8px 0 6px; }
+      .tt-universe-panel .tt-ready__head { margin-bottom: 4px; }
+      .tt-universe-panel .tt-ready__title { margin-top: 0; margin-bottom: 0; }
+      .tt-universe-panel .tt-ready__sub {
+        margin-top: 2px;
+        line-height: 1.35;
+      }
+      .tt-universe-panel .tt-sec-title { margin-bottom: 0; }
+      .tt-universe-panel .tt-strip-subhead { margin: 4px 0 4px; }
       .tt-universe-panel .tt-strip-subhead:first-child { margin-top: 0; }
       .tt-universe-panel .tt-strip-subhead-wrap--cloud-desk .tt-strip-subhead {
         margin: 2px 0 4px;
