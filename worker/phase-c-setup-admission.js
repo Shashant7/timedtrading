@@ -29,6 +29,8 @@
  *   loadAdmissionMatrix(KV) → matrix object (cached per-request)
  */
 
+import { isPlayRestricted } from "./foundation/play-catalog.js";
+
 // ─────────────────────────────────────────────────────────────────────
 // Default matrix — KEYED on (setup_path, direction, grade).
 // Per-key decision lists regimes that BLOCK (or "always" / "never").
@@ -256,12 +258,15 @@ const DEFAULT_ADMISSION_MATRIX = {
   // KO Jul 10, UNP Jul 14 all entered as always-blocked Confirmed-ATH).
   // These rows apply the STRICTEST surviving policy of each family when
   // the grade cannot be proven. Consulted only when the caller passes
-  // allowWildcard (flag deep_audit_ja_grade_wildcard, default OFF).
+  // allowWildcard (flag deep_audit_ja_grade_wildcard). Caller
+  // tt-core-entry defaults the flag ON so empty-grade bleeders
+  // (ATH / range / N-test) hit these rows instead of default-allow.
   // ───────────────────────────────────────────────────────────────────
   "tt_ath_breakout:LONG:*": {
     allow_only_in: ["STRONG_BULL", "EARLY_BULL"],
     min_rr: 2.0,
-    reason: "grade unknown at admission — must clear the Prime bar (bull regimes + rr>=2.0)",
+    min_conviction: 4,
+    reason: "grade unknown at admission — must clear the Prime bar (bull regimes + rr>=2.0 + conviction B4+)",
   },
   "tt_atl_breakdown:SHORT:*": {
     allow_only_in: ["STRONG_BEAR", "LATE_BEAR"],
@@ -289,6 +294,16 @@ const DEFAULT_ADMISSION_MATRIX = {
   "tt_gap_reversal_short:SHORT:*": {
     allow_only_in: ["LATE_BEAR", "STRONG_BEAR", "EARLY_BEAR", "COUNTER_TREND_BULL"],
     reason: "grade unknown — shorts only in bear/exhaustion regimes (Prime bar)",
+  },
+  "tt_index_etf_swing:LONG:*": {
+    allow_only_in: ["HTF_BULL_LTF_PULLBACK", "HTF_BULL_LTF_BULL", "EARLY_BULL", "STRONG_BULL"],
+    min_rr: 2.0,
+    reason: "grade unknown — index swing long must clear the Prime bar",
+  },
+  "tt_index_etf_swing:SHORT:*": {
+    allow_only_in: ["HTF_BEAR_LTF_BOUNCE", "HTF_BEAR_LTF_BEAR", "EARLY_BEAR", "STRONG_BEAR"],
+    min_rr: 2.0,
+    reason: "grade unknown — index swing short must clear the Prime bar",
   },
 };
 
@@ -372,6 +387,13 @@ export function admitSetup(args, matrix) {
     if (allowWildcard && matrix[wildcardKey]) {
       return evaluateAdmissionEntry(matrix[wildcardKey], wildcardKey, regimeKey, args);
     }
+    if (allowWildcard && isPlayRestricted(setupKey, dirKey)) {
+      return {
+        allow: false,
+        reason: `play_catalog_restricted_missing_grade: ${wildcardKey} has no wildcard row`,
+        matched_key: wildcardKey,
+      };
+    }
     return { allow: true, reason: "missing_inputs_default_allow" };
   }
 
@@ -382,6 +404,13 @@ export function admitSetup(args, matrix) {
   if (!entry) {
     if (allowWildcard && matrix[wildcardKey]) {
       return evaluateAdmissionEntry(matrix[wildcardKey], wildcardKey, regimeKey, args);
+    }
+    if (allowWildcard && isPlayRestricted(setupKey, dirKey)) {
+      return {
+        allow: false,
+        reason: `play_catalog_restricted_no_matrix_row: ${matrixKey}`,
+        matched_key: matrixKey,
+      };
     }
     return { allow: true, reason: "no_matrix_entry", matched_key: matrixKey };
   }
@@ -423,24 +452,31 @@ function evaluateAdmissionEntry(entry, matrixKey, regimeKey, args) {
     };
   }
 
-  // 4. min_rr
-  if (Number.isFinite(entry.min_rr) && Number.isFinite(args.rr) && args.rr < entry.min_rr) {
-    return {
-      allow: false,
-      reason: `setup_admission_rr_too_low: ${matrixKey} requires rr>=${entry.min_rr}, got ${Number(args.rr).toFixed(2)}. ${entry.reason || ""}`.trim(),
-      matched_key: matrixKey,
-      cohortStat: entry.cohort_stats || null,
-    };
+  // 4. min_rr — missing RR fails closed when the row requires a floor.
+  if (Number.isFinite(entry.min_rr)) {
+    const rr = Number(args.rr);
+    if (!Number.isFinite(rr) || rr < entry.min_rr) {
+      return {
+        allow: false,
+        reason: `setup_admission_rr_too_low: ${matrixKey} requires rr>=${entry.min_rr}, got ${Number.isFinite(rr) ? rr.toFixed(2) : "missing"}. ${entry.reason || ""}`.trim(),
+        matched_key: matrixKey,
+        cohortStat: entry.cohort_stats || null,
+      };
+    }
   }
 
-  // 5. min_conviction
-  if (Number.isFinite(entry.min_conviction) && Number.isFinite(args.conviction) && args.conviction < entry.min_conviction) {
-    return {
-      allow: false,
-      reason: `setup_admission_conviction_too_low: ${matrixKey} requires conviction>=${entry.min_conviction}, got ${args.conviction}. ${entry.reason || ""}`.trim(),
-      matched_key: matrixKey,
-      cohortStat: entry.cohort_stats || null,
-    };
+  // 5. min_conviction — missing conviction fails closed (ATH leaked here
+  // when grade/conviction were both empty at qualify time).
+  if (Number.isFinite(entry.min_conviction)) {
+    const conv = Number(args.conviction);
+    if (!Number.isFinite(conv) || conv < entry.min_conviction) {
+      return {
+        allow: false,
+        reason: `setup_admission_conviction_too_low: ${matrixKey} requires conviction>=${entry.min_conviction}, got ${Number.isFinite(conv) ? conv : "missing"}. ${entry.reason || ""}`.trim(),
+        matched_key: matrixKey,
+        cohortStat: entry.cohort_stats || null,
+      };
+    }
   }
 
   // All gates passed.

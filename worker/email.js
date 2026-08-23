@@ -6,6 +6,7 @@ import { optionsPlayEmailHtml } from "./options-plays.js";
 import { shadowOptionsPlayEmailHtml } from "./options-shadow.js";
 import { buildSignal, renderEmailSubject } from "./signal-grammar.js";
 import { resolvePaperFamily } from "./paper-family-label.js";
+import { playLabel } from "./foundation/play-catalog.js";
 import { horizonLabel } from "./horizon-labels.js";
 import {
   buildTrimEconomicsSummary,
@@ -1283,10 +1284,10 @@ const EMAIL_SETUP_DISPLAY = {
   tt_reclaim: "TT Reclaim Long",
   tt_momentum: "TT Momentum Push",
   tt_mean_revert: "TT Mean Reversion",
-  tt_range_reversal_long: "TT Range Reversal (Long)",
-  tt_range_reversal_short: "TT Range Reversal (Short)",
-  tt_gap_reversal_long: "TT Gap Reversal (Long)",
-  tt_gap_reversal_short: "TT Gap Reversal (Short)",
+  tt_range_reversal_long: "TT Range Reversal Long",
+  tt_range_reversal_short: "TT Range Reversal Short",
+  tt_gap_reversal_long: "TT Gap Reversal Long",
+  tt_gap_reversal_short: "TT Gap Reversal Short",
   tt_index_etf_swing: "TT Index Swing",
   momentum_score: "TT Momentum",
   squeeze_setup: "TT Squeeze",
@@ -1307,6 +1308,8 @@ const EMAIL_SETUP_DISPLAY = {
 export function formatEmailSetupName(setup_name) {
   const raw = String(setup_name || "").trim();
   if (!raw) return "";
+  const catalog = playLabel(raw);
+  if (catalog) return `TT ${catalog}`;
   const snake = raw
     .toLowerCase()
     .replace(/^tt\s+/i, "tt_")

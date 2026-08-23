@@ -187,6 +187,10 @@ lines.push("");
 
 lines.push("## Core — where it wins and loses");
 lines.push("");
+lines.push("### By canonical play (setup_name and entry_path are the same play)");
+lines.push("");
+lines.push(table(report.core.by_play || [], STAT_COLS));
+lines.push("");
 lines.push("### By entry path");
 lines.push("");
 lines.push(table(report.core.by_entry_path, STAT_COLS));

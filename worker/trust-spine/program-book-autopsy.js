@@ -4,6 +4,7 @@
 // paper stamps on a core path (the AXON crush class).
 
 import { computeWindowStats } from "../edge-scorecard.js";
+import { canonicalPlayId, playLabel } from "../foundation/play-catalog.js";
 import { isCanonicalCapitalEntryPath } from "../foundation/confirm-stack-paper-queue.js";
 import {
   classifyProgram,
@@ -59,6 +60,8 @@ function etMonth(ts) {
 }
 
 function prettySetup(name) {
+  const labeled = playLabel(name);
+  if (labeled) return labeled;
   if (!name) return "(none)";
   let s = String(name).replace(/^TT\s+/i, "").replace(/^tt[_\s]+/i, "").trim();
   s = s.replace(/[_]+/g, " ").replace(/\s+/g, " ");
@@ -144,6 +147,7 @@ function toFill(trade, decision = {}) {
     setup_name: prettySetup(trade.setup_name),
     setup_grade: trade.setup_grade || "(none)",
     entry_path: trade.entry_path || "(unstamped)",
+    play_id: canonicalPlayId(trade.entry_path, trade.setup_name, trade.direction) || "(none)",
     sector: trade.sector || "(none)",
     month: etMonth(trade.entry_ts),
     size_lane: sizeLane(trade.notional),
@@ -296,6 +300,7 @@ export function buildBookAutopsyReport({ trades = [], decisions = [] } = {}) {
     programs: byProgram,
     core: {
       by_entry_path: groupSummaries(core, (f) => f.entry_path, { sort: "n" }),
+      by_play: groupSummaries(core, (f) => f.play_id, { sort: "n" }),
       by_setup: groupSummaries(core, (f) => f.setup_name, { sort: "pnl" }),
       by_setup_winners: groupSummaries(core, (f) => f.setup_name, { sort: "pnl" })
         .filter((r) => (r.pnl_usd || 0) > 0)

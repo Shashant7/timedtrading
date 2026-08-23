@@ -11,21 +11,9 @@
  *       proposals and never matched setupDemotionConfigKey().
  */
 
-export const SETUP_DEMOTION_NAME_MAP = {
-  tt_ath_breakout: "TT ATH Breakout",
-  tt_atl_breakdown: "TT ATL Breakdown",
-  tt_pullback: "TT Pullback Reclaim",
-  tt_reclaim: "TT Reclaim Long",
-  tt_momentum: "TT Momentum Push",
-  tt_mean_revert: "TT Mean Reversion",
-  tt_n_test_support: "TT Support Bounce",
-  tt_n_test_resistance: "TT Resistance Fade",
-  tt_range_reversal_long: "TT Range Reversal (Long)",
-  tt_range_reversal_short: "TT Range Reversal (Short)",
-  tt_gap_reversal_long: "TT Gap Reversal (Long)",
-  tt_gap_reversal_short: "TT Gap Reversal (Short)",
-  tt_index_etf_swing: "TT Index Swing",
-};
+import { catalogDemotionNameMap } from "../foundation/play-catalog.js";
+
+export const SETUP_DEMOTION_NAME_MAP = catalogDemotionNameMap();
 
 /** Paths the weekly governor may auto-pause when PF is catastrophic. */
 export const SEVERE_BLEEDER_PATHS = Object.freeze([

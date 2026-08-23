@@ -5,6 +5,7 @@ import {
   stampTtCloudPivotThinSlice,
   cloudPivotPaperSizeMult,
   evaluateTtCloudPivotExit,
+  isTtCloudPivotTrade,
   resolveCloudPivotSession,
   resolveCloudMagnet,
   inspectTtCloudPivot,
@@ -146,6 +147,34 @@ describe("tt_cloud_pivot", () => {
     });
     expect(trim?.stage).toBe("trim");
     expect(trim?.reason).toBe("tt_cloud_pivot_5_12_close_trim");
+  });
+
+  it("does not treat a canonical core path as a Cloud Pivot trade", () => {
+    expect(isTtCloudPivotTrade({
+      entry_path: "tt_n_test_support",
+      slice_family: CLOUD_PIVOT_FAMILY,
+    })).toBe(false);
+    expect(isTtCloudPivotTrade({
+      slice_family: CLOUD_PIVOT_FAMILY,
+      __tradeRef: { entry_path: "tt_ath_breakout" },
+    })).toBe(false);
+    expect(isTtCloudPivotTrade({
+      setup_name: "Support Bounce",
+      slice_family: CLOUD_PIVOT_FAMILY,
+    })).toBe(false);
+    expect(evaluateTtCloudPivotExit({
+      tickerData: payload(),
+      openPosition: {
+        entry_path: "tt_ath_breakout",
+        slice_family: CLOUD_PIVOT_FAMILY,
+        direction: "LONG",
+        tt_cloud_pivot_pending_5_12: 1,
+      },
+      direction: "LONG",
+      pnlPct: -0.5,
+      positionAgeMin: 40,
+      trimmedPct: 0,
+    })).toBeNull();
   });
 
   it("stamps next 1H 34/50 lo as the long magnet", () => {

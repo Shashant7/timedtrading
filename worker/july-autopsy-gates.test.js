@@ -135,12 +135,21 @@ describe("admitSetup wildcard grade fallback (P8 fix)", () => {
     expect(out.matched_key).toBe("tt_ath_breakout:LONG:*");
   });
 
-  it("grade-less ATH breakout in STRONG_BULL with rr>=2 passes the wildcard", () => {
+  it("grade-less ATH breakout in STRONG_BULL with rr>=2 and conviction passes", () => {
+    const out = admitSetup({
+      setup: "tt_ath_breakout", grade: "", direction: "LONG",
+      regime: "STRONG_BULL", rr: 2.4, conviction: 4, allowWildcard: true,
+    }, null);
+    expect(out.allow).toBe(true);
+  });
+
+  it("grade-less ATH breakout fails closed when conviction is missing", () => {
     const out = admitSetup({
       setup: "tt_ath_breakout", grade: "", direction: "LONG",
       regime: "STRONG_BULL", rr: 2.4, allowWildcard: true,
     }, null);
-    expect(out.allow).toBe(true);
+    expect(out.allow).toBe(false);
+    expect(out.reason).toMatch(/conviction_too_low/);
   });
 
   it("without allowWildcard, legacy behavior unchanged (default allow)", () => {
@@ -167,6 +176,30 @@ describe("admitSetup wildcard grade fallback (P8 fix)", () => {
       regime: "TRANSITIONAL", allowWildcard: true,
     }, null);
     expect(out.allow).toBe(true);
+  });
+
+  it("grade-less index swing uses the Prime bar instead of default-allow", () => {
+    const blocked = admitSetup({
+      setup: "tt_index_etf_swing", grade: "", direction: "LONG",
+      regime: "TRANSITIONAL", rr: 3, allowWildcard: true,
+    }, null);
+    expect(blocked.allow).toBe(false);
+    expect(blocked.matched_key).toBe("tt_index_etf_swing:LONG:*");
+
+    const pass = admitSetup({
+      setup: "tt_index_etf_swing", grade: "", direction: "LONG",
+      regime: "STRONG_BULL", rr: 2.1, allowWildcard: true,
+    }, null);
+    expect(pass.allow).toBe(true);
+  });
+
+  it("restricted plays fail closed when wildcard is on and no row matches", () => {
+    const out = admitSetup({
+      setup: "tt_ath_breakout", grade: "", direction: "LONG",
+      regime: "STRONG_BULL", rr: 3, conviction: 4, allowWildcard: true,
+    }, {});
+    expect(out.allow).toBe(false);
+    expect(out.reason).toMatch(/play_catalog_restricted/);
   });
 });
 

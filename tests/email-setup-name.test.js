@@ -10,7 +10,8 @@ describe("formatEmailSetupName", () => {
   });
 
   it("never emits the Tt title-case artifact", () => {
-    expect(formatEmailSetupName("tt_gap_reversal_long")).toBe("TT Gap Reversal (Long)");
+    expect(formatEmailSetupName("tt_gap_reversal_long")).toBe("TT Gap Reversal Long");
+    expect(formatEmailSetupName("Gap Reversal (Long)")).toBe("TT Gap Reversal Long");
     expect(formatEmailSetupName("tt_custom_path")).toMatch(/^TT /);
     expect(formatEmailSetupName("tt_custom_path")).not.toMatch(/\bTt\b/);
   });

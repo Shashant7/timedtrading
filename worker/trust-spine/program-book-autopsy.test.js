@@ -23,6 +23,18 @@ describe("classifyBookFill", () => {
 });
 
 describe("buildBookAutopsyReport", () => {
+  it("merges unstamped Gap Reversal Long with tt_gap_reversal_long", () => {
+    const report = buildBookAutopsyReport({
+      trades: [
+        { trade_id: "OLD", ticker: "NVDA", direction: "LONG", status: "WIN", pnl: 400, pnl_pct: 2, setup_name: "Gap Reversal Long", entry_path: null, entry_ts: 1 },
+        { trade_id: "NEW", ticker: "AMD", direction: "LONG", status: "LOSS", pnl: -50, pnl_pct: -1, setup_name: "TT Gap Reversal (Long)", entry_path: "tt_gap_reversal_long", entry_ts: 2 },
+      ],
+    });
+    const gap = report.core.by_play.find((r) => r.key === "tt_gap_reversal_long");
+    expect(gap.n).toBe(2);
+    expect(gap.pnl_usd).toBe(350);
+  });
+
   it("shows experiment $ drag without moving a core path into the experiment bucket", () => {
     const report = buildBookAutopsyReport({
       trades: [
@@ -39,6 +51,7 @@ describe("buildBookAutopsyReport", () => {
     expect(report.headline.pollution.usd_drag).toBe(-30);
     expect(report.headline.coincident.n).toBe(1);
     expect(report.programs.core.pnl_usd).toBe(400);
+    expect(report.core.by_play.some((r) => r.key === "tt_n_test_support")).toBe(true);
     expect(report.core.winners[0].key).toBe("NVDA");
     expect(report.coincident.by_family[0].key).toBe("confirm_stack_ema21");
     expect(report.eras.stamped_clean.n).toBe(0);
