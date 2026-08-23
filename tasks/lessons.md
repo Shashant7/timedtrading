@@ -6,6 +6,22 @@
 
 ---
 
+## Cloud Desk next cover is the rail level, not a missing magnet [2026-08-23]
+
+**Symptom:** BTC/ETH LONG showed only "last cover" under the live print.
+ETH Monthly 21 EMA (~$2,519) was already on the Long Term rail and
+looked like the next cover; the desk did not reference it.
+
+**Cause:** `resolveCloudMagnet` only walks 1H/4H 34/50 then 72/89. Desk
+KV also ranks against a stale snapshot price, so that 1H band looks
+ahead in cache and behind vs live. Short Term `tp_trim` and Long Term
+`monthly_bundle.ema21` were already produced for the rail.
+
+**Fix:** `resolveDeskCovers` keeps the passed 1H/4H magnet as last
+cover when behind, and picks the nearest rail ST/LT level ahead
+(Monthly 21 EMA first when it is the closest). Same numbers as the
+rail — do not invent a parallel D/W/M cloud walker for display.
+
 ## Cloud Desk ENTER + FIRE + magnet-as-destination confused the tape [2026-08-23]
 
 **Symptom:** Today Cloud Desk showed ENTER and FIRE on the same card,

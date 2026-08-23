@@ -958,6 +958,7 @@ export function rankCloudPivotDeskRow(ticker, payload = {}, opts = {}) {
         det?.direction || payload._cloud_pivot_detect?.direction || null,
         cloudPivotMarkPx(payload),
       ),
+      rail_covers: collectRailCoverCandidates(payload),
       dist_pct: null,
       approaching: false,
       session_plan: payload._cloud_session_plan || null,
@@ -1009,6 +1010,7 @@ export function rankCloudPivotDeskRow(ticker, payload = {}, opts = {}) {
     bias1h: insp.bias1h,
     mixed: insp.mixed,
     magnet: insp.magnet,
+    rail_covers: collectRailCoverCandidates(payload),
     dist_pct: insp.dist_pct,
     approaching: insp.approaching,
     session_plan: insp.session_plan,
@@ -1083,7 +1085,9 @@ export function cloudMagnetCoverLine(magnet, relation) {
   const magPx = Number(magnet?.px);
   if (!(magPx > 0)) return "";
   const magBit = `$${magPx.toFixed(2)}`;
-  const band = magnetBandLabel(magnet);
+  const band = magnet?.source === "rail"
+    ? String(magnet.label || "rail level")
+    : magnetBandLabel(magnet);
   if (relation === "ahead") {
     return band ? `${magBit} next cover (${band})` : `${magBit} next cover`;
   }
@@ -1093,6 +1097,89 @@ export function cloudMagnetCoverLine(magnet, relation) {
       : `${magBit} last cover, already behind`;
   }
   return band ? `${magBit} cover (${band})` : `${magBit} cover`;
+}
+
+/**
+ * Short Term / Long Term levels already on the rail / timed snapshot.
+ * Used as the next cover when the 1H/4H cloud magnet is behind the live print.
+ */
+export function collectRailCoverCandidates(payload = {}) {
+  const out = [];
+  const add = (px, label, lane) => {
+    const n = finiteOrNull(px);
+    if (n == null || !(n > 0)) return;
+    out.push({ px: n, label, lane, source: "rail" });
+  };
+  add(firstFinite(
+    payload.monthly_bundle?.ema21,
+    payload.tf_tech?.M?.ema?.ema21,
+    payload.tf_tech?.M?.ema21,
+  ), "Monthly 21 EMA", "long_term");
+  add(firstFinite(
+    payload.tf_tech?.W?.ema?.ema21,
+    payload.tf_tech?.W?.ema21,
+  ), "Weekly 21 EMA", "long_term");
+  add(firstFinite(
+    payload.tf_tech?.D?.ema?.ema21,
+    payload.tf_tech?.D?.ema21,
+  ), "Daily 21 EMA", "short_term");
+  add(firstFinite(payload.tp_trim, payload.tp), "Short Term trim", "short_term");
+  add(payload.tp_exit, "Short Term exit", "short_term");
+  add(payload.tp_runner, "Short Term runner", "short_term");
+  add(firstFinite(
+    payload._fair_value?.fair_value,
+    payload.fair_value_price,
+  ), "Long Term fair value", "long_term");
+  return out;
+}
+
+function coverOnTradeSide(direction, price, levelPx) {
+  const dir = String(direction || "").toUpperCase();
+  const px = Number(price);
+  const mag = Number(levelPx);
+  if ((dir !== "LONG" && dir !== "SHORT") || !(px > 0) || !(mag > 0)) return false;
+  return dir === "LONG" ? mag > px : mag < px;
+}
+
+/**
+ * Last cover = 1H/4H cloud magnet when it is already behind the live print.
+ * Next cover = that magnet if still ahead, else the nearest rail ST/LT level
+ * on the trade side of price (Monthly 21 EMA, then ST trim, etc.).
+ */
+export function resolveDeskCovers(payload = {}, direction = null, priceIn = null, cloudMagnet = null) {
+  const px = cloudPivotMarkPx(payload, priceIn);
+  const dir = String(direction || "").toUpperCase();
+  const magnet = cloudMagnet || resolveCloudMagnet(payload, dir, px);
+  const magRel = classifyCloudMagnet(dir, px, magnet?.px);
+  const last = magRel === "behind" && magnet
+    ? { ...magnet, relation: "behind", source: magnet.source || "cloud" }
+    : null;
+  let next = magRel === "ahead" && magnet
+    ? { ...magnet, relation: "ahead", source: magnet.source || "cloud" }
+    : null;
+  if (!next && px > 0 && (dir === "LONG" || dir === "SHORT")) {
+    const seen = new Set();
+    const cands = [];
+    for (const c of [...collectRailCoverCandidates(payload), ...(Array.isArray(payload.rail_covers) ? payload.rail_covers : [])]) {
+      const n = Number(c?.px);
+      if (!(n > 0) || !coverOnTradeSide(dir, px, n)) continue;
+      const key = `${c.label}:${n.toFixed(2)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cands.push(c);
+    }
+    cands.sort((a, b) => (dir === "LONG" ? a.px - b.px : b.px - a.px));
+    if (cands[0]) {
+      next = {
+        px: cands[0].px,
+        label: cands[0].label,
+        lane: cands[0].lane,
+        relation: "ahead",
+        source: "rail",
+      };
+    }
+  }
+  return { last, next, magnet: magnet || null };
 }
 
 /**
@@ -1108,10 +1195,18 @@ export function cloudDeskPlanCopy(w = {}, opts = {}) {
   const ticketNow = role === "fire" && marketOpen;
   const action = ticketNow ? "BUY" : "WAIT";
   const livePx = Number(opts.price ?? w.px);
-  const magPx = Number(w.magnet?.px);
+  const covers = resolveDeskCovers(opts.ticker || {}, dir, livePx, w.magnet);
+  const next = covers.next;
+  const last = covers.last;
+  const relation = next?.relation || last?.relation || classifyCloudMagnet(dir, livePx, w.magnet?.px);
+  const coverLine = next
+    ? cloudMagnetCoverLine(next, "ahead")
+    : last
+      ? cloudMagnetCoverLine(last, "behind")
+      : "";
+  const lastLine = next && last ? cloudMagnetCoverLine(last, "behind") : "";
+  const magPx = Number((next || last || w.magnet)?.px);
   const magBit = magPx > 0 ? `$${magPx.toFixed(2)}` : "";
-  const relation = classifyCloudMagnet(dir, livePx, magPx);
-  const coverLine = cloudMagnetCoverLine(w.magnet, relation);
   const side = dir === "LONG" || dir === "SHORT" ? dir : "";
   let size = "Watch only";
   if (ticketNow) size = "Paper 0.1\u00d7 ticket";
@@ -1139,7 +1234,8 @@ export function cloudDeskPlanCopy(w = {}, opts = {}) {
   const facts = [
     { label: "Call", value: action, tone: action === "BUY" ? "buy" : "wait" },
     { label: "Side", value: side || null },
-    { label: "Cover", value: coverLine || null, tone: relation === "behind" ? "behind" : null },
+    { label: "Cover", value: coverLine || null, tone: next ? null : (relation === "behind" ? "behind" : null) },
+    { label: "Last", value: lastLine || null, tone: "behind" },
     { label: "Size", value: size },
   ];
 
@@ -1151,7 +1247,10 @@ export function cloudDeskPlanCopy(w = {}, opts = {}) {
     scan,
     magBit,
     coverLine,
+    lastLine,
     magnetRelation: relation,
+    nextCover: next,
+    lastCover: last,
     leader: "",
     facts,
   };

@@ -25,11 +25,13 @@ session. BUY in RTH opens a paper 0.1× sim ticket and the same 0.1×
 broker order so 5/12 / magnet exits can be followed. Canonical core
 paths stay full size.
 
-The magnet is the next 1H/4H 34/50 (then 72/89) **cover / trim**
-level, not a breakout destination. A cover below a LONG (or above a
-SHORT) is already behind the live print — never show it as "toward."
-Do not show Lead on the Today cards. Index Day-Trade is a separate
-options lean and can disagree on the same ticker.
+The 1H/4H 34/50 (then 72/89) magnet is the **last cover** once the
+live print has passed it — never show it as "toward." Next cover
+reuses the same Short Term / Long Term rail levels already on the
+ticker (nearest on the trade side): Monthly 21 EMA, then Weekly/Daily
+21, then Short Term trim/exit. ETH ~$2416 → next cover is Monthly 21
+(~$2519), not a missing destination. Do not show Lead on the Today
+cards. Index Day-Trade is a separate options lean.
 
 ## Commands
 

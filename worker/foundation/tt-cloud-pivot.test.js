@@ -12,6 +12,7 @@ import {
   buildCloudPivotDesk,
   classifyCloudMagnet,
   cloudMagnetCoverLine,
+  resolveDeskCovers,
   cloudDeskPlanCopy,
   buildCloudSessionPlan,
   annotateCloudPivotLeaderFollows,
@@ -474,6 +475,36 @@ describe("tt_cloud_pivot", () => {
   });
 });
 
+describe("resolveDeskCovers", () => {
+  it("keeps an ahead 1H magnet as next cover", () => {
+    const pair = resolveDeskCovers(
+      { monthly_bundle: { ema21: 110 }, tp_trim: 120 },
+      "LONG",
+      100,
+      { px: 102, label: "1H_34_50" },
+    );
+    expect(pair.next?.px).toBe(102);
+    expect(pair.next?.source).toBe("cloud");
+    expect(pair.last).toBeNull();
+  });
+
+  it("picks the nearest rail level when the cloud magnet is behind", () => {
+    const pair = resolveDeskCovers(
+      {
+        monthly_bundle: { ema21: 2518.87 },
+        tp_trim: 2682.81,
+        tf_tech: { W: { ema: { ema21: 2098.78 } } },
+      },
+      "LONG",
+      2416.2,
+      { px: 1885.13, label: "1H_34_50" },
+    );
+    expect(pair.last?.px).toBe(1885.13);
+    expect(pair.next?.px).toBe(2518.87);
+    expect(pair.next?.label).toBe("Monthly 21 EMA");
+  });
+});
+
 describe("classifyCloudMagnet", () => {
   it("treats a LONG cover below price as behind, not the destination", () => {
     expect(classifyCloudMagnet("LONG", 76468, 63474.96)).toBe("behind");
@@ -517,6 +548,29 @@ describe("cloudDeskPlanCopy", () => {
     expect(copy.magnetRelation).toBe("ahead");
     expect(copy.coverLine).toBe("$102.00 next cover (1H 34/50)");
     expect(copy.punch).toContain("Paper 0.1× ticket");
+    expect(copy.punch).not.toMatch(/toward|ENTER/);
+  });
+
+  it("uses Monthly 21 EMA as next cover when the 1H magnet is behind", () => {
+    const copy = cloudDeskPlanCopy({
+      ticker: "ETHUSD",
+      role: "fire",
+      direction: "LONG",
+      px: 2416.2,
+      magnet: { px: 1885.13, label: "1h_34_50" },
+    }, {
+      ticker: {
+        monthly_bundle: { ema21: 2518.87 },
+        tf_tech: { M: { ema21: 2518.87 }, W: { ema: { ema21: 2098.78 } } },
+        tp_trim: 2682.81,
+        tp_exit: 2783.05,
+      },
+    });
+    expect(copy.nextCover?.px).toBe(2518.87);
+    expect(copy.nextCover?.label).toBe("Monthly 21 EMA");
+    expect(copy.lastCover?.px).toBe(1885.13);
+    expect(copy.coverLine).toBe("$2518.87 next cover (Monthly 21 EMA)");
+    expect(copy.lastLine).toContain("last cover, already behind");
     expect(copy.punch).not.toMatch(/toward|ENTER/);
   });
 
