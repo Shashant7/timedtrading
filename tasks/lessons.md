@@ -6,6 +6,24 @@
 
 ---
 
+## Cloud Desk ENTER + FIRE + magnet-as-destination confused the tape [2026-08-23]
+
+**Symptom:** Today Cloud Desk showed ENTER and FIRE on the same card,
+`→ $63,474` under a LONG BTC print at ~$76k, QQQ SHORT on the desk
+while the zone bar and Index Day-Trade leaned LONG, and a Lead chip
+that some names lacked.
+
+**Cause:** `cloudDeskPlanCopy` reused day-trade ENTER grammar and
+treated the 1H/4H magnet as "toward." That magnet is the next
+cover/trim, not a breakout. The zone bar was the generic trader
+Inv/PB/Tgt model, not the 10m Cloud Desk. FIRE and ENTER were the
+same call in two words. Weekend FIRE does not open a ticket.
+
+**Fix:** One call word — WAIT outside RTH, BUY for a paper 0.1×
+ticket in the regular session. Cover labeled ahead vs behind. Drop
+Lead and the generic zone bar from desk cards. Index Day-Trade
+subtitle names it as a separate options lean.
+
 ## RKT 8/24 earnings chip was a TwelveData leftover [2026-08-23]
 
 **Symptom:** Today Event-Driven Risk showed RKT on 8/24. Rocket already

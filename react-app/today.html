@@ -1989,12 +1989,12 @@
       }
       .tt-plan-facts {
         display: grid;
-        gap: 3px;
+        gap: 4px;
         margin: 0;
       }
       .tt-plan-facts__row {
         display: grid;
-        grid-template-columns: 52px minmax(0, 1fr);
+        grid-template-columns: 64px minmax(0, 1fr);
         gap: 8px;
         align-items: baseline;
         margin: 0;
@@ -2014,9 +2014,11 @@
         line-height: 1.3;
         color: var(--ds-text, var(--tt-text));
       }
-      .tt-plan-facts__v--enter { color: var(--tt-success); font-weight: 700; }
+      .tt-plan-facts__v--enter,
+      .tt-plan-facts__v--buy { color: var(--tt-success); font-weight: 700; }
       .tt-plan-facts__v--wait { color: var(--tt-warning); }
       .tt-plan-facts__v--trim { color: var(--tt-danger); }
+      .tt-plan-facts__v--behind { color: var(--ds-text-muted, var(--tt-text-muted)); }
       .tt-strip-card--enter {
         border-radius: 10px;
         box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.28);
@@ -2053,6 +2055,14 @@
       .tt-desk-guide__body ul {
         margin: 0;
         padding-left: 16px;
+      }
+      .tt-dt-plan__lane {
+        margin: 0;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--ds-text-muted, var(--tt-text-muted));
       }
       .tt-dt-plan__punch {
         margin: 0;
@@ -3733,45 +3743,87 @@
         return { action, modelEntry, facts, punch: `${action} on ${ticker}` };
       }
 
-      function cloudDeskPlanCopy(w) {
+      function classifyCloudMagnet(direction, price, magnetPx) {
+        const dir = String(direction || "").toUpperCase();
+        const px = Number(price);
+        const mag = Number(magnetPx);
+        if ((dir !== "LONG" && dir !== "SHORT") || !(px > 0) || !(mag > 0)) return null;
+        if (dir === "LONG") return mag >= px ? "ahead" : "behind";
+        return mag <= px ? "ahead" : "behind";
+      }
+
+      function magnetBandLabel(magnet) {
+        const raw = String(magnet?.label || "").trim();
+        if (!raw) return "";
+        return raw
+          .replace(/_/g, " ")
+          .replace(/\b(\d+)\s*h\b/gi, "$1H")
+          .replace(/\b(\d+)\s+(\d+)\b/g, "$1/$2");
+      }
+
+      function cloudMagnetCoverLine(magnet, relation) {
+        const magPx = Number(magnet?.px);
+        if (!(magPx > 0)) return "";
+        const magBit = `$${magPx.toFixed(2)}`;
+        const band = magnetBandLabel(magnet);
+        if (relation === "ahead") {
+          return band ? `${magBit} next cover (${band})` : `${magBit} next cover`;
+        }
+        if (relation === "behind") {
+          return band
+            ? `${magBit} last cover, already behind (${band})`
+            : `${magBit} last cover, already behind`;
+        }
+        return band ? `${magBit} cover (${band})` : `${magBit} cover`;
+      }
+
+      function cloudDeskPlanCopy(w, opts) {
         const ticker = String(w?.ticker || "").toUpperCase();
         const role = String(w?.role || "watch").toLowerCase();
         const dir = String(w?.direction || "").toUpperCase();
+        const marketOpen = opts?.marketOpen === true;
+        const ticketNow = role === "fire" && marketOpen;
+        const action = ticketNow ? "BUY" : "WAIT";
+        const livePx = Number(opts?.price ?? w?.px);
         const magPx = Number(w?.magnet?.px);
-        const magBit = Number.isFinite(magPx) && magPx > 0 ? `$${magPx.toFixed(2)}` : "";
-        const action = role === "fire" ? "ENTER" : "WAIT";
-        const leader = String(w?.leader_follow?.leader || w?.leader?.symbol || "").toUpperCase();
-        const playWord = role === "fire" ? "Cloud Pivot paper 0.1× ticket"
-          : role === "leader" ? "Leader curl"
-          : role === "follow" ? `Follow ${leader || "leader"}`
-          : role === "catalyst" ? "Catalyst if/then"
-          : role === "stalk" ? "Magnet stalk"
-          : "Desk watch";
-        const plan = w?.session_plan;
-        const gatePx = dir === "SHORT" ? Number(plan?.short_under) : Number(plan?.long_over);
-        const gate = Number.isFinite(gatePx) && gatePx > 0
-          ? (dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}`)
-          : null;
+        const magBit = magPx > 0 ? `$${magPx.toFixed(2)}` : "";
+        const relation = classifyCloudMagnet(dir, livePx, magPx);
+        const coverLine = cloudMagnetCoverLine(w?.magnet, relation);
+        const side = dir === "LONG" || dir === "SHORT" ? dir : "";
+        let size = "Watch only";
+        if (ticketNow) size = "Paper 0.1× ticket";
+        else if (role === "fire") size = "Watch — paper 0.1× in the regular session";
+        let punch;
+        if (ticketNow) {
+          punch = `BUY on ${ticker} — desk pick. Paper 0.1× ticket, not a full-size core play.`;
+        } else if (role === "fire") {
+          punch = `WAIT on ${ticker} — desk pick. A paper 0.1× ticket opens only in the regular session.`;
+        } else if (side) {
+          punch = `WAIT on ${ticker} — 10m Cloud Desk ${side}. Not the index options lean.`;
+        } else {
+          punch = `WAIT on ${ticker} — 10m Cloud Desk watch.`;
+        }
         const facts = [
-          { label: "Call", value: action, tone: action === "ENTER" ? "enter" : "wait" },
-          { label: "Play", value: playWord },
-          { label: "Size", value: role === "fire" ? "Paper 0.1× ticket" : "Watch only" },
-          { label: "Magnet", value: magBit || null },
-          { label: "Gate", value: gate },
-          { label: "Lead", value: leader || null },
+          { label: "Call", value: action, tone: action === "BUY" ? "buy" : "wait" },
+          { label: "Side", value: side || null },
+          { label: "Cover", value: coverLine || null, tone: relation === "behind" ? "behind" : null },
+          { label: "Size", value: size },
         ];
-        return { action, role, facts, magBit, leader, punch: `${action} on ${ticker}` };
-      }
-
-      function deskRoleChipClass(role) {
-        const r = String(role || "").toLowerCase();
-        if (r === "fire") return "ds-chip ds-chip--sm ds-chip--up";
-        if (r === "stalk" || r === "leader") return "ds-chip ds-chip--sm ds-chip--accent";
-        return "ds-chip ds-chip--sm ds-chip--solid";
+        return {
+          action,
+          role,
+          ticketNow,
+          facts,
+          magBit,
+          coverLine,
+          magnetRelation: relation,
+          leader: "",
+          punch,
+        };
       }
 
       function SetupFamiliesStrip({
-        onSelectTicker, embedded, data, savedSet, onToggleSaved, sparkCache, ensureSpark,
+        onSelectTicker, embedded, data, savedSet, onToggleSaved, sparkCache, ensureSpark, marketOpen,
       }) {
         const [slice, setSlice] = useState(null);
         const [loading, setLoading] = useState(true);
@@ -3839,7 +3891,7 @@
           h("div", { className: "tt-sec-title" }, "FAMILIES"),
           h("h2", { className: "tt-ready__title" }, "Tracked structure families"),
           h("p", { className: "tt-ready__sub" },
-            "The model calls the entry. FIRE / entry-ready opens a paper 0.1× sim ticket and the same 0.1× broker order so exits can be followed.",
+            "Cloud Desk is the 10-minute 5/12 watch. One call word: WAIT outside the regular session, BUY for a paper 0.1× ticket when that session is open. Index Day-Trade below is a separate options lean.",
           ),
         );
 
@@ -3869,16 +3921,16 @@
           ? h("div", { key: "cloud-desk", style: { marginTop: 10 } },
               h("div", { className: "tt-sec-title" }, "CLOUD DESK"),
               h("p", { className: "tt-ready__sub" },
-                "Weekend / night watch. FIRE opens a paper 0.1× sim + broker ticket. Follow the family exits.",
+                "10-minute 5/12 desk. WAIT means watch. BUY is a paper 0.1× ticket in the regular session only — not a full-size core play.",
               ),
               h("details", { className: "tt-desk-guide" },
                 h("summary", null, "How the desk reads"),
                 h("div", { className: "tt-desk-guide__body" },
-                  h("p", null, "Inspect the 10m 5/12 tape and 1H magnets. FIRE is a paper 0.1× ticket so exits can be followed."),
+                  h("p", null, "This lane is the 10-minute Cloud Desk. Index Day-Trade is a different options lean and can disagree on the same ticker."),
                   h("ul", { className: "tt-desk-howto" },
-                    h("li", null, "FIRE opens a paper 0.1× ticket (sim and broker). Follow Cloud Pivot exits when the 10m candle loses 5/12 or tags the magnet."),
-                    h("li", null, "Leaders first: BTCUSD, ETHUSD, SPY, QQQ. Followers only on the same side."),
-                    h("li", null, "Magnet is the cover. If/then chips are gates, not market orders."),
+                    h("li", null, "One call. WAIT outside the regular session. BUY opens a paper 0.1× sim and broker ticket so Cloud Pivot exits can attach."),
+                    h("li", null, "Cover is the next 1H/4H 34/50 (then 72/89) trim level — not a breakout destination. A cover below a LONG (or above a SHORT) is already behind the live print."),
+                    h("li", null, "Do not enter because a name is on the desk. A desk pick is not a live ticket until the regular session."),
                   ),
                 ),
               ),
@@ -3912,7 +3964,8 @@
                     ? "flat"
                     : dayPct > 0 ? "up" : "dn";
 
-                  const copy = cloudDeskPlanCopy(w);
+                  const rthOpen = marketOpen === true || (marketOpen == null && isNyRegularMarketOpen());
+                  const copy = cloudDeskPlanCopy(w, { marketOpen: rthOpen, price: livePrice });
                   const dir = String(w.direction || "").toUpperCase();
                   const biasCls = dir === "SHORT" ? "ds-chip--dn"
                     : dir === "LONG" ? "ds-chip--up"
@@ -3928,34 +3981,35 @@
                     title: copy.punch,
                     style: { fontFamily: "var(--tt-font-mono)" },
                   }, copy.action));
-                  chipRow.push(h("span", {
-                    key: "role",
-                    className: deskRoleChipClass(copy.role),
-                    style: { fontFamily: "var(--tt-font-mono)" },
-                    title: (Array.isArray(w.why) ? w.why.join(", ") : "") || "Cloud desk role",
-                  }, String(copy.role || "watch").toUpperCase()));
                   if (dir === "LONG" || dir === "SHORT") {
                     chipRow.push(h("span", {
                       key: "bias",
                       className: `ds-chip ds-chip--sm ${biasCls}`,
                       style: { fontFamily: "var(--tt-font-mono)" },
-                      title: "Desk direction",
+                      title: "10-minute Cloud Desk side — not the index options lean",
                     }, dir));
                   }
                   if (Number.isFinite(magPx) && magPx > 0) {
+                    const coverChip = copy.magnetRelation === "behind"
+                      ? `last cover $${magPx.toFixed(2)}`
+                      : `cover $${magPx.toFixed(2)}`;
                     chipRow.push(h("span", {
-                      key: "magnet",
+                      key: "cover",
                       className: "ds-chip ds-chip--sm",
                       style: { fontFamily: "var(--tt-font-mono)" },
-                      title: `Cover / trim at the ${String(w.magnet?.label || "magnet").replace(/_/g, " ")}`,
-                    }, `→ $${magPx.toFixed(2)}`));
+                      title: copy.magnetRelation === "ahead"
+                        ? "Next 1H/4H cloud cover — trim when tagged. Not a breakout destination."
+                        : copy.magnetRelation === "behind"
+                          ? "This cover is already behind the live print. Not where the tape is headed."
+                          : "Cloud cover / trim level.",
+                    }, coverChip));
                   }
                   if (plan && Number.isFinite(gatePx) && gatePx > 0) {
                     chipRow.push(h("span", {
                       key: "ifthen",
                       className: "ds-chip ds-chip--sm ds-chip--solid",
                       style: { fontFamily: "var(--tt-font-mono)" },
-                      title: "Catalyst if/then",
+                      title: "Catalyst if/then gate — not a market order",
                     }, dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}`));
                   }
                   if (w.day2) {
@@ -3965,19 +4019,16 @@
                       title: "Day2/3 — keep watching while 1H holds",
                     }, "DAY2"));
                   }
-                  if (copy.leader) {
+                  if (copy.role === "fire") {
                     chipRow.push(h("span", {
-                      key: "leader",
-                      className: "ds-chip ds-chip--sm ds-chip--accent",
-                      title: `Same-side 10m 5/12 as ${copy.leader}`,
-                    }, copy.leader));
+                      key: "paper",
+                      className: "ds-chip ds-chip--sm",
+                      style: { fontFamily: "var(--tt-font-mono)" },
+                      title: copy.ticketNow
+                        ? "Paper 0.1× sim + broker ticket"
+                        : (copy.role === "fire" ? "Desk pick — ticket waits for the regular session" : "Watch only"),
+                    }, "PAPER"));
                   }
-                  chipRow.push(h("span", {
-                    key: "paper",
-                    className: "ds-chip ds-chip--sm",
-                    style: { fontFamily: "var(--tt-font-mono)" },
-                    title: copy.role === "fire" ? "Paper 0.1× sim + broker ticket" : "Desk is inspect-only until FIRE",
-                  }, "PAPER"));
 
                   const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
                   const sparkSvg = LaneCard?.sparkSvgFromCache
@@ -3988,27 +4039,14 @@
                   const metrics = LaneCard?.rankScoreMetricChips
                     ? LaneCard.rankScoreMetricChips({ rank, score })
                     : [];
-                  const zm = VU?.buildTraderZoneModel?.(liveT, trackPrice)
-                    || VU?.buildInvestorZoneModel?.(liveT, trackPrice)
-                    || null;
-                  const midBody = zm && LaneCard?.zoneBarTrack
-                    ? LaneCard.zoneBarTrack(zm, {
-                        compact: true,
-                        planLabel: "Cloud desk",
-                        trackTitle: dir === "SHORT"
-                          ? "Short path — invalidation above, magnet below."
-                          : "Long path — invalidation below, magnet above.",
-                      })
-                    : null;
 
                   const footEls = [
                     h("div", { key: "plan", className: "tt-dt-plan" },
+                      h("p", { className: "tt-dt-plan__lane" }, "10m Cloud Desk"),
+                      h("p", { className: "tt-dt-plan__punch" }, copy.punch),
                       planFactList(copy.facts),
                     ),
                   ];
-                  if (zm && LaneCard?.zoneBarMeta) {
-                    footEls.push(LaneCard.zoneBarMeta(zm, {}));
-                  }
 
                   if (LaneCard?.create) {
                     return h("div", { key: "desk-" + sym, className: "tt-strip-card", role: "listitem" },
@@ -4028,7 +4066,7 @@
                           extLine,
                         },
                         sparkSvg,
-                        midBody,
+                        midBody: null,
                         metrics,
                       }),
                       h("div", { className: "tt-strip-card__foot" }, footEls),
@@ -4042,6 +4080,8 @@
                     onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
                   },
                     h("div", { className: "tt-dt-plan" },
+                      h("p", { className: "tt-dt-plan__lane" }, "10m Cloud Desk"),
+                      h("p", { className: "tt-dt-plan__punch" }, copy.punch),
                       planFactList(copy.facts),
                     ),
                   );
@@ -4725,7 +4765,7 @@
           h("div", { className: "tt-sec-title" }, "INDEX DAY-TRADE"),
           h("h2", { className: "tt-ready__title" }, "SPY · QQQ · IWM · DIA"),
           h("p", { className: "tt-ready__sub" },
-            "Same ticker card as the other strips. Key levels on the bar. Punchline and scan line under the card — the contract follows the index 21 EMA and SuperTrend. New buys wait for the 09:30 ET cash open.",
+            "Index options lean — 21 EMA and SuperTrend. Separate from the Cloud Desk 10-minute call above. New buys wait for the 09:30 ET cash open.",
           ),
         );
 
@@ -9698,6 +9738,7 @@
                   onToggleSaved: toggleSaved,
                   sparkCache,
                   ensureSpark,
+                  marketOpen: marketSession.rthOpen === true,
                 }),
                 h("div", { className: "tt-universe-panel__divider" }),
                 h(IndexDayTradeStrip, {
