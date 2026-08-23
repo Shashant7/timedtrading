@@ -458,6 +458,7 @@ import {
   thinSliceKvPatch,
   applyConfirmStackOptionsFirstToMenu,
 } from "./foundation/confirm-stack-paper-queue.js";
+import { playLabel } from "./foundation/play-catalog.js";
 import {
   stampContinuationThinSlice,
   continuationPaperSizeMult,
@@ -15752,6 +15753,8 @@ const SETUP_NAME_MAP = {
 
 function formatSetupName(entryPath) {
   if (!entryPath) return "TT Setup";
+  const catalogLabel = playLabel(entryPath);
+  if (catalogLabel) return catalogLabel;
   if (SETUP_NAME_MAP[entryPath]) return SETUP_NAME_MAP[entryPath];
   /* 2026-06-01 — strip a leading tt_ before the underscore-split so the
      fallback no longer produces the "Tt " artifact (e.g. tt_foo_bar
@@ -15889,6 +15892,8 @@ function prettySetupName(name, direction = null) {
       }
     }
   }
+  const catalogPretty = playLabel(name, direction);
+  if (catalogPretty) return catalogPretty;
   // Direct snake_case engine key → mapped display string
   const mapped = SETUP_DISPLAY_MAP[name];
   if (mapped) return mapped;

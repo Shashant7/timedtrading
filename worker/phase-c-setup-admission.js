@@ -256,7 +256,9 @@ const DEFAULT_ADMISSION_MATRIX = {
   // KO Jul 10, UNP Jul 14 all entered as always-blocked Confirmed-ATH).
   // These rows apply the STRICTEST surviving policy of each family when
   // the grade cannot be proven. Consulted only when the caller passes
-  // allowWildcard (flag deep_audit_ja_grade_wildcard, default OFF).
+  // allowWildcard (flag deep_audit_ja_grade_wildcard). Caller
+  // tt-core-entry defaults the flag ON so empty-grade bleeders
+  // (ATH / range / N-test) hit these rows instead of default-allow.
   // ───────────────────────────────────────────────────────────────────
   "tt_ath_breakout:LONG:*": {
     allow_only_in: ["STRONG_BULL", "EARLY_BULL"],

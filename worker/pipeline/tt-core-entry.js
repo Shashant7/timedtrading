@@ -21,6 +21,7 @@ import {
   shouldBlockStockPathOnIndexTicker,
 } from "./index-etf-model.js";
 import { checkSetupDemotion } from "./setup-demotion.js";
+import { isPlayPaused } from "../foundation/play-catalog.js";
 import { checkEarningsClusterEntryBlock } from "./earnings-cluster-gate.js";
 import { parseDateKey } from "./earnings-cluster-gate.js";
 import {
@@ -491,6 +492,15 @@ export function evaluateEntry(ctx) {
     // happens later in formatSetupName).
     // ─────────────────────────────────────────────────────────────────
     const _phase4Gates = (daCfg && typeof daCfg.gates === "object" && daCfg.gates) || {};
+    // Catalog pause is the hard stop for plays the live book has already
+    // proven as bleeders (range reversal). Workhorse gap-reversal stays live.
+    if (isPlayPaused(path, effectiveDir)) {
+      return rejectEntry("play_catalog_paused", {
+        path,
+        direction: effectiveDir,
+        note: "Canonical play catalog status=paused — do not take this path",
+      });
+    }
     if (_phase4Gates.pause_gap_reversal_long === true && path === "tt_gap_reversal_long") {
       return rejectEntry("phase4_paused_gap_reversal_long", {
         gate: "G1_pause",
@@ -592,7 +602,10 @@ export function evaluateEntry(ctx) {
               // time (computed post-qualify), which made the matrix a
               // no-op. Wildcard rows apply the family's strictest policy
               // when the grade is unknown. Flag-gated, default OFF.
-              allowWildcard: String(daCfg.deep_audit_ja_grade_wildcard ?? "false") === "true",
+              // Default ON (2026-08-23): empty grade at admission made the
+              // matrix a no-op and leaked ATH / range / N-test bleeders.
+              // Opt out with deep_audit_ja_grade_wildcard=false.
+              allowWildcard: String(daCfg.deep_audit_ja_grade_wildcard ?? "true") === "true",
             },
             // Pass null matrix so admitSetup uses the embedded default.
             // Replay-runtime can override by calling loadAdmissionMatrix
