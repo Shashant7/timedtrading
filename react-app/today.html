@@ -2063,8 +2063,8 @@
       }
       .tt-plan-facts__row {
         display: grid;
-        grid-template-columns: 42px minmax(0, 1fr);
-        gap: 8px;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 10px;
         align-items: baseline;
         margin: 0;
       }
@@ -2075,6 +2075,7 @@
         letter-spacing: 0.06em;
         text-transform: uppercase;
         color: var(--ds-text-muted, var(--tt-text-muted));
+        white-space: nowrap;
       }
       .tt-plan-facts dd {
         margin: 0;
@@ -2370,6 +2371,42 @@
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
         border-radius: var(--vf-radius-md, 18px);
+      }
+      /* Strip-card skeletons — match tt-universe-panel .tt-strip-card footprint */
+      .tt-strip-skel-wrap {
+        pointer-events: none;
+        background: var(--tt-bg-surface);
+        border: 1px solid var(--tt-border);
+        border-radius: var(--vf-radius-md, 18px);
+        box-sizing: border-box;
+      }
+      .tt-strip-skel {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px 12px 10px;
+        height: 100%;
+        box-sizing: border-box;
+      }
+      .tt-strip-skel__zone {
+        flex: 0 0 auto;
+        height: 52px;
+        border-radius: 6px;
+      }
+      .tt-mp-skel-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .tt-mp-skel-chip {
+        flex: 1 1 72px;
+        min-width: 72px;
+        height: 56px;
+        border-radius: 10px;
+      }
+      .tt-mp-skel-bar {
+        height: 40px;
+        border-radius: 10px;
       }
       /* BriefPlaceholder (data-driven loading card) */
       .bp-card { padding: 16px 18px; }
@@ -4316,9 +4353,7 @@
           ));
         }
         if (loading) {
-          return wrap(h(React.Fragment, null, head,
-            h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", marginTop: 8 } }, "Loading families…"),
-          ));
+          return wrap(h(React.Fragment, null, head, h(StripSectionSkeleton, { count: 4 })));
         }
         const plays = Array.isArray(slice?.plays) ? slice.plays : [];
         const deskWatch = Array.isArray(slice?.desk?.watching) ? slice.desk.watching : [];
@@ -4718,9 +4753,7 @@
           ));
         }
         if (loading) {
-          return wrap(h(React.Fragment, null, head,
-            h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", marginTop: 8 } }, "Loading options lotto & moonshots…"),
-          ));
+          return wrap(h(React.Fragment, null, head, h(StripSectionSkeleton, { count: 3 })));
         }
         if (!plays || plays.length === 0) {
           return wrap(h(React.Fragment, null, head,
@@ -4930,9 +4963,7 @@
           ));
         }
         if (loading) {
-          return wrap(h(React.Fragment, null, head,
-            h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", marginTop: 8 } }, "Loading index day-trade plays…"),
-          ));
+          return wrap(h(React.Fragment, null, head, h(StripSectionSkeleton, { count: 4 })));
         }
         const plays = Array.isArray(payload?.day_trade_plays) ? payload.day_trade_plays : [];
         const suppressed = Array.isArray(payload?.day_trade_suppressed) ? payload.day_trade_suppressed : [];
@@ -5882,6 +5913,7 @@
 
       function useDailyCycleComposite() {
         const [composite, setComposite] = useState(null);
+        const [loading, setLoading] = useState(true);
         useEffect(function () {
           let alive = true;
           const url = `${API_BASE}/timed/daily-cycle-composite`;
@@ -5890,10 +5922,12 @@
             : fetchJsonRetry(url);
           Promise.resolve(load).then(function (j) {
             if (alive && j && j.ok) setComposite(j);
-          }).catch(function () {});
+          }).catch(function () {}).finally(function () {
+            if (alive) setLoading(false);
+          });
           return function () { alive = false; };
         }, []);
-        return composite;
+        return { composite, loading };
       }
 
       function readLatentRegime(data) {
@@ -6395,12 +6429,14 @@
       }
 
       function MarketPulseWithMovers({ data, onSelectTicker }) {
-        const composite = useDailyCycleComposite();
-        if (!data) return h(MarketStateSkeleton);
+        const { composite, loading: compositeLoading } = useDailyCycleComposite();
+        if (!data) return h(MarketPulsePanelSkeleton);
         const universe = new Set(Object.keys(data).map((s) => String(s).toUpperCase()));
         const sectorBand = composite
           ? h(SectorFlowBand, { composite, onSelectTicker, data })
-          : h("div", { className: "tt-mp-band-focus", style: { color: "var(--tt-text-faint)", fontSize: 11 } }, "Loading sector flow…");
+          : compositeLoading
+            ? h(SectorFlowBandSkeleton)
+            : null;
         return h("section", { className: "tt-row" },
           h("div", { className: "tt-card tt-card-pad tt-mp-panel" },
             h("div", { className: "tt-mp-panel-head" },
@@ -6659,10 +6695,7 @@
         );
 
         if (rows === null) {
-          return wrap(h(React.Fragment, null,
-            growthHead,
-            h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", marginTop: 8 } }, "Loading compounder watchlist…"),
-          ));
+          return wrap(h(React.Fragment, null, growthHead, h(StripSectionSkeleton, { count: 4 })));
         }
         if (!rows.length) {
           return wrap(h(React.Fragment, null,
@@ -9702,9 +9735,12 @@
             h(TodayHero, { brief, briefSlot, data, earnings, onSelectTicker, cal, allTickers }),
             data
               ? h(MarketPulseWithMovers, { data, onSelectTicker })
-              : h(MarketStateSkeleton, null),
+              : h(MarketPulsePanelSkeleton, null),
             h("section", { className: "tt-row" },
               h("div", { className: "tt-card tt-universe-panel" },
+                loading
+                  ? h(UniversePanelSkeleton, null)
+                  : h(React.Fragment, null,
                 // 2026-08-19 — Strip order (operator, review § 8):
                 //   1. Compounders (best-performing lane, lead)
                 //   2. Capital Shortlist (Ready Setups)
@@ -9766,8 +9802,7 @@
                   ensureSpark,
                 }),
                 h("div", { className: "tt-universe-panel__divider" }),
-                data
-                  ? h(TickerLaneSection, {
+                h(TickerLaneSection, {
                       allTickers,
                       visible,
                       query: filters.query,
@@ -9783,8 +9818,8 @@
                       chips,
                       scoredCount,
                       embedded: true,
-                    })
-                  : h("div", { className: "tt-lane-section" }, h(BubbleViewportSkeleton, null)),
+                    }),
+                ),
               ),
             ),
             marketSession.showDayTradeSections && h(Disclosure, {
@@ -10008,22 +10043,94 @@
         const r = m % 60;
         return r === 0 ? h + "h" : h + "h " + r + "m";
       }
-      function MarketStateSkeleton() {
-        return h("section", { className: "tt-row" },
-          h("div", { style: { marginBottom: 10 } },
-            h("div", { className: "sk", style: { width: 110, height: 10, marginBottom: 8 } }),
-            h("div", { className: "sk", style: { width: 240, height: 18 } }),
+      function StripHeadSkeleton() {
+        return h("div", { className: "tt-ready__head", "aria-hidden": "true" },
+          h("div", { className: "sk", style: { width: 90, height: 10, marginBottom: 8 } }),
+          h("div", { className: "sk", style: { width: 200, height: 18, marginBottom: 6 } }),
+          h("div", { className: "sk", style: { width: "72%", height: 11, maxWidth: 420 } }),
+        );
+      }
+      function StripCardSkeleton() {
+        return h("div", { className: "tt-strip-card tt-strip-skel-wrap", "aria-hidden": "true" },
+          h("div", { className: "tt-strip-skel" },
+            h("div", { className: "sk", style: { width: "38%", height: 14 } }),
+            h("div", { className: "sk", style: { width: "52%", height: 18 } }),
+            h("div", { className: "sk tt-strip-skel__zone" }),
+            h("div", { className: "sk", style: { width: "68%", height: 10 } }),
+            h("div", { className: "sk", style: { width: "58%", height: 10 } }),
+            h("div", { className: "sk", style: { width: "64%", height: 10 } }),
           ),
-          h("div", { className: "sk-grid-4" },
-            [0,1,2,3].map((i) =>
-              h("div", { key: i, className: "tt-card tt-card-pad" },
-                h("div", { className: "sk", style: { width: 40,  height: 10, marginBottom: 10 } }),
-                h("div", { className: "sk", style: { width: 100, height: 22, marginBottom: 10 } }),
-                h("div", { className: "sk", style: { width: 64,  height: 12 } }),
+        );
+      }
+      function StripScrollSkeleton({ count = 4 }) {
+        return h("div", { className: "tt-ready-scroll tt-opp-scroll", "aria-hidden": "true", style: { marginTop: 8 } },
+          Array.from({ length: count }, (_, i) => h(StripCardSkeleton, { key: i })),
+        );
+      }
+      function StripSectionSkeleton({ count = 4 }) {
+        return h(React.Fragment, null, h(StripHeadSkeleton), h(StripScrollSkeleton, { count }));
+      }
+      function SectorFlowBandSkeleton() {
+        return h("div", { className: "tt-mp-skel-row", "aria-hidden": "true" },
+          [0, 1, 2, 3, 4, 5].map((i) =>
+            h("div", { key: i, className: "sk tt-mp-skel-chip" }),
+          ),
+        );
+      }
+      function MarketPulsePanelSkeleton() {
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-card tt-card-pad tt-mp-panel", "aria-hidden": "true" },
+            h("div", { className: "tt-mp-panel-head" },
+              h("div", { className: "sk", style: { width: 100, height: 10 } }),
+            ),
+            MARKET_PULSE_BANDS.map((band) =>
+              h("div", {
+                key: band.id,
+                className: "tt-mp-band tt-mp-band--" + band.id,
+              },
+                h("div", { className: "tt-mp-band-head" },
+                  h("div", { className: "sk", style: { width: 72, height: 9, marginBottom: 4 } }),
+                  h("div", { className: "sk", style: { width: 140, height: 14 } }),
+                ),
+                h("div", { className: "tt-mp-band-body" },
+                  band.id === "benchmarks"
+                    ? h("div", { className: "tt-mp-skel-row" },
+                        [0, 1, 2, 3].map((i) =>
+                          h("div", { key: i, className: "sk tt-mp-skel-chip", style: { minWidth: 100, flex: "1 1 100px" } }),
+                        ),
+                      )
+                    : band.id === "sectors"
+                      ? h(SectorFlowBandSkeleton)
+                      : band.id === "movers"
+                        ? h("div", { className: "tt-mp-skel-row" },
+                            [0, 1, 2].map((i) =>
+                              h("div", { key: i, className: "sk tt-mp-skel-chip", style: { flex: "1 1 120px", minWidth: 120 } }),
+                            ),
+                          )
+                        : h("div", { className: "sk tt-mp-skel-bar" }),
+                ),
               ),
             ),
           ),
         );
+      }
+      function UniversePanelSkeleton() {
+        return h(React.Fragment, null,
+          h(StripSectionSkeleton, { count: 4 }),
+          h("div", { className: "tt-universe-panel__divider" }),
+          h(StripSectionSkeleton, { count: 4 }),
+          h("div", { className: "tt-universe-panel__divider" }),
+          h(StripSectionSkeleton, { count: 4 }),
+          h("div", { className: "tt-universe-panel__divider" }),
+          h(StripSectionSkeleton, { count: 4 }),
+          h("div", { className: "tt-universe-panel__divider" }),
+          h(StripSectionSkeleton, { count: 3 }),
+          h("div", { className: "tt-universe-panel__divider" }),
+          h("div", { className: "tt-lane-section" }, h(BubbleViewportSkeleton, null)),
+        );
+      }
+      function MarketStateSkeleton() {
+        return h(MarketPulsePanelSkeleton);
       }
       function AnalysisControlsSkeleton() {
         return h("section", { className: "analysis-controls" },
