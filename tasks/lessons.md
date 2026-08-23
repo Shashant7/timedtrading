@@ -19,9 +19,23 @@ grammar on top of punch/scan/facts.
 
 **Fix:** Universe cards keep only the call chips. Desk mid-body is
 `deskCoverProgressBar` (LAST / NOW / COVER). Family / index /
-convexity keep the compact zone bar. No R/S, no EXT, fixed 312px
-height, punch/scan clamped. Do not remount the generic trader zone
-bar on Cloud Desk.
+convexity keep the compact zone bar. No R/S, no EXT. Do not remount
+the generic trader zone bar on Cloud Desk.
+
+## Today strips: levels not generic copy [2026-08-23]
+
+**Symptom:** Compounders repeated "Compounding core — add on pullbacks"
+under every card (COMPOUND CORE chip). Capital Shortlist repeated
+"Thesis active — add on dips." Families said SELL/WAIT + paper 0.1×
+and Size, and Cloud Desk showed BUY whenever RTH + fire.
+
+**Rule:** Strip feet are structured **Inv / PB / Tgt** (and **Hold**
+`N sh @ $px · date` when a book is open). Chips are **Wait / Buy /
+Accumulate / Scale In** + **Long Term / Short Term** + **Long / Short**.
+Drop COMPOUND CORE, Momentum, paper 0.1×, and Size. Cloud Desk **BUY**
+only when fire + regular session + a cover still ahead. Confirm-stack
+gets its own one-line subhead and the same call words. Card height
+288px; inner padding 12px on lane card and foot.
 
 ## Cloud Desk next cover is the rail level, not a missing magnet [2026-08-23]
 

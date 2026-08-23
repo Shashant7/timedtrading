@@ -33,7 +33,10 @@ describe("Today Cloud Desk plan copy", () => {
     expect(src).not.toMatch(/"Day-trade"/);
     expect(src).not.toMatch(/Lean \$\{p\.day_lean\}/);
     expect(src).not.toMatch(/isMoon \? "MOONSHOT" : "LOTTO"/);
-    expect(src).toContain("height: 312px");
+    expect(src).toContain("height: 288px");
     expect(src).toContain(".tt-universe-panel .tt-strip-card .tt-lane-card__ext { display: none; }");
+    expect(src).not.toContain("Paper 0.1");
+    expect(src).toContain("stripCallChips");
+    expect(src).toContain("CONFIRM-STACK");
   });
 });

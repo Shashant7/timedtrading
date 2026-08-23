@@ -1184,21 +1184,22 @@ export function resolveDeskCovers(payload = {}, direction = null, priceIn = null
 
 /**
  * Today Cloud Desk grammar.
- * One call word: BUY only when the desk pick can open a paper 0.1× ticket in RTH.
- * Cover is a trim magnet, never a breakout destination. Lead is omitted.
+ * BUY only when fire + RTH + a cover is still ahead. Cover is a trim magnet,
+ * never a breakout destination. Lead is omitted. No paper-size language.
  */
 export function cloudDeskPlanCopy(w = {}, opts = {}) {
   const ticker = String(w.ticker || "").toUpperCase();
   const role = String(w.role || "watch").toLowerCase();
   const dir = String(w.direction || "").toUpperCase();
   const marketOpen = opts.marketOpen === true;
-  const ticketNow = role === "fire" && marketOpen;
-  const action = ticketNow ? "BUY" : "WAIT";
   const livePx = Number(opts.price ?? w.px);
   const covers = resolveDeskCovers(opts.ticker || {}, dir, livePx, w.magnet);
   const next = covers.next;
   const last = covers.last;
   const relation = next?.relation || last?.relation || classifyCloudMagnet(dir, livePx, w.magnet?.px);
+  const coverAhead = !!(next && (next.relation === "ahead" || classifyCloudMagnet(dir, livePx, next.px) === "ahead"));
+  const ticketNow = role === "fire" && marketOpen && coverAhead;
+  const action = ticketNow ? "BUY" : "WAIT";
   const coverLine = next
     ? cloudMagnetCoverLine(next, "ahead")
     : last
@@ -1208,15 +1209,14 @@ export function cloudDeskPlanCopy(w = {}, opts = {}) {
   const magPx = Number((next || last || w.magnet)?.px);
   const magBit = magPx > 0 ? `$${magPx.toFixed(2)}` : "";
   const side = dir === "LONG" || dir === "SHORT" ? dir : "";
-  let size = "Watch only";
-  if (ticketNow) size = "Paper 0.1\u00d7 ticket";
-  else if (role === "fire") size = "Watch \u2014 paper 0.1\u00d7 in the regular session";
 
   let punch;
   if (ticketNow) {
-    punch = `BUY on ${ticker} \u2014 desk pick. Paper 0.1\u00d7 ticket, not a full-size core play.`;
-  } else if (role === "fire") {
-    punch = `WAIT on ${ticker} \u2014 desk pick. A paper 0.1\u00d7 ticket opens only in the regular session.`;
+    punch = `BUY on ${ticker} \u2014 cover still ahead.`;
+  } else if (role === "fire" && !marketOpen) {
+    punch = `WAIT on ${ticker} \u2014 regular session is closed.`;
+  } else if (role === "fire" && !coverAhead) {
+    punch = `WAIT on ${ticker} \u2014 cover already tagged.`;
   } else if (side) {
     punch = `WAIT on ${ticker} \u2014 10m Cloud Desk ${side}. Not the index options lean.`;
   } else {
@@ -1226,7 +1226,6 @@ export function cloudDeskPlanCopy(w = {}, opts = {}) {
   const scan = [
     action,
     side || null,
-    size,
     coverLine || null,
     w.session ? String(w.session).replace(/_/g, " ") : "10m 5/12",
   ].filter(Boolean).join(" \u00b7 ");
@@ -1234,10 +1233,11 @@ export function cloudDeskPlanCopy(w = {}, opts = {}) {
   const facts = [
     { label: "Call", value: action, tone: action === "BUY" ? "buy" : "wait" },
     { label: "Side", value: side || null },
+    last && Number(last.px) > 0 ? { label: "Inv", value: `$${Number(last.px).toFixed(Number(last.px) >= 100 ? 0 : 2)}` } : null,
+    next && Number(next.px) > 0 ? { label: "Tgt", value: `$${Number(next.px).toFixed(Number(next.px) >= 100 ? 0 : 2)}` } : null,
     { label: "Cover", value: coverLine || null, tone: next ? null : (relation === "behind" ? "behind" : null) },
     { label: "Last", value: lastLine || null, tone: "behind" },
-    { label: "Size", value: size },
-  ];
+  ].filter((f) => f && f.value);
 
   return {
     action,

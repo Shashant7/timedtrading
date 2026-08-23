@@ -956,6 +956,64 @@ function planFactList(facts) {
     className: f.tone ? `tt-plan-facts__v--${f.tone}` : null
   }, f.value))));
 }
+function stripZoneFacts(zm, extras) {
+  const VU = window.TimedVerdictUI;
+  const levels = VU?.zoneLevelFacts ? VU.zoneLevelFacts(zm) : [];
+  const extra = (Array.isArray(extras) ? extras : [extras]).filter(f => f && f.value);
+  return levels.concat(extra);
+}
+function stripHoldFact(trade, invPos, liveT) {
+  const VU = window.TimedVerdictUI;
+  if (VU?.holdPositionFact) {
+    return VU.holdPositionFact(trade || liveT?._openTrade, invPos || liveT?._openInvestor);
+  }
+  return null;
+}
+function stripCallChips({
+  action,
+  horizon,
+  side,
+  actionTitle
+}) {
+  const chips = [];
+  chips.push(h("span", {
+    key: "act",
+    className: actionChipClass(action),
+    title: actionTitle || "",
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, action));
+  if (horizon === "LONG TERM" || horizon === "SHORT TERM") {
+    chips.push(h("span", {
+      key: "hz",
+      className: horizon === "LONG TERM" ? "ds-chip ds-chip--sm tt-lane-badge tt-lane-badge--investor" : "ds-chip ds-chip--sm tt-lane-badge tt-lane-badge--trader",
+      title: horizon === "LONG TERM" ? "Long Term lane" : "Short Term lane",
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, horizon));
+  }
+  if (side === "LONG" || side === "SHORT") {
+    chips.push(h("span", {
+      key: "side",
+      className: `ds-chip ds-chip--sm ${side === "SHORT" ? "ds-chip--dn" : "ds-chip--up"}`,
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: "Model side"
+    }, side));
+  }
+  return chips;
+}
+function growthCallFromZone(zm, liveT, price, row) {
+  const VU = window.TimedVerdictUI;
+  const px = Number(price);
+  if (VU?.isInvestorLiveBuyZone?.(liveT || row, px)) return "BUY";
+  if (VU?.priceInPbBand?.(zm, px) || row?.dip_buy) return "SCALE IN";
+  if (zm) return "ACCUMULATE";
+  return "WAIT";
+}
 function deskCoverProgressBar({
   price,
   lastPx,
@@ -1068,26 +1126,23 @@ function deskCoverProgressBar({
     title: `${tick.label} $${tick.px.toFixed(2)}`
   }, tick.label)))));
 }
-function setupFamilyPlanCopy(p, liveT) {
+function setupFamilyPlanCopy(p, liveT, opts) {
   const ticker = String(p?.ticker || "").toUpperCase();
   const lifeState = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
   const modelEntry = tickerIsModelEntry(liveT, p);
-  const action = modelEntry ? "ENTER" : lifeState === "trimming" ? "TRIM" : lifeState === "bought" || lifeState === "held" ? "HOLD" : "WAIT";
-  const magPx = Number(p?.cloud_magnet?.px);
-  const lifeLabel = p?.lifecycle?.label || (lifeState === "watching" || lifeState === "watch" ? "Watching" : lifeState === "queued" ? "Queued" : lifeState === "bought" ? "Bought" : lifeState === "held" ? "Held" : lifeState ? lifeState.replace(/_/g, " ") : null);
-  const facts = [{
-    label: "Size",
-    value: "Paper 0.1×"
-  }, {
-    label: "State",
-    value: lifeLabel
-  }, {
-    label: "Magnet",
-    value: Number.isFinite(magPx) && magPx > 0 ? `$${magPx.toFixed(2)}` : null
-  }];
+  const price = Number(opts?.price);
+  const zm = opts?.zone || null;
+  const VU = window.TimedVerdictUI;
+  const inPb = VU?.priceInPbBand?.(zm, price) === true;
+  const inLive = VU?.isInvestorLiveBuyZone?.(liveT, price) === true;
+  const inBuyArea = modelEntry || inLive || inPb;
+  let action = "WAIT";
+  if (modelEntry || inLive) action = "BUY";else if (inPb) action = "SCALE IN";else if (lifeState === "trimming") action = "TRIM";else if (zm && Number.isFinite(price) && zm.pb && price > Number(zm.pb[1])) action = "ACCUMULATE";
+  const hold = opts?.hold || null;
+  const facts = stripZoneFacts(zm, hold);
   return {
     action,
-    modelEntry,
+    modelEntry: inBuyArea && action === "BUY",
     facts,
     punch: `${action} on ${ticker}`
   };
@@ -1197,8 +1252,6 @@ function cloudDeskPlanCopy(w, opts) {
   const role = String(w?.role || "watch").toLowerCase();
   const dir = String(w?.direction || "").toUpperCase();
   const marketOpen = opts?.marketOpen === true;
-  const ticketNow = role === "fire" && marketOpen;
-  const action = ticketNow ? "BUY" : "WAIT";
   const livePx = Number(opts?.price ?? w?.px);
   const covers = resolveDeskCovers({
     ...(opts?.ticker || {}),
@@ -1207,36 +1260,41 @@ function cloudDeskPlanCopy(w, opts) {
   const next = covers.next;
   const last = covers.last;
   const relation = next?.relation || last?.relation || classifyCloudMagnet(dir, livePx, w?.magnet?.px);
+  const coverAhead = !!(next && (next.relation === "ahead" || classifyCloudMagnet(dir, livePx, next.px) === "ahead"));
+  const inBuyArea = role === "fire" && marketOpen && coverAhead;
+  const ticketNow = inBuyArea;
+  const action = inBuyArea ? "BUY" : "WAIT";
   const coverLine = next ? cloudMagnetCoverLine(next, "ahead") : last ? cloudMagnetCoverLine(last, "behind") : "";
   const lastLine = next && last ? cloudMagnetCoverLine(last, "behind") : "";
   const magPx = Number((next || last || w?.magnet)?.px);
   const magBit = magPx > 0 ? `$${magPx.toFixed(2)}` : "";
   const side = dir === "LONG" || dir === "SHORT" ? dir : "";
-  let size = "Watch only";
-  if (ticketNow) size = "Paper 0.1× ticket";else if (role === "fire") size = "Watch — paper 0.1× in the regular session";
   let punch;
-  if (ticketNow) {
-    punch = `BUY on ${ticker} — desk pick. Paper 0.1× ticket, not a full-size core play.`;
-  } else if (role === "fire") {
-    punch = `WAIT on ${ticker} — desk pick. A paper 0.1× ticket opens only in the regular session.`;
+  if (inBuyArea) {
+    punch = `BUY on ${ticker} — cover still ahead.`;
+  } else if (role === "fire" && !marketOpen) {
+    punch = `WAIT on ${ticker} — regular session is closed.`;
+  } else if (role === "fire" && !coverAhead) {
+    punch = `WAIT on ${ticker} — cover already tagged.`;
   } else if (side) {
     punch = `WAIT on ${ticker} — 10m Cloud Desk ${side}. Not the index options lean.`;
   } else {
     punch = `WAIT on ${ticker} — 10m Cloud Desk watch.`;
   }
-  const facts = [{
-    label: "Cover",
-    value: coverLine || null,
-    tone: next ? null : relation === "behind" ? "behind" : null
-  }, {
-    label: "Size",
-    value: size
-  }];
+  const zm = opts?.zone || null;
+  const hold = opts?.hold || null;
+  const deskLevels = zm ? stripZoneFacts(zm, hold) : [last && Number(last.px) > 0 ? {
+    label: "Inv",
+    value: `$${Number(last.px).toFixed(Number(last.px) >= 100 ? 0 : 2)}`
+  } : null, next && Number(next.px) > 0 ? {
+    label: "Tgt",
+    value: `$${Number(next.px).toFixed(Number(next.px) >= 100 ? 0 : 2)}`
+  } : null, hold].filter(f => f && f.value);
   return {
     action,
     role,
     ticketNow,
-    facts,
+    facts: deskLevels,
     magBit,
     coverLine,
     lastLine,
@@ -1255,7 +1313,9 @@ function SetupFamiliesStrip({
   onToggleSaved,
   sparkCache,
   ensureSpark,
-  marketOpen
+  marketOpen,
+  tradeByTicker,
+  investorByTicker
 }) {
   const [slice, setSlice] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1331,7 +1391,7 @@ function SetupFamiliesStrip({
     className: "tt-ready__title"
   }, "Tracked structure families"), h("p", {
     className: "tt-ready__sub"
-  }, "Cloud Desk is the 10-minute 5/12 watch. One call word: WAIT outside the regular session, BUY for a paper 0.1× ticket when that session is open. Index Day-Trade below is a separate options lean."));
+  }, "Two scans for the same kind of move. Cloud Desk is the 10-minute 5/12 watch. Confirm-stack is the structure admission list. Both use Wait / Buy / Accumulate / Scale In — Buy only when price is in the add area. Index Day-Trade below is a separate options lean."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
@@ -1361,27 +1421,25 @@ function SetupFamiliesStrip({
   }
   const LaneCard = window.TTLaneCard;
   const VU = window.TimedVerdictUI;
+  const confirmHead = plays.length ? h("div", {
+    className: "tt-strip-subhead"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "CONFIRM-STACK"), h("p", {
+    className: "tt-ready__sub"
+  }, "Structure admission list. Same Wait / Buy / Accumulate / Scale In chips as Growth Ideas and the Capital Shortlist. Buy only when the add zone is live.")) : null;
   const deskStrip = deskWatch.length ? h("div", {
     key: "cloud-desk",
-    style: {
-      marginTop: 10
-    }
+    className: "tt-strip-subhead-wrap"
+  }, h("div", {
+    className: "tt-strip-subhead"
   }, h("div", {
     className: "tt-sec-title"
   }, "CLOUD DESK"), h("p", {
     className: "tt-ready__sub"
-  }, "10-minute 5/12 desk. WAIT means watch. BUY is a paper 0.1× ticket in the regular session only — not a full-size core play."), h("details", {
-    className: "tt-desk-guide"
-  }, h("summary", null, "How the desk reads"), h("div", {
-    className: "tt-desk-guide__body"
-  }, h("p", null, "This lane is the 10-minute Cloud Desk. Index Day-Trade is a different options lean and can disagree on the same ticker."), h("ul", {
-    className: "tt-desk-howto"
-  }, h("li", null, "One call. WAIT outside the regular session. BUY opens a paper 0.1× sim and broker ticket so Cloud Pivot exits can attach."), h("li", null, "Cover is a trim level, not a breakout. The 1H/4H cloud is last cover once price has passed it. Next cover uses the same Short Term / Long Term rail levels (Monthly 21 EMA, then Short Term trim) when that cloud is behind."), h("li", null, "Do not enter because a name is on the desk. A desk pick is not a live ticket until the regular session.")))), h("div", {
+  }, "10-minute 5/12 desk. Cover is a trim, not a breakout. Buy only when a cover is still ahead and the regular session is open.")), h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
-    role: "list",
-    style: {
-      marginTop: 8
-    }
+    role: "list"
   }, deskWatch.slice(0, 16).map(w => {
     const sym = String(w.ticker || "").toUpperCase();
     const liveT = data && data[sym] ? data[sym] : {};
@@ -1402,34 +1460,25 @@ function SetupFamiliesStrip({
     } catch (_) {}
     const quoteDir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
     const rthOpen = marketOpen === true || marketOpen == null && isNyRegularMarketOpen();
+    const VU = window.TimedVerdictUI;
+    const deskZone = VU?.buildTraderZoneModel?.(liveT, livePrice) || VU?.buildInvestorZoneModel?.(liveT, livePrice) || null;
+    const hold = stripHoldFact(tradeByTicker && tradeByTicker.get ? tradeByTicker.get(sym) : null, investorByTicker && investorByTicker.get ? investorByTicker.get(sym) : null, liveT);
     const copy = cloudDeskPlanCopy(w, {
       marketOpen: rthOpen,
       price: livePrice,
-      ticker: liveT
+      ticker: liveT,
+      zone: deskZone,
+      hold
     });
     const dir = String(w.direction || "").toUpperCase();
-    const biasCls = dir === "SHORT" ? "ds-chip--dn" : dir === "LONG" ? "ds-chip--up" : "ds-chip--solid";
     const nextPx = Number(copy.nextCover?.px);
     const lastPx = Number(copy.lastCover?.px);
-    const chipRow = [];
-    chipRow.push(h("span", {
-      key: "act",
-      className: actionChipClass(copy.action),
-      title: copy.punch,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, copy.action));
-    if (dir === "LONG" || dir === "SHORT") {
-      chipRow.push(h("span", {
-        key: "bias",
-        className: `ds-chip ds-chip--sm ${biasCls}`,
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: "10-minute Cloud Desk side — not the index options lean"
-      }, dir));
-    }
+    const chipRow = stripCallChips({
+      action: copy.action,
+      horizon: "SHORT TERM",
+      side: dir,
+      actionTitle: copy.punch
+    });
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const midBody = deskCoverProgressBar({
       price: livePrice,
@@ -1439,11 +1488,7 @@ function SetupFamiliesStrip({
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
-    }, h("p", {
-      className: "tt-dt-plan__lane"
-    }, "10m Cloud Desk"), h("p", {
-      className: "tt-dt-plan__punch"
-    }, copy.punch), planFactList(copy.facts))];
+    }, planFactList(copy.facts))];
     if (LaneCard?.create) {
       return h("div", {
         key: "desk-" + sym,
@@ -1455,8 +1500,7 @@ function SetupFamiliesStrip({
           onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
           title: `${sym} — open cloud desk plan`,
           style: {
-            textAlign: "left",
-            padding: "var(--ds-space-3)"
+            textAlign: "left"
           }
         },
         chipRow,
@@ -1481,18 +1525,11 @@ function SetupFamiliesStrip({
       onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT")
     }, h("div", {
       className: "tt-dt-plan"
-    }, h("p", {
-      className: "tt-dt-plan__lane"
-    }, "10m Cloud Desk"), h("p", {
-      className: "tt-dt-plan__punch"
-    }, copy.punch), planFactList(copy.facts)));
+    }, planFactList(copy.facts)));
   }))) : null;
-  return wrap(h(React.Fragment, null, head, deskStrip, plays.length ? h("div", {
+  return wrap(h(React.Fragment, null, head, deskStrip, confirmHead, plays.length ? h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
-    role: "list",
-    style: {
-      marginTop: 8
-    }
+    role: "list"
   }, plays.map(p => {
     const sym = String(p.ticker || "").toUpperCase();
     const liveT = data && data[sym] ? data[sym] : {};
@@ -1518,37 +1555,20 @@ function SetupFamiliesStrip({
     } catch (_) {}
     const quoteDir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
     const modelDir = String(p.direction || "").toUpperCase() || window.TimedPriceUtils?.inferModelDirection?.(liveT) || "";
-    const biasCls = modelDir === "SHORT" ? "ds-chip--dn" : modelDir === "LONG" ? "ds-chip--up" : "ds-chip--solid";
-    const biasLabel = modelDir === "SHORT" ? "Bearish" : modelDir === "LONG" ? "Bullish" : "Neutral";
-    const chipRow = [];
-    const familyLabel = setupFamilyLabel(p);
-    const familyCopy = setupFamilyPlanCopy(p, liveT);
-    chipRow.push(h("span", {
-      key: "act",
-      className: actionChipClass(familyCopy.action),
-      title: familyCopy.punch,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, familyCopy.action));
-    chipRow.push(h("span", {
-      key: "family",
-      className: "ds-chip ds-chip--sm",
-      title: "Family admission rule for this card",
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, familyLabel));
-    chipRow.push(h("span", {
-      key: "bias",
-      className: `ds-chip ds-chip--sm ${biasCls}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: "Model direction"
-    }, modelDir === "SHORT" || modelDir === "LONG" ? modelDir : biasLabel));
-    const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const zm = VU?.buildTraderZoneModel?.(liveT, trackPrice) || VU?.buildInvestorZoneModel?.(liveT, trackPrice) || null;
+    const hold = stripHoldFact(tradeByTicker && tradeByTicker.get ? tradeByTicker.get(sym) : null, investorByTicker && investorByTicker.get ? investorByTicker.get(sym) : null, liveT);
+    const familyCopy = setupFamilyPlanCopy(p, liveT, {
+      price: trackPrice,
+      zone: zm,
+      hold
+    });
+    const chipRow = stripCallChips({
+      action: familyCopy.action,
+      horizon: zm?.lane === "investor" ? "LONG TERM" : "SHORT TERM",
+      side: modelDir === "SHORT" || modelDir === "LONG" ? modelDir : "",
+      actionTitle: familyCopy.punch
+    });
+    const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
       planLabel: zm.lane === "investor" ? "Long Term plan" : "Short Term plan",
@@ -1570,8 +1590,7 @@ function SetupFamiliesStrip({
           onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
           title: `${sym} — open plan`,
           style: {
-            textAlign: "left",
-            padding: "var(--ds-space-3)"
+            textAlign: "left"
           }
         },
         chipRow,
@@ -1596,9 +1615,7 @@ function SetupFamiliesStrip({
       type: "button",
       className: "tt-opp-card",
       onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT")
-    }, h("div", null, sym), familyCopy.modelEntry && h("p", {
-      className: "tt-strip-card__enter"
-    }, "ENTER — model called this. Follow the plan."), planFactList(familyCopy.facts));
+    }, h("div", null, sym), planFactList(familyCopy.facts));
   })) : null));
 }
 function tickerHeadlinePrice(liveT, fallback) {
@@ -1632,9 +1649,9 @@ function formatExpShort(exp) {
 function actionChipClass(action) {
   const a = String(action || "").toUpperCase();
   if (a === "BUY" || a === "ENTER") return "ds-chip ds-chip--sm ds-chip--up";
-  if (a === "TRIM") return "ds-chip ds-chip--sm ds-chip--accent";
+  if (a === "ACCUMULATE" || a === "SCALE IN" || a === "TRIM") return "ds-chip ds-chip--sm ds-chip--accent";
   if (a === "SELL" || a === "FLAT") return "ds-chip ds-chip--sm ds-chip--dn";
-  return "ds-chip ds-chip--sm ds-chip--accent";
+  return "ds-chip ds-chip--sm ds-chip--solid";
 }
 function convexityPlanCopy(card) {
   const ticker = String(card?.ticker || "").toUpperCase();
@@ -1853,8 +1870,7 @@ function ConvexityPlaysStrip({
           onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
           title: `${sym} — open options plan`,
           style: {
-            textAlign: "left",
-            padding: "var(--ds-space-3)"
+            textAlign: "left"
           }
         },
         chipRow,
@@ -2106,8 +2122,7 @@ function IndexDayTradeStrip({
           onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
           title: `${sym} — open options plan`,
           style: {
-            textAlign: "left",
-            padding: "var(--ds-space-3)"
+            textAlign: "left"
           }
         },
         chipRow,
@@ -4079,7 +4094,9 @@ function GrowthIdeasStrip({
   savedSet,
   onToggleSaved,
   sparkCache,
-  ensureSpark
+  ensureSpark,
+  tradeByTicker,
+  investorByTicker
 }) {
   const [rows, setRows] = useState(() => {
     const cached = CACHE?.peek(HOLDBOOK_CACHE_URL);
@@ -4194,7 +4211,7 @@ function GrowthIdeasStrip({
     className: "tt-ready__title"
   }, "Compounders"), h("p", {
     className: "tt-ready__sub"
-  }, "Longer-horizon names. Watch pullbacks to add.")), h("a", {
+  }, "Longer-horizon names. Buy only in the add zone; Accumulate / Scale In wait for the PB band.")), h("a", {
     href: "/opportunities.html",
     style: {
       fontSize: 11,
@@ -4222,11 +4239,6 @@ function GrowthIdeasStrip({
       }
     }, loadErr || "No compounder names cleared the growth filters right now.")));
   }
-  const fmtPctOpp = n => {
-    if (!Number.isFinite(Number(n))) return null;
-    const v = Number(n);
-    return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
-  };
   return wrap(h(React.Fragment, null, growthHead, loadErr && h("div", {
     style: {
       fontSize: 11,
@@ -4261,7 +4273,6 @@ function GrowthIdeasStrip({
       }
     } catch (_) {}
     if (liveDayPct == null && Number.isFinite(Number(row?.dailyChgPct))) liveDayPct = Number(row.dailyChgPct);
-    const why = Array.isArray(row.hold_thesis) && row.hold_thesis[0] ? row.hold_thesis[0] : row.trajectory?.cagr_pct != null ? `Revenue runway ~${fmtPctOpp(row.trajectory.cagr_pct)} CAGR` : "Growth profile flagged by fundamentals";
     const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
     const LaneCard = window.TTLaneCard;
     const dir = liveDayPct == null || Math.abs(liveDayPct) < 0.05 ? "flat" : liveDayPct > 0 ? "up" : "dn";
@@ -4273,38 +4284,25 @@ function GrowthIdeasStrip({
       }
     } catch (_) {}
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, dir, sparkCache, ensureSpark) : "";
-    const chipRow = [];
-    if (row.tier_label) {
-      chipRow.push(h("span", {
-        key: "tier",
-        className: "ds-chip ds-chip--sm ds-chip--accent",
-        title: "Growth tier"
-      }, row.tier_label));
-    }
-    if (row.dip_buy) {
-      chipRow.push(h("span", {
-        key: "dip",
-        className: "ds-chip ds-chip--sm ds-chip--up",
-        title: "Pullback posture active"
-      }, "Dip active"));
-    }
     const zm = buildGrowthZoneModel(row, ctoBySym[sym], trackPrice, liveT);
+    const action = growthCallFromZone(zm, liveT, trackPrice, row);
+    const side = window.TimedVerdictUI?.inferTickerSide?.(liveT || row) || "LONG";
+    const chipRow = stripCallChips({
+      action,
+      horizon: "LONG TERM",
+      side,
+      actionTitle: action === "BUY" ? "Price is in the add zone" : action === "SCALE IN" ? "Inside the PB band" : "Add on a pullback into the PB band"
+    });
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
       planLabel: "Long Term plan",
       trackTitle: "Long Term lane — invalidation floor, add-on-pullback zone, and target."
     }) : null;
-    const footEls = [h("p", {
-      key: "why",
-      className: "tt-strip-card__hint"
-    }, why), h(GrowthZoneBar, {
-      key: "meta",
-      row,
-      ctoItem: ctoBySym[sym],
-      livePrice: trackPrice,
-      liveT,
-      mode: "meta"
-    })].filter(Boolean);
+    const hold = stripHoldFact(tradeByTicker && tradeByTicker.get ? tradeByTicker.get(sym) : null, investorByTicker && investorByTicker.get ? investorByTicker.get(sym) : null, liveT);
+    const footEls = [h("div", {
+      key: "levels",
+      className: "tt-dt-plan"
+    }, planFactList(stripZoneFacts(zm, hold)))].filter(Boolean);
     if (LaneCard?.create) {
       return h("div", {
         key: sym,
@@ -4316,8 +4314,7 @@ function GrowthIdeasStrip({
           onClick: () => onSelectTicker && onSelectTicker(sym, "FUNDAMENTALS"),
           title: `${sym} — open Fundamentals`,
           style: {
-            textAlign: "left",
-            padding: "var(--ds-space-3)"
+            textAlign: "left"
           }
         },
         chipRow,
@@ -4343,9 +4340,7 @@ function GrowthIdeasStrip({
       className: "tt-opp-card",
       onClick: () => onSelectTicker && onSelectTicker(sym, "FUNDAMENTALS"),
       title: `${sym} — open Fundamentals`
-    }, h("div", null, sym), h("p", {
-      className: "tt-strip-card__hint"
-    }, why));
+    }, h("div", null, sym), planFactList(stripZoneFacts(zm, hold)));
   }))));
 }
 function FocusRail({
@@ -7538,7 +7533,9 @@ function TodayApp({
     savedSet,
     onToggleSaved: toggleSaved,
     sparkCache,
-    ensureSpark
+    ensureSpark,
+    tradeByTicker,
+    investorByTicker
   }), h("div", {
     className: "tt-universe-panel__divider"
   }), window.TimedVerdictUI?.ReadySetupsBoard && h(window.TimedVerdictUI.ReadySetupsBoard, {
@@ -7548,7 +7545,9 @@ function TodayApp({
     savedSet,
     onToggleSaved: toggleSaved,
     sparkCache,
-    ensureSpark
+    ensureSpark,
+    tradeByTicker,
+    investorByTicker
   }), h("div", {
     className: "tt-universe-panel__divider"
   }), h(SetupFamiliesStrip, {
@@ -7559,7 +7558,9 @@ function TodayApp({
     onToggleSaved: toggleSaved,
     sparkCache,
     ensureSpark,
-    marketOpen: marketSession.rthOpen === true
+    marketOpen: marketSession.rthOpen === true,
+    tradeByTicker,
+    investorByTicker
   }), h("div", {
     className: "tt-universe-panel__divider"
   }), h(IndexDayTradeStrip, {
@@ -8028,6 +8029,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787516428830:595903395
+// cache-bust:1787517212821:819866382
 
-// cache-bust:1787516428830:595903395
+// cache-bust:1787517212821:819866382

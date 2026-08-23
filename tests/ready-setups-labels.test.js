@@ -43,7 +43,6 @@ describe("Ready Setups card labels", () => {
     expect(panw).toBeTruthy();
     expect(panw.display.label).toBe("ACCUMULATE");
     expect(panw.display.cls).toBe("accumulate");
-    expect(panw.display.hint).toMatch(/dips/i);
   });
 
   it("shows BUY when accumZone.inZone is true", () => {
@@ -81,7 +80,7 @@ describe("Ready Setups card labels", () => {
     expect(gs.display.cls).toBe("accumulate");
   });
 
-  it("shows BUY NOW for trader entry lane", () => {
+  it("shows BUY for trader entry lane", () => {
     const rows = rank({
       NVDA: {
         ticker: "NVDA",
@@ -92,11 +91,11 @@ describe("Ready Setups card labels", () => {
         rank: 3,
       },
     });
-    expect(rows[0].display.label).toBe("BUY NOW");
+    expect(rows[0].display.label).toBe("BUY");
     expect(rows[0].display.cls).toBe("buy");
   });
 
-  it("shows QUEUED for accumulate_queued investor names", () => {
+  it("shows WAIT for accumulate_queued investor names", () => {
     const rows = rank({
       QUE: {
         ticker: "QUE",
@@ -106,8 +105,8 @@ describe("Ready Setups card labels", () => {
         rank: 10,
       },
     });
-    expect(rows[0].display.label).toBe("QUEUED");
-    expect(rows[0].display.cls).toBe("queued");
+    expect(rows[0].display.label).toBe("WAIT");
+    expect(rows[0].display.cls).toBe("wait");
   });
 
   it("renders the zone-aware label on the card surface", () => {
@@ -132,9 +131,27 @@ describe("Ready Setups card labels", () => {
       }));
     });
     expect(container.textContent).toContain("ACCUMULATE");
-    expect(container.textContent).toMatch(/add on dips/i);
+    expect(container.textContent).toMatch(/Inv|PB|Tgt/i);
     expect(container.textContent).not.toContain("BUY NOW");
+    expect(container.textContent).not.toMatch(/add on dips/i);
     act(() => { root.unmount(); });
+  });
+
+  it("zoneLevelFacts and holdPositionFact are structured strip rows", () => {
+    const facts = window.TimedVerdictUI.zoneLevelFacts({
+      inv: 314, pb: [330, 345], tgt: 392,
+    });
+    expect(facts.map((f) => f.label)).toEqual(["Inv", "PB", "Tgt"]);
+    expect(facts[1].value).toMatch(/330/);
+    const hold = window.TimedVerdictUI.holdPositionFact({
+      qty: 12,
+      entry_price: 149.1,
+      entry_ts: Date.parse("2026-08-04T14:30:00-04:00"),
+    });
+    expect(hold.label).toBe("Hold");
+    expect(hold.value).toMatch(/12 sh/);
+    expect(hold.value).toMatch(/\$149/);
+    expect(hold.value).toMatch(/Aug/);
   });
 
   it("resolveReadySetupCardDisplay prefers trader headline when both lanes primed", () => {
@@ -145,6 +162,6 @@ describe("Ready Setups card labels", () => {
       price: 500,
     };
     const disp = resolveDisplay(row, { kanban_stage: "enter", investor_stage: "accumulate" });
-    expect(disp.label).toBe("BUY NOW");
+    expect(disp.label).toBe("BUY");
   });
 });
