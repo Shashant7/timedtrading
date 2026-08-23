@@ -841,8 +841,8 @@ playbook in `skills/security-auth-patterns.md`)**
 **Setup names (memorize)**
 - One catalog (`worker/foundation/play-catalog.js`): `Gap Reversal Long` and `tt_gap_reversal_long` are the same play. Do not split setup_name vs entry_path.
 - LONG: `tt_gap_reversal_long` (workhorse, live), `tt_pullback`, `tt_ath_breakout` (restricted), `tt_range_reversal_long` (**paused**), `tt_n_test_support` (restricted), `tt_momentum`
-- Admission wildcard default ON (`deep_audit_ja_grade_wildcard`) so empty-grade bleeders do not default-allow. Cloud Pivot exits do not manage canonical core paths.
-- SHORT: `tt_gap_reversal_short` (PF 8.86 — bear-regime only by design; **do not** open up in bull tape), `tt_atl_breakdown`, `tt_n_test_resistance`, `tt_range_reversal_short`
+- Admission wildcard default ON (`deep_audit_ja_grade_wildcard`) so empty-grade bleeders do not default-allow. Restricted plays fail closed when wildcard is on and no matrix/`*` row matches. ATH `*` requires conviction>=4; index swing has a Prime-bar `*` row. Cloud Pivot exits do not manage canonical core paths.
+- SHORT: `tt_gap_reversal_short` (bear-regime only; **do not** open up in bull tape), `tt_atl_breakdown` (restricted), `tt_n_test_resistance` (restricted), `tt_range_reversal_short` (**paused**)
 - Grades: Prime / Confirmed / Speculative. Speculative is generally blocked.
 - Regimes: STRONG_BULL / EARLY_BULL / LATE_BULL / COUNTER_TREND_BULL / NEUTRAL / EARLY_BEAR / LATE_BEAR / STRONG_BEAR / COUNTER_TREND_BEAR
 

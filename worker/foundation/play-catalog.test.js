@@ -3,6 +3,7 @@ import {
   resolvePlay,
   playLabel,
   isPlayPaused,
+  isPlayRestricted,
   canonicalPlayId,
   CORE_PLAYS,
 } from "./play-catalog.js";
@@ -31,6 +32,9 @@ describe("play catalog", () => {
     expect(isPlayPaused("tt_range_reversal_long")).toBe(true);
     expect(isPlayPaused("Range Reversal (Long)")).toBe(true);
     expect(isPlayPaused("tt_gap_reversal_long")).toBe(false);
+    expect(isPlayRestricted("tt_ath_breakout")).toBe(true);
+    expect(isPlayRestricted("tt_index_etf_swing")).toBe(true);
+    expect(isPlayRestricted("tt_gap_reversal_long")).toBe(false);
     expect(playLabel("tt_n_test_support")).toBe("Support Bounce");
   });
 

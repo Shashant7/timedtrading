@@ -598,13 +598,9 @@ export function evaluateEntry(ctx) {
               regime: _regimeForAdmission,
               conviction: Number.isFinite(_convForAdmission) ? _convForAdmission : undefined,
               rr: _rrForAdmission,
-              // July autopsy P8 (2026-08-15): grade is empty at admission
-              // time (computed post-qualify), which made the matrix a
-              // no-op. Wildcard rows apply the family's strictest policy
-              // when the grade is unknown. Flag-gated, default OFF.
-              // Default ON (2026-08-23): empty grade at admission made the
-              // matrix a no-op and leaked ATH / range / N-test bleeders.
-              // Opt out with deep_audit_ja_grade_wildcard=false.
+              // Grade is empty at admission (computed post-qualify).
+              // Wildcard ON applies the family's Prime bar so ATH / N-test
+              // cannot default-allow. Opt out: deep_audit_ja_grade_wildcard=false.
               allowWildcard: String(daCfg.deep_audit_ja_grade_wildcard ?? "true") === "true",
             },
             // Pass null matrix so admitSetup uses the embedded default.

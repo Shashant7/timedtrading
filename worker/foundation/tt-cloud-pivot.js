@@ -16,6 +16,7 @@
 
 import { TICKER_PROXY_MAP } from "../sector-mapping.js";
 import { isCanonicalCapitalEntryPath } from "./confirm-stack-paper-queue.js";
+import { resolvePlay } from "./play-catalog.js";
 
 export const CLOUD_PIVOT_FAMILY = "tt_cloud_pivot";
 export const CLOUD_PIVOT_PAPER_SIZE_MULT = 0.1;
@@ -679,13 +680,23 @@ export function isTtCloudPivotTrade(trade = {}, tickerData = null) {
   if (!trade && !tickerData) return false;
   const path = String(
     trade?.entry_path
+    || trade?.entryPath
     || trade?.__entry_path
+    || trade?.__tradeRef?.entry_path
+    || trade?.__tradeRef?.entryPath
     || tickerData?.__entry_path
     || "",
   ).toLowerCase().trim();
   // Canonical core paths keep their own exits. A coincident paper stamp
   // must not overlay Cloud Pivot 5/12 / 34/50 exits on Support Bounce / ATH.
   if (path && isCanonicalCapitalEntryPath(path) && !path.includes("cloud_pivot")) {
+    return false;
+  }
+  const setupPlay = resolvePlay(
+    trade?.setup_name || tickerData?.setup_name || tickerData?.setupName,
+    trade?.direction || tickerData?.direction,
+  );
+  if (setupPlay && !String(setupPlay.id).includes("cloud_pivot")) {
     return false;
   }
   const fam = String(

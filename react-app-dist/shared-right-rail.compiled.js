@@ -731,13 +731,13 @@
     };
     const SETUP_NAME_MAP = {
       tt_pullback: "Pullback Reclaim",
-      tt_gap_reversal_long: "Gap Reversal (Long)",
-      tt_gap_reversal_short: "Gap Reversal (Short)",
+      tt_gap_reversal_long: "Gap Reversal Long",
+      tt_gap_reversal_short: "Gap Reversal Short",
       tt_ath_breakout: "ATH Breakout",
       tt_n_test_support: "Support Bounce",
       tt_n_test_resistance: "Resistance Fade",
-      tt_range_reversal_long: "Range Reversal (Long)",
-      tt_range_reversal_short: "Range Reversal (Short)",
+      tt_range_reversal_long: "Range Reversal Long",
+      tt_range_reversal_short: "Range Reversal Short",
       tt_reclaim: "Reclaim Long",
       tt_index_etf_swing: "Index Swing",
       ema_regime_confirmed_long: "Confirmed Long",
@@ -19975,4 +19975,4 @@
   };
 })();
 
-// cache-bust:1787491899378:105817276
+// cache-bust:1787495847835:651574491

@@ -26,8 +26,11 @@ Source: `worker/foundation/play-catalog.js` (`resolvePlay`,
 
 Admission used to no-op when grade was empty (`missing_inputs_default_allow`).
 `deep_audit_ja_grade_wildcard` now defaults **true** in
-`worker/pipeline/tt-core-entry.js` so ATH / N-test / range rows actually
-apply. Opt out with `false`.
+`worker/pipeline/tt-core-entry.js` so ATH / N-test / range / index-swing
+rows actually apply. Opt out with `false`. Restricted plays fail closed
+when the flag is on and no exact/`*` row matches. ATH `*` also requires
+`conviction>=4` (same as Prime). `min_rr` / `min_conviction` fail closed
+when the value is missing.
 
 Cloud Pivot exits do **not** manage a canonical core `entry_path` even
 when a paper family stamp is coincident.
@@ -35,7 +38,7 @@ when a paper family stamp is coincident.
 ## Verify
 
 ```bash
-npx vitest run worker/foundation/play-catalog.test.js worker/foundation/tt-cloud-pivot.test.js worker/pipeline/tt-core-entry.js worker/july-autopsy-gates.test.js
+npx vitest run worker/foundation/play-catalog.test.js worker/foundation/tt-cloud-pivot.test.js worker/july-autopsy-gates.test.js worker/phase-c-setup-admission.test.js tests/email-setup-name.test.js
 ```
 
 Re-read the book with one play key:

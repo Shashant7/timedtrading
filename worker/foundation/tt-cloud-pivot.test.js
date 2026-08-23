@@ -154,6 +154,14 @@ describe("tt_cloud_pivot", () => {
       entry_path: "tt_n_test_support",
       slice_family: CLOUD_PIVOT_FAMILY,
     })).toBe(false);
+    expect(isTtCloudPivotTrade({
+      slice_family: CLOUD_PIVOT_FAMILY,
+      __tradeRef: { entry_path: "tt_ath_breakout" },
+    })).toBe(false);
+    expect(isTtCloudPivotTrade({
+      setup_name: "Support Bounce",
+      slice_family: CLOUD_PIVOT_FAMILY,
+    })).toBe(false);
     expect(evaluateTtCloudPivotExit({
       tickerData: payload(),
       openPosition: {

@@ -15744,17 +15744,17 @@ const SETUP_NAME_MAP = {
   tt_n_test_support:          "TT Support Bounce",
   tt_n_test_resistance:       "TT Resistance Fade",
   tt_htf_reclaim:             "TT HTF Reclaim",
-  tt_range_reversal_long:     "TT Range Reversal (Long)",
-  tt_range_reversal_short:    "TT Range Reversal (Short)",
-  tt_gap_reversal_long:       "TT Gap Reversal (Long)",
-  tt_gap_reversal_short:      "TT Gap Reversal (Short)",
+  tt_range_reversal_long:     "TT Range Reversal Long",
+  tt_range_reversal_short:    "TT Range Reversal Short",
+  tt_gap_reversal_long:       "TT Gap Reversal Long",
+  tt_gap_reversal_short:      "TT Gap Reversal Short",
   tt_index_etf_swing:         "TT Index Swing",
 };
 
 function formatSetupName(entryPath) {
   if (!entryPath) return "TT Setup";
   const catalogLabel = playLabel(entryPath);
-  if (catalogLabel) return catalogLabel;
+  if (catalogLabel) return `TT ${catalogLabel}`;
   if (SETUP_NAME_MAP[entryPath]) return SETUP_NAME_MAP[entryPath];
   /* 2026-06-01 — strip a leading tt_ before the underscore-split so the
      fallback no longer produces the "Tt " artifact (e.g. tt_foo_bar
@@ -15785,13 +15785,13 @@ function formatSetupName(entryPath) {
  * Use everywhere a setup name is rendered in a Discord embed. */
 const SETUP_DISPLAY_MAP = {
   tt_pullback:                    "Pullback Reclaim",
-  tt_gap_reversal_long:           "Gap Reversal (Long)",
-  tt_gap_reversal_short:          "Gap Reversal (Short)",
+  tt_gap_reversal_long:           "Gap Reversal Long",
+  tt_gap_reversal_short:          "Gap Reversal Short",
   tt_ath_breakout:                "ATH Breakout",
   tt_n_test_support:              "Support Bounce",
   tt_n_test_resistance:           "Resistance Fade",
-  tt_range_reversal_long:         "Range Reversal (Long)",
-  tt_range_reversal_short:        "Range Reversal (Short)",
+  tt_range_reversal_long:         "Range Reversal Long",
+  tt_range_reversal_short:        "Range Reversal Short",
   tt_reclaim:                     "Reclaim Long",
   tt_index_etf_swing:             "Index Swing",
   momentum_score:                 "Momentum Push",
