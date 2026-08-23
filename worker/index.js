@@ -458,6 +458,12 @@ import {
   thinSliceKvPatch,
   applyConfirmStackOptionsFirstToMenu,
 } from "./foundation/confirm-stack-paper-queue.js";
+import {
+  resolvePaperFamilyStandaloneEntry,
+  isPaperFamilyEntryPath,
+  paperFamilySetupLabel,
+  stampPaperFamilyOnTrade,
+} from "./foundation/paper-family-entry.js";
 import { playLabel } from "./foundation/play-catalog.js";
 import {
   stampContinuationThinSlice,
@@ -15755,6 +15761,8 @@ function formatSetupName(entryPath) {
   if (!entryPath) return "TT Setup";
   const catalogLabel = playLabel(entryPath);
   if (catalogLabel) return `TT ${catalogLabel}`;
+  const paperLabel = paperFamilySetupLabel(entryPath);
+  if (paperLabel) return paperLabel;
   if (SETUP_NAME_MAP[entryPath]) return SETUP_NAME_MAP[entryPath];
   /* 2026-06-01 — strip a leading tt_ before the underscore-split so the
      fallback no longer produces the "Tt " artifact (e.g. tt_foo_bar
@@ -19496,7 +19504,7 @@ async function processTradeSimulation(
     
     // Determine trade direction based on entry path (for mean-reversion entries like gold_short)
     // or fall back to state-based direction
-    const entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
+    let entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
     const stateDirection = getTradeDirection(tickerData.state); // BULL->LONG, BEAR->SHORT
     let direction;
     if (entryPath.includes("mean_revert")) {
@@ -19507,6 +19515,19 @@ async function processTradeSimulation(
       direction = "LONG";
     } else {
       direction = stateDirection;
+    }
+    if (!direction) {
+      try {
+        const _paperDir = resolvePaperFamilyStandaloneEntry(
+          tickerData,
+          tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
+          { isReplay },
+        );
+        if (_paperDir) {
+          direction = _paperDir.direction;
+          entryPath = _paperDir.path;
+        }
+      } catch (_) { /* paper direction is best-effort */ }
     }
     if (!direction) {
       if (options?.replayBatchContext?.processDebug && options.replayBatchContext.processDebug.length < 5) {
@@ -19526,7 +19547,9 @@ async function processTradeSimulation(
     const isGoldLongEntry = entryPath.includes("gold_long");
     const isEmaRegimeEntry = entryPath.includes("ema_regime");
     const isMeanRevertEntry = entryPath.includes("mean_revert");
-    const hasIntentionalEntryPath = isGoldShortEntry || isGoldLongEntry || isEmaRegimeEntry || isMeanRevertEntry;
+    const isPaperFamilyEntry = isPaperFamilyEntryPath(entryPath)
+      || tickerData?._sequence_queue_proposal?.paper === true;
+    const hasIntentionalEntryPath = isGoldShortEntry || isGoldLongEntry || isEmaRegimeEntry || isMeanRevertEntry || isPaperFamilyEntry;
     
     // Only block direction mismatches for entries WITHOUT a recognized entry path
     // (e.g., momentum/squeeze entries where direction must align with state)
@@ -19880,7 +19903,32 @@ async function processTradeSimulation(
     // is still no open trade, we should re-attempt entry on subsequent ingests (cooldown + cycle guard
     // prevent churn / duplicate entries).
     // Support new "in_review" stage + legacy "enter" / "enter_now"
-    const isEnter = stage === "in_review" || stage === "enter" || stage === "enter_now";
+    let isEnter = stage === "in_review" || stage === "enter" || stage === "enter_now";
+    // Paper-family FIRE opens a real 0.1× sim + broker ticket so Cloud
+    // Pivot / confirm-stack exits can attach. Only when the enter lane
+    // did not already admit a canonical core path (that stays full size).
+    if (!isEnter && !openTrade && !tickerData?.__entry_blocked_direction_mismatch) {
+      try {
+        const _paperOpen = resolvePaperFamilyStandaloneEntry(
+          tickerData,
+          tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
+          { isReplay },
+        );
+        if (_paperOpen) {
+          entryPath = _paperOpen.path;
+          direction = _paperOpen.direction;
+          tickerData.__entry_path = _paperOpen.path;
+          tickerData.entry_path = _paperOpen.path;
+          tickerData.__entry_family = _paperOpen.family;
+          tickerData.__paper_family_ticket = true;
+          tickerData.__paper_queue_size_mult = _paperOpen.size_mult;
+          isEnter = true;
+          console.log(`[PAPER_FAMILY_ENTRY] ${sym} ${_paperOpen.family} ${_paperOpen.direction} 0.1× (${_paperOpen.path})`);
+        }
+      } catch (_paperErr) {
+        console.warn(`[PAPER_FAMILY_ENTRY] ${sym} promote failed: ${String(_paperErr?.message || _paperErr).slice(0, 120)}`);
+      }
+    }
     if (isReplay && isEnter && replayCtx?.processDebug && replayCtx.processDebug.length < 4) {
       replayCtx.processDebug.push({ sym, at: "isEnter", stage, storedStage });
     }
@@ -26780,7 +26828,8 @@ async function processTradeSimulation(
         const _confirmedHasRank = Number.isFinite(_confirmedGateRankRaw);
         const _confirmedGateRank = _confirmedHasRank ? _confirmedGateRankRaw : 0;
         let _confirmedGateBlocked = false;
-        if (setupGrade === "Confirmed" && _confirmedHasRank && _confirmedGateRank < _confirmedMinRank) {
+        if (setupGrade === "Confirmed" && _confirmedHasRank && _confirmedGateRank < _confirmedMinRank
+          && !tickerData.__paper_family_ticket && !isPaperFamilyEntryPath(entryPath)) {
           console.log(`[ENTRY GATE] ${sym} blocked: Confirmed grade with rank ${_confirmedGateRank} < ${_confirmedMinRank}`);
           if (isReplay && replayCtx?.processDebug && replayCtx.processDebug.length < 30)
             replayCtx.processDebug.push({ sym, gate: "confirmed_min_rank", rank: _confirmedGateRank, required: _confirmedMinRank });
@@ -26983,7 +27032,9 @@ async function processTradeSimulation(
             let _cioDecision = null;
             const _cioLiveEnabled = String(env?._deepAuditConfig?.ai_cio_enabled ?? env?.AI_CIO_ENABLED ?? "false") === "true";
             const _cioReplayEnabled = isReplay && String(env?._deepAuditConfig?.ai_cio_replay_enabled ?? "false") === "true";
-            const _cioEnabled = _cioLiveEnabled && (!isReplay || _cioReplayEnabled);
+            const _cioEnabled = _cioLiveEnabled && (!isReplay || _cioReplayEnabled)
+              && !tickerData.__paper_family_ticket
+              && !isPaperFamilyEntryPath(entryPath);
             if (_cioEnabled) {
               try {
                 const _cioStart = Date.now();
@@ -27329,9 +27380,13 @@ async function processTradeSimulation(
               realizedPnl: 0,
               currentPrice: pxNow,
               lastUpdate: eventTs(),
-              source: "KANBAN_ENTER_NOW",
+              source: tickerData.__paper_family_ticket ? "PAPER_FAMILY_ENTRY" : "KANBAN_ENTER_NOW",
               setupName,
               setupGrade,
+              slice_family: tickerData.__entry_family || null,
+              entry_family: tickerData.__entry_family || null,
+              paper: !!tickerData.__paper_family_ticket,
+              paper_mult: tickerData.__paper_queue_size_mult || null,
               riskBudget: tierRiskPct,
               gradeScore,
               estimated_peak_hours: tickerData?.__timeToTarget?.estimatedPeakHours || null,
@@ -27720,14 +27775,9 @@ async function processTradeSimulation(
                   } else {
                     tickerData.__model_play = _modelPlayLineage(_vMenu);
                   }
-                  // Persist family on the trade for cloud-pivot exit path.
-                  if (tickerData._sequence_queue_proposal?.family === CLOUD_PIVOT_FAMILY
-                    || tickerData.tt_cloud_pivot
-                    || tickerData.__model_play?.family === CLOUD_PIVOT_FAMILY) {
-                    tickerData.__entry_family = CLOUD_PIVOT_FAMILY;
-                    trade.slice_family = CLOUD_PIVOT_FAMILY;
-                    trade.entry_family = CLOUD_PIVOT_FAMILY;
-                  }
+                  // Persist family only on the standalone paper ticket.
+                  // A coincident Cloud Pivot stamp must not overlay a core path.
+                  stampPaperFamilyOnTrade(trade, tickerData, entryPath);
                 } catch (_) {
                   tickerData.__model_play = _modelPlayLineage(_vMenu);
                 }

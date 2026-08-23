@@ -35,7 +35,8 @@ API (same rows as family scoreboard): `GET /timed/admin/trust-spine/family-attri
 - Core book is the contrast lane (everything that is not a named slice)
 - **Full-book autopsy** answers pollution vs core degradation. A canonical
   `entry_path` stays **core** even with a paper-family stamp (coincident).
-  Only a family stamp *without* a canonical path is a standalone experiment.
+  Only a family path (`tt_cloud_pivot_long`, `confirm_stack_ema21_long`, …)
+  without a canonical core `entry_path` is a standalone experiment.
   The 60-day timing scan does **not** apply that preference — do not treat
   its Confirm-stack / Cloud Pivot rows as a dedicated experiment P&L book.
 

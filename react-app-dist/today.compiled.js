@@ -936,57 +936,20 @@ function setupFamilyLabel(p) {
   if (familyKey === "momentum_continuation") return "Continuation";
   return familyKey.replace(/_/g, " ");
 }
-function tickerIsModelEntry(t, play) {
-  if (play?.sequence_entry_ready === true) return true;
-  if (t?.sequence_entry_ready === true) return true;
-  const stage = String(t?.kanban_stage || play?.kanban_stage || "").toLowerCase();
-  if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return true;
-  const seqs = Array.isArray(t?.setup_sequences) ? t.setup_sequences : [];
-  return seqs.some(s => String(s?.status || "").toLowerCase() === "entry_ready");
-}
-function planFactList(facts) {
-  const rows = (Array.isArray(facts) ? facts : []).filter(f => f && f.value);
-  if (!rows.length) return null;
-  return h("dl", {
-    className: "tt-plan-facts"
-  }, rows.map(f => h("div", {
-    key: f.label,
-    className: "tt-plan-facts__row"
-  }, h("dt", null, f.label), h("dd", {
-    className: f.tone ? `tt-plan-facts__v--${f.tone}` : null
-  }, f.value))));
-}
-function setupFamilyPlanCopy(p, liveT) {
+function setupFamilyPlanCopy(p) {
   const ticker = String(p?.ticker || "").toUpperCase();
   const lifeState = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
-  const modelEntry = tickerIsModelEntry(liveT, p);
-  const action = modelEntry ? "ENTER" : lifeState === "trimming" ? "TRIM" : lifeState === "bought" || lifeState === "held" ? "HOLD" : "WAIT";
-  const actionTone = action === "ENTER" ? "enter" : action === "TRIM" ? "trim" : action === "WAIT" ? "wait" : null;
+  const action = p?.sequence_entry_ready ? "BUY" : lifeState === "trimming" ? "TRIM" : lifeState === "bought" || lifeState === "held" ? "HOLD" : "WAIT";
+  const hint = setupFamilyActionHint(p);
+  const shortHint = String(hint || "").replace(/\s+Size stays (paper|tiny)[^.]*\.?/i, "").replace(/\s+size stays tiny[^.]*\.?/i, "").trim();
+  const punch = shortHint ? `${action} on ${ticker} — ${shortHint}` : `${action} on ${ticker}`;
   const magPx = Number(p?.cloud_magnet?.px);
   const lifeLabel = p?.lifecycle?.label || (lifeState === "watching" || lifeState === "watch" ? "Watching" : lifeState === "queued" ? "Queued" : lifeState === "bought" ? "Bought" : lifeState === "held" ? "Held" : lifeState ? lifeState.replace(/_/g, " ") : null);
-  const playName = setupFamilyLabel(p);
-  const facts = [{
-    label: "Call",
-    value: action,
-    tone: actionTone
-  }, {
-    label: "Play",
-    value: playName
-  }, {
-    label: "Size",
-    value: "Paper 0.1×"
-  }, {
-    label: "State",
-    value: lifeLabel
-  }, {
-    label: "Magnet",
-    value: Number.isFinite(magPx) && magPx > 0 ? `$${magPx.toFixed(2)}` : null
-  }];
+  const scan = ["Paper 0.1×", setupFamilyLabel(p), lifeLabel, Number.isFinite(magPx) && magPx > 0 ? `magnet $${magPx.toFixed(2)}` : null, p?.sequence_entry_ready ? "entry ready" : null].filter(Boolean).join(" · ");
   return {
     action,
-    modelEntry,
-    facts,
-    punch: `${action} on ${ticker}`
+    punch,
+    scan
   };
 }
 function cloudDeskPlanCopy(w) {
@@ -995,39 +958,22 @@ function cloudDeskPlanCopy(w) {
   const dir = String(w?.direction || "").toUpperCase();
   const magPx = Number(w?.magnet?.px);
   const magBit = Number.isFinite(magPx) && magPx > 0 ? `$${magPx.toFixed(2)}` : "";
-  const action = "WAIT";
+  const action = role === "fire" ? "BUY" : "WAIT";
   const leader = String(w?.leader_follow?.leader || w?.leader?.symbol || "").toUpperCase();
-  const playWord = role === "fire" ? "Cloud Pivot print (paper)" : role === "leader" ? "Leader curl" : role === "follow" ? `Follow ${leader || "leader"}` : role === "catalyst" ? "Catalyst if/then" : role === "stalk" ? "Magnet stalk" : "Desk watch";
+  const playWord = role === "fire" ? "Cloud Pivot paper 0.1× ticket" : role === "leader" ? "leader curl" : role === "follow" ? `follow ${leader || "leader"}` : role === "catalyst" ? "catalyst if/then" : role === "stalk" ? "magnet stalk" : "desk watch";
+  const punchBits = [playWord];
+  if (magBit) punchBits.push(`toward ${magBit}`);
+  const punch = `${action} on ${ticker} — ${punchBits.join(" ")}`.replace(/\s+/g, " ").trim();
   const plan = w?.session_plan;
   const gatePx = dir === "SHORT" ? Number(plan?.short_under) : Number(plan?.long_over);
-  const gate = Number.isFinite(gatePx) && gatePx > 0 ? dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}` : null;
-  const facts = [{
-    label: "Call",
-    value: "WAIT",
-    tone: "wait"
-  }, {
-    label: "Play",
-    value: playWord
-  }, {
-    label: "Size",
-    value: role === "fire" ? "Paper 0.1× — not a ticket" : "Watch only"
-  }, {
-    label: "Magnet",
-    value: magBit || null
-  }, {
-    label: "Gate",
-    value: gate
-  }, {
-    label: "Lead",
-    value: leader || null
-  }];
+  const scan = [role === "fire" ? "Paper 0.1×" : "Watch only", magBit ? `magnet ${magBit}` : null, Number.isFinite(gatePx) && gatePx > 0 ? dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}` : null, w?.day2 ? "day2" : null, w?.mixed ? "mixed cloud OK" : null, leader && role !== "follow" ? `lead ${leader}` : null, w?.session ? String(w.session).replace(/_/g, " ") : "10m 5/12"].filter(Boolean).join(" · ");
   return {
     action,
     role,
-    facts,
+    punch,
+    scan,
     magBit,
-    leader,
-    punch: `WAIT on ${ticker}`
+    leader
   };
 }
 function deskRoleChipClass(role) {
@@ -1119,7 +1065,7 @@ function SetupFamiliesStrip({
     className: "tt-ready__title"
   }, "Tracked structure families"), h("p", {
     className: "tt-ready__sub"
-  }, "The model calls the entry. Cards stay WATCH until a card shows ENTER."));
+  }, "Admitted runners — Confirm-stack, Cloud Pivot, Continuation. Cloud Desk above is the weekend/night watch. FIRE / entry-ready opens a paper 0.1× sim ticket and the same 0.1× broker order so exits can be followed."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
@@ -1158,13 +1104,9 @@ function SetupFamiliesStrip({
     className: "tt-sec-title"
   }, "CLOUD DESK"), h("p", {
     className: "tt-ready__sub"
-  }, "Weekend / night watch. FIRE is a paper print — not a ticket. Enter only when a Families card says ENTER."), h("details", {
-    className: "tt-desk-guide"
-  }, h("summary", null, "How the desk reads"), h("div", {
-    className: "tt-desk-guide__body"
-  }, h("p", null, "Inspect the 10m 5/12 tape and 1H magnets. Size stays paper until a Families card admits the name."), h("ul", {
+  }, "Inspect the 10m 5/12 tape, 1H magnets, day2 holds, and BTC/ETH/SPY/QQQ leaders. FIRE opens a paper 0.1× sim + broker ticket; follow the family exits."), h("ul", {
     className: "tt-desk-howto"
-  }, h("li", null, "FIRE = 10m 5/12 print, paper 0.1×. Not a sized entry."), h("li", null, "Leaders first: BTCUSD, ETHUSD, SPY, QQQ. Followers only on the same side."), h("li", null, "Magnet is the cover. If/then chips are gates, not market orders.")))), h("div", {
+  }, h("li", null, "FIRE opens a paper 0.1× ticket (sim and broker). Follow Cloud Pivot exits when the 10m candle loses 5/12 or tags the magnet."), h("li", null, "Leaders first: BTCUSD, ETHUSD, SPY, QQQ. A follower only matters on the same side as the leader curl."), h("li", null, "Magnet is the cover. Ride toward the arrow; flatten when tagged. If/then chips are gates (long over X / short under Y), not market orders.")), h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
     role: "list",
     style: {
@@ -1198,6 +1140,7 @@ function SetupFamiliesStrip({
     const copy = cloudDeskPlanCopy(w);
     const dir = String(w.direction || "").toUpperCase();
     const biasCls = dir === "SHORT" ? "ds-chip--dn" : dir === "LONG" ? "ds-chip--up" : "ds-chip--solid";
+    const kClass = copy.action === "BUY" ? "tt-dt-plan__k--buy" : "tt-dt-plan__k--wait";
     const plan = w.session_plan;
     const gatePx = dir === "SHORT" ? Number(plan?.short_under) : Number(plan?.long_over);
     const magPx = Number(w.magnet?.px);
@@ -1287,7 +1230,11 @@ function SetupFamiliesStrip({
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
-    }, planFactList(copy.facts))];
+    }, h("p", {
+      className: `tt-dt-plan__punch ${kClass}`
+    }, copy.punch), copy.scan && h("p", {
+      className: "tt-dt-plan__scan"
+    }, copy.scan))];
     if (zm && LaneCard?.zoneBarMeta) {
       footEls.push(LaneCard.zoneBarMeta(zm, {}));
     }
@@ -1328,7 +1275,11 @@ function SetupFamiliesStrip({
       onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT")
     }, h("div", {
       className: "tt-dt-plan"
-    }, planFactList(copy.facts)));
+    }, h("p", {
+      className: `tt-dt-plan__punch ${kClass}`
+    }, copy.punch), copy.scan && h("p", {
+      className: "tt-dt-plan__scan"
+    }, copy.scan)));
   }))) : null;
   return wrap(h(React.Fragment, null, head, deskStrip, plays.length ? h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
@@ -1368,17 +1319,6 @@ function SetupFamiliesStrip({
     const chipRow = [];
     const familyKey = String(p.slice_family || p.kind || "confirm_stack_ema21");
     const familyLabel = setupFamilyLabel(p);
-    const familyCopy = setupFamilyPlanCopy(p, liveT);
-    if (familyCopy.modelEntry) {
-      chipRow.push(h("span", {
-        key: "enter",
-        className: "ds-chip ds-chip--sm ds-chip--up",
-        title: "Model called this entry. Follow the plan — do not time the print.",
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        }
-      }, "ENTER"));
-    }
     chipRow.push(h("span", {
       key: "family",
       className: "ds-chip ds-chip--sm",
@@ -1451,7 +1391,13 @@ function SetupFamiliesStrip({
       },
       title: "Model direction"
     }, biasLabel));
-    if (!familyCopy.modelEntry && p.confirm_stack === true) {
+    if (p.sequence_entry_ready) {
+      chipRow.push(h("span", {
+        key: "entry",
+        className: "ds-chip ds-chip--sm ds-chip--up",
+        title: "Entry window on this ticker's plan"
+      }, "Entry ready"));
+    } else if (p.confirm_stack === true) {
       chipRow.push(h("span", {
         key: "confirm",
         className: "ds-chip ds-chip--sm ds-chip--accent",
@@ -1486,17 +1432,16 @@ function SetupFamiliesStrip({
       planLabel: zm.lane === "investor" ? "Long Term plan" : "Short Term plan",
       trackTitle: zm.lane === "investor" ? "Long Term lane — invalidation floor, add-on-pullback zone, and target." : "Short Term plan — stop, add zone, and first target."
     }) : null;
-    const footEls = [];
-    if (familyCopy.modelEntry) {
-      footEls.push(h("p", {
-        key: "enter",
-        className: "tt-strip-card__enter"
-      }, "ENTER — model called this. Follow the plan."));
-    }
-    footEls.push(h("div", {
+    const familyCopy = setupFamilyPlanCopy(p);
+    const kClass = familyCopy.action === "BUY" ? "tt-dt-plan__k--buy" : familyCopy.action === "TRIM" ? "tt-dt-plan__k--sell" : familyCopy.action === "HOLD" ? "tt-dt-plan__k--wait" : "tt-dt-plan__k--wait";
+    const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
-    }, planFactList(familyCopy.facts)));
+    }, h("p", {
+      className: `tt-dt-plan__punch ${kClass}`
+    }, familyCopy.punch), familyCopy.scan && h("p", {
+      className: "tt-dt-plan__scan"
+    }, familyCopy.scan))];
     if (zm && LaneCard?.zoneBarMeta) {
       footEls.push(LaneCard.zoneBarMeta(zm, {}));
     }
@@ -1504,7 +1449,7 @@ function SetupFamiliesStrip({
     if (LaneCard?.create) {
       return h("div", {
         key: sym + (p.kind || ""),
-        className: `tt-strip-card${familyCopy.modelEntry ? " tt-strip-card--enter" : ""}`,
+        className: "tt-strip-card",
         role: "listitem"
       }, LaneCard.create({
         sym,
@@ -1538,9 +1483,9 @@ function SetupFamiliesStrip({
       type: "button",
       className: "tt-opp-card",
       onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT")
-    }, h("div", null, sym), familyCopy.modelEntry && h("p", {
-      className: "tt-strip-card__enter"
-    }, "ENTER — model called this. Follow the plan."), planFactList(familyCopy.facts));
+    }, h("div", null, sym), h("p", {
+      className: "tt-dt-plan__punch"
+    }, familyCopy.punch));
   })) : null));
 }
 function tickerHeadlinePrice(liveT, fallback) {
@@ -1576,7 +1521,7 @@ function stripUiEmoji(s) {
 }
 function actionChipClass(action) {
   const a = String(action || "").toUpperCase();
-  if (a === "BUY" || a === "ENTER") return "ds-chip ds-chip--sm ds-chip--up";
+  if (a === "BUY") return "ds-chip ds-chip--sm ds-chip--up";
   if (a === "TRIM") return "ds-chip ds-chip--sm ds-chip--accent";
   if (a === "SELL") return "ds-chip ds-chip--sm ds-chip--dn";
   return "ds-chip ds-chip--sm ds-chip--accent";
@@ -5444,10 +5389,6 @@ function isTraderTriggerReady(t) {
   if (hasOpenTradeDir(t)) return false;
   return TRADER_TRIGGER_STAGES.has(String(t?.kanban_stage || "").toLowerCase());
 }
-function isTraderModelEntry(t) {
-  if (hasOpenTradeDir(t)) return false;
-  return tickerIsModelEntry(t, null);
-}
 function viewportActionChips(t) {
   const chips = [];
   if (isInvestorQueued(t)) {
@@ -5457,17 +5398,11 @@ function viewportActionChips(t) {
       title: "Long Term — queued for next rebalance."
     });
   }
-  if (isTraderModelEntry(t)) {
-    chips.push({
-      label: "ENTER",
-      cls: "ds-chip--up",
-      title: "Model called this entry. Follow the plan — do not time the print."
-    });
-  } else if (isTraderTriggerReady(t)) {
+  if (isTraderTriggerReady(t)) {
     chips.push({
       label: "Trigger Ready",
       cls: "ds-chip--accent",
-      title: "Short Term — trigger ready for review. Wait for ENTER."
+      title: "Short Term — trigger ready for review or entry."
     });
   } else if (isTraderWatchlist(t)) {
     chips.push({
@@ -6164,12 +6099,6 @@ function ViewportCard({
   };
   const stage = String(t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {
-    if (isTraderModelEntry(t) || stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
-      return {
-        label: "ENTER",
-        cls: "ds-chip--up"
-      };
-    }
     if (stage === "trim") return {
       label: "Trim",
       cls: "ds-chip--accent"
@@ -8223,6 +8152,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787498368099:459666986
+// cache-bust:1787499704761:962032222
 
-// cache-bust:1787498368099:459666986
+// cache-bust:1787499704761:962032222

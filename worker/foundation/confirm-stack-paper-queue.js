@@ -1,9 +1,14 @@
 // Confirm-stack EMA21 — sequence may propose Queued (tiny/paper).
 // plans/confirm-stack-ema21-slice.plan.md + plans/wow-pnl-adaptive-governor.plan.md
 //
-// Does NOT mutate kanban_stage to in_review (that would fire full capital
-// entry). Stamps a proposal on the payload; lifecycle surfaces Queued;
-// sizing caps at paper size_mult if a normal entry still occurs.
+// Stamps a proposal on the payload. A coincident stamp must NEVER crush a
+// canonical core path (AXON Support Bounce). Standalone family FIRE opens
+// its own 0.1× ticket via resolvePaperFamilyStandaloneEntry — that path
+// is carved out of isCanonicalCapitalEntryPath so paper size applies.
+// Do not promote kanban to in_review from this stamp (that would fire
+// full capital on whatever core path also qualifies).
+
+import { isPaperFamilyEntryPath } from "./paper-family-entry.js";
 
 export const CONFIRM_STACK_FAMILY = "confirm_stack_ema21";
 export const PAPER_QUEUE_DEFAULT_SIZE_MULT = 0.1;
@@ -230,6 +235,9 @@ export function paperQueueSizeMult(tickerData, daCfg = {}) {
 export function isCanonicalCapitalEntryPath(entryPath) {
   const path = String(entryPath || "").toLowerCase().trim();
   if (!path) return false;
+  // Paper-family standalone paths start with tt_ (tt_cloud_pivot_long)
+  // but must NOT get full-size capital.
+  if (isPaperFamilyEntryPath(path)) return false;
   if (/^(tt_|orb_|gold_|vwap_|pullback_|ema21_|ichimoku_|ripster_)/.test(path)) return true;
   if (path.includes("test_support") || path.includes("ath_breakout")) return true;
   if (path.includes("support_bounce") || path.includes("breakout")) return true;

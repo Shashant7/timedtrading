@@ -405,15 +405,17 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   a canonical `entry_path` stays core even with a paper stamp (coincident);
   standalone experiment fills are family stamps without a canonical path.
   Measure live 0.1× MFE keep, then widen.
-  Confirm-stack thin slice: sequence `entry_ready` → paper Queued (0.1×);
-  move-ending/conviction auto-promote only after family n≥30 + keep≥0.35.
+  Confirm-stack thin slice: sequence `entry_ready` → paper 0.1× standalone
+  ticket (sim + broker) via `resolvePaperFamilyStandaloneEntry`. Canonical
+  core paths stay full size. Replay stays stamp-only unless
+  `deep_audit_paper_family_standalone_entry_replay=true`.
   Cloud Pivot desk (`buildCloudPivotDesk` / `scripts/scan-cloud-pivot-desk.mjs`)
   is the super-minion pass: inspects 10m/1H magnets on nights and weekends
   even when the RTH detector is dark. Today UI: same `TTLaneCard` + punch/scan
-  as Index Day-Trade (`cloudDeskPlanCopy`). FIRE = 10m print, not a sized
-  ticket; leaders BTC/ETH/SPY/QQQ. Skill: `skills/cloud-pivot-desk.md`.
+  as Index Day-Trade (`cloudDeskPlanCopy`). FIRE = paper 0.1× ticket (RTH);
+  leaders BTC/ETH/SPY/QQQ. Skill: `skills/cloud-pivot-desk.md`.
   `tt_cloud_pivot` thin slice (not ripster_*): 10m 5/12 curl + 34/50 + 1H MTF,
-  paper Queued 0.1×; exit when 10m candle loses 5/12. Magnet = next 1H/4H
+  paper 0.1× ticket; exit when 10m candle loses 5/12. Magnet = next 1H/4H
   34/50 (then 72/89) — cover/trim on tag. Catalyst names get a one-card
   if/then (long over X). Mixed-cloud 5/12 vs 10m 34/50 is allowed when the
   1H magnet is ahead; veto only if 1H slopes against with no magnet left.
@@ -523,7 +525,8 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   but is **default OFF** (`deep_audit_model_play_sim_enabled`) until D1
   persists vehicle fills; without the flag book still fills shares.
   **Thin slices (not flag-flip):** Confirm-stack EMA21 + **momentum
-  continuation** (paper Queued) under lifecycle + play UI. Plans:
+  continuation** + Cloud Pivot open a paper 0.1× standalone ticket
+  (sim + broker) when FIRE and no core path is in the enter lane. Plans:
   [`plans/confirm-stack-ema21-slice.plan.md`](plans/confirm-stack-ema21-slice.plan.md),
   [`plans/continuation-move-capture-slice.plan.md`](plans/continuation-move-capture-slice.plan.md).
   Today `/timed/plays/today` `slices.*`. Family scoreboard lives on

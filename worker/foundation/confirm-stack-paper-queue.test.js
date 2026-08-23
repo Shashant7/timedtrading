@@ -65,6 +65,7 @@ describe("confirm-stack paper queue", () => {
     expect(isCanonicalCapitalEntryPath("tt_ath_breakout")).toBe(true);
     expect(isCanonicalCapitalEntryPath("orb_long")).toBe(true);
     expect(isCanonicalCapitalEntryPath("confirm_stack_ema21")).toBe(false);
+    expect(isCanonicalCapitalEntryPath("tt_cloud_pivot_long")).toBe(false);
     expect(isCanonicalCapitalEntryPath("")).toBe(false);
   });
 
