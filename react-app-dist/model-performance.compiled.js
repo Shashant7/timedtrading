@@ -165,6 +165,201 @@ function ModelStatus({
     className: "s"
   }, "All-time"))));
 }
+const PAPER_FAMILY_CARDS = [{
+  key: "confirm_stack_ema21",
+  name: "Confirm-stack"
+}, {
+  key: "tt_cloud_pivot",
+  name: "Cloud Pivot"
+}, {
+  key: "momentum_continuation",
+  name: "Continuation"
+}];
+function fmtKeep(v) {
+  if (v == null || !Number.isFinite(Number(v))) return "—";
+  return Number(v).toFixed(2);
+}
+function fmtPctNum(v) {
+  if (v == null || !Number.isFinite(Number(v))) return "—";
+  const n = Number(v);
+  return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+}
+function fmtPf(v) {
+  if (v == null || !Number.isFinite(Number(v))) return "—";
+  return Number(v).toFixed(2);
+}
+function PaperExperimentScoreboard() {
+  const [days, setDays] = React.useState(7);
+  const [data, setData] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/timed/admin/trust-spine/family-attribution?family=all&days=${days}`, {
+          credentials: "include",
+          cache: "no-store"
+        });
+        const j = await r.json().catch(() => null);
+        if (!alive) return;
+        if (!r.ok || j?.ok === false) {
+          setErr(j?.error || `HTTP ${r.status}`);
+          setData(null);
+        } else {
+          setData(j);
+          setErr(null);
+        }
+      } catch (e) {
+        if (alive) {
+          setErr(String(e?.message || e));
+          setData(null);
+        }
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [days]);
+  return h("section", {
+    className: "tt-row",
+    id: "paper-experiments"
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      marginBottom: 10,
+      flexWrap: "wrap",
+      gap: 12
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "PAPER EXPERIMENTS"), h("div", {
+    className: "tt-sec-h",
+    style: {
+      margin: 0
+    }
+  }, "Thin-slice scoreboard")), h("div", {
+    className: "toggle-row"
+  }, h("button", {
+    className: days === 7 ? "active" : "",
+    onClick: () => setDays(7)
+  }, "7 days"), h("button", {
+    className: days === 30 ? "active" : "",
+    onClick: () => setDays(30)
+  }, "30 days"))), h("p", {
+    className: "paper-card__note",
+    style: {
+      margin: "0 0 12px",
+      maxWidth: 820
+    }
+  }, "Paper 0.1× experiments. Widen only when keep ≥ 0.35, closed ≥ 5, expectancy > 0, and profit factor ≥ 1. Ideal clock is observational on filled sessions (best MFE, least MAE) — not a dedicated historical replay."), loading && h("div", {
+    className: "sk",
+    style: {
+      height: 160,
+      borderRadius: 12
+    }
+  }), !loading && err && h("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      color: "var(--tt-dn-soft)"
+    }
+  }, "Could not load paper scoreboard: " + err), !loading && data && h("div", {
+    className: "paper-board"
+  }, PAPER_FAMILY_CARDS.map(card => {
+    const r = data.families?.[card.key] || {};
+    const closed = Number(r.closed) || 0;
+    const keep = r.avg_mfe_keep_rate;
+    const exp = r.stats?.expectancy_pct;
+    const pf = r.stats?.profit_factor;
+    const ready = !!r.widen_ready;
+    const needCloses = Math.max(0, 5 - closed);
+    let gate = "Measuring";
+    if (ready) gate = "Widen ready";else if (closed < 5) gate = `Need ${needCloses} more close${needCloses === 1 ? "" : "s"}`;else if (keep != null && Number(keep) < 0.35) gate = `Keep ${fmtKeep(keep)} (need ≥ 0.35)`;else if (exp != null && Number(exp) <= 0) gate = "Expectancy not yet positive";else if (pf != null && Number(pf) < 1) gate = "Profit factor < 1";
+    return h("div", {
+      className: "paper-card",
+      key: card.key
+    }, h("div", {
+      className: "paper-card__head"
+    }, h("div", {
+      className: "paper-card__name"
+    }, card.name), h("div", {
+      className: "paper-card__chips"
+    }, h("span", {
+      className: "paper-chip paper-chip--paper"
+    }, "PAPER 0.1×"), h("span", {
+      className: `health-pill ${ready ? "ok" : "warn"}`
+    }, gate))), h("div", {
+      className: "paper-kpis"
+    }, h("div", {
+      className: "paper-kpi"
+    }, h("div", {
+      className: "l"
+    }, "Entries"), h("div", {
+      className: "v"
+    }, String(r.entries ?? 0))), h("div", {
+      className: "paper-kpi"
+    }, h("div", {
+      className: "l"
+    }, "Open / closed"), h("div", {
+      className: "v"
+    }, `${r.open ?? 0} / ${closed}`)), h("div", {
+      className: "paper-kpi"
+    }, h("div", {
+      className: "l"
+    }, "Family win rate"), h("div", {
+      className: "v"
+    }, r.family_win_rate_pct != null ? `${r.family_win_rate_pct}%` : "—")), h("div", {
+      className: "paper-kpi"
+    }, h("div", {
+      className: "l"
+    }, "MFE keep"), h("div", {
+      className: "v"
+    }, fmtKeep(keep))), h("div", {
+      className: "paper-kpi"
+    }, h("div", {
+      className: "l"
+    }, "Expectancy"), h("div", {
+      className: `v ${Number(exp) > 0 ? "up" : Number(exp) < 0 ? "dn" : ""}`
+    }, fmtPctNum(exp))), h("div", {
+      className: "paper-kpi"
+    }, h("div", {
+      className: "l"
+    }, "Profit factor"), h("div", {
+      className: "v"
+    }, fmtPf(pf)))));
+  })), !loading && data?.timing?.ideals?.length > 0 && h("div", {
+    className: "tt-card",
+    style: {
+      marginTop: 12,
+      overflow: "auto"
+    }
+  }, h("div", {
+    className: "tt-card-pad",
+    style: {
+      paddingBottom: 8
+    }
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "IDEAL CLOCK"), h("div", {
+    className: "paper-card__note",
+    style: {
+      margin: 0
+    }
+  }, "Highest MFE minus |MAE| among filled clocks. Thin = fewer than 3 closes — hint only.")), h("table", {
+    className: "tbl"
+  }, h("thead", null, h("tr", null, h("th", null, "Program"), h("th", null, "Best session"), h("th", null, "Best hour"), h("th", null, "Weekday"), h("th", null, "Closed"), h("th", null, "MFE"), h("th", null, "MAE"), h("th", null, "Edge"))), h("tbody", null, data.timing.ideals.map(row => h("tr", {
+    key: row.program
+  }, h("td", {
+    className: "label"
+  }, row.label + (row.thin ? " *" : "")), h("td", null, row.session || "—"), h("td", null, row.hour || "—"), h("td", null, row.weekday || "—"), h("td", null, String(row.n ?? 0)), h("td", null, row.avg_mfe_pct != null ? Number(row.avg_mfe_pct).toFixed(2) + "%" : "—"), h("td", null, row.avg_mae_pct != null ? Number(row.avg_mae_pct).toFixed(2) + "%" : "—"), h("td", {
+    className: Number(row.mfe_mae_edge) > 0 ? "up" : Number(row.mfe_mae_edge) < 0 ? "dn" : ""
+  }, row.mfe_mae_edge != null ? Number(row.mfe_mae_edge).toFixed(2) : "—")))))));
+}
 function prettySetupName(name) {
   if (!name) return "Unknown";
   let s = String(name);
@@ -1917,7 +2112,7 @@ function ModelPerformanceApp() {
     className: "label"
   }, "ADMIN"), h("h1", null, "Model Performance"), h("div", {
     className: "sub"
-  }, "Engine health, closed-trade breakdown, and the scrimmage scoreboard. ", h("a", {
+  }, "Engine health, paper-experiment scoreboard, closed-trade breakdown, and the scrimmage scoreboard. ", h("a", {
     href: "/insights.html",
     style: {
       color: "var(--tt-accent)"
@@ -1926,7 +2121,7 @@ function ModelPerformanceApp() {
     allMeta,
     history,
     summary
-  }), h(Disclosure, {
+  }), h(PaperExperimentScoreboard), h(Disclosure, {
     id: "scrimmage",
     title: "Scrimmage Room",
     sub: "the daily record — every published call, graded against candles",
@@ -2000,6 +2195,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   return h(ModelPerformanceApp);
 }) : h(ModelPerformanceApp);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787488733353:98209077
+// cache-bust:1787491899378:105817276
 
-// cache-bust:1787488733353:98209077
+// cache-bust:1787491899378:105817276

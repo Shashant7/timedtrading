@@ -658,6 +658,7 @@ import {
   ACTIONABLE_KANBAN_STAGES,
   shouldNotifyKanbanStageTransition,
 } from "./signal-grammar.js";
+import { paperAlertFields, paperSignalMeta, resolvePaperFamily } from "./paper-family-label.js";
 import { runNightlyResearchBatch } from "./research/nightly-batch.js";
 import {
   mergeFreshnessIntoLatest as feedMergeFreshnessIntoLatest,
@@ -28207,6 +28208,7 @@ async function processTradeSimulation(
                     title: sgRenderEmailSubject(buildSignal({
                       engine: "trader", mode: "doing", execState: "done", action: "enter",
                       ticker: sym, direction, price: entryPx,
+                      meta: paperSignalMeta({ tickerData }),
                     })),
                     body: _entryNotifBody,
                     link: `/active-trader.html?ticker=${encodeURIComponent(sym)}`,
@@ -28260,6 +28262,7 @@ async function processTradeSimulation(
                     // embed above; the email renderer (worker/email.js)
                     // expands it into a "Options Play" card.
                     options_play: _entryOptionsPlay || null,
+                    ...paperAlertFields({ tickerData }),
                     ..._entryParity,
                   }, requestCtx).catch((e) => {
                     console.warn(`[EMAIL] ${sym} entry dispatch failed:`, String(e?.message || e).slice(0, 120));
@@ -28283,6 +28286,7 @@ async function processTradeSimulation(
                       setup_grade: trade.setupGrade || trade.setup_grade || null,
                       trade_id: tradeId,
                       reason: trade.setupName ? formatSetupName(trade.setupName) : null,
+                      ...paperAlertFields({ tickerData, extra: trade }),
                     });
                   } catch (_) { /* activity feed must never block entry alerts */ }
 
@@ -31058,6 +31062,7 @@ async function processTradeSimulation(
                 title: sgRenderEmailSubject(buildSignal({
                   engine: "trader", mode: "doing", execState: "done", action: "enter",
                   ticker, direction, price: entryPrice,
+                  meta: paperSignalMeta({ tickerData }),
                 })),
                 body: _simNotifBody,
                 link: `/active-trader.html?ticker=${encodeURIComponent(ticker)}`,
@@ -31097,6 +31102,7 @@ async function processTradeSimulation(
                 } : null,
                 cio: buildCioEmailPayload(_simCio),
                 options_play: _simOptionsPlay || null,
+                ...paperAlertFields({ tickerData }),
                 ..._simParity,
               }).catch((e) => {
                 console.warn(`[EMAIL] ${ticker} entry dispatch failed:`, String(e?.message || e).slice(0, 120));
@@ -31179,6 +31185,7 @@ async function processTradeSimulation(
                   phase_pct: tickerData.phase_pct,
                   price: Number(tickerData.price),
                   tradeId: trade.id,
+                  ...paperAlertFields({ tickerData, extra: trade }),
                 });
               } catch (activityErr) {
                 console.error(
@@ -48347,6 +48354,15 @@ function createTradeEntryEmbed(
 
   const fields = [];
 
+  const _paperLabel = resolvePaperFamily({ tickerData });
+  if (_paperLabel.titlePrefix) {
+    fields.push({
+      name: _paperLabel.discordFieldName,
+      value: _paperLabel.discordFieldValue.slice(0, 1024),
+      inline: false,
+    });
+  }
+
   // 1. Trade Summary — clean key-value layout
   const summaryLines = [
     `Entry:  **$${entryPrice.toFixed(2)}**`,
@@ -48428,7 +48444,7 @@ function createTradeEntryEmbed(
   }
 
   return {
-    title: formatTradeEntryTitle({ ticker, direction, entryPrice, isLong }),
+    title: formatTradeEntryTitle({ ticker, direction, entryPrice, isLong, tickerData }),
     description,
     color,
     fields,

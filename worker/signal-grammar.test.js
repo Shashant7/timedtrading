@@ -4,6 +4,7 @@ import {
   renderDiscordTitle,
   renderEmailSubject,
   formatTradeCloseTitle,
+  formatTradeEntryTitle,
   formatExitRecommendedTitle,
   classifyActivityEvent,
   traderLaneMeta,
@@ -18,6 +19,53 @@ describe("buildSignal", () => {
     const s = buildSignal({ engine: "trader", execState: "recommended", action: "exit", ticker: "MU" });
     expect(s.mode).toBe("doing");
     expect(s.execState).toBe("recommended");
+  });
+});
+
+describe("formatTradeEntryTitle", () => {
+  it("prefixes paper Cloud Pivot fills", () => {
+    const title = formatTradeEntryTitle({
+      ticker: "NVDA",
+      direction: "LONG",
+      entryPrice: 100,
+      isLong: true,
+      tickerData: {
+        __paper_queue_size_mult: 0.1,
+        _sequence_queue_proposal: { family: "tt_cloud_pivot", paper: true },
+      },
+    });
+    expect(title).toBe("🟢 PAPER · Cloud Pivot · SHORT TERM · Enter: NVDA LONG @ $100.00");
+  });
+
+  it("leaves full-size entries unchanged", () => {
+    expect(formatTradeEntryTitle({
+      ticker: "NVDA",
+      direction: "LONG",
+      entryPrice: 100,
+      isLong: true,
+    })).toBe("🟢 SHORT TERM · Enter: NVDA LONG @ $100.00");
+  });
+});
+
+describe("renderEmailSubject paper prefix", () => {
+  it("prefixes paper family on entry subjects", () => {
+    const subject = renderEmailSubject(buildSignal({
+      engine: "trader",
+      action: "enter",
+      ticker: "AXON",
+      direction: "LONG",
+      price: 550,
+      execState: "done",
+      meta: { paper: true, family: "tt_cloud_pivot", paper_mult: 0.1 },
+    }));
+    expect(subject).toBe("PAPER · Cloud Pivot · SHORT TERM · Enter AXON LONG @ $550.00");
+  });
+
+  it("leaves non-paper subjects unchanged", () => {
+    expect(renderEmailSubject(buildSignal({
+      engine: "trader", action: "enter", ticker: "NVDA", direction: "LONG", price: 100,
+      execState: "done",
+    }))).toBe("SHORT TERM · Enter NVDA LONG @ $100.00");
   });
 });
 

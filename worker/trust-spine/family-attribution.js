@@ -2,6 +2,7 @@
 // plans/confirm-stack-ema21-slice.plan.md + plans/wow-pnl-adaptive-governor.plan.md
 
 import { computeWindowStats } from "../edge-scorecard.js";
+import { buildProgramTimingReport } from "./program-timing.js";
 
 const DAY_MS = 86400000;
 const CONFIRM_STACK_FAMILY = "confirm_stack_ema21";
@@ -197,14 +198,54 @@ export function buildFamilyAttributionReport({
   };
 }
 
+export const PAPER_EXPERIMENT_FAMILIES = Object.freeze([
+  CONFIRM_STACK_FAMILY,
+  CLOUD_PIVOT_FAMILY,
+  CONTINUATION_FAMILY,
+]);
+
 /**
- * D1 + KV loader for the admin API / weekly governor.
+ * One pass over ENTRY rows → one report per paper experiment family.
  */
-export async function loadFamilyAttribution(env, opts = {}) {
+export function buildAllFamilyAttributionReport({
+  days = 7,
+  entryDecisions = [],
+  trades = [],
+  universeCapturePct = null,
+  baselineCapturePct = 4.8,
+} = {}) {
+  const windowDays = Math.min(Math.max(Number(days) || 7, 1), 90);
+  const families = {};
+  for (const family of PAPER_EXPERIMENT_FAMILIES) {
+    families[family] = buildFamilyAttributionReport({
+      family,
+      days: windowDays,
+      entryDecisions,
+      trades,
+      universeCapturePct,
+      baselineCapturePct,
+    });
+  }
+  return {
+    ok: true,
+    days: windowDays,
+    families,
+    timing: buildProgramTimingReport({
+      days: windowDays,
+      entryDecisions,
+      trades,
+      universeCapturePct,
+      minN: 3,
+    }),
+    rows_scanned: (entryDecisions || []).length,
+    generated_at: Date.now(),
+  };
+}
+
+async function loadAttributionInputs(env, opts = {}) {
   const db = env?.DB;
   if (!db) return { ok: false, error: "no_db" };
   const days = Math.min(Math.max(Number(opts.days) || 7, 1), 90);
-  const family = String(opts.family || CONFIRM_STACK_FAMILY);
   const since = Date.now() - days * DAY_MS;
 
   let entryDecisions = [];
@@ -231,19 +272,28 @@ export async function loadFamilyAttribution(env, opts = {}) {
       try {
         const rows = (await db.prepare(
           `SELECT trade_id, ticker, status, pnl, pnl_pct, exit_reason, setup_name,
-                  max_favorable_excursion, entry_ts, exit_ts
+                  max_favorable_excursion, max_adverse_excursion, entry_ts, exit_ts, slice_family
              FROM trades
             WHERE trade_id IN (${ph})`,
         ).bind(...chunk).all())?.results || [];
         trades = trades.concat(rows);
-      } catch { /* column may be missing on old schema — retry slim */ 
+      } catch { /* column may be missing on old schema — retry slim */
         try {
           const rows = (await db.prepare(
-            `SELECT trade_id, ticker, status, pnl, pnl_pct, exit_reason, setup_name, entry_ts, exit_ts
+            `SELECT trade_id, ticker, status, pnl, pnl_pct, exit_reason, setup_name,
+                    max_favorable_excursion, max_adverse_excursion, entry_ts, exit_ts
                FROM trades WHERE trade_id IN (${ph})`,
           ).bind(...chunk).all())?.results || [];
           trades = trades.concat(rows);
-        } catch { /* */ }
+        } catch {
+          try {
+            const rows = (await db.prepare(
+              `SELECT trade_id, ticker, status, pnl, pnl_pct, exit_reason, setup_name, entry_ts, exit_ts
+                 FROM trades WHERE trade_id IN (${ph})`,
+            ).bind(...chunk).all())?.results || [];
+            trades = trades.concat(rows);
+          } catch { /* */ }
+        }
       }
     }
   }
@@ -259,13 +309,29 @@ export async function loadFamilyAttribution(env, opts = {}) {
     }
   } catch { /* */ }
 
+  return { ok: true, days, entryDecisions, trades, universeCapturePct };
+}
+
+/**
+ * D1 + KV loader for the admin API / weekly governor.
+ * Pass family=all for the three paper-experiment reports in one query.
+ */
+export async function loadFamilyAttribution(env, opts = {}) {
+  const loaded = await loadAttributionInputs(env, opts);
+  if (!loaded.ok) return loaded;
+  const family = String(opts.family || CONFIRM_STACK_FAMILY);
+  if (family === "all") return buildAllFamilyAttributionReport(loaded);
   return buildFamilyAttributionReport({
     family,
-    days,
-    entryDecisions,
-    trades,
-    universeCapturePct,
+    days: loaded.days,
+    entryDecisions: loaded.entryDecisions,
+    trades: loaded.trades,
+    universeCapturePct: loaded.universeCapturePct,
   });
+}
+
+export async function loadAllFamilyAttribution(env, opts = {}) {
+  return loadFamilyAttribution(env, { ...opts, family: "all" });
 }
 
 export { CONFIRM_STACK_FAMILY, CLOUD_PIVOT_FAMILY, CONTINUATION_FAMILY, DAY_MS };

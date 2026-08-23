@@ -5,6 +5,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { horizonLabel, horizonPrefix } from "./horizon-labels.js";
+import { paperFamilyTitlePrefix } from "./paper-family-label.js";
 
 /** @typedef {'trader'|'investor'} SignalEngine */
 /** @typedef {'watching'|'doing'} SignalMode */
@@ -124,6 +125,12 @@ export function formatNotificationTitle(raw, opts = {}) {
 export function renderEmailSubject(signal, extras = {}) {
   const s = typeof signal === "object" ? signal : buildSignal(signal);
   const hz = horizonPrefix(s.engine); // "SHORT TERM · " / "LONG TERM · "
+  const paperBit = paperFamilyTitlePrefix({
+    extra: s.meta,
+    tickerData: extras.tickerData,
+    paper: extras.paper,
+    meta: extras.meta,
+  });
   const dir = s.direction ? ` ${s.direction}` : "";
   const pct = Number.isFinite(s.pnlPct)
     ? ` ${s.pnlPct >= 0 ? "+" : ""}${s.pnlPct.toFixed(2)}%`
@@ -131,9 +138,9 @@ export function renderEmailSubject(signal, extras = {}) {
   const price = Number.isFinite(s.price) ? ` @ $${s.price.toFixed(2)}` : "";
   const thread = extras.threadLabel ? ` (${extras.threadLabel})` : "";
   if (s.execState === "recommended") {
-    return `${hz}Warning: ${s.ticker} — ${actionVerb(s.action).toLowerCase()} recommended`.trim();
+    return `${paperBit}${hz}Warning: ${s.ticker} — ${actionVerb(s.action).toLowerCase()} recommended`.trim();
   }
-  return `${hz}${actionVerb(s.action)} ${s.ticker}${dir}${pct}${price}${thread}`.trim();
+  return `${paperBit}${hz}${actionVerb(s.action)} ${s.ticker}${dir}${pct}${price}${thread}`.trim();
 }
 
 /** Winner/loss close title — avoids "Closed 25%" reading like a trim. */
@@ -184,10 +191,23 @@ export function formatTradeTrimTitle({ ticker, direction, stepLabel, fillPrice, 
   return `${emoji}  SHORT TERM · ${action}: ${ticker} ${direction} — ${stepLabel} @ $${Number(fillPrice).toFixed(2)}`;
 }
 
-export function formatTradeEntryTitle({ ticker, direction, entryPrice, isLong }) {
+export function formatTradeEntryTitle({
+  ticker,
+  direction,
+  entryPrice,
+  isLong,
+  paper,
+  family,
+  tickerData,
+} = {}) {
   const emoji = isLong ? "🟢" : "🔴";
   const dirLabel = isLong ? "LONG" : "SHORT";
-  return `${emoji} SHORT TERM · Enter: ${ticker} ${dirLabel} @ $${Number(entryPrice).toFixed(2)}`;
+  const paperBit = paperFamilyTitlePrefix({
+    tickerData,
+    extra: { paper, family },
+    paper,
+  });
+  return `${emoji} ${paperBit}SHORT TERM · Enter: ${ticker} ${dirLabel} @ $${Number(entryPrice).toFixed(2)}`;
 }
 
 /** Trader kanban lane metadata with watching/doing band. */

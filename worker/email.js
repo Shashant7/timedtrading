@@ -5,6 +5,7 @@ import { humanizeExhaustionWarning } from "./timing-signals.js";
 import { optionsPlayEmailHtml } from "./options-plays.js";
 import { shadowOptionsPlayEmailHtml } from "./options-shadow.js";
 import { buildSignal, renderEmailSubject } from "./signal-grammar.js";
+import { resolvePaperFamily } from "./paper-family-label.js";
 import { horizonLabel } from "./horizon-labels.js";
 import {
   buildTrimEconomicsSummary,
@@ -1451,6 +1452,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     // email renders an amber banner so the user sees the trade is on a
     // stretched setup and the SL/TP block is intentionally tighter.
     exhaustion,
+    paper, slice_family, slice_family_label, paper_mult,
   } = alert;
   const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
   const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
@@ -1472,7 +1474,11 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   // so a reader can tell the book at a glance. Matches Discord title prefix.
   const scopeLabel = `${horizonLabel(mode)} `;
   const typeIcon = isEntry ? (dir === "LONG" ? "🟢" : "🔴") : isExit ? (Number(pnlPct) >= 0 ? "🏆" : "🛑") : isExitSignal ? "🚪" : isCross ? "🎯" : "✂️";
-  const typeLabel = `${scopeLabel}${isEntry ? "New Entry" : isExit ? "Position Closed" : isExitSignal ? "Exit Recommended (position open)" : isCross ? `Profit Target Reached${alert.tier_label ? ` — ${alert.tier_label}` : ""}` : "Position Trimmed"}`;
+  const _paperLabel = isEntry ? resolvePaperFamily({
+    extra: { paper, family: slice_family, paper_mult, slice_family },
+  }) : { titlePrefix: "", sizeNote: null, discordFieldName: null };
+  const paperPrefix = _paperLabel.titlePrefix ? `${_paperLabel.titlePrefix} · ` : "";
+  const typeLabel = `${paperPrefix}${scopeLabel}${isEntry ? "New Entry" : isExit ? "Position Closed" : isExitSignal ? "Exit Recommended (position open)" : isCross ? `Profit Target Reached${alert.tier_label ? ` — ${alert.tier_label}` : ""}` : "Position Trimmed"}`;
   const priceFmt = Number(price) > 0 ? `$${Number(price).toFixed(2)}` : "N/A";
   const _etTime = _fmtEtClock(action_ts);
 
@@ -1833,6 +1839,12 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
         ${trade_id ? ` &nbsp;·&nbsp; <span style="font-family:Menlo,Monaco,monospace;font-size:10px">${String(trade_id).slice(0, 24)}</span>` : ""}
       </p>
     </div>
+    ${_paperLabel.titlePrefix ? `
+    <div style="margin:12px 0 0;padding:10px 12px;border:1px solid ${BRAND.warning};border-radius:8px;background:rgba(245,158,11,0.08)">
+      <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.warning};font-weight:700;margin:0 0 4px">${_paperLabel.discordFieldName || "Paper experiment"}</div>
+      <div style="font-size:13px;color:${BRAND.textPrimary};font-weight:600">${_paperLabel.titlePrefix}</div>
+      ${_paperLabel.sizeNote ? `<div style="font-size:12px;color:${BRAND.textSecondary};margin-top:4px">${_paperLabel.sizeNote}</div>` : ""}
+    </div>` : ""}
     ${chartImgHtml}
     ${posSection}
     ${exitTrimsSection}
@@ -1919,6 +1931,11 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     direction: dir,
     price: Number(price) || Number(fillPrice) || Number(exitPx) || null,
     pnlPct: Number.isFinite(Number(pnlPct)) ? Number(pnlPct) : null,
+    meta: isEntry ? {
+      paper: _paperLabel.paper,
+      family: _paperLabel.family,
+      paper_mult: _paperLabel.paperMult,
+    } : {},
   });
   const threadLabel = isExitSignal ? "open position" : isExit ? "filled" : null;
   const subject = renderEmailSubject(sig, { threadLabel });
