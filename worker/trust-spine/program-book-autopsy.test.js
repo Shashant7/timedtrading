@@ -59,4 +59,19 @@ describe("buildBookAutopsyReport", () => {
     expect(report.open_trades).toHaveLength(1);
     expect(report.open_trades[0].ticker).toBe("TSLA");
   });
+
+  it("lists never-won tickers separately from net losers", () => {
+    const report = buildBookAutopsyReport({
+      trades: [
+        { trade_id: "A1", ticker: "MIX", status: "WIN", pnl: 50, pnl_pct: 1, entry_path: "tt_ath_breakout", entry_ts: 1 },
+        { trade_id: "A2", ticker: "MIX", status: "LOSS", pnl: -80, pnl_pct: -1, entry_path: "tt_ath_breakout", entry_ts: 2 },
+        { trade_id: "B1", ticker: "DEAD", status: "LOSS", pnl: -40, pnl_pct: -1, entry_path: "tt_ath_breakout", entry_ts: 3 },
+        { trade_id: "B2", ticker: "DEAD", status: "LOSS", pnl: -40, pnl_pct: -1, entry_path: "tt_ath_breakout", entry_ts: 4 },
+        { trade_id: "B3", ticker: "DEAD", status: "LOSS", pnl: -40, pnl_pct: -1, entry_path: "tt_ath_breakout", entry_ts: 5 },
+      ],
+    });
+    expect(report.core.losers[0].key).toBe("DEAD");
+    expect(report.core.never_won.map((r) => r.key)).toEqual(["DEAD"]);
+    expect(report.core.stamped_clean_by_path[0].key).toBe("tt_ath_breakout");
+  });
 });

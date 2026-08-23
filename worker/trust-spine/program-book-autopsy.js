@@ -190,8 +190,14 @@ function groupSummaries(fills, keyFn, { limit = 0, sort = "pnl" } = {}) {
   return rows;
 }
 
-function tickerRows(fills, { winners = false, limit = 15 } = {}) {
+function tickerRows(fills, { winners = false, limit = 15, neverWon = false } = {}) {
   const rows = groupSummaries(fills.filter((f) => f.closed), (f) => f.ticker, { sort: "pnl" });
+  if (neverWon) {
+    return rows
+      .filter((r) => r.closed >= 3 && (r.wins || 0) === 0 && (r.pnl_usd || 0) < 0)
+      .sort((a, b) => (a.pnl_usd || 0) - (b.pnl_usd || 0))
+      .slice(0, limit);
+  }
   if (winners) {
     return rows.filter((r) => (r.pnl_usd || 0) > 0).sort((a, b) => (b.pnl_usd || 0) - (a.pnl_usd || 0)).slice(0, limit);
   }
@@ -307,6 +313,13 @@ export function buildBookAutopsyReport({ trades = [], decisions = [] } = {}) {
       by_sector: groupSummaries(core, (f) => f.sector, { sort: "pnl" }),
       winners: tickerRows(core, { winners: true, limit: 15 }),
       losers: tickerRows(core, { winners: false, limit: 15 }),
+      never_won: tickerRows(core, { neverWon: true, limit: 15 }),
+      stamped_clean_by_path: groupSummaries(stampedClean, (f) => f.entry_path, { sort: "n" }),
+      experiment_named_exits: groupSummaries(
+        core.filter((f) => /cloud_pivot|confirm_stack|paper/i.test(String(f.exit_reason || ""))),
+        (f) => f.exit_reason,
+        { sort: "n" },
+      ),
       before_experiments: summarize(coreBeforeExp),
       after_experiments: summarize(coreAfterExp),
       before_stamped_path: summarize(coreBeforeStamp),

@@ -235,6 +235,22 @@ lines.push("### Core ticker losers");
 lines.push("");
 lines.push(table(report.core.losers, STAT_COLS));
 lines.push("");
+lines.push("### Core tickers that never won (n≥3, 0 wins)");
+lines.push("");
+lines.push(table(report.core.never_won || [], STAT_COLS));
+lines.push("");
+lines.push("### Stamped-path core with no paper stamp (May–Jul class)");
+lines.push("");
+lines.push(table(report.core.stamped_clean_by_path || [], STAT_COLS));
+lines.push("");
+if ((report.core.experiment_named_exits || []).length) {
+  lines.push("### Experiment-named exits on core fills");
+  lines.push("");
+  lines.push("Cloud Pivot (and any confirm-stack) exit reasons firing on a canonical `entry_path`. This is management overlay, not a standalone experiment fill.");
+  lines.push("");
+  lines.push(table(report.core.experiment_named_exits, STAT_COLS));
+  lines.push("");
+}
 
 lines.push("## Coincident paper stamps on core paths");
 lines.push("");
