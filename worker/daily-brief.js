@@ -933,6 +933,87 @@ export function mergeEarningsEventLists(...lists) {
   return [...byKey.values()];
 }
 
+function earningsHasSession(event) {
+  return Boolean(normalizeTdEarningsHour(event?.hour));
+}
+
+function earningsHasEstimate(event) {
+  const raw = event?.epsEstimate;
+  if (raw == null || raw === "") return false;
+  return Number.isFinite(Number(raw));
+}
+
+function earningsSourceIsTdOnly(event) {
+  const src = String(event?._source || "").toLowerCase();
+  if (!src) return false;
+  const parts = src.split("+").map((s) => s.trim()).filter(Boolean);
+  return parts.includes("twelvedata") && !parts.some((p) => p.startsWith("finnhub"));
+}
+
+/**
+ * Ghost upcoming rows: vendor leftover dates after a print already landed,
+ * or TwelveData-only stubs with no session and no estimate (RKT 2026-08-24
+ * after the 2026-08-06 AMC print).
+ */
+export function isGhostUpcomingEarnings(event, recentResolvedByTicker) {
+  if (!event?.symbol || !event?.date) return true;
+  const symbol = String(event.symbol).toUpperCase();
+  const date = String(event.date).slice(0, 10);
+  const hasSession = earningsHasSession(event);
+  const hasEst = earningsHasEstimate(event);
+  if (hasSession || hasEst) return false;
+  if (earningsSourceIsTdOnly(event)) return true;
+  const resolved = recentResolvedByTicker instanceof Map
+    ? recentResolvedByTicker.get(symbol)
+    : recentResolvedByTicker?.[symbol];
+  const resolvedDate = String(resolved || "").slice(0, 10);
+  return Boolean(resolvedDate && resolvedDate !== date);
+}
+
+export function sanitizeUpcomingEarningsEvents(events, recentResolvedByTicker) {
+  return (Array.isArray(events) ? events : []).filter(
+    (e) => !isGhostUpcomingEarnings(e, recentResolvedByTicker),
+  );
+}
+
+export async function fetchRecentResolvedEarningsMap(env, sinceDate) {
+  const since = sinceDate || nyDateMinusDays(
+    new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
+    35,
+  );
+  const db = env?.DB;
+  if (!db || !since) return new Map();
+  try {
+    const rows = await db.prepare(
+      `SELECT ticker, MAX(date) AS date
+         FROM market_events
+        WHERE event_type = 'earnings'
+          AND ticker IS NOT NULL
+          AND LOWER(COALESCE(status, '')) = 'resolved'
+          AND actual IS NOT NULL
+          AND date >= ?1
+        GROUP BY ticker`,
+    ).bind(since).all();
+    const out = new Map();
+    for (const r of (rows?.results || [])) {
+      const ticker = String(r.ticker || "").toUpperCase().trim();
+      const date = String(r.date || "").slice(0, 10);
+      if (ticker && date) out.set(ticker, date);
+    }
+    return out;
+  } catch (e) {
+    console.warn("[EARNINGS] recent-resolved map failed:", String(e?.message || e).slice(0, 150));
+    return new Map();
+  }
+}
+
+function nyDateMinusDays(iso, days) {
+  const [y, m, d] = String(iso || "").slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  const dt = new Date(Date.UTC(y, m - 1, d - Number(days || 0)));
+  return dt.toISOString().slice(0, 10);
+}
+
 async function fetchEarningsFromKvCache(env, fromDate, toDate) {
   try {
     const cached = await kvGetJSON(env?.KV_TIMED, "timed:earnings:upcoming");
@@ -1017,13 +1098,17 @@ export async function fetchEarningsCalendarForBrief(env, fromDate, toDate) {
     _source: "finnhub",
   }));
   const merged = mergeEarningsEventLists(fhEvents, tdEvents, kvEvents, d1Events);
+  const resolvedSince = nyDateMinusDays(fromDate, 35);
+  const recentResolved = await fetchRecentResolvedEarningsMap(env, resolvedSince);
+  const sanitized = sanitizeUpcomingEarningsEvents(merged, recentResolved);
   console.log(
     `[BRIEF] Earnings calendar: finnhub=${fhEvents.length} td=${tdEvents.length}`
     + ` kv=${kvEvents.length} d1=${d1Events.length} merged=${merged.length}`
+    + ` sanitized=${sanitized.length}`
     + ` (${fromDate}→${toDate})`
     + (tdRes?._error ? ` td_err=${String(tdRes._error).slice(0, 80)}` : ""),
   );
-  return merged;
+  return sanitized;
 }
 
 /**
