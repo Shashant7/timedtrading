@@ -412,8 +412,8 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   Cloud Pivot desk (`buildCloudPivotDesk` / `scripts/scan-cloud-pivot-desk.mjs`)
   is the super-minion pass: inspects 10m/1H magnets on nights and weekends
   even when the RTH detector is dark. Today UI: same `TTLaneCard` + punch/scan
-  as Index Day-Trade (`cloudDeskPlanCopy`). One call: WAIT outside RTH,
-  BUY = paper 0.1× ticket in the regular session. Magnet = cover/trim,
+  as Index Day-Trade (`cloudDeskPlanCopy`). One call: WAIT unless fire +
+  RTH + a cover still ahead (Buy only in the add area). Magnet = cover/trim,
   not a breakout; behind-price 1H/4H clouds are last cover. Next cover
   is the nearest Short Term / Long Term rail level (Monthly 21 EMA,
   then ST trim). No Lead on the cards. Index Day-Trade is a separate
@@ -723,7 +723,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - **Today Cloud Desk PAPER chip must use `copy.role`** — a bare `role` in the `desk.watching` map is `ReferenceError` and blanks `#root` (nav + activity strip + footer stay). Guard: `tests/today-desk-role.test.js`. (2026-08-23)
 - **Cloud Desk call is WAIT / BUY, not ENTER + FIRE** — magnet is cover/trim (ahead vs behind), never a destination arrow. Drop Lead. Do not mount the generic trader zone bar on desk cards (QQQ SHORT desk vs LONG zone / Index Day-Trade). (2026-08-23)
 - **Cloud Desk next cover is a rail level** — when the 1H/4H cloud is behind the live print, use the nearest Short Term / Long Term rail level (Monthly 21 EMA, then ST trim). Do not invent a second magnet stack. (2026-08-23)
-- **Today universe strip cards stay uniform** — key chips only (desk: WAIT/BUY + LONG/SHORT; families: action + family + side; index/convexity: action + Call/Put + strike). No R/S metrics, no EXT line, no cover/last/PAPER/FLAT chips. Cloud Desk mid-body is the LAST/NOW/COVER progress bar, not the generic Inv/PB/Tgt bar. Fixed 312px card height. (2026-08-23)
+- **Today universe strip cards stay uniform** — chips are Wait / Buy / Accumulate / Scale In + Long Term / Short Term + Long / Short. No COMPOUND CORE, no Momentum, no paper 0.1×, no Size. Foot is structured Inv / PB / Tgt (plus Hold shares @ entry · date when the book is open). Cloud Desk BUY only when fire + RTH + a cover is still ahead. Confirm-stack has its own subhead. Fixed 288px card height, shared 12px card padding. (2026-08-23)
 - **Recent Activity action word is BUY / SELL / TIGHTEN** — never FORMING. Setup/watch/review labels on a sized row are Buy.
 - **Babel-standalone pages MUST render nav as static HTML** outside `<div id="root">` — JSX compile is 1-3s cold-load → blank-page bug otherwise. See `today.html` / `active-trader.html` for the pattern. (PR #304)
 - **New pages using `.nav-links` markup MUST be added to `JOURNEY_PATHS`** in `tt-nav-extras.js` (line ~370). Otherwise the script prepends a duplicate journey-link strip. (PR #304)

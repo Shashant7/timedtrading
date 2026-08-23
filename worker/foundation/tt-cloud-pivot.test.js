@@ -528,11 +528,23 @@ describe("cloudDeskPlanCopy", () => {
     expect(copy.ticketNow).toBe(false);
     expect(copy.magnetRelation).toBe("behind");
     expect(copy.coverLine).toContain("last cover, already behind");
-    expect(copy.punch).toBe("WAIT on BTCUSD — desk pick. A paper 0.1× ticket opens only in the regular session.");
-    expect(copy.scan).toContain("Watch");
+    expect(copy.punch).toBe("WAIT on BTCUSD — regular session is closed.");
     expect(copy.scan).toContain("midday");
     expect(copy.punch).not.toMatch(/toward|ENTER|FIRE/);
     expect(copy.leader).toBe("");
+  });
+
+  it("keeps WAIT in RTH when the cover is already tagged", () => {
+    const copy = cloudDeskPlanCopy({
+      ticker: "BTCUSD",
+      role: "fire",
+      direction: "LONG",
+      px: 76468,
+      magnet: { px: 63474.96, label: "1h_34_50" },
+    }, { marketOpen: true });
+    expect(copy.action).toBe("WAIT");
+    expect(copy.ticketNow).toBe(false);
+    expect(copy.punch).toMatch(/cover already tagged|regular session/i);
   });
 
   it("writes BUY only when the desk pick can open in RTH", () => {
@@ -547,8 +559,8 @@ describe("cloudDeskPlanCopy", () => {
     expect(copy.ticketNow).toBe(true);
     expect(copy.magnetRelation).toBe("ahead");
     expect(copy.coverLine).toBe("$102.00 next cover (1H 34/50)");
-    expect(copy.punch).toContain("Paper 0.1× ticket");
-    expect(copy.punch).not.toMatch(/toward|ENTER/);
+    expect(copy.punch).toContain("cover still ahead");
+    expect(copy.punch).not.toMatch(/toward|ENTER|0\.1/);
   });
 
   it("uses Monthly 21 EMA as next cover when the 1H magnet is behind", () => {
@@ -596,7 +608,7 @@ describe("cloudDeskPlanCopy", () => {
     expect(follow.action).toBe("WAIT");
     expect(follow.leader).toBe("");
     expect(follow.punch).not.toMatch(/BTCUSD|lead|toward/i);
-    expect(follow.scan).toContain("Watch only");
+    expect(follow.scan).toContain("WAIT");
     expect(cloudMagnetCoverLine({ px: 290 }, "ahead")).toBe("$290.00 next cover");
   });
 });

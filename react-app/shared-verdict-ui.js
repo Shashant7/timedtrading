@@ -322,15 +322,15 @@
       ".tt-ready{margin-bottom:18px}",
       ".tt-universe-panel .tt-ready{margin-bottom:0}",
       ".tt-universe-panel__ready{margin:0}",
-      ".tt-ready__head{margin-bottom:8px}",
-      ".tt-ready__title{font-family:var(--tt-font-display,inherit);font-size:18px;font-weight:800;color:var(--ds-text-headline,#f4f5f7);letter-spacing:-.02em;margin:4px 0 0}",
-      ".tt-ready__sub{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);line-height:1.5;margin:6px 0 0;max-width:52em}",
+      ".tt-ready__head{margin-bottom:10px}",
+      ".tt-ready__title{font-family:var(--tt-font-display,inherit);font-size:18px;font-weight:800;color:var(--ds-text-headline,#f4f5f7);letter-spacing:-.02em;margin:2px 0 0}",
+      ".tt-ready__sub{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);line-height:1.45;margin:4px 0 0;max-width:52em}",
       ".tt-universe-panel .tt-ready__sub{max-width:none}",
       ".tt-ready-scroll{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 10px;scroll-snap-type:x proximity;scrollbar-width:thin;-webkit-overflow-scrolling:touch}",
       ".tt-ready-scroll::-webkit-scrollbar{height:6px}",
       ".tt-ready-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px}",
       /* Universal strip stack — Viewport lane card + foot row (Today Ready / Growth). */
-      ".tt-strip-card{flex:0 0 280px;width:280px;max-width:280px;scroll-snap-align:start;display:flex;flex-direction:column;gap:6px;min-width:0}",
+      ".tt-strip-card{flex:0 0 280px;width:280px;max-width:280px;scroll-snap-align:start;display:flex;flex-direction:column;gap:0;min-width:0;box-sizing:border-box}",
       ".tt-strip-card .ds-tickercard.tt-lane-card{width:100%!important;flex:0 0 auto;min-height:118px;height:auto;max-height:none}",
       ".tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--active,.tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--owned{--tt-lane-card-h:auto;--tt-lane-mid-h:auto}",
       ".tt-strip-card .tt-lane-card__main{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;align-items:flex-start}",
@@ -340,8 +340,17 @@
       ".tt-strip-card .tt-lane-badge{margin-left:0;border-radius:999px;border:1px solid transparent}",
       ".tt-strip-card .tt-lane-badge--trader{background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.28);color:#60a5fa}",
       ".tt-strip-card .tt-lane-badge--investor{background:rgba(192,132,252,.12);border-color:rgba(192,132,252,.28);color:#c084fc}",
-      ".tt-strip-card__foot{display:flex;flex-direction:column;gap:4px;padding:6px 6px 2px;min-width:0;border-top:1px dashed rgba(255,255,255,.06)}",
+      ".tt-strip-card__foot{display:flex;flex-direction:column;gap:4px;padding:8px 12px 10px;min-width:0;border-top:1px dashed rgba(255,255,255,.06)}",
       ".tt-strip-card__hint{margin:0;font-size:10.5px;line-height:1.4;color:var(--ds-text-muted,#9ca3af)}",
+      ".tt-plan-facts{display:grid;gap:3px;margin:0}",
+      ".tt-plan-facts__row{display:grid;grid-template-columns:36px minmax(0,1fr);gap:8px;align-items:baseline;margin:0}",
+      ".tt-plan-facts dt{margin:0;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ds-text-muted,#9ca3af)}",
+      ".tt-plan-facts dd{margin:0;font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:11.5px;font-weight:550;line-height:1.3;color:var(--ds-text,#e5e7eb)}",
+      ".tt-plan-facts__v--buy{color:var(--tt-success,#34d399);font-weight:700}",
+      ".tt-plan-facts__v--wait{color:var(--tt-warning,#fbbf24)}",
+      ".tt-strip-subhead{margin:4px 0 10px}",
+      ".tt-strip-subhead .tt-sec-title{margin-bottom:2px}",
+      ".tt-strip-subhead .tt-ready__sub{margin-top:2px}",
       ".tt-zone-bar{margin-top:2px}",
       ".tt-zone-bar + .tt-zone-bar{margin-top:6px;padding-top:6px;border-top:1px dashed rgba(255,255,255,.06)}",
       ".tt-zone-bar__lane-row{display:flex;align-items:center;gap:6px;font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:8.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280);margin-bottom:3px}",
@@ -587,6 +596,75 @@
     return false;
   }
 
+  function fmtLevelPx(n) {
+    var v = Number(n);
+    if (!Number.isFinite(v) || v <= 0) return null;
+    return v >= 100 ? "$" + v.toFixed(0) : "$" + v.toFixed(2);
+  }
+
+  /** Structured INV / PB / TGT rows for Today strip feet. */
+  function zoneLevelFacts(zm) {
+    if (!zm) return [];
+    var pbLo = zm.pb ? zm.pb[0] : zm.pbLo;
+    var pbHi = zm.pb ? zm.pb[1] : zm.pbHi;
+    var lo = fmtLevelPx(pbLo);
+    var hi = fmtLevelPx(pbHi);
+    var pb = lo && hi ? (lo === hi ? lo : lo + "–" + hi) : (lo || hi || null);
+    return [
+      { label: "Inv", value: fmtLevelPx(zm.inv) },
+      { label: "PB", value: pb },
+      { label: "Tgt", value: fmtLevelPx(zm.tgt) },
+    ].filter(function (f) { return f && f.value; });
+  }
+
+  function priceInPbBand(zm, price) {
+    var px = Number(price);
+    if (!zm || !(px > 0)) return false;
+    var lo = Number(zm.pb ? zm.pb[0] : zm.pbLo);
+    var hi = Number(zm.pb ? zm.pb[1] : zm.pbHi);
+    return Number.isFinite(lo) && Number.isFinite(hi) && hi >= lo && px >= lo && px <= hi;
+  }
+
+  function holdPositionFact(trade, invPos) {
+    var src = trade || invPos || null;
+    if (!src || typeof src !== "object") return null;
+    var shares = Number(src.qty != null ? src.qty : (src.shares != null ? src.shares : (src.size != null ? src.size : src.total_shares)));
+    var px = Number(src.entry_price != null ? src.entry_price : (src.entryPrice != null ? src.entryPrice : (src.avg_entry != null ? src.avg_entry : (src.avgEntry != null ? src.avgEntry : src.avg_cost))));
+    var rawTs = src.entry_ts != null ? src.entry_ts : (src.entryTime != null ? src.entryTime : (src.entryTs != null ? src.entryTs : (src.first_entry_ts != null ? src.first_entry_ts : (src.opened_at != null ? src.opened_at : (src.openedAt != null ? src.openedAt : src.entry_date)))));
+    var dateBit = "";
+    if (rawTs != null && rawTs !== "") {
+      var n = Number(rawTs);
+      if (Number.isFinite(n) && n > 0) {
+        var ms = n < 1e12 ? n * 1000 : n;
+        dateBit = new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+      } else if (typeof rawTs === "string" && /^\d{4}-\d{2}-\d{2}/.test(rawTs)) {
+        var parts = rawTs.slice(0, 10).split("-").map(Number);
+        var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        if (parts[1] >= 1 && parts[1] <= 12) dateBit = months[parts[1] - 1] + " " + parts[2];
+      }
+    }
+    var bits = [];
+    if (Number.isFinite(shares) && shares > 0) {
+      bits.push((shares >= 10 ? String(Math.round(shares)) : String(Math.round(shares * 100) / 100)) + " sh");
+    }
+    var pxBit = fmtLevelPx(px);
+    if (pxBit) bits.push("@" + pxBit);
+    if (dateBit) bits.push(dateBit);
+    if (!bits.length) return null;
+    return { label: "Hold", value: bits.join(" · ") };
+  }
+
+  function inferTickerSide(t) {
+    try {
+      var d = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection
+        ? String(window.TimedPriceUtils.inferModelDirection(t) || "").toUpperCase()
+        : "";
+      if (d === "LONG" || d === "SHORT") return d;
+    } catch (_) {}
+    var pos = String(t && (t.position_direction || t.direction) || "").toUpperCase();
+    return pos === "LONG" || pos === "SHORT" ? pos : "";
+  }
+
   /**
    * Ready Setup card headline — avoids a bare "BUY" when price is above the
    * add-on band. Trader entry → BUY NOW; investor in live zone → BUY;
@@ -601,11 +679,9 @@
 
     if (row.traderPrimed) {
       return {
-        label: "BUY NOW",
+        label: "BUY",
         cls: "buy",
-        hint: row.investorPrimed
-          ? "Trader entry live; investor lane also active."
-          : "Trader entry live — size to the stop.",
+        hint: null,
         title: "Trader entry lane is active" + (tv.why ? " (" + tv.why + ")." : "."),
       };
     }
@@ -613,18 +689,18 @@
     if (row.investorPrimed) {
       if (invStage === "accumulate_queued" || row.blocker === "Next rebalance") {
         return {
-          label: "QUEUED",
-          cls: "queued",
-          hint: "Waits for the next rebalance inside the buy zone.",
-          title: "Execution-ready but queued for the next investor rebalance.",
+          label: "WAIT",
+          cls: "wait",
+          hint: null,
+          title: "Execution-ready but waiting on the next investor rebalance.",
         };
       }
       if (isInvestorLiveBuyZone(tickerRow, price)) {
         return {
           label: "BUY",
           cls: "buy",
-          hint: "Live buy zone — scale in per model rules.",
-          title: "Price is in the investor buy zone; the model may add on rebalance.",
+          hint: null,
+          title: "Price is in the investor buy zone.",
         };
       }
       var pb = resolveInvestorPbBounds(tickerRow, price, row.investorZone);
@@ -632,22 +708,22 @@
         return {
           label: "ACCUMULATE",
           cls: "accumulate",
-          hint: "Thesis active — add on dips into the PB band, not at extension.",
-          title: "High-conviction accumulate name. Do not chase — wait for a pullback into the green PB band.",
+          hint: null,
+          title: "Thesis active. Add on a pullback into the PB band, not at extension.",
         };
       }
       if (pb && price >= pb.lo && price <= pb.hi) {
         return {
           label: "SCALE IN",
           cls: "accumulate",
-          hint: "Inside the add-on band — scale in with capped size.",
-          title: "Price is inside the planned pullback band; scale in with invalidation below Inv.",
+          hint: null,
+          title: "Price is inside the planned pullback band.",
         };
       }
       return {
         label: "ACCUMULATE",
         cls: "accumulate",
-        hint: "Scale in on pullbacks — do not chase extension.",
+        hint: null,
         title: "Investor accumulate thesis — add on dips, not at extension.",
       };
     }
@@ -655,10 +731,10 @@
     var verdict = String(tv.verdict || "WAIT").toUpperCase();
     if (verdict === "SETUP_FORMING") {
       return {
-        label: "FORMING",
-        cls: "forming",
-        hint: "Wait for the trigger to confirm.",
-        title: tv.why || "Setup forming.",
+        label: "WAIT",
+        cls: "wait",
+        hint: null,
+        title: tv.why || "Setup forming — wait for the trigger.",
       };
     }
     return {
@@ -671,7 +747,7 @@
 
   function verdictChipClass(cls) {
     if (cls === "buy") return "ds-chip--up";
-    if (cls === "queued") return "ds-chip--accent";
+    if (cls === "queued" || cls === "wait") return "ds-chip--solid";
     if (cls === "accumulate") return "ds-chip--accent";
     if (cls === "forming") return "ds-chip--solid";
     return "ds-chip--solid";
@@ -835,6 +911,7 @@
           invStage: invStage,
           investorZone: investorZone,
         }, t),
+        direction: inferTickerSide(t) || "LONG",
       });
     });
 
@@ -1281,9 +1358,7 @@
         h("div", { className: "tt-sec-title" }, "READY"),
         h("h2", { className: "tt-ready__title" }, "Capital shortlist"),
         h("p", { className: "tt-ready__sub" },
-          embedded
-            ? "Top enter / accumulate names by confluence. Zone labels guide positioning."
-            : "Top enter / accumulate names by confluence. Labels: BUY NOW, BUY, SCALE IN / ACCUMULATE.",
+          "Names the model is ready to add. Buy only in the add zone; Accumulate / Scale In wait for the PB band.",
         ),
       );
 
@@ -1312,7 +1387,21 @@
       var sparkCache = props.sparkCache || null;
       var ensureSpark = props.ensureSpark || null;
       var tickerData = props.tickerData || null;
+      var tradeByTicker = props.tradeByTicker || null;
+      var investorByTicker = props.investorByTicker || null;
       var LaneCard = window.TTLaneCard;
+      var planFacts = function (facts) {
+        var rows = (facts || []).filter(function (f) { return f && f.value; });
+        if (!rows.length) return null;
+        return h("dl", { className: "tt-plan-facts" },
+          rows.map(function (f) {
+            return h("div", { key: f.label, className: "tt-plan-facts__row" },
+              h("dt", null, f.label),
+              h("dd", { className: f.tone ? "tt-plan-facts__v--" + f.tone : null }, f.value),
+            );
+          }),
+        );
+      };
       return wrap(h(React.Fragment, null,
         headCopy,
         h("div", { className: "tt-ready-scroll tt-opp-scroll", role: "list" },
@@ -1324,7 +1413,6 @@
             var price = row.price != null ? row.price : tv.price;
             var disp = row.display || resolveReadySetupCardDisplay(row, tRow);
             var railTab = "NOW";
-            var confluence = Array.isArray(row.confluence) ? row.confluence : [];
             var isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
             var dayPct = Number.isFinite(row.dayPct) ? Number(row.dayPct) : null;
             var dayChg = null;
@@ -1365,13 +1453,15 @@
             laneNames.forEach(function (l, i) {
               chipRow.push(h(LaneBadge, { key: "lane-" + l + "-" + i, lane: l }));
             });
-            confluence.slice(0, 1).forEach(function (c) {
+            var side = String(row.direction || inferTickerSide(tRow) || "LONG").toUpperCase();
+            if (side === "LONG" || side === "SHORT") {
               chipRow.push(h("span", {
-                key: "conf-" + c.label,
-                className: "ds-chip ds-chip--sm",
-                title: "Confluence factor",
-              }, c.label));
-            });
+                key: "side",
+                className: "ds-chip ds-chip--sm " + (side === "SHORT" ? "ds-chip--dn" : "ds-chip--up"),
+                style: { fontFamily: "var(--tt-font-mono)" },
+                title: "Model side",
+              }, side));
+            }
 
             var metrics = [];
 
@@ -1384,18 +1474,14 @@
                 })
               : null;
 
+            var trade = tradeByTicker && typeof tradeByTicker.get === "function" ? tradeByTicker.get(sym) : null;
+            var invPos = investorByTicker && typeof investorByTicker.get === "function" ? investorByTicker.get(sym) : (tRow && tRow._openInvestor) || null;
+            var holdFact = holdPositionFact(trade || (tRow && tRow._openTrade), invPos);
+            var levelFacts = zoneLevelFacts(primaryZone);
             var footEls = [];
-            if (disp.hint) footEls.push(h("p", { key: "hint", className: "tt-strip-card__hint" }, disp.hint));
+            var factsEl = planFacts(levelFacts.concat(holdFact ? [holdFact] : []));
+            if (factsEl) footEls.push(h("div", { key: "levels", className: "tt-dt-plan" }, factsEl));
             if (row.blocker) footEls.push(h("div", { key: "blocker", className: "tt-ready-card__blocker" }, row.blocker));
-            if (LaneCard && LaneCard.zoneBarMeta) {
-              var tagLanes = zones.length > 1;
-              var ctoItem = ctoBySym[sym];
-              zones.forEach(function (zm, idx) {
-                footEls.push(h(React.Fragment, { key: "meta-" + zm.lane + "-" + idx },
-                  LaneCard.zoneBarMeta(attachCtoProbToZone(zm, ctoItem), { laneTag: tagLanes }),
-                ));
-              });
-            }
 
             if (LaneCard && typeof LaneCard.create === "function") {
               return h("div", { key: sym + "-" + lane, className: "tt-strip-card", role: "listitem" },
@@ -1404,7 +1490,7 @@
                   button: {
                     onClick: function () { if (onSelect) onSelect(sym, railTab); },
                     title: sym + " — open Now tab with lane guide",
-                    style: { textAlign: "left", padding: "var(--ds-space-3)" },
+                    style: { textAlign: "left" },
                   },
                   chipRow: chipRow,
                   quote: {
@@ -1433,7 +1519,7 @@
             },
               h("div", null, sym),
               h("span", null, disp.label),
-              disp.hint && h("p", { className: "tt-strip-card__hint" }, disp.hint),
+              factsEl,
               price != null && h("div", null, fmtPx(price)),
             );
           }),
@@ -1503,6 +1589,11 @@
       TodaysAnswers: TodaysAnswers,
       rankReadySetupsFromData: rankReadySetupsFromData,
       resolveReadySetupCardDisplay: resolveReadySetupCardDisplay,
+      zoneLevelFacts: zoneLevelFacts,
+      priceInPbBand: priceInPbBand,
+      holdPositionFact: holdPositionFact,
+      isInvestorLiveBuyZone: isInvestorLiveBuyZone,
+      inferTickerSide: inferTickerSide,
       attachCtoProbToZone: attachCtoProbToZone,
       buildTraderZoneModel: buildTraderZoneModel,
       buildInvestorZoneModel: buildInvestorZoneModel,
@@ -1549,6 +1640,11 @@
     buildVerdictGuide: buildVerdictGuide,
     rankReadySetupsFromData: rankReadySetupsFromData,
     resolveReadySetupCardDisplay: resolveReadySetupCardDisplay,
+    zoneLevelFacts: zoneLevelFacts,
+    priceInPbBand: priceInPbBand,
+    holdPositionFact: holdPositionFact,
+    isInvestorLiveBuyZone: isInvestorLiveBuyZone,
+    inferTickerSide: inferTickerSide,
     buildTraderZoneModel: buildTraderZoneModel,
     buildInvestorZoneModel: buildInvestorZoneModel,
     attachCtoProbToZone: attachCtoProbToZone,
