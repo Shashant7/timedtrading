@@ -1022,3 +1022,40 @@ export function buildCloudPivotDesk(rows = [], opts = {}) {
     stalks: watching.filter((x) => x.role === "stalk"),
   };
 }
+
+/**
+ * Day-trade strip grammar for a Cloud Desk watch row.
+ * FIRE → BUY (paper); everything else stays WAIT.
+ */
+export function cloudDeskPlanCopy(w = {}) {
+  const ticker = String(w.ticker || "").toUpperCase();
+  const role = String(w.role || "watch").toLowerCase();
+  const dir = String(w.direction || "").toUpperCase();
+  const magPx = Number(w.magnet?.px);
+  const magBit = Number.isFinite(magPx) && magPx > 0 ? `$${magPx.toFixed(2)}` : "";
+  const action = role === "fire" ? "BUY" : "WAIT";
+  const leader = String(w.leader_follow?.leader || w.leader?.symbol || "").toUpperCase();
+  const playWord = role === "fire" ? "Cloud Pivot fire, paper size"
+    : role === "leader" ? "leader curl"
+    : role === "follow" ? `follow ${leader || "leader"}`
+    : role === "catalyst" ? "catalyst if/then"
+    : role === "stalk" ? "magnet stalk"
+    : "desk watch";
+  const punchBits = [playWord];
+  if (magBit) punchBits.push(`toward ${magBit}`);
+  const punch = `${action} on ${ticker} — ${punchBits.join(" ")}`.replace(/\s+/g, " ").trim();
+  const plan = w.session_plan;
+  const gatePx = dir === "SHORT" ? Number(plan?.short_under) : Number(plan?.long_over);
+  const scan = [
+    role === "fire" ? "Paper 0.1\u00d7" : "Watch only",
+    magBit ? `magnet ${magBit}` : null,
+    Number.isFinite(gatePx) && gatePx > 0
+      ? (dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}`)
+      : null,
+    w.day2 ? "day2" : null,
+    w.mixed ? "mixed cloud OK" : null,
+    leader && role !== "follow" ? `lead ${leader}` : null,
+    w.session ? String(w.session).replace(/_/g, " ") : "10m 5/12",
+  ].filter(Boolean).join(" \u00b7 ");
+  return { action, role, punch, scan, magBit, leader };
+}

@@ -9,6 +9,7 @@ import {
   resolveCloudMagnet,
   inspectTtCloudPivot,
   buildCloudPivotDesk,
+  cloudDeskPlanCopy,
   buildCloudSessionPlan,
   annotateCloudPivotLeaderFollows,
   cloudPivotFollowersOf,
@@ -439,5 +440,43 @@ describe("tt_cloud_pivot", () => {
     ], { skipDetect: true, minScore: 20 });
     expect(desk.leaders.map((x) => x.ticker)).toEqual(expect.arrayContaining(["BTCUSD", "COIN"]));
     expect(desk.watching.find((x) => x.ticker === "COIN")?.leader_follow?.leader).toBe("BTCUSD");
+  });
+});
+
+describe("cloudDeskPlanCopy", () => {
+  it("writes FIRE as a paper BUY punchline", () => {
+    const copy = cloudDeskPlanCopy({
+      ticker: "BTCUSD",
+      role: "fire",
+      direction: "LONG",
+      magnet: { px: 63474.96, label: "1h_34_50" },
+      session: "midday",
+    });
+    expect(copy.action).toBe("BUY");
+    expect(copy.punch).toBe("BUY on BTCUSD — Cloud Pivot fire, paper size toward $63474.96");
+    expect(copy.scan).toContain("Paper 0.1×");
+    expect(copy.scan).toContain("magnet $63474.96");
+    expect(copy.scan).toContain("midday");
+  });
+
+  it("keeps STALK / FOLLOW as WAIT", () => {
+    const stalk = cloudDeskPlanCopy({
+      ticker: "QQQ",
+      role: "stalk",
+      direction: "SHORT",
+      magnet: { px: 727.84 },
+    });
+    expect(stalk.action).toBe("WAIT");
+    expect(stalk.punch).toBe("WAIT on QQQ — magnet stalk toward $727.84");
+    const follow = cloudDeskPlanCopy({
+      ticker: "COIN",
+      role: "follow",
+      direction: "LONG",
+      leader_follow: { leader: "BTCUSD" },
+      magnet: { px: 290 },
+    });
+    expect(follow.action).toBe("WAIT");
+    expect(follow.punch).toContain("follow BTCUSD");
+    expect(follow.scan).toContain("Watch only");
   });
 });
