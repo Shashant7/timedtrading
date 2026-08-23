@@ -1960,7 +1960,7 @@
         display: flex;
         flex-direction: column;
         gap: 0;
-        padding: 12px 16px 8px;
+        padding: 6px 14px 4px;
       }
       .tt-universe-panel__ready,
       .tt-universe-panel__growth,
@@ -1977,8 +1977,8 @@
         flex: 0 0 280px;
         width: 280px;
         max-width: 280px;
-        height: 288px;
-        max-height: 288px;
+        height: 260px;
+        max-height: 260px;
         overflow: hidden;
         box-sizing: border-box;
       }
@@ -2001,7 +2001,7 @@
         overflow: hidden;
         flex: 1 1 auto;
         min-height: 0;
-        padding: 8px 12px 10px;
+        padding: 6px 12px 8px;
       }
       .tt-universe-panel .tt-dt-plan__punch {
         display: -webkit-box;
@@ -2029,7 +2029,7 @@
       }
       .tt-desk-progress { margin-top: 0; }
       .tt-desk-progress .tt-lane-card__pos-track { min-height: 8px; }
-      .tt-strip-subhead-wrap--cloud-desk { margin-top: 4px; }
+      .tt-strip-subhead-wrap--cloud-desk { margin-top: 2px; }
       .tt-strip-subhead-wrap--cloud-desk .tt-strip-subhead {
         margin: 4px 0 6px;
       }
@@ -2212,22 +2212,29 @@
       .tt-universe-panel__divider {
         height: 1px;
         background: var(--tt-border, rgba(255,255,255,0.08));
-        margin: 6px 0 4px;
+        margin: 1px 0;
       }
-      .tt-universe-panel .tt-ready__head { margin-bottom: 4px; }
+      .tt-universe-panel .tt-ready__head { margin-bottom: 0; }
+      .tt-universe-panel .tt-ready__head .tt-sec-title { display: none; }
       .tt-universe-panel .tt-ready__title { margin-top: 0; margin-bottom: 0; }
       .tt-universe-panel .tt-ready__sub {
-        margin-top: 2px;
-        line-height: 1.35;
+        margin-top: 0;
+        margin-bottom: 0;
+        line-height: 1.3;
+        font-size: 11.5px;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 1;
+        overflow: hidden;
       }
       .tt-universe-panel .tt-sec-title { margin-bottom: 0; }
-      .tt-universe-panel .tt-strip-subhead { margin: 4px 0 4px; }
+      .tt-universe-panel .tt-strip-subhead { margin: 1px 0 1px; }
       .tt-universe-panel .tt-strip-subhead:first-child { margin-top: 0; }
       .tt-universe-panel .tt-strip-subhead-wrap--cloud-desk .tt-strip-subhead {
-        margin: 2px 0 4px;
+        margin: 1px 0 2px;
       }
       .tt-universe-panel .tt-lane-section { margin: 0; }
-      .tt-universe-panel .tt-lane-controls { margin-bottom: 8px; }
+      .tt-universe-panel .tt-lane-controls { margin-bottom: 4px; }
       .tt-viewport-map-head {
         margin-bottom: 12px;
       }
@@ -3808,7 +3815,7 @@
         return null;
       }
 
-      function stripCallChips({ action, horizon, side, actionTitle }) {
+      function stripCallChips({ action, horizon, side, actionTitle, rrOpts }) {
         const chips = [];
         chips.push(h("span", {
           key: "act",
@@ -3835,6 +3842,8 @@
             title: "Model side",
           }, side));
         }
+        const VU = window.TimedVerdictUI;
+        if (rrOpts && VU?.appendLiveRrChip) VU.appendLiveRrChip(chips, rrOpts);
         return chips;
       }
 
@@ -4300,6 +4309,14 @@
                     horizon: "SHORT TERM",
                     side: dir,
                     actionTitle: copy.punch,
+                    rrOpts: {
+                      zone: deskZone,
+                      ticker: liveT,
+                      side: dir,
+                      price: livePrice,
+                      coverLast: lastPx,
+                      coverNext: nextPx,
+                    },
                   });
 
                   const sparkSvg = LaneCard?.sparkSvgFromCache
@@ -4406,6 +4423,12 @@
                 horizon: zm?.lane === "investor" ? "LONG TERM" : "SHORT TERM",
                 side: modelDir === "SHORT" || modelDir === "LONG" ? modelDir : "",
                 actionTitle: familyCopy.punch,
+                rrOpts: {
+                  zone: zm,
+                  ticker: liveT,
+                  side: modelDir,
+                  price: trackPrice,
+                },
               });
 
               const sparkSvg = LaneCard?.sparkSvgFromCache
@@ -4626,7 +4649,7 @@
 
         return wrap(h(React.Fragment, null,
           head,
-          h("div", { className: "tt-ready-scroll tt-opp-scroll", role: "list", style: { marginTop: 8 } },
+          h("div", { className: "tt-ready-scroll tt-opp-scroll", role: "list" },
             plays.map((p) => {
               const sym = String(p.ticker || "").toUpperCase();
               const liveT = (data && data[sym]) ? data[sym] : {};
@@ -4683,6 +4706,15 @@
               const zm = VU?.buildTraderZoneModel?.(liveT, trackPrice)
                 || VU?.buildInvestorZoneModel?.(liveT, trackPrice)
                 || null;
+              const convSide = flavor === "put" ? "SHORT" : "LONG";
+              if (VU?.appendLiveRrChip) {
+                VU.appendLiveRrChip(chipRow, {
+                  zone: zm,
+                  ticker: liveT,
+                  side: convSide,
+                  price: trackPrice,
+                });
+              }
               const midBody = zm && LaneCard?.zoneBarTrack
                 ? LaneCard.zoneBarTrack(zm, {
                     compact: true,
@@ -4848,6 +4880,7 @@
         }
 
         const LaneCard = window.TTLaneCard;
+        const VU = window.TimedVerdictUI;
         const reviveZone = (zone, livePrice) => {
           if (!zone || !(Number(zone.minPx) < Number(zone.maxPx))) return null;
           const minPx = Number(zone.minPx);
@@ -4860,7 +4893,7 @@
 
         return wrap(h(React.Fragment, null,
           head,
-          h("div", { className: "tt-ready-scroll tt-opp-scroll", role: "list", style: { marginTop: 8 } },
+          h("div", { className: "tt-ready-scroll tt-opp-scroll", role: "list" },
             plays.map((p) => {
               const sym = String(p.ticker || "").toUpperCase();
               const liveT = data && data[sym] ? data[sym] : {};
@@ -4923,6 +4956,17 @@
                 : "";
 
               const zm = reviveZone(p.zone || exec.zone, trackPrice);
+              const dtSide = flavor === "put" || lean === "SHORT" ? "SHORT"
+                : flavor === "call" || lean === "LONG" ? "LONG"
+                : "";
+              if (VU?.appendLiveRrChip) {
+                VU.appendLiveRrChip(chipRow, {
+                  zone: zm,
+                  ticker: liveT,
+                  side: dtSide,
+                  price: trackPrice,
+                });
+              }
               const midBody = zm && LaneCard?.zoneBarTrack
                 ? LaneCard.zoneBarTrack(zm, {
                     compact: true,
@@ -6649,6 +6693,12 @@
                   : action === "SCALE IN"
                     ? "Inside the PB band"
                     : "Add on a pullback into the PB band",
+                rrOpts: {
+                  zone: zm,
+                  ticker: liveT,
+                  side,
+                  price: trackPrice,
+                },
               });
               const midBody = zm && LaneCard?.zoneBarTrack
                 ? LaneCard.zoneBarTrack(zm, {

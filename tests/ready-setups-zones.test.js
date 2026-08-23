@@ -124,6 +124,24 @@ describe("Ready Setups zone-bar cards", () => {
     act(() => { root.unmount(); });
   });
 
+  it("computeLiveZoneRr returns reward/risk from zone ladder", () => {
+    const fn = window.TimedVerdictUI.computeLiveZoneRr;
+    const rr = fn({ inv: 480, tgt: 540, price: 500 }, "LONG");
+    expect(rr).toBeCloseTo(2, 5);
+    const shortRr = fn({ inv: 520, tgt: 460, price: 500 }, "SHORT");
+    expect(shortRr).toBeCloseTo(2, 5);
+  });
+
+  it("resolveLivePlayRr prefers zone ladder over ticker.rr", () => {
+    const fn = window.TimedVerdictUI.resolveLivePlayRr;
+    const rr = fn({
+      zone: { inv: 96, tgt: 109, price: 97 },
+      ticker: { rr: 1.1 },
+      side: "LONG",
+    });
+    expect(rr).toBeCloseTo((109 - 97) / (97 - 96), 5);
+  });
+
   it("attachCtoProbToZone adds hit/reach probabilities from CTO payload", () => {
     const attach = window.TimedVerdictUI.attachCtoProbToZone;
     const zm = { inv: 96, tgt: 109, pb: [100, 103], price: 97 };
