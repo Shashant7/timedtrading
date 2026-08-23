@@ -520,6 +520,21 @@ is a `pill-live` with a heartbeat dot when market is open.
 All cells share the same height and baseline — don't let one cell push
 taller than the row.
 
+### Activity Strip (journey header)
+
+Sticky recent-activity row on Today / Active Trader / Investor. Cards use
+the same grammar as Index Day-Trade: a `ds-chip` row, a punchline, then a
+mono scan line. Keep the stack compact (two text lines under chips) so
+the sticky header does not crush the viewport. No sparkline or zone bar
+in this strip.
+
+### Index Day-Trade / Convexity strip cards
+
+Today-page horizontal cards use `TTLaneCard` plus `tt-dt-plan` (punch /
+scan / premium). Convexity lotto and moonshot cards use that same stack —
+chips for action / Call or Put / LOTTO or MOONSHOT / strike / expiry,
+then punchline and scan under the card. No emoji in labels.
+
 ### Ticker Cards (CompactCard)
 
 The primary unit of the Active Trader view. Uses `card` tokens with an

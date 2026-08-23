@@ -1277,9 +1277,114 @@ function SetupFamiliesStrip({
     }, hint));
   })) : null));
 }
+function tickerHeadlinePrice(liveT, fallback) {
+  try {
+    const hp = window.TimedPriceUtils?.getHeadlinePrice?.(liveT);
+    if (Number.isFinite(Number(hp)) && Number(hp) > 0) return Number(hp);
+  } catch (_) {}
+  if (Number.isFinite(Number(liveT?._live_price)) && Number(liveT._live_price) > 0) return Number(liveT._live_price);
+  if (Number.isFinite(Number(fallback)) && Number(fallback) > 0) return Number(fallback);
+  return null;
+}
+function tickerTrackPrice(liveT, fallback) {
+  try {
+    const tp = window.TimedPriceUtils?.getTrackPrice?.(liveT);
+    if (Number.isFinite(Number(tp)) && Number(tp) > 0) return Number(tp);
+  } catch (_) {}
+  return tickerHeadlinePrice(liveT, fallback);
+}
+function formatExpShort(exp) {
+  const iso = String(exp?.iso || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const parts = iso.split("-").map(Number);
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${months[parts[1] - 1]} ${parts[2]}`;
+  }
+  const label = String(exp?.label || "").trim();
+  const m = label.match(/^([A-Za-z]{3}\s+\d{1,2})/);
+  if (m) return m[1];
+  return /^\d+\s*DTE$/i.test(label) ? "" : label.replace(/\s*\(\d+\s*DTE\)/i, "").trim();
+}
+function stripUiEmoji(s) {
+  return String(s || "").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "").replace(/\s+/g, " ").trim();
+}
+function actionChipClass(action) {
+  const a = String(action || "").toUpperCase();
+  if (a === "BUY") return "ds-chip ds-chip--sm ds-chip--up";
+  if (a === "TRIM") return "ds-chip ds-chip--sm ds-chip--accent";
+  if (a === "SELL") return "ds-chip ds-chip--sm ds-chip--dn";
+  return "ds-chip ds-chip--sm ds-chip--accent";
+}
+function convexityPlanCopy(card) {
+  const ticker = String(card?.ticker || "").toUpperCase();
+  const isMoon = card?.play_class === "moonshot";
+  const dir = String(card?.direction || "").toUpperCase();
+  const flavor = dir === "SHORT" ? "put" : "call";
+  const strike = Number(card?.strike);
+  const dte = Number(card?.expiration?.dte);
+  const mode = String(card?.confluence_mode || "").toUpperCase();
+  const action = mode === "READY" || mode === "RIDE" ? "BUY" : "WAIT";
+  const expShort = formatExpShort(card?.expiration);
+  const contractBit = Number.isFinite(strike) && strike > 0 ? `${Math.round(strike)}${flavor === "put" ? "P" : "C"}` : "";
+  const dteBit = Number.isFinite(dte) ? `${dte}DTE` : "";
+  const playWord = card?.earnings_prep ? "earnings-prep lotto" : isMoon ? "moonshot" : "lotto";
+  const punchCore = [action, "on", ticker, contractBit, expShort, dteBit ? `(${dteBit})` : ""].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  const punch = `${punchCore} — ${playWord} ${flavor}, premium may go to zero`;
+  const scan = [Number.isFinite(Number(card?.max_loss_usd)) ? `Risk $${Number(card.max_loss_usd)}` : null, Number.isFinite(Number(card?.top_target_underlying)) ? `3x+ @ $${Number(card.top_target_underlying).toFixed(2)}` : null, Number.isFinite(Number(card?.premium_mid)) ? `Pay \u2264 $${Number(card.premium_mid).toFixed(2)}` : null, expShort || null, dteBit || null].filter(Boolean).join(" \u00b7 ");
+  return {
+    action,
+    flavor,
+    punch,
+    scan,
+    expShort,
+    contractBit
+  };
+}
+function LivePremium({
+  ticker,
+  exp,
+  strike,
+  right,
+  fallbackMid
+}) {
+  const [q, setQ] = useState(null);
+  useEffect(() => {
+    if (!ticker || !exp || !(Number(strike) > 0) || !right) return undefined;
+    let alive = true;
+    const url = `${API_BASE || ""}/timed/options/quote?ticker=${encodeURIComponent(ticker)}&exp=${encodeURIComponent(exp)}&strike=${encodeURIComponent(strike)}&right=${encodeURIComponent(right)}`;
+    const fetchQuote = async () => {
+      try {
+        const r = await fetch(url, {
+          credentials: "include",
+          cache: "no-store"
+        });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (alive && j?.ok) setQ(j);
+      } catch (_) {}
+    };
+    fetchQuote();
+    const pollIv = setInterval(() => {
+      if (document.visibilityState === "visible") fetchQuote();
+    }, 20 * 1000);
+    return () => {
+      alive = false;
+      clearInterval(pollIv);
+    };
+  }, [ticker, exp, strike, right]);
+  const mid = Number(q?.mid);
+  const showMid = Number.isFinite(mid) && mid > 0 ? mid : Number(fallbackMid);
+  const isLive = q != null && Number.isFinite(mid);
+  return h("span", {
+    title: q?.bid != null && q?.ask != null ? `bid ${Number(q.bid).toFixed(2)} · ask ${Number(q.ask).toFixed(2)}` : isLive ? "live from options chain" : "estimated · not live"
+  }, Number.isFinite(showMid) ? `Prem $${Number(showMid).toFixed(2)}` : "Prem —", isLive ? " live" : "");
+}
 function ConvexityPlaysStrip({
   onSelectTicker,
-  embedded
+  embedded,
+  data,
+  sparkCache,
+  ensureSpark
 }) {
   const [plays, setPlays] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1387,6 +1492,8 @@ function ConvexityPlaysStrip({
       timeZone: "America/New_York"
     });
   };
+  const LaneCard = window.TTLaneCard;
+  const VU = window.TimedVerdictUI;
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
     role: "list",
@@ -1394,87 +1501,178 @@ function ConvexityPlaysStrip({
       marginTop: 8
     }
   }, plays.map(p => {
+    const sym = String(p.ticker || "").toUpperCase();
+    const liveT = data && data[sym] ? data[sym] : {};
+    const livePrice = tickerHeadlinePrice(liveT, p.spot || p.price);
+    const trackPrice = tickerTrackPrice(liveT, livePrice);
+    let dayPct = null;
+    let dayChg = null;
+    try {
+      const dc = typeof getDailyChange === "function" ? getDailyChange(liveT) : null;
+      if (Number.isFinite(Number(dc?.dayPct))) dayPct = Number(dc.dayPct);
+      if (Number.isFinite(Number(dc?.dayChg))) dayChg = Number(dc.dayChg);
+    } catch (_) {}
+    const quoteDir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+    const copy = p.headline && p.scan_line && p.action ? {
+      punch: p.headline,
+      scan: p.scan_line,
+      action: String(p.action).toUpperCase(),
+      flavor: String(p.direction || "").toUpperCase() === "SHORT" ? "put" : "call",
+      expShort: formatExpShort(p.expiration)
+    } : convexityPlanCopy(p);
     const isMoon = p.play_class === "moonshot";
-    const badgeColor = isMoon ? "#a78bfa" : "#f5c25c";
-    const dirColor = String(p.direction || "").toUpperCase() === "SHORT" ? "#f87171" : "#34d399";
-    return h("div", {
-      key: p.ticker + (p.play_class || ""),
-      role: "listitem",
-      className: "tt-strip-card",
-      onClick: () => onSelectTicker && onSelectTicker(p.ticker, "SNAPSHOT"),
+    const flavor = copy.flavor;
+    const action = copy.action;
+    const strike = Number(p.strike);
+    const exp = p.expiration || {};
+    const expShort = copy.expShort || formatExpShort(exp);
+    const biasCls = flavor === "put" ? "ds-chip--dn" : "ds-chip--up";
+    const kClass = action === "BUY" ? "tt-dt-plan__k--buy" : "tt-dt-plan__k--wait";
+    const chipRow = [];
+    chipRow.push(h("span", {
+      key: "act",
+      className: actionChipClass(action),
+      title: copy.punch,
       style: {
-        cursor: "pointer",
-        border: isMoon ? "2px solid rgba(167,139,250,0.45)" : "1px solid rgba(245,194,92,0.35)",
-        background: isMoon ? "linear-gradient(135deg, rgba(167,139,250,0.12), rgba(52,211,153,0.06))" : "rgba(245,194,92,0.06)"
+        fontFamily: "var(--tt-font-mono)"
       }
-    }, h("div", {
+    }, action));
+    chipRow.push(h("span", {
+      key: "bias",
+      className: `ds-chip ds-chip--sm ${biasCls}`,
       style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        flexWrap: "wrap",
-        marginBottom: 6
-      }
-    }, h("strong", {
-      style: {
-        fontSize: 15
-      }
-    }, p.ticker), h("span", {
-      style: {
-        fontSize: 9,
-        fontWeight: 800,
-        letterSpacing: "0.08em",
-        padding: "2px 7px",
-        borderRadius: 999,
-        background: badgeColor + "33",
-        color: badgeColor
-      }
-    }, isMoon ? "MOONSHOT" : "LOTTO"), p.earnings_prep && h("span", {
-      style: {
-        fontSize: 9,
-        fontWeight: 800,
-        letterSpacing: "0.06em",
-        padding: "2px 7px",
-        borderRadius: 999,
-        background: "rgba(251,146,60,0.2)",
-        color: "#fb923c"
+        fontFamily: "var(--tt-font-mono)"
       },
-      title: "Advisory OTM into earnings — IV crush risk; not a share entry"
-    }, "EARNINGS PREP"), p.direction && h("span", {
+      title: "Contract side"
+    }, flavor === "put" ? "Put" : "Call"));
+    chipRow.push(h("span", {
+      key: "class",
+      className: `ds-chip ds-chip--sm ${isMoon ? "ds-chip--solid" : "ds-chip--accent"}`,
       style: {
-        fontSize: 10,
-        fontWeight: 700,
-        color: dirColor
-      }
-    }, p.direction), p.confluence_mode && h("span", {
-      className: "ds-chip ds-chip--sm",
-      style: {
-        fontFamily: "var(--tt-font-mono)",
-        fontSize: 9
-      }
-    }, p.confluence_mode)), h("div", {
-      style: {
-        fontSize: 11,
-        color: "var(--tt-text-muted)",
-        lineHeight: 1.4,
-        marginBottom: 6
-      }
-    }, p.label || p.rationale_short || ""), h("div", {
-      style: {
-        display: "flex",
-        gap: 10,
-        flexWrap: "wrap",
-        fontSize: 10,
-        fontFamily: "var(--tt-font-mono)",
-        color: "var(--tt-text-muted)"
-      }
-    }, Number.isFinite(Number(p.strike)) && h("span", null, "$", Number(p.strike).toFixed(2), " strike"), p.expiration?.label && h("span", null, p.expiration.label), p.max_loss_usd != null && h("span", null, "Risk $", p.max_loss_usd), p.top_target_underlying != null && h("span", null, "3×+ @ $", Number(p.top_target_underlying).toFixed(2))), h("div", {
-      style: {
-        fontSize: 9,
-        color: "var(--tt-text-faint)",
-        marginTop: 6
-      }
-    }, "Premium may go to zero.", fmtAsOf(p.as_of_ms) ? " · as of " + fmtAsOf(p.as_of_ms) + " ET" : ""));
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: isMoon ? "Moonshot — multi-bagger if momentum continues" : "Lotto — sized for total premium loss"
+    }, isMoon ? "MOONSHOT" : "LOTTO"));
+    if (p.earnings_prep) {
+      chipRow.push(h("span", {
+        key: "earn",
+        className: "ds-chip ds-chip--sm ds-chip--accent",
+        title: "Advisory OTM into earnings — IV crush risk; not a share entry",
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, "EARNINGS PREP"));
+    }
+    if (Number.isFinite(strike) && strike > 0) {
+      chipRow.push(h("span", {
+        key: "strike",
+        className: "ds-chip ds-chip--sm",
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        },
+        title: exp?.label || "Strike"
+      }, `$${Math.round(strike)}${flavor === "put" ? "P" : "C"}`));
+    }
+    if (expShort) {
+      chipRow.push(h("span", {
+        key: "exp",
+        className: "ds-chip ds-chip--sm",
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, expShort));
+    }
+    if (p.confluence_mode) {
+      chipRow.push(h("span", {
+        key: "mode",
+        className: "ds-chip ds-chip--sm",
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        },
+        title: "Confluence mode"
+      }, String(p.confluence_mode)));
+    }
+    const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
+    const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
+    const rank = Number(liveT?.rank_position ?? liveT?.rank ?? p?.confluence_score) || null;
+    const score = Number(liveT?.score ?? p?.confluence_score) || null;
+    const metrics = LaneCard?.rankScoreMetricChips ? LaneCard.rankScoreMetricChips({
+      rank,
+      score
+    }) : [];
+    const zm = VU?.buildTraderZoneModel?.(liveT, trackPrice) || VU?.buildInvestorZoneModel?.(liveT, trackPrice) || null;
+    const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
+      compact: true,
+      planLabel: "Convexity plan",
+      trackTitle: flavor === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
+    }) : null;
+    const whyLine = stripUiEmoji(p.rationale_short || p.label || "");
+    const asOf = fmtAsOf(p.as_of_ms);
+    const footEls = [h("div", {
+      key: "plan",
+      className: "tt-dt-plan"
+    }, h("p", {
+      className: `tt-dt-plan__punch ${kClass}`
+    }, copy.punch), copy.scan && h("p", {
+      className: "tt-dt-plan__scan"
+    }, copy.scan), whyLine && whyLine !== copy.punch && h("p", {
+      className: "tt-dt-plan__why"
+    }, whyLine), h("div", {
+      className: "tt-dt-plan__prem"
+    }, h(LivePremium, {
+      ticker: sym,
+      exp: exp?.iso || null,
+      strike,
+      right: flavor === "put" ? "P" : "C",
+      fallbackMid: p.premium_mid
+    }), (expShort || exp?.label) && h("span", null, [expShort, exp?.label && exp.label !== expShort ? stripUiEmoji(exp.label) : null].filter(Boolean).join(" · "))), h("p", {
+      className: "tt-dt-plan__row"
+    }, "Premium may go to zero.", asOf ? ` · as of ${asOf} ET` : ""))];
+    if (zm && LaneCard?.zoneBarMeta) {
+      footEls.push(LaneCard.zoneBarMeta(zm, {}));
+    }
+    if (LaneCard?.create) {
+      return h("div", {
+        key: sym + (p.play_class || ""),
+        className: "tt-strip-card",
+        role: "listitem"
+      }, LaneCard.create({
+        sym,
+        button: {
+          onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
+          title: `${sym} — open options plan`,
+          style: {
+            textAlign: "left",
+            padding: "var(--ds-space-3)"
+          }
+        },
+        chipRow,
+        quote: {
+          price: livePrice,
+          dayPct,
+          dayChg,
+          dir: quoteDir,
+          extLine
+        },
+        sparkSvg,
+        midBody,
+        metrics
+      }), h("div", {
+        className: "tt-strip-card__foot"
+      }, footEls));
+    }
+    return h("button", {
+      key: sym + (p.play_class || ""),
+      type: "button",
+      className: "tt-strip-card",
+      onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS")
+    }, h("div", {
+      className: "tt-dt-plan"
+    }, h("p", {
+      className: `tt-dt-plan__punch ${kClass}`
+    }, copy.punch), copy.scan && h("p", {
+      className: "tt-dt-plan__scan"
+    }, copy.scan)));
   }))));
 }
 function IndexDayTradeStrip({
@@ -1598,32 +1796,6 @@ function IndexDayTradeStrip({
     }, suppressedNote) : null)));
   }
   const LaneCard = window.TTLaneCard;
-  const tickerHeadlinePrice = (liveT, fallback) => {
-    try {
-      const hp = window.TimedPriceUtils?.getHeadlinePrice?.(liveT);
-      if (Number.isFinite(Number(hp)) && Number(hp) > 0) return Number(hp);
-    } catch (_) {}
-    if (Number.isFinite(Number(liveT?._live_price)) && Number(liveT._live_price) > 0) return Number(liveT._live_price);
-    if (Number.isFinite(Number(fallback)) && Number(fallback) > 0) return Number(fallback);
-    return null;
-  };
-  const tickerTrackPrice = (liveT, fallback) => {
-    try {
-      const tp = window.TimedPriceUtils?.getTrackPrice?.(liveT);
-      if (Number.isFinite(Number(tp)) && Number(tp) > 0) return Number(tp);
-    } catch (_) {}
-    return tickerHeadlinePrice(liveT, fallback);
-  };
-  const formatExpShort = exp => {
-    const iso = String(exp?.iso || "").slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-      const parts = iso.split("-").map(Number);
-      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      return `${months[parts[1] - 1]} ${parts[2]}`;
-    }
-    const label = String(exp?.label || "").trim();
-    return /^\d+\s*DTE$/i.test(label) ? "" : label;
-  };
   const reviveZone = (zone, livePrice) => {
     if (!zone || !(Number(zone.minPx) < Number(zone.maxPx))) return null;
     const minPx = Number(zone.minPx);
@@ -1636,52 +1808,6 @@ function IndexDayTradeStrip({
       pct,
       lane: zone.lane || "trader"
     });
-  };
-  function LivePremium({
-    ticker,
-    exp,
-    strike,
-    right,
-    fallbackMid
-  }) {
-    const [q, setQ] = useState(null);
-    useEffect(() => {
-      if (!ticker || !exp || !(Number(strike) > 0) || !right) return undefined;
-      let alive = true;
-      const url = `${API_BASE || ""}/timed/options/quote?ticker=${encodeURIComponent(ticker)}&exp=${encodeURIComponent(exp)}&strike=${encodeURIComponent(strike)}&right=${encodeURIComponent(right)}`;
-      const fetchQuote = async () => {
-        try {
-          const r = await fetch(url, {
-            credentials: "include",
-            cache: "no-store"
-          });
-          if (!r.ok) return;
-          const j = await r.json();
-          if (alive && j?.ok) setQ(j);
-        } catch (_) {}
-      };
-      fetchQuote();
-      const pollIv = setInterval(() => {
-        if (document.visibilityState === "visible") fetchQuote();
-      }, 20 * 1000);
-      return () => {
-        alive = false;
-        clearInterval(pollIv);
-      };
-    }, [ticker, exp, strike, right]);
-    const mid = Number(q?.mid);
-    const showMid = Number.isFinite(mid) && mid > 0 ? mid : Number(fallbackMid);
-    const isLive = q != null && Number.isFinite(mid);
-    return h("span", {
-      title: q?.bid != null && q?.ask != null ? `bid ${Number(q.bid).toFixed(2)} · ask ${Number(q.ask).toFixed(2)}` : isLive ? "live from options chain" : "estimated · not live"
-    }, Number.isFinite(showMid) ? `Prem $${Number(showMid).toFixed(2)}` : "Prem —", isLive ? " live" : "");
-  }
-  const actionChipClass = action => {
-    const a = String(action || "").toUpperCase();
-    if (a === "BUY") return "ds-chip ds-chip--sm ds-chip--up";
-    if (a === "TRIM") return "ds-chip ds-chip--sm ds-chip--accent";
-    if (a === "SELL") return "ds-chip ds-chip--sm ds-chip--dn";
-    return "ds-chip ds-chip--sm ds-chip--accent";
   };
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
@@ -7359,7 +7485,10 @@ function TodayApp({
     className: "tt-universe-panel__divider"
   }), h(ConvexityPlaysStrip, {
     onSelectTicker,
-    embedded: true
+    embedded: true,
+    data,
+    sparkCache,
+    ensureSpark
   }), h("div", {
     className: "tt-universe-panel__divider"
   }), data ? h(TickerLaneSection, {
@@ -7812,6 +7941,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787374463737:143353135
+// cache-bust:1787488266201:413017613
 
-// cache-bust:1787374463737:143353135
+// cache-bust:1787488266201:413017613
