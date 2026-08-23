@@ -148,6 +148,16 @@
         border-style: dashed;
         opacity: 0.82;
       }
+      .tt-activity-card .ev-paper {
+        color: var(--tt-warning, #f59e0b);
+        background: var(--tt-warning-dim, rgba(245,158,11,0.14));
+        border-color: rgba(245,158,11,0.30);
+      }
+      .tt-activity-card .ev-family {
+        color: var(--tt-cyan, #22d3ee);
+        background: var(--tt-cyan-dim, rgba(34,211,238,0.10));
+        border-color: rgba(34,211,238,0.28);
+      }
       .tt-activity-pill.ev-recommended {
         border-color: rgba(251,146,60,0.35);
       }
@@ -492,6 +502,24 @@
     return "ds-chip ds-chip--sm ds-chip--solid";
   }
 
+  const PAPER_FAMILY_LABELS = {
+    confirm_stack_ema21: "Confirm-stack",
+    tt_cloud_pivot: "Cloud Pivot",
+    momentum_continuation: "Continuation",
+  };
+
+  function isPaperActivity(ev) {
+    return ev?.paper === true || ev?.paper === 1 || ev?.paper === "true"
+      || (Number(ev?.paper_mult) > 0 && Number(ev?.paper_mult) < 1);
+  }
+
+  function activityFamilyLabel(ev) {
+    const named = String(ev?.slice_family_label || "").trim();
+    if (named) return named;
+    const key = String(ev?.slice_family || ev?.family || "").trim();
+    return PAPER_FAMILY_LABELS[key] || "";
+  }
+
   function buildActivityPunchline({ actionLabel, sym, detail }) {
     const ticker = String(sym || "").toUpperCase();
     const action = String(actionLabel || "UPDATE").toUpperCase();
@@ -679,8 +707,10 @@
       const actionLabel = normalizeDisplayAction(meta);
       const scopeLabel = scopeDisplayLabel(meta.scope);
       const punch = buildActivityPunchline({ actionLabel, sym, detail: size });
+      const familyLabel = activityFamilyLabel(ev);
+      const paper = isPaperActivity(ev);
       const scan = buildActivityScanLine({
-        reason,
+        reason: [paper ? "paper 0.1×" : "", familyLabel, reason].filter(Boolean).join(" · "),
         pnlText: showPnl ? fmtPct(pnlPct) : "",
         timeText: fmtAgo(ts),
       });
@@ -689,10 +719,23 @@
       pill.type = "button";
       pill.className = `tt-activity-pill tt-activity-card ${meta.cls}${meta.mode === "watching" ? " ev-watching" : " ev-doing"}`;
       pill.dataset.scope = meta.scope === "investor" ? "investor" : "trader";
-      pill.title = [scopeLabel, actionLabel, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
+      pill.title = [paper ? "PAPER" : "", familyLabel, scopeLabel, actionLabel, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
 
       const chips = document.createElement("div");
       chips.className = "tt-activity-card__chips";
+
+      if (paper) {
+        const paperEl = document.createElement("span");
+        paperEl.className = "ds-chip ds-chip--sm ev-paper";
+        paperEl.textContent = "PAPER";
+        chips.appendChild(paperEl);
+      }
+      if (familyLabel) {
+        const famEl = document.createElement("span");
+        famEl.className = "ds-chip ds-chip--sm ev-family";
+        famEl.textContent = familyLabel;
+        chips.appendChild(famEl);
+      }
 
       const typeEl = document.createElement("span");
       typeEl.className = activityActionChipClass(actionLabel);

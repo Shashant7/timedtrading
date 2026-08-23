@@ -205,6 +205,7 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
     const authFail = await requireKeyOrAdmin(req, env);
     if (authFail) return authFail;
     const days = Math.min(Number(url.searchParams.get("days")) || 7, 90);
+    // family=all → Confirm-stack + Cloud Pivot + Continuation in one query.
     const family = String(url.searchParams.get("family") || "confirm_stack_ema21");
     const report = await loadFamilyAttribution(env, { days, family });
     return sendJSON(report, report?.ok ? 200 : 500, corsHeaders(env, req));

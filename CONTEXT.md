@@ -393,7 +393,12 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   dynamically (`deep_audit_setup_demotion_*`); blocked ⇒ all tickers (not
   index-only). Nightly governor heals mangled keys, auto-demotes PF<0.5
   bleeders, enables bleeder shield, writes `timed:weekly-governor:latest`.
-  Family attribution: `GET /timed/admin/trust-spine/family-attribution`.
+  Family attribution: `GET /timed/admin/trust-spine/family-attribution`
+  (`family=all` for the three paper experiments). Paper fills label
+  Discord / email / activity as `PAPER · {family}` in `#trade-signals`
+  (no extra channel). Scoreboard: Model Performance → Paper experiments.
+  These slices are paper-first — there is no dedicated family-timing
+  historical replay; measure live 0.1× MFE keep, then widen.
   Confirm-stack thin slice: sequence `entry_ready` → paper Queued (0.1×);
   move-ending/conviction auto-promote only after family n≥30 + keep≥0.35.
   Cloud Pivot desk (`buildCloudPivotDesk` / `scripts/scan-cloud-pivot-desk.mjs`)
@@ -515,7 +520,8 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   continuation** (paper Queued) under lifecycle + play UI. Plans:
   [`plans/confirm-stack-ema21-slice.plan.md`](plans/confirm-stack-ema21-slice.plan.md),
   [`plans/continuation-move-capture-slice.plan.md`](plans/continuation-move-capture-slice.plan.md).
-  Today `/timed/plays/today` `slices.*`. Scoreboard:
+  Today `/timed/plays/today` `slices.*`. Family scoreboard lives on
+  Model Performance (admin) via `family=all`. Weekly-move autopsy:
   `GET /timed/admin/discovery/weekly-move-autopsy` (≥10% weeks TOUCHED/
   PARTIAL/MISSED; canary NBIS/BE/DELL/MU). Widen only if capture/MFE beats
   ~4.8% baseline OOS. Freeze net-new defensive gates without capture before/after.
