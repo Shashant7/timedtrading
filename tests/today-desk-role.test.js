@@ -41,5 +41,9 @@ describe("Today Cloud Desk plan copy", () => {
     expect(src).not.toContain("Paper 0.1");
     expect(src).toContain("stripCallChips");
     expect(src).toContain("CONFIRM-STACK");
+    expect(src).toContain("optionsPlanFacts");
+    expect(src).toContain("optionsLegLabel");
+    expect(src).not.toContain("appendLiveRrChip(chips");
+    expect(src).toContain("factsWithLiveRr");
   });
 });

@@ -963,6 +963,14 @@ function stripZoneFacts(zm, extras, rrOpts) {
   const base = levels.concat(extra);
   return VU?.factsWithLiveRr ? VU.factsWithLiveRr(base, rrOpts) : base;
 }
+function optionsLegLabel(action, flavor) {
+  const act = String(action || "").toUpperCase();
+  const contract = flavor === "put" ? "Put" : "Call";
+  if (act === "BUY" || act === "ENTER") return `Buy ${contract}`;
+  if (act === "SELL" || act === "TRIM" || act === "FLAT") return `Sell ${contract}`;
+  if (act === "WAIT") return `Wait ${contract}`;
+  return act ? `${act} ${contract}` : contract;
+}
 function optionsPlanFacts({
   action,
   flavor,
@@ -972,25 +980,20 @@ function optionsPlanFacts({
   debit,
   trim,
   exit,
-  clock,
   risk,
   payoff
 }) {
   const rows = [];
-  const act = String(action || "").toUpperCase();
-  if (act) {
+  const leg = optionsLegLabel(action, flavor);
+  if (leg) {
+    const act = String(action || "").toUpperCase();
     const tone = act === "BUY" || act === "ENTER" ? "buy" : act === "WAIT" ? "wait" : act === "SELL" || act === "FLAT" || act === "TRIM" ? "trim" : null;
     rows.push({
-      label: "Side",
-      value: act,
+      label: "Leg",
+      value: leg,
       tone
     });
   }
-  const typ = flavor === "put" ? "Put" : flavor === "call" ? "Call" : "";
-  if (typ) rows.push({
-    label: "Type",
-    value: typ
-  });
   const k = Number(strike);
   if (Number.isFinite(k) && k > 0) {
     rows.push({
@@ -1024,10 +1027,6 @@ function optionsPlanFacts({
   if (payoff) rows.push({
     label: "Payoff",
     value: payoff
-  });
-  if (clock) rows.push({
-    label: "Clock",
-    value: clock
   });
   return rows.filter(f => f && f.value);
 }
@@ -1561,6 +1560,8 @@ function SetupFamiliesStrip({
       hold
     });
     const dir = String(w.direction || "").toUpperCase();
+    const nextPx = Number(copy.nextCover?.px);
+    const lastPx = Number(copy.lastCover?.px);
     const chipRow = stripCallChips({
       action: copy.action,
       horizon: "SHORT TERM",
@@ -2170,7 +2171,6 @@ function IndexDayTradeStrip({
     }, biasLabel));
     const expShort = exec.contract?.exp_bit || formatExpShort(exp);
     const band = exec.premium_band || null;
-    const holdOn = !!(exec.hold_overnight || exec.plan?.hold_overnight);
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const zm = reviveZone(p.zone || exec.zone, trackPrice);
     const dtSide = flavor === "put" || lean === "SHORT" ? "SHORT" : flavor === "call" || lean === "LONG" ? "LONG" : "";
@@ -2187,8 +2187,7 @@ function IndexDayTradeStrip({
       dte: Number(exp?.dte),
       debit: band && Number.isFinite(Number(band.buy_ceil)) ? `≤ $${Number(band.buy_ceil).toFixed(2)}` : null,
       trim: exec.rr?.trim != null ? `$${Number(exec.rr.trim).toFixed(2)}` : null,
-      exit: exec.rr?.exit != null ? `$${Number(exec.rr.exit).toFixed(2)}` : null,
-      clock: holdOn ? "Hold overnight" : "Flat 15:45 ET"
+      exit: exec.rr?.exit != null ? `$${Number(exec.rr.exit).toFixed(2)}` : null
     });
     const rrOpts = {
       zone: zm,
@@ -8125,6 +8124,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787520463402:195718436
+// cache-bust:1787520897886:509174341
 
-// cache-bust:1787520463402:195718436
+// cache-bust:1787520897886:509174341
