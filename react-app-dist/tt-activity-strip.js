@@ -53,8 +53,8 @@
         transform: translate3d(0,0,0); will-change: transform;
       }
       .tt-activity-strip__inner {
-        max-width: 1600px; margin: 0 auto; padding: 8px 24px;
-        display: flex; align-items: flex-start; gap: 12px;
+        max-width: 1600px; margin: 0 auto; padding: 6px 24px;
+        display: flex; align-items: center; gap: 12px;
       }
       @media (max-width: 720px) {
         /* 2026-05-31 — Mobile keeps sticky positioning (was fixed),
@@ -62,7 +62,7 @@
            above force position:static so the strip flows under the
            nav within the sticky container. */
         .tt-activity-strip { position: sticky; top: var(--tt-nav-h, 52px); left: 0; right: 0; }
-        .tt-activity-strip__inner { padding: 8px 12px; gap: 8px; }
+        .tt-activity-strip__inner { padding: 5px 12px; gap: 8px; }
       }
       .tt-activity-strip__label {
         font-size: 11px; font-weight: 700; letter-spacing: 0.10em;
@@ -73,39 +73,38 @@
       .tt-activity-strip__scroll { flex: 1; overflow-x: auto; scrollbar-width: none; min-width: 0; }
       .tt-activity-strip__scroll::-webkit-scrollbar { display: none; }
       .tt-activity-strip__row { display: inline-flex; gap: 10px; align-items: stretch; }
-      /* Compact day-trade grammar: chips + punchline + scan. Sticky-safe —
-         two text lines under chips, no sparkline / zone bar. */
+      /* One-row card: logo + ticker + action + size. No chip stack. */
       .tt-activity-pill,
       .tt-activity-card {
-        display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
-        width: 240px; max-width: min(240px, 86vw);
-        padding: 8px 10px; border-radius: 10px; font-size: 12px;
+        display: flex; flex-direction: row; align-items: center; gap: 8px;
+        width: auto; min-width: 168px; max-width: min(280px, 88vw);
+        padding: 5px 10px; border-radius: 8px; font-size: 12px;
         font-family: var(--tt-font, Inter, system-ui, sans-serif);
         background: var(--tt-bg-elev, rgba(255,255,255,0.04));
         border: 1px solid var(--tt-border, rgba(255,255,255,0.06));
-        color: var(--tt-text-muted, #8AA39A); white-space: normal; cursor: pointer;
+        color: var(--tt-text-muted, #8AA39A); white-space: nowrap; cursor: pointer;
         text-align: left; flex-shrink: 0;
       }
       .tt-activity-pill:hover,
       .tt-activity-card:hover { border-color: var(--tt-border-hi, rgba(255,255,255,0.12)); }
-      .tt-activity-card__chips {
-        display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
-        width: 100%;
+      .tt-activity-card__ident {
+        display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
       }
-      .tt-activity-card__punch {
-        margin: 0; font-size: 12px; font-weight: 650; line-height: 1.35;
-        color: var(--tt-text, #E8F2EC);
-        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-        overflow: hidden; width: 100%;
+      .tt-activity-card__action {
+        margin: 0; font-size: 11px; font-weight: 750; letter-spacing: 0.04em;
+        text-transform: uppercase; line-height: 1.2; flex-shrink: 0;
       }
-      .tt-activity-card__scan {
+      .tt-activity-card__size {
         margin: 0; font-family: var(--tt-font-mono, ui-monospace, monospace);
-        font-size: 10.5px; line-height: 1.4; color: var(--tt-text, #E8F2EC);
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
+        font-size: 11px; line-height: 1.2; color: var(--tt-text, #E8F2EC);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
       }
-      .tt-activity-card__punch.tt-dt-plan__k--buy { color: var(--tt-success, #34d399); }
-      .tt-activity-card__punch.tt-dt-plan__k--sell { color: var(--tt-danger, #ef4444); }
-      .tt-activity-card__punch.tt-dt-plan__k--wait { color: var(--tt-warning, #f59e0b); }
+      .tt-activity-card__action.tt-dt-plan__k--buy { color: var(--tt-success, #34d399); }
+      .tt-activity-card__action.tt-dt-plan__k--sell { color: var(--tt-danger, #ef4444); }
+      .tt-activity-card__action.tt-dt-plan__k--wait { color: var(--tt-warning, #f59e0b); }
+      .tt-activity-card.ev-entry {
+        border-color: rgba(52,211,153,0.32);
+      }
       /* Brand logo to the left of the ticker — monogram fallback until the
          real logo async-loads (mirrors ds-components tickerLogo). */
       .tt-activity-pill .ev-logo,
@@ -488,11 +487,21 @@
     return "ds-chip ds-chip--sm ds-chip--accent";
   }
 
-  function activityPunchClass(actionLabel) {
+  function activityActionToneClass(actionLabel) {
     const a = String(actionLabel || "").toUpperCase();
-    if (a === "BUY" || a === "ADD") return "tt-activity-card__punch tt-dt-plan__k--buy";
-    if (a === "SELL" || a === "TIGHTEN") return "tt-activity-card__punch tt-dt-plan__k--sell";
-    return "tt-activity-card__punch tt-dt-plan__k--wait";
+    if (a === "BUY" || a === "ADD" || a === "ENTER") return "tt-dt-plan__k--buy";
+    if (a === "SELL" || a === "TIGHTEN") return "tt-dt-plan__k--sell";
+    return "tt-dt-plan__k--wait";
+  }
+
+  function activityPunchClass(actionLabel) {
+    return `tt-activity-card__action ${activityActionToneClass(actionLabel)}`;
+  }
+
+  function buildActivityHeadline({ actionLabel, size }) {
+    const action = String(actionLabel || "UPDATE").toUpperCase();
+    const sz = String(size || "").trim();
+    return sz ? `${action} · ${sz}` : action;
   }
 
   function activityDirChipClass(dir) {
@@ -673,7 +682,7 @@
       label.textContent = "Recent activity";
       const hint = document.createElement("span");
       hint.className = "tt-activity-strip__hint";
-      hint.textContent = "Chips · punchline · scan — tap a card to open the tape";
+      hint.textContent = "Tap a card to open the tape";
       const scroll = document.createElement("div");
       scroll.className = "tt-activity-strip__scroll";
       const row = document.createElement("div");
@@ -706,73 +715,41 @@
       const showPnl = (meta.evType === "EXIT" || meta.evType === "TRIM") && Number.isFinite(pnlPct);
       const actionLabel = normalizeDisplayAction(meta);
       const scopeLabel = scopeDisplayLabel(meta.scope);
-      const punch = buildActivityPunchline({ actionLabel, sym, detail: size });
       const familyLabel = activityFamilyLabel(ev);
       const paper = isPaperActivity(ev);
-      const scan = buildActivityScanLine({
-        reason: [paper ? "paper 0.1×" : "", familyLabel, reason].filter(Boolean).join(" · "),
-        pnlText: showPnl ? fmtPct(pnlPct) : "",
-        timeText: fmtAgo(ts),
-      });
+      const sizeLine = [
+        size,
+        paper ? "paper" : "",
+        showPnl ? fmtPct(pnlPct) : "",
+      ].filter(Boolean).join(" · ");
 
       const pill = document.createElement("button");
       pill.type = "button";
       pill.className = `tt-activity-pill tt-activity-card ${meta.cls}${meta.mode === "watching" ? " ev-watching" : " ev-doing"}`;
       pill.dataset.scope = meta.scope === "investor" ? "investor" : "trader";
-      pill.title = [paper ? "PAPER" : "", familyLabel, scopeLabel, actionLabel, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
+      pill.title = [paper ? "PAPER" : "", familyLabel, scopeLabel, actionLabel, sym, dir, detail, reason, fmtClock(ts)].filter(Boolean).join(" · ");
 
-      const chips = document.createElement("div");
-      chips.className = "tt-activity-card__chips";
-
-      if (paper) {
-        const paperEl = document.createElement("span");
-        paperEl.className = "ds-chip ds-chip--sm ev-paper";
-        paperEl.textContent = "PAPER";
-        chips.appendChild(paperEl);
-      }
-      if (familyLabel) {
-        const famEl = document.createElement("span");
-        famEl.className = "ds-chip ds-chip--sm ev-family";
-        famEl.textContent = familyLabel;
-        chips.appendChild(famEl);
-      }
-
-      const typeEl = document.createElement("span");
-      typeEl.className = activityActionChipClass(actionLabel);
-      typeEl.textContent = actionLabel;
-      chips.appendChild(typeEl);
-
-      if (dir === "LONG" || dir === "SHORT") {
-        const dirEl = document.createElement("span");
-        dirEl.className = activityDirChipClass(dir);
-        dirEl.textContent = dir;
-        chips.appendChild(dirEl);
-      }
-
-      const scopeEl = document.createElement("span");
-      scopeEl.className = `ds-chip ds-chip--sm ev-scope ev-scope--${meta.scope === "investor" ? "investor" : "trader"}`;
-      scopeEl.textContent = scopeLabel;
-      chips.appendChild(scopeEl);
-
+      const ident = document.createElement("span");
+      ident.className = "tt-activity-card__ident";
       if (sym) {
-        chips.appendChild(buildTickerLogo(sym));
+        ident.appendChild(buildTickerLogo(sym));
         const symEl = document.createElement("span");
-        symEl.className = "ds-chip ds-chip--sm ev-sym";
+        symEl.className = "ev-sym";
         symEl.textContent = sym;
-        chips.appendChild(symEl);
+        ident.appendChild(symEl);
       }
-      pill.appendChild(chips);
+      pill.appendChild(ident);
 
-      const punchEl = document.createElement("p");
-      punchEl.className = activityPunchClass(actionLabel);
-      punchEl.textContent = punch;
-      pill.appendChild(punchEl);
+      const actionEl = document.createElement("span");
+      actionEl.className = activityPunchClass(actionLabel);
+      actionEl.textContent = actionLabel;
+      pill.appendChild(actionEl);
 
-      if (scan) {
-        const scanEl = document.createElement("p");
-        scanEl.className = "tt-activity-card__scan";
-        scanEl.textContent = scan;
-        pill.appendChild(scanEl);
+      if (sizeLine) {
+        const sizeEl = document.createElement("span");
+        sizeEl.className = "tt-activity-card__size";
+        sizeEl.textContent = sizeLine;
+        pill.appendChild(sizeEl);
       }
 
       pill.addEventListener("click", (e) => { e.preventDefault(); openActivityEvent(ev, sym, meta); });
@@ -904,9 +881,11 @@
   window.TTActivityReason = { shortReason, ACTIVITY_REASON_MAP };
   window.TTActivityCard = {
     buildActivityPunchline,
+    buildActivityHeadline,
     buildActivityScanLine,
     activityActionChipClass,
     activityPunchClass,
+    activityActionToneClass,
     activityDirChipClass,
   };
 
@@ -914,4 +893,4 @@
   else mount();
 })();
 
-// cache-bust:1787495847835:651574491
+// cache-bust:1787498368099:459666986

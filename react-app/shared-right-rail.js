@@ -8415,17 +8415,25 @@
                   const _hdrPosturePending = ledgerTradesLoading
                     && !_hdrTradeIsOpen
                     && (_mgmtStage || !!trade);
+                  const _hdrModelEntry = (() => {
+                    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return true;
+                    if (ticker?.sequence_entry_ready === true) return true;
+                    const seqs = Array.isArray(ticker?.setup_sequences) ? ticker.setup_sequences : [];
+                    return seqs.some((s) => String(s?.status || "").toLowerCase() === "entry_ready");
+                  })();
                   const stageChip = (() => {
                     if (stage === "trim") return { label: "TRIM", cls: "ds-chip--accent" };
                     if (stage === "defend") return { label: "DEFEND", cls: "ds-chip--dn" };
                     if (stage === "exit") {
                       // "Exit" is unambiguous only when in a trade — then it means
-                      // "exit your position". When NOT in a trade, the engine's
+                      // "exit the position". When NOT in a trade, the engine's
                       // "exit" label is really "no trade right now".
                       if (_hdrTradeIsOpen) return { label: "EXIT NOW", cls: "ds-chip--dn" };
                       return { label: "NO TRADE", cls: "" };
                     }
-                    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return { label: "ENTER", cls: "ds-chip--accent" };
+                    if (_hdrModelEntry || stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
+                      return { label: "ENTER", cls: "ds-chip--up" };
+                    }
                     if (stage === "hold" || stage === "active" || stage === "just_entered") return { label: "ACTIVE", cls: "ds-chip--up" };
                     if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") {
                       const neutralPosture = v2TraderPosture?.strength === "neutral"
@@ -8726,6 +8734,20 @@
                     </div>
                     );
                   })()}
+                  {_hdrModelEntry && !_hdrTradeIsOpen && (
+                    <p className="tt-rail-enter-flag" style={{
+                      margin: "8px 0 0",
+                      padding: "6px 8px",
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 650,
+                      lineHeight: 1.35,
+                      color: "var(--tt-success, #34d399)",
+                      background: "rgba(52,211,153,0.10)",
+                    }}>
+                      ENTER — the model called this. Follow the plan. Do not time the print.
+                    </p>
+                  )}
                   {/* V2.1 round 5 (2026-05-01) — Ticker context line.
                       Per user: header should include full name, mkt cap,
                       sector, personality. Renders only when at least one

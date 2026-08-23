@@ -9612,6 +9612,12 @@
           const _hdrPosLabel = _hdrPosDir === "SHORT" ? "Open Short" : _hdrPosDir === "LONG" ? "Open Long" : "Open";
           const _mgmtStage = ["trim", "hold", "active", "just_entered", "defend"].includes(stage);
           const _hdrPosturePending = ledgerTradesLoading && !_hdrTradeIsOpen && (_mgmtStage || !!trade);
+          const _hdrModelEntry = (() => {
+            if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return true;
+            if (ticker?.sequence_entry_ready === true) return true;
+            const seqs = Array.isArray(ticker?.setup_sequences) ? ticker.setup_sequences : [];
+            return seqs.some(s => String(s?.status || "").toLowerCase() === "entry_ready");
+          })();
           const stageChip = (() => {
             if (stage === "trim") return {
               label: "TRIM",
@@ -9631,10 +9637,12 @@
                 cls: ""
               };
             }
-            if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return {
-              label: "ENTER",
-              cls: "ds-chip--accent"
-            };
+            if (_hdrModelEntry || stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
+              return {
+                label: "ENTER",
+                cls: "ds-chip--up"
+              };
+            }
             if (stage === "hold" || stage === "active" || stage === "just_entered") return {
               label: "ACTIVE",
               cls: "ds-chip--up"
@@ -9941,7 +9949,19 @@
                 }
               }, "(", ext.chg >= 0 ? "+" : "−", "$", Math.abs(ext.chg).toFixed(2), ")"));
             })());
-          })(), (() => {
+          })(), _hdrModelEntry && !_hdrTradeIsOpen && React.createElement("p", {
+            className: "tt-rail-enter-flag",
+            style: {
+              margin: "8px 0 0",
+              padding: "6px 8px",
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 650,
+              lineHeight: 1.35,
+              color: "var(--tt-success, #34d399)",
+              background: "rgba(52,211,153,0.10)"
+            }
+          }, "ENTER \u2014 the model called this. Follow the plan. Do not time the print."), (() => {
             const fullName = ticker?.context?.name || ticker?.companyName || latestTicker?.context?.name || null;
             const mktCap = Number(ticker?.market_cap ?? ticker?.marketCap ?? latestTicker?.market_cap);
             const sector = (typeof getTickerSector === "function" ? getTickerSector(tickerSymbol) : null) || ticker?.sector || ticker?.context?.sector || ticker?._sector || null;
@@ -19975,4 +19995,4 @@
   };
 })();
 
-// cache-bust:1787495847835:651574491
+// cache-bust:1787498368099:459666986

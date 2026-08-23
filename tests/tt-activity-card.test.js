@@ -18,16 +18,22 @@ describe("TTActivityCard", () => {
     card = loadActivityStrip();
   });
 
-  it("writes punchlines in day-trade grammar", () => {
+  it("writes a compact headline without repeating the ticker", () => {
+    expect(card.buildActivityHeadline({
+      actionLabel: "FORMING",
+      size: "12.6 sh @ $41.20",
+    })).toBe("FORMING · 12.6 sh @ $41.20");
+    expect(card.buildActivityHeadline({
+      actionLabel: "BUY",
+    })).toBe("BUY");
+  });
+
+  it("keeps the legacy punchline helper for callers that still use it", () => {
     expect(card.buildActivityPunchline({
       actionLabel: "FORMING",
       sym: "BNY",
       detail: "12.6 sh @ $41.20",
     })).toBe("FORMING on BNY — 12.6 sh @ $41.20");
-    expect(card.buildActivityPunchline({
-      actionLabel: "BUY",
-      sym: "AXON",
-    })).toBe("BUY on AXON");
   });
 
   it("joins scan bits with middots", () => {
@@ -38,12 +44,14 @@ describe("TTActivityCard", () => {
     })).toBe("5/12 cloud lost — momentum flipping · +2.40% · 12m");
   });
 
-  it("colors action chips like the day-trade strip", () => {
+  it("colors action labels like the day-trade strip", () => {
     expect(card.activityActionChipClass("BUY")).toContain("ds-chip--up");
     expect(card.activityActionChipClass("SELL")).toContain("ds-chip--dn");
     expect(card.activityActionChipClass("FORMING")).toContain("ds-chip--accent");
+    expect(card.activityPunchClass("BUY")).toContain("tt-activity-card__action");
     expect(card.activityPunchClass("BUY")).toContain("tt-dt-plan__k--buy");
     expect(card.activityPunchClass("TIGHTEN")).toContain("tt-dt-plan__k--sell");
+    expect(card.activityActionToneClass("ENTER")).toBe("tt-dt-plan__k--buy");
     expect(card.activityDirChipClass("LONG")).toContain("ds-chip--up");
   });
 });

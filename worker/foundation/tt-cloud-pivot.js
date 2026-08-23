@@ -1048,7 +1048,7 @@ export function buildCloudPivotDesk(rows = [], opts = {}) {
 
 /**
  * Day-trade strip grammar for a Cloud Desk watch row.
- * FIRE → BUY (paper); everything else stays WAIT.
+ * FIRE is a paper print, not a ticket — stay WAIT until Families says ENTER.
  */
 export function cloudDeskPlanCopy(w = {}) {
   const ticker = String(w.ticker || "").toUpperCase();
@@ -1056,9 +1056,9 @@ export function cloudDeskPlanCopy(w = {}) {
   const dir = String(w.direction || "").toUpperCase();
   const magPx = Number(w.magnet?.px);
   const magBit = Number.isFinite(magPx) && magPx > 0 ? `$${magPx.toFixed(2)}` : "";
-  const action = role === "fire" ? "BUY" : "WAIT";
+  const action = "WAIT";
   const leader = String(w.leader_follow?.leader || w.leader?.symbol || "").toUpperCase();
-  const playWord = role === "fire" ? "Cloud Pivot fire, paper size"
+  const playWord = role === "fire" ? "Cloud Pivot print (paper)"
     : role === "leader" ? "leader curl"
     : role === "follow" ? `follow ${leader || "leader"}`
     : role === "catalyst" ? "catalyst if/then"
