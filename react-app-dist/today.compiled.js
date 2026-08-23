@@ -984,15 +984,16 @@ function stripCallChips({
       fontFamily: "var(--tt-font-mono)"
     }
   }, action));
-  if (horizon === "LONG TERM" || horizon === "SHORT TERM") {
+  if (horizon === "LONG TERM" || horizon === "SHORT TERM" || horizon === "LT" || horizon === "ST") {
+    const isLt = horizon === "LONG TERM" || horizon === "LT";
     chips.push(h("span", {
       key: "hz",
-      className: horizon === "LONG TERM" ? "ds-chip ds-chip--sm tt-lane-badge tt-lane-badge--investor" : "ds-chip ds-chip--sm tt-lane-badge tt-lane-badge--trader",
-      title: horizon === "LONG TERM" ? "Long Term lane" : "Short Term lane",
+      className: isLt ? "ds-chip ds-chip--sm tt-lane-badge tt-lane-badge--investor" : "ds-chip ds-chip--sm tt-lane-badge tt-lane-badge--trader",
+      title: isLt ? "Long Term lane" : "Short Term lane",
       style: {
         fontFamily: "var(--tt-font-mono)"
       }
-    }, horizon));
+    }, isLt ? "LT" : "ST"));
   }
   if (side === "LONG" || side === "SHORT") {
     chips.push(h("span", {
@@ -1031,70 +1032,77 @@ function deskCoverProgressBar({
   const lastOk = Number.isFinite(last) && last > 0;
   const nextOk = Number.isFinite(next) && next > 0;
   const liveOk = Number.isFinite(px) && px > 0;
-  const lastPct = lastOk ? pctOf(last) : null;
-  const nextPct = nextOk ? pctOf(next) : null;
+  const invPct = lastOk ? pctOf(last) : null;
+  const tgtPct = nextOk ? pctOf(next) : null;
+  const pbMid = lastOk && nextOk ? (last + next) / 2 : null;
+  const pbPct = pbMid != null ? pctOf(pbMid) : null;
   const livePct = liveOk ? pctOf(px) : null;
   const ticks = [];
-  if (lastOk) {
+  if (invPct != null) {
     ticks.push({
-      pct: lastPct,
-      label: "LAST",
-      color: "var(--ds-text-muted, var(--tt-text-muted))",
+      pct: invPct,
+      label: "INV",
+      color: "var(--ds-dn)",
       px: last
     });
   }
-  if (nextOk) {
+  if (pbPct != null) {
     ticks.push({
-      pct: nextPct,
-      label: "COVER",
-      color: "var(--tt-success)",
+      pct: pbPct,
+      label: "PB",
+      color: "var(--ds-up)",
+      px: pbMid
+    });
+  }
+  if (tgtPct != null) {
+    ticks.push({
+      pct: tgtPct,
+      label: "TGT",
+      color: "var(--ds-accent)",
       px: next
     });
   }
-  if (liveOk && (lastPct == null || Math.abs(livePct - lastPct) >= 10) && (nextPct == null || Math.abs(livePct - nextPct) >= 10)) {
-    ticks.push({
-      pct: livePct,
-      label: "NOW",
-      color: "var(--ds-accent)",
-      px
-    });
-  }
   ticks.sort((a, b) => a.pct - b.pct);
-  const pathLo = lastPct != null && nextPct != null ? Math.min(lastPct, nextPct) : null;
-  const pathHi = lastPct != null && nextPct != null ? Math.max(lastPct, nextPct) : null;
-  const fillLo = lastPct != null && livePct != null ? Math.min(lastPct, livePct) : null;
-  const fillW = lastPct != null && livePct != null ? Math.abs(livePct - lastPct) : 0;
-  const towardCover = lastOk && nextOk && liveOk ? next >= last ? px >= last && px <= next : px <= last && px >= next : true;
+  const bandLo = invPct != null && tgtPct != null ? Math.min(invPct, tgtPct) : invPct;
+  const bandHi = invPct != null && tgtPct != null ? Math.max(invPct, tgtPct) : tgtPct;
+  const fillStart = pbPct != null && livePct != null ? Math.min(pbPct, livePct) : null;
+  const fillW = pbPct != null && livePct != null ? Math.abs(livePct - pbPct) : 0;
+  const towardTarget = lastOk && nextOk && liveOk ? next >= last ? px >= last && px <= next : px <= last && px >= next : true;
+  const fmtPx = n => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "—";
+    return `$${v.toFixed(v >= 100 ? 0 : 2)}`;
+  };
   return h("div", {
     className: "tt-zone-plan tt-zone-plan--compact tt-desk-progress"
   }, h("div", {
     className: "tt-lane-card__position tt-zone-plan__bar"
   }, h("div", {
     className: "tt-lane-card__pos-track"
-  }, pathLo != null && h("div", {
+  }, bandLo != null && h("div", {
     className: "tt-zone-plan__shade tt-zone-plan__shade--inv",
     style: {
       left: "0%",
-      width: `${pathLo}%`
+      width: `${bandLo}%`
     }
-  }), pathLo != null && h("div", {
+  }), bandLo != null && bandHi != null && h("div", {
     className: "tt-zone-plan__shade tt-zone-plan__shade--pb",
     style: {
-      left: `${pathLo}%`,
-      width: `${Math.max(0, pathHi - pathLo)}%`
+      left: `${bandLo}%`,
+      width: `${Math.max(0, bandHi - bandLo)}%`
     }
-  }), pathHi != null && h("div", {
+  }), bandHi != null && h("div", {
     className: "tt-zone-plan__shade tt-zone-plan__shade--tgt",
     style: {
-      left: `${pathHi}%`,
-      width: `${Math.max(0, 100 - pathHi)}%`
+      left: `${bandHi}%`,
+      width: `${Math.max(0, 100 - bandHi)}%`
     }
   }), fillW > 0.4 && h("div", {
     className: "tt-zone-plan__fill",
     style: {
-      left: `${fillLo}%`,
+      left: `${fillStart}%`,
       width: `${fillW}%`,
-      background: towardCover ? "var(--ds-up-bg)" : "var(--ds-dn-bg)"
+      background: towardTarget ? "var(--ds-up-bg)" : "var(--ds-dn-bg)"
     }
   }), ...ticks.map((tick, i) => h("div", {
     key: "tick-" + i,
@@ -1102,7 +1110,7 @@ function deskCoverProgressBar({
     style: {
       left: `${tick.pct}%`
     },
-    title: `${tick.label} $${tick.px.toFixed(2)}`
+    title: `${tick.label}: ${fmtPx(tick.px)}`
   }, h("div", {
     className: "tt-zone-plan__tick-line",
     style: {
@@ -1113,7 +1121,7 @@ function deskCoverProgressBar({
     style: {
       left: `${livePct}%`
     },
-    title: `Live $${px.toFixed(2)}`
+    title: `Live ${fmtPx(px)}`
   })), h("div", {
     className: "tt-lane-card__pos-labels"
   }, ...ticks.map((tick, i) => h("span", {
@@ -1123,7 +1131,7 @@ function deskCoverProgressBar({
       left: `${tick.pct}%`,
       color: tick.color
     },
-    title: `${tick.label} $${tick.px.toFixed(2)}`
+    title: `${tick.label}: ${fmtPx(tick.px)}`
   }, tick.label)))));
 }
 function setupFamilyPlanCopy(p, liveT, opts) {
@@ -1430,7 +1438,7 @@ function SetupFamiliesStrip({
   }, "Structure admission list. Same Wait / Buy / Accumulate / Scale In chips as Growth Ideas and the Capital Shortlist. Buy only when the add zone is live.")) : null;
   const deskStrip = deskWatch.length ? h("div", {
     key: "cloud-desk",
-    className: "tt-strip-subhead-wrap"
+    className: "tt-strip-subhead-wrap tt-strip-subhead-wrap--cloud-desk"
   }, h("div", {
     className: "tt-strip-subhead"
   }, h("div", {
@@ -8029,6 +8037,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787517212821:819866382
+// cache-bust:1787518338730:630473890
 
-// cache-bust:1787517212821:819866382
+// cache-bust:1787518338730:630473890

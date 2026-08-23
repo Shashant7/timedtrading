@@ -12,14 +12,17 @@ describe("Today Cloud Desk plan copy", () => {
     expect(src).not.toMatch(/title:\s*copy\.ticketNow/);
   });
 
-  it("uses one call word and a LAST/COVER progress bar, not ENTER plus FIRE plus Lead", () => {
+  it("uses one call word and an INV/PB/TGT progress bar, not ENTER plus FIRE plus Lead", () => {
     expect(src).toContain("Monthly 21 EMA");
     expect(src).toContain("last cover, already behind");
     expect(src).toContain("10m Cloud Desk");
     expect(src).toContain("Not the index options lean");
     expect(src).toContain("deskCoverProgressBar");
-    expect(src).toContain('label: "LAST"');
-    expect(src).toContain('label: "COVER"');
+    expect(src).toContain('label: "INV"');
+    expect(src).toContain('label: "PB"');
+    expect(src).toContain('label: "TGT"');
+    expect(src).not.toContain('label: "LAST"');
+    expect(src).not.toContain('label: "COVER"');
     expect(src).not.toMatch(/label:\s*"Lead"/);
     expect(src).not.toMatch(/deskRoleChipClass/);
     expect(src).not.toMatch(/String\(copy\.role \|\| "watch"\)\.toUpperCase\(\)/);

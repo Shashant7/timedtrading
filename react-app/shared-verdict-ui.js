@@ -335,8 +335,8 @@
       ".tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--active,.tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--owned{--tt-lane-card-h:auto;--tt-lane-mid-h:auto}",
       ".tt-strip-card .tt-lane-card__main{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;align-items:flex-start}",
       ".tt-strip-card .tt-lane-card__mid{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;padding-top:4px}",
-      ".tt-strip-card .tt-lane-card__chips{overflow:visible;max-height:none;height:auto;flex-wrap:wrap;gap:3px 4px;align-content:flex-start}",
-      ".tt-strip-card .tt-lane-card__chips .ds-chip,.tt-strip-card .tt-lane-card__chips .tt-lane-badge{padding:1px 6px;font-size:9px;font-weight:700;letter-spacing:.04em;line-height:1.15;max-height:16px}",
+      ".tt-strip-card .tt-lane-card__chips{overflow:visible;max-height:none;height:auto;flex-wrap:nowrap;gap:3px;align-content:flex-start}",
+      ".tt-strip-card .tt-lane-card__chips .ds-chip,.tt-strip-card .tt-lane-card__chips .tt-lane-badge{padding:1px 6px;font-size:9px;font-weight:700;letter-spacing:.04em;line-height:1.15;max-height:16px;white-space:nowrap;flex-shrink:0}",
       ".tt-strip-card .tt-lane-badge{margin-left:0;border-radius:999px;border:1px solid transparent}",
       ".tt-strip-card .tt-lane-badge--trader{background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.28);color:#60a5fa}",
       ".tt-strip-card .tt-lane-badge--investor{background:rgba(192,132,252,.12);border-color:rgba(192,132,252,.28);color:#c084fc}",
@@ -929,10 +929,11 @@
 
     function LaneBadge(props) {
       var lane = String(props.lane || "trader").toLowerCase();
-      // 2026-07-22 model-first: Trader/Investor → Short Term / Long Term.
-      var label = lane === "investor" ? "LONG TERM" : "SHORT TERM";
+      var isInvestor = lane === "investor";
+      var label = isInvestor ? "LT" : "ST";
       return h("span", {
         className: "tt-lane-badge tt-lane-badge--" + lane,
+        title: isInvestor ? "Long Term lane" : "Short Term lane",
       }, label);
     }
 
