@@ -708,6 +708,35 @@
     return null;
   }
 
+  /** Plan-foot row for live R:R (placed after Tgt in strip cards). */
+  function liveRrFact(opts) {
+    var rr = resolveLivePlayRr(opts || {});
+    var n = Number(rr);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return {
+      label: "R:R",
+      value: n.toFixed(2),
+      tone: n >= 2 ? "buy" : null,
+    };
+  }
+
+  /** Insert live R:R fact immediately after the Tgt row when present. */
+  function factsWithLiveRr(facts, opts) {
+    var rows = (Array.isArray(facts) ? facts : []).filter(function (f) { return f && f.value; });
+    var rr = liveRrFact(opts);
+    if (!rr) return rows;
+    var tgtIdx = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].label || "").toLowerCase() === "tgt") {
+        tgtIdx = i;
+        break;
+      }
+    }
+    if (tgtIdx >= 0) rows.splice(tgtIdx + 1, 0, rr);
+    else rows.push(rr);
+    return rows;
+  }
+
   /**
    * Ready Setup card headline — avoids a bare "BUY" when price is above the
    * add-on band. Trader entry → BUY NOW; investor in live zone → BUY;
@@ -1520,8 +1549,6 @@
                 title: "Model side",
               }, side));
             }
-            appendLiveRrChip(chipRow, { zone: primaryZone, ticker: tRow, side: side, price: price });
-
             var metrics = [];
 
             var midBody = primaryZone && LaneCard && LaneCard.zoneBarTrack
@@ -1538,7 +1565,12 @@
             var holdFact = holdPositionFact(trade || (tRow && tRow._openTrade), invPos);
             var levelFacts = zoneLevelFacts(primaryZone);
             var footEls = [];
-            var factsEl = planFacts(levelFacts.concat(holdFact ? [holdFact] : []));
+            var factsEl = planFacts(factsWithLiveRr(levelFacts.concat(holdFact ? [holdFact] : []), {
+              zone: primaryZone,
+              ticker: tRow,
+              side: side,
+              price: price,
+            }));
             if (factsEl) footEls.push(h("div", { key: "levels", className: "tt-dt-plan" }, factsEl));
             if (row.blocker) footEls.push(h("div", { key: "blocker", className: "tt-ready-card__blocker" }, row.blocker));
 
@@ -1655,6 +1687,8 @@
       inferTickerSide: inferTickerSide,
       computeLiveZoneRr: computeLiveZoneRr,
       resolveLivePlayRr: resolveLivePlayRr,
+      liveRrFact: liveRrFact,
+      factsWithLiveRr: factsWithLiveRr,
       appendLiveRrChip: appendLiveRrChip,
       attachCtoProbToZone: attachCtoProbToZone,
       buildTraderZoneModel: buildTraderZoneModel,
@@ -1709,6 +1743,8 @@
     inferTickerSide: inferTickerSide,
     computeLiveZoneRr: computeLiveZoneRr,
     resolveLivePlayRr: resolveLivePlayRr,
+    liveRrFact: liveRrFact,
+    factsWithLiveRr: factsWithLiveRr,
     buildTraderZoneModel: buildTraderZoneModel,
     buildInvestorZoneModel: buildInvestorZoneModel,
     attachCtoProbToZone: attachCtoProbToZone,

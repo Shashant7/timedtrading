@@ -2063,7 +2063,7 @@
       }
       .tt-plan-facts__row {
         display: grid;
-        grid-template-columns: 36px minmax(0, 1fr);
+        grid-template-columns: 42px minmax(0, 1fr);
         gap: 8px;
         align-items: baseline;
         margin: 0;
@@ -3800,11 +3800,49 @@
         );
       }
 
-      function stripZoneFacts(zm, extras) {
+      function stripZoneFacts(zm, extras, rrOpts) {
         const VU = window.TimedVerdictUI;
         const levels = VU?.zoneLevelFacts ? VU.zoneLevelFacts(zm) : [];
         const extra = (Array.isArray(extras) ? extras : [extras]).filter((f) => f && f.value);
-        return levels.concat(extra);
+        const base = levels.concat(extra);
+        return VU?.factsWithLiveRr ? VU.factsWithLiveRr(base, rrOpts) : base;
+      }
+
+      function optionsPlanFacts({
+        action, flavor, strike, expShort, dte,
+        debit, trim, exit, clock, risk, payoff,
+      }) {
+        const rows = [];
+        const act = String(action || "").toUpperCase();
+        if (act) {
+          const tone = act === "BUY" || act === "ENTER" ? "buy"
+            : act === "WAIT" ? "wait"
+              : (act === "SELL" || act === "FLAT" || act === "TRIM" ? "trim" : null);
+          rows.push({ label: "Side", value: act, tone });
+        }
+        const typ = flavor === "put" ? "Put" : flavor === "call" ? "Call" : "";
+        if (typ) rows.push({ label: "Type", value: typ });
+        const k = Number(strike);
+        if (Number.isFinite(k) && k > 0) {
+          rows.push({
+            label: "Strike",
+            value: `$${k >= 100 ? k.toFixed(0) : k.toFixed(2)}${flavor === "put" ? "P" : "C"}`,
+          });
+        }
+        if (expShort) {
+          const d = Number(dte);
+          rows.push({
+            label: "Exp",
+            value: Number.isFinite(d) ? `${expShort} (${d} DTE)` : expShort,
+          });
+        }
+        if (debit) rows.push({ label: "Debit", value: debit });
+        if (trim) rows.push({ label: "Trim", value: trim });
+        if (exit) rows.push({ label: "Exit", value: exit });
+        if (risk) rows.push({ label: "Risk", value: risk });
+        if (payoff) rows.push({ label: "Payoff", value: payoff });
+        if (clock) rows.push({ label: "Clock", value: clock });
+        return rows.filter((f) => f && f.value);
       }
 
       function stripHoldFact(trade, invPos, liveT) {
@@ -3815,7 +3853,7 @@
         return null;
       }
 
-      function stripCallChips({ action, horizon, side, actionTitle, rrOpts }) {
+      function stripCallChips({ action, horizon, side, actionTitle }) {
         const chips = [];
         chips.push(h("span", {
           key: "act",
@@ -3842,8 +3880,6 @@
             title: "Model side",
           }, side));
         }
-        const VU = window.TimedVerdictUI;
-        if (rrOpts && VU?.appendLiveRrChip) VU.appendLiveRrChip(chips, rrOpts);
         return chips;
       }
 
@@ -3977,7 +4013,8 @@
         else if (lifeState === "trimming") action = "TRIM";
         else if (zm && Number.isFinite(price) && zm.pb && price > Number(zm.pb[1])) action = "ACCUMULATE";
         const hold = opts?.hold || null;
-        const facts = stripZoneFacts(zm, hold);
+        const rrOpts = opts?.rrOpts || null;
+        const facts = stripZoneFacts(zm, hold, rrOpts);
         return { action, modelEntry: inBuyArea && action === "BUY", facts, punch: `${action} on ${ticker}` };
       }
 
@@ -4125,13 +4162,25 @@
         }
         const zm = opts?.zone || null;
         const hold = opts?.hold || null;
+        const rrOpts = {
+          zone: zm,
+          ticker: opts?.ticker,
+          side: dir,
+          price: livePx,
+          coverLast: last?.px,
+          coverNext: next?.px,
+        };
         const deskLevels = zm
-          ? stripZoneFacts(zm, hold)
-          : [
-            last && Number(last.px) > 0 ? { label: "Inv", value: `$${Number(last.px).toFixed(Number(last.px) >= 100 ? 0 : 2)}` } : null,
-            next && Number(next.px) > 0 ? { label: "Tgt", value: `$${Number(next.px).toFixed(Number(next.px) >= 100 ? 0 : 2)}` } : null,
-            hold,
-          ].filter((f) => f && f.value);
+          ? stripZoneFacts(zm, hold, rrOpts)
+          : (() => {
+            const VU = window.TimedVerdictUI;
+            const base = [
+              last && Number(last.px) > 0 ? { label: "Inv", value: `$${Number(last.px).toFixed(Number(last.px) >= 100 ? 0 : 2)}` } : null,
+              next && Number(next.px) > 0 ? { label: "Tgt", value: `$${Number(next.px).toFixed(Number(next.px) >= 100 ? 0 : 2)}` } : null,
+              hold,
+            ].filter((f) => f && f.value);
+            return VU?.factsWithLiveRr ? VU.factsWithLiveRr(base, rrOpts) : base;
+          })();
         return {
           action,
           role,
@@ -4302,21 +4351,11 @@
                     hold,
                   });
                   const dir = String(w.direction || "").toUpperCase();
-                  const nextPx = Number(copy.nextCover?.px);
-                  const lastPx = Number(copy.lastCover?.px);
                   const chipRow = stripCallChips({
                     action: copy.action,
                     horizon: "SHORT TERM",
                     side: dir,
                     actionTitle: copy.punch,
-                    rrOpts: {
-                      zone: deskZone,
-                      ticker: liveT,
-                      side: dir,
-                      price: livePrice,
-                      coverLast: lastPx,
-                      coverNext: nextPx,
-                    },
                   });
 
                   const sparkSvg = LaneCard?.sparkSvgFromCache
@@ -4417,18 +4456,22 @@
                 investorByTicker && investorByTicker.get ? investorByTicker.get(sym) : null,
                 liveT,
               );
-              const familyCopy = setupFamilyPlanCopy(p, liveT, { price: trackPrice, zone: zm, hold });
-              const chipRow = stripCallChips({
-                action: familyCopy.action,
-                horizon: zm?.lane === "investor" ? "LONG TERM" : "SHORT TERM",
-                side: modelDir === "SHORT" || modelDir === "LONG" ? modelDir : "",
-                actionTitle: familyCopy.punch,
+              const familyCopy = setupFamilyPlanCopy(p, liveT, {
+                price: trackPrice,
+                zone: zm,
+                hold,
                 rrOpts: {
                   zone: zm,
                   ticker: liveT,
                   side: modelDir,
                   price: trackPrice,
                 },
+              });
+              const chipRow = stripCallChips({
+                action: familyCopy.action,
+                horizon: zm?.lane === "investor" ? "LONG TERM" : "SHORT TERM",
+                side: modelDir === "SHORT" || modelDir === "LONG" ? modelDir : "",
+                actionTitle: familyCopy.punch,
               });
 
               const sparkSvg = LaneCard?.sparkSvgFromCache
@@ -4675,7 +4718,6 @@
               const exp = p.expiration || {};
               const expShort = copy.expShort || formatExpShort(exp);
               const biasCls = flavor === "put" ? "ds-chip--dn" : "ds-chip--up";
-              const kClass = action === "BUY" ? "tt-dt-plan__k--buy" : "tt-dt-plan__k--wait";
 
               const chipRow = [];
               chipRow.push(h("span", {
@@ -4690,14 +4732,6 @@
                 style: { fontFamily: "var(--tt-font-mono)" },
                 title: "Contract side",
               }, flavor === "put" ? "Put" : "Call"));
-              if (Number.isFinite(strike) && strike > 0) {
-                chipRow.push(h("span", {
-                  key: "strike",
-                  className: "ds-chip ds-chip--sm",
-                  style: { fontFamily: "var(--tt-font-mono)" },
-                  title: exp?.label || "Strike",
-                }, `$${Math.round(strike)}${flavor === "put" ? "P" : "C"}`));
-              }
 
               const sparkSvg = LaneCard?.sparkSvgFromCache
                 ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark)
@@ -4707,14 +4741,6 @@
                 || VU?.buildInvestorZoneModel?.(liveT, trackPrice)
                 || null;
               const convSide = flavor === "put" ? "SHORT" : "LONG";
-              if (VU?.appendLiveRrChip) {
-                VU.appendLiveRrChip(chipRow, {
-                  zone: zm,
-                  ticker: liveT,
-                  side: convSide,
-                  price: trackPrice,
-                });
-              }
               const midBody = zm && LaneCard?.zoneBarTrack
                 ? LaneCard.zoneBarTrack(zm, {
                     compact: true,
@@ -4725,10 +4751,25 @@
                   })
                 : null;
 
+              const optionFacts = optionsPlanFacts({
+                action,
+                flavor,
+                strike,
+                expShort,
+                dte: Number(exp?.dte),
+                debit: Number.isFinite(Number(p.premium_mid)) ? `≤ $${Number(p.premium_mid).toFixed(2)}` : null,
+                risk: Number.isFinite(Number(p.max_loss_usd)) ? `$${Number(p.max_loss_usd)}` : null,
+                payoff: Number.isFinite(Number(p.top_target_underlying))
+                  ? `3x+ @ $${Number(p.top_target_underlying).toFixed(2)}`
+                  : null,
+              });
+              const rrOpts = { zone: zm, ticker: liveT, side: convSide, price: trackPrice };
+              const footFacts = VU?.factsWithLiveRr
+                ? VU.factsWithLiveRr(optionFacts, rrOpts)
+                : optionFacts;
               const footEls = [
                 h("div", { key: "plan", className: "tt-dt-plan" },
-                  h("p", { className: `tt-dt-plan__punch ${kClass}` }, copy.punch),
-                  copy.scan && h("p", { className: "tt-dt-plan__scan" }, copy.scan),
+                  planFactList(footFacts),
                 ),
               ];
 
@@ -4764,8 +4805,7 @@
                 onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
               },
                 h("div", { className: "tt-dt-plan" },
-                  h("p", { className: `tt-dt-plan__punch ${kClass}` }, copy.punch),
-                  copy.scan && h("p", { className: "tt-dt-plan__scan" }, copy.scan),
+                  planFactList(footFacts),
                 ),
               );
             }),
@@ -4930,7 +4970,7 @@
               chipRow.push(h("span", {
                 key: "act",
                 className: actionChipClass(action),
-                title: exec.why || "Day-trade execution clock",
+                title: exec.why || exec.headline || "Day-trade execution clock",
                 style: { fontFamily: "var(--tt-font-mono)" },
               }, action));
               chipRow.push(h("span", {
@@ -4939,14 +4979,6 @@
                 style: { fontFamily: "var(--tt-font-mono)" },
                 title: "Contract side",
               }, biasLabel));
-              if (Number.isFinite(Number(strike))) {
-                chipRow.push(h("span", {
-                  key: "strike",
-                  className: "ds-chip ds-chip--sm",
-                  style: { fontFamily: "var(--tt-font-mono)" },
-                  title: exp?.label || "Strike",
-                }, `$${Number(strike).toFixed(0)}${flavor === "put" ? "P" : "C"}`));
-              }
               const expShort = exec.contract?.exp_bit || formatExpShort(exp);
               const band = exec.premium_band || null;
               const holdOn = !!(exec.hold_overnight || exec.plan?.hold_overnight);
@@ -4959,14 +4991,6 @@
               const dtSide = flavor === "put" || lean === "SHORT" ? "SHORT"
                 : flavor === "call" || lean === "LONG" ? "LONG"
                 : "";
-              if (VU?.appendLiveRrChip) {
-                VU.appendLiveRrChip(chipRow, {
-                  zone: zm,
-                  ticker: liveT,
-                  side: dtSide,
-                  price: trackPrice,
-                });
-              }
               const midBody = zm && LaneCard?.zoneBarTrack
                 ? LaneCard.zoneBarTrack(zm, {
                     compact: true,
@@ -4977,22 +5001,24 @@
                   })
                 : null;
 
-              const punchline = exec.headline || exec.why || `${sym} day-trade — stalk the 21 EMA.`;
-              const scanLine = exec.scan_line || [
-                band && Number.isFinite(Number(band.buy_ceil)) ? `Debit ≤ $${Number(band.buy_ceil).toFixed(2)}` : null,
-                exec.rr?.trim != null ? `collect trim $${Number(exec.rr.trim).toFixed(2)}` : null,
-                exec.rr?.exit != null ? `collect exit $${Number(exec.rr.exit).toFixed(2)}` : null,
-                holdOn ? "hold overnight" : "flat 15:45 ET",
-                expShort || null,
-              ].filter(Boolean).join(" · ");
-              const kClass = action === "BUY" ? "tt-dt-plan__k--buy"
-                : action === "TRIM" || action === "SELL" || action === "FLAT" ? "tt-dt-plan__k--sell"
-                : "tt-dt-plan__k--wait";
-
+              const optionFacts = optionsPlanFacts({
+                action,
+                flavor: flavor === "put" ? "put" : "call",
+                strike: Number(strike),
+                expShort,
+                dte: Number(exp?.dte),
+                debit: band && Number.isFinite(Number(band.buy_ceil)) ? `≤ $${Number(band.buy_ceil).toFixed(2)}` : null,
+                trim: exec.rr?.trim != null ? `$${Number(exec.rr.trim).toFixed(2)}` : null,
+                exit: exec.rr?.exit != null ? `$${Number(exec.rr.exit).toFixed(2)}` : null,
+                clock: holdOn ? "Hold overnight" : "Flat 15:45 ET",
+              });
+              const rrOpts = { zone: zm, ticker: liveT, side: dtSide, price: trackPrice };
+              const footFacts = VU?.factsWithLiveRr
+                ? VU.factsWithLiveRr(optionFacts, rrOpts)
+                : optionFacts;
               const footEls = [
                 h("div", { key: "plan", className: "tt-dt-plan" },
-                  h("p", { className: `tt-dt-plan__punch ${kClass}` }, punchline),
-                  scanLine && h("p", { className: "tt-dt-plan__scan" }, scanLine),
+                  planFactList(footFacts),
                 ),
               ];
 
@@ -5027,8 +5053,9 @@
                 className: "tt-opp-card",
                 onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
               },
-                h("div", null, sym),
-                h("p", { className: "tt-strip-card__hint" }, hint),
+                h("div", { className: "tt-dt-plan" },
+                  planFactList(footFacts),
+                ),
               );
             }),
           ),
@@ -6684,6 +6711,7 @@
               const zm = buildGrowthZoneModel(row, ctoBySym[sym], trackPrice, liveT);
               const action = growthCallFromZone(zm, liveT, trackPrice, row);
               const side = window.TimedVerdictUI?.inferTickerSide?.(liveT || row) || "LONG";
+              const rrOpts = { zone: zm, ticker: liveT, side, price: trackPrice };
               const chipRow = stripCallChips({
                 action,
                 horizon: "LONG TERM",
@@ -6693,12 +6721,6 @@
                   : action === "SCALE IN"
                     ? "Inside the PB band"
                     : "Add on a pullback into the PB band",
-                rrOpts: {
-                  zone: zm,
-                  ticker: liveT,
-                  side,
-                  price: trackPrice,
-                },
               });
               const midBody = zm && LaneCard?.zoneBarTrack
                 ? LaneCard.zoneBarTrack(zm, {
@@ -6714,7 +6736,7 @@
               );
               const footEls = [
                 h("div", { key: "levels", className: "tt-dt-plan" },
-                  planFactList(stripZoneFacts(zm, hold)),
+                  planFactList(stripZoneFacts(zm, hold, rrOpts)),
                 ),
               ].filter(Boolean);
 
@@ -6753,7 +6775,7 @@
                 title: `${sym} — open Fundamentals`,
               },
                 h("div", null, sym),
-                planFactList(stripZoneFacts(zm, hold)),
+                planFactList(stripZoneFacts(zm, hold, rrOpts)),
               );
             }),
           ),
