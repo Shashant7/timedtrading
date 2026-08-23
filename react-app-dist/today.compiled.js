@@ -953,7 +953,8 @@ function planFactList(facts) {
     key: f.label,
     className: "tt-plan-facts__row"
   }, h("dt", null, f.label), h("dd", {
-    className: f.tone ? `tt-plan-facts__v--${f.tone}` : null
+    className: f.tone ? `tt-plan-facts__v--${f.tone}` : null,
+    title: f.title || undefined
   }, f.value))));
 }
 function stripZoneFacts(zm, extras, rrOpts) {
@@ -963,13 +964,28 @@ function stripZoneFacts(zm, extras, rrOpts) {
   const base = levels.concat(extra);
   return VU?.factsWithLiveRr ? VU.factsWithLiveRr(base, rrOpts) : base;
 }
-function optionsLegLabel(action, flavor) {
-  const act = String(action || "").toUpperCase();
+function optionsPlayLabel(action, flavor) {
   const contract = flavor === "put" ? "Put" : "Call";
-  if (act === "BUY" || act === "ENTER") return `Buy ${contract}`;
+  const act = String(action || "").toUpperCase();
   if (act === "SELL" || act === "TRIM" || act === "FLAT") return `Sell ${contract}`;
-  if (act === "WAIT") return `Wait ${contract}`;
-  return act ? `${act} ${contract}` : contract;
+  return `Buy ${contract}`;
+}
+function formatLivePremium(px) {
+  const n = Number(px);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return `$${n.toFixed(2)}`;
+}
+function optionsPlayChipRow(action, flavor, title) {
+  const act = String(action || "").toUpperCase();
+  const clockAction = act === "FLAT" ? "SELL" : act;
+  return [h("span", {
+    key: "play",
+    className: actionChipClass(clockAction),
+    title: title || "",
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, optionsPlayLabel(action, flavor))];
 }
 function optionsPlanFacts({
   action,
@@ -977,6 +993,7 @@ function optionsPlanFacts({
   strike,
   expShort,
   dte,
+  livePremium,
   debit,
   trim,
   exit,
@@ -984,14 +1001,12 @@ function optionsPlanFacts({
   payoff
 }) {
   const rows = [];
-  const leg = optionsLegLabel(action, flavor);
-  if (leg) {
-    const act = String(action || "").toUpperCase();
-    const tone = act === "BUY" || act === "ENTER" ? "buy" : act === "WAIT" ? "wait" : act === "SELL" || act === "FLAT" || act === "TRIM" ? "trim" : null;
+  const prem = formatLivePremium(livePremium);
+  if (prem) {
     rows.push({
-      label: "Leg",
-      value: leg,
-      tone
+      label: "Live prem",
+      value: prem,
+      title: "Live premium price — refreshes with each options poll"
     });
   }
   const k = Number(strike);
@@ -1012,14 +1027,20 @@ function optionsPlanFacts({
     label: "Debit",
     value: debit
   });
-  if (trim) rows.push({
-    label: "Trim",
-    value: trim
-  });
-  if (exit) rows.push({
-    label: "Exit",
-    value: exit
-  });
+  if (trim) {
+    rows.push({
+      label: "Trim",
+      value: trim,
+      title: "1R trim target — recalculated from live premium on each refresh"
+    });
+  }
+  if (exit) {
+    rows.push({
+      label: "Exit",
+      value: exit,
+      title: "2R exit target — recalculated from live premium on each refresh"
+    });
+  }
   if (risk) rows.push({
     label: "Risk",
     value: risk
@@ -1907,24 +1928,7 @@ function ConvexityPlaysStrip({
     const strike = Number(p.strike);
     const exp = p.expiration || {};
     const expShort = copy.expShort || formatExpShort(exp);
-    const biasCls = flavor === "put" ? "ds-chip--dn" : "ds-chip--up";
-    const chipRow = [];
-    chipRow.push(h("span", {
-      key: "act",
-      className: actionChipClass(action),
-      title: copy.punch,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, action));
-    chipRow.push(h("span", {
-      key: "bias",
-      className: `ds-chip ds-chip--sm ${biasCls}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: "Contract side"
-    }, flavor === "put" ? "Put" : "Call"));
+    const chipRow = optionsPlayChipRow(action, flavor, copy.punch);
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const zm = VU?.buildTraderZoneModel?.(liveT, trackPrice) || VU?.buildInvestorZoneModel?.(liveT, trackPrice) || null;
     const convSide = flavor === "put" ? "SHORT" : "LONG";
@@ -1939,6 +1943,7 @@ function ConvexityPlaysStrip({
       strike,
       expShort,
       dte: Number(exp?.dte),
+      livePremium: Number(p.premium_mid),
       debit: Number.isFinite(Number(p.premium_mid)) ? `≤ $${Number(p.premium_mid).toFixed(2)}` : null,
       risk: Number.isFinite(Number(p.max_loss_usd)) ? `$${Number(p.max_loss_usd)}` : null,
       payoff: Number.isFinite(Number(p.top_target_underlying)) ? `3x+ @ $${Number(p.top_target_underlying).toFixed(2)}` : null
@@ -2150,25 +2155,7 @@ function IndexDayTradeStrip({
     const exec = p.execution || {};
     const action = String(exec.display_action || exec.action || "WAIT").toUpperCase();
     const lean = String(p.day_lean || exec.contract?.flavor || flavor).toUpperCase();
-    const biasCls = flavor === "put" || lean === "SHORT" ? "ds-chip--dn" : flavor === "call" || lean === "LONG" ? "ds-chip--up" : "ds-chip--solid";
-    const biasLabel = flavor === "put" ? "Put" : flavor === "call" ? "Call" : "Neutral";
-    const chipRow = [];
-    chipRow.push(h("span", {
-      key: "act",
-      className: actionChipClass(action),
-      title: exec.why || exec.headline || "Day-trade execution clock",
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, action));
-    chipRow.push(h("span", {
-      key: "bias",
-      className: `ds-chip ds-chip--sm ${biasCls}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: "Contract side"
-    }, biasLabel));
+    const chipRow = optionsPlayChipRow(action, flavor === "put" ? "put" : "call", exec.why || exec.headline || "Day-trade execution clock");
     const expShort = exec.contract?.exp_bit || formatExpShort(exp);
     const band = exec.premium_band || null;
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
@@ -2185,6 +2172,7 @@ function IndexDayTradeStrip({
       strike: Number(strike),
       expShort,
       dte: Number(exp?.dte),
+      livePremium: band?.premium,
       debit: band && Number.isFinite(Number(band.buy_ceil)) ? `≤ $${Number(band.buy_ceil).toFixed(2)}` : null,
       trim: exec.rr?.trim != null ? `$${Number(exec.rr.trim).toFixed(2)}` : null,
       exit: exec.rr?.exit != null ? `$${Number(exec.rr.exit).toFixed(2)}` : null
@@ -8124,6 +8112,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787520897886:509174341
+// cache-bust:1787521689865:232012565
 
-// cache-bust:1787520897886:509174341
+// cache-bust:1787521689865:232012565
