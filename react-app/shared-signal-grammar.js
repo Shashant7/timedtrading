@@ -254,14 +254,15 @@
   function verdictWordFromActivity(meta, ev) {
     var label = String((meta && meta.label) || "").toUpperCase();
     var evType = String((meta && meta.evType) || "").toUpperCase();
-    if (label === "ENTER" || label === "ENTRY" || evType === "ENTRY") return "BUY";
+    if (label === "ENTER" || label === "ENTRY" || label === "ADD" || label === "ADD_ENTRY"
+      || label === "ACCUMULATE" || label === "QUEUE" || label === "BOUGHT" || label === "BUY"
+      || evType === "ENTRY" || evType === "ADD" || evType === "ADD_ENTRY" || evType === "BOUGHT") return "BUY";
     if (label === "EXIT" || evType === "EXIT") return "SELL";
     if (label === "TRIM" || label === "DEFEND" || evType === "TRIM") return "TIGHTEN";
     if (label === "HOLD") return "HOLD";
-    if (label === "REVIEW" || label === "WATCH" || label === "SETUP") return "FORMING";
-    if (label === "ACCUMULATE" || label === "QUEUE") return "BUY";
+    if (label === "REVIEW" || label === "WATCH" || label === "SETUP" || label === "FORMING") return "BUY";
     if (label === "REDUCE") return "SELL";
-    return label || "UPDATE";
+    return label || "BUY";
   }
 
   window.TimedSignalGrammar = {

@@ -1268,7 +1268,7 @@ function SetupFamiliesStrip({
       style: {
         fontFamily: "var(--tt-font-mono)"
       },
-      title: role === "fire" ? "Paper 0.1× sim + broker ticket" : "Desk is inspect-only until FIRE"
+      title: copy.role === "fire" ? "Paper 0.1× sim + broker ticket" : "Desk is inspect-only until FIRE"
     }, "PAPER"));
     const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
@@ -8223,6 +8223,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787506112208:474717788
+// cache-bust:1787510225532:4494082
 
-// cache-bust:1787506112208:474717788
+// cache-bust:1787510225532:4494082

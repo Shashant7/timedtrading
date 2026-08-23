@@ -20,9 +20,9 @@ describe("TTActivityCard", () => {
 
   it("writes a compact headline without repeating the ticker", () => {
     expect(card.buildActivityHeadline({
-      actionLabel: "FORMING",
+      actionLabel: "BUY",
       size: "12.6 sh @ $41.20",
-    })).toBe("FORMING · 12.6 sh @ $41.20");
+    })).toBe("BUY · 12.6 sh @ $41.20");
     expect(card.buildActivityHeadline({
       actionLabel: "BUY",
     })).toBe("BUY");
@@ -30,10 +30,19 @@ describe("TTActivityCard", () => {
 
   it("keeps the legacy punchline helper for callers that still use it", () => {
     expect(card.buildActivityPunchline({
-      actionLabel: "FORMING",
+      actionLabel: "BUY",
       sym: "BNY",
       detail: "12.6 sh @ $41.20",
-    })).toBe("FORMING on BNY — 12.6 sh @ $41.20");
+    })).toBe("BUY on BNY — 12.6 sh @ $41.20");
+  });
+
+  it("maps FORMING / WATCH / ADD to Buy on the activity chip", () => {
+    expect(card.normalizeDisplayAction({ label: "FORMING" })).toBe("BUY");
+    expect(card.normalizeDisplayAction({ label: "WATCH" })).toBe("BUY");
+    expect(card.normalizeDisplayAction({ label: "ADD", evType: "ADD" })).toBe("BUY");
+    expect(card.normalizeDisplayAction({ label: "ENTER", evType: "ENTRY" })).toBe("BUY");
+    expect(card.normalizeDisplayAction({ label: "EXIT", evType: "EXIT" })).toBe("SELL");
+    expect(card.normalizeDisplayAction({ label: "TRIM", evType: "TRIM" })).toBe("TIGHTEN");
   });
 
   it("joins scan bits with middots", () => {
@@ -47,7 +56,7 @@ describe("TTActivityCard", () => {
   it("colors action labels like the day-trade strip", () => {
     expect(card.activityActionChipClass("BUY")).toContain("ds-chip--up");
     expect(card.activityActionChipClass("SELL")).toContain("ds-chip--dn");
-    expect(card.activityActionChipClass("FORMING")).toContain("ds-chip--accent");
+    expect(card.activityActionChipClass("BUY")).toContain("ds-chip--up");
     expect(card.activityPunchClass("BUY")).toContain("tt-activity-card__action");
     expect(card.activityPunchClass("BUY")).toContain("tt-dt-plan__k--buy");
     expect(card.activityPunchClass("TIGHTEN")).toContain("tt-dt-plan__k--sell");
