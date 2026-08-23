@@ -2,6 +2,7 @@
 // plans/confirm-stack-ema21-slice.plan.md + plans/wow-pnl-adaptive-governor.plan.md
 
 import { computeWindowStats } from "../edge-scorecard.js";
+import { buildProgramTimingReport } from "./program-timing.js";
 
 const DAY_MS = 86400000;
 const CONFIRM_STACK_FAMILY = "confirm_stack_ema21";
@@ -229,6 +230,13 @@ export function buildAllFamilyAttributionReport({
     ok: true,
     days: windowDays,
     families,
+    timing: buildProgramTimingReport({
+      days: windowDays,
+      entryDecisions,
+      trades,
+      universeCapturePct,
+      minN: 3,
+    }),
     rows_scanned: (entryDecisions || []).length,
     generated_at: Date.now(),
   };
@@ -264,7 +272,7 @@ async function loadAttributionInputs(env, opts = {}) {
       try {
         const rows = (await db.prepare(
           `SELECT trade_id, ticker, status, pnl, pnl_pct, exit_reason, setup_name,
-                  max_favorable_excursion, entry_ts, exit_ts
+                  max_favorable_excursion, max_adverse_excursion, entry_ts, exit_ts, slice_family
              FROM trades
             WHERE trade_id IN (${ph})`,
         ).bind(...chunk).all())?.results || [];
@@ -272,11 +280,20 @@ async function loadAttributionInputs(env, opts = {}) {
       } catch { /* column may be missing on old schema — retry slim */
         try {
           const rows = (await db.prepare(
-            `SELECT trade_id, ticker, status, pnl, pnl_pct, exit_reason, setup_name, entry_ts, exit_ts
+            `SELECT trade_id, ticker, status, pnl, pnl_pct, exit_reason, setup_name,
+                    max_favorable_excursion, max_adverse_excursion, entry_ts, exit_ts
                FROM trades WHERE trade_id IN (${ph})`,
           ).bind(...chunk).all())?.results || [];
           trades = trades.concat(rows);
-        } catch { /* */ }
+        } catch {
+          try {
+            const rows = (await db.prepare(
+              `SELECT trade_id, ticker, status, pnl, pnl_pct, exit_reason, setup_name, entry_ts, exit_ts
+                 FROM trades WHERE trade_id IN (${ph})`,
+            ).bind(...chunk).all())?.results || [];
+            trades = trades.concat(rows);
+          } catch { /* */ }
+        }
       }
     }
   }

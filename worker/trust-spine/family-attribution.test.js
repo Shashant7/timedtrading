@@ -27,9 +27,9 @@ describe("buildAllFamilyAttributionReport", () => {
         },
       ],
       trades: [
-        { trade_id: "CP-1", status: "WIN", pnl: 10, pnl_pct: 1.2, max_favorable_excursion: 3, ticker: "NVDA" },
-        { trade_id: "CS-1", status: "OPEN", pnl: 0, pnl_pct: 0, ticker: "AXON" },
-        { trade_id: "MC-1", status: "LOSS", pnl: -8, pnl_pct: -0.4, max_favorable_excursion: 1, ticker: "TSLA" },
+        { trade_id: "CP-1", status: "WIN", pnl: 10, pnl_pct: 1.2, max_favorable_excursion: 3, max_adverse_excursion: -0.4, ticker: "NVDA", entry_ts: Date.UTC(2026, 6, 15, 14, 20) },
+        { trade_id: "CS-1", status: "OPEN", pnl: 0, pnl_pct: 0, ticker: "AXON", entry_ts: Date.UTC(2026, 6, 15, 14, 0) },
+        { trade_id: "MC-1", status: "LOSS", pnl: -8, pnl_pct: -0.4, max_favorable_excursion: 1, max_adverse_excursion: 1.1, ticker: "TSLA", entry_ts: Date.UTC(2026, 6, 15, 15, 30) },
       ],
       universeCapturePct: 5.2,
     });
@@ -44,6 +44,8 @@ describe("buildAllFamilyAttributionReport", () => {
     expect(report.families.confirm_stack_ema21.open).toBe(1);
     expect(report.families.momentum_continuation.closed).toBe(1);
     expect(report.families.tt_cloud_pivot.widen_ready).toBe(false);
+    expect(report.timing.ok).toBe(true);
+    expect(report.timing.programs.tt_cloud_pivot.overall.closed).toBe(1);
   });
 });
 
