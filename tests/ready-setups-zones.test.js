@@ -142,6 +142,20 @@ describe("Ready Setups zone-bar cards", () => {
     expect(rr).toBeCloseTo((109 - 97) / (97 - 96), 5);
   });
 
+  it("factsWithLiveRr inserts R:R immediately after Tgt row", () => {
+    const fn = window.TimedVerdictUI.factsWithLiveRr;
+    const out = fn([
+      { label: "Inv", value: "$96" },
+      { label: "PB", value: "$100–$103" },
+      { label: "Tgt", value: "$109" },
+    ], {
+      zone: { inv: 96, tgt: 109, price: 97 },
+      side: "LONG",
+    });
+    expect(out.map((f) => f.label)).toEqual(["Inv", "PB", "Tgt", "R:R"]);
+    expect(out[3].value).toBe("12.00");
+  });
+
   it("attachCtoProbToZone adds hit/reach probabilities from CTO payload", () => {
     const attach = window.TimedVerdictUI.attachCtoProbToZone;
     const zm = { inv: 96, tgt: 109, pb: [100, 103], price: 97 };
