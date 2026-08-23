@@ -7,6 +7,8 @@ import {
   toConvexityCard,
   rankConvexityCards,
   convexityFreshTtlMs,
+  convexityPlanCopy,
+  formatConvexityExpShort,
 } from "./options-convexity.js";
 import {
   shouldActivateLotto,
@@ -219,6 +221,48 @@ describe("convexityFreshTtlMs", () => {
   });
 });
 
+describe("convexityPlanCopy", () => {
+  it("writes AXON lotto in day-trade punch/scan grammar", () => {
+    const copy = convexityPlanCopy({
+      ticker: "AXON",
+      play_class: "lotto",
+      direction: "LONG",
+      strike: 640,
+      expiration: { dte: 1, label: "Aug 24 (1DTE)", iso: "2026-08-24" },
+      max_loss_usd: 126,
+      top_target_underlying: 642.52,
+      premium_mid: 1.26,
+      confluence_mode: "DRIFT",
+    });
+    expect(copy.action).toBe("WAIT");
+    expect(copy.flavor).toBe("call");
+    expect(copy.punch).toBe("WAIT on AXON 640C Aug 24 (1DTE) — lotto call, premium may go to zero");
+    expect(copy.scan).toContain("Risk $126");
+    expect(copy.scan).toContain("3x+ @ $642.52");
+    expect(copy.scan).toContain("Pay ≤ $1.26");
+  });
+
+  it("maps READY to BUY and moonshot put flavor", () => {
+    const copy = convexityPlanCopy({
+      ticker: "NVDA",
+      play_class: "moonshot",
+      direction: "SHORT",
+      strike: 170,
+      expiration: { dte: 7, iso: "2026-08-30" },
+      confluence_mode: "READY",
+    });
+    expect(copy.action).toBe("BUY");
+    expect(copy.flavor).toBe("put");
+    expect(copy.punch).toContain("BUY on NVDA 170P");
+    expect(copy.punch).toContain("moonshot put");
+  });
+
+  it("parses expiry labels without iso", () => {
+    expect(formatConvexityExpShort({ label: "Aug 24 (1DTE)" })).toBe("Aug 24");
+    expect(formatConvexityExpShort({ label: "7DTE" })).toBe("");
+  });
+});
+
 describe("toConvexityCard", () => {
   it("builds API card shape", () => {
     const card = toConvexityCard({
@@ -240,6 +284,9 @@ describe("toConvexityCard", () => {
     expect(card.ticker).toBe("AMD");
     expect(card.play_class).toBe("moonshot");
     expect(card.stop_level).toBe(160);
+    expect(card.action).toBe("BUY");
+    expect(card.headline).toContain("BUY on AMD 170C");
+    expect(card.scan_line).toContain("Risk $200");
   });
 
   it("flags earnings_prep on cards", () => {

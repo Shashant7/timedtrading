@@ -489,8 +489,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   from **09:30** the next session (do not wait for 09:45 — the open is
   often the profit-taking print). Paper BUY/TRIM/EXIT/STOP posts to
   Discord **#trade-signals** with expiration in the title + Saty-style plan
-  + light/medium/heavy size. Today card: punchline + scan line; zone bar
+  + light/medium/heavy size.   Today card: punchline + scan line; zone bar
   uses `getTrackPrice()` (EXT print outside RTH), headline stays RTH close.
+  **Activity strip + Convexity (2026-08-23):** sticky Recent Activity uses
+  the same chip / punch / scan grammar as Index Day-Trade (compact, no
+  sparkline). Convexity lotto/moonshot cards (first live: AXON) use
+  `TTLaneCard` + `tt-dt-plan` — `convexityPlanCopy()` in
+  `worker/options-convexity.js`.
   KV book `timed:opt-dt-book:{signal_id}`; speculator/Today only.
   Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day) → Investor
   (long haul); keep each lane's horizon honest.

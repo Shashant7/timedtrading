@@ -153,6 +153,56 @@ export function isConvexityPlayActionable({
   return true;
 }
 
+const EXP_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Short expiry bit matching index day-trade cards (`Aug 24`). */
+export function formatConvexityExpShort(exp) {
+  const iso = String(exp?.iso || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    const parts = iso.split("-").map(Number);
+    return `${EXP_MONTHS[parts[1] - 1]} ${parts[2]}`;
+  }
+  const label = String(exp?.label || "").trim();
+  const m = label.match(/^([A-Za-z]{3}\s+\d{1,2})/);
+  if (m) return m[1];
+  if (/^\d+\s*DTE$/i.test(label)) return "";
+  return label.replace(/\s*\(\d+\s*DTE\)/i, "").trim();
+}
+
+/**
+ * Day-trade strip grammar for a convexity card (chips / punch / scan).
+ * READY or RIDE → BUY; everything else (DRIFT, WAIT) stays WAIT.
+ */
+export function convexityPlanCopy(card = {}) {
+  const ticker = String(card.ticker || "").toUpperCase();
+  const isMoon = card.play_class === "moonshot";
+  const dir = String(card.direction || "").toUpperCase();
+  const flavor = dir === "SHORT" ? "put" : "call";
+  const strike = Number(card.strike);
+  const dte = Number(card.expiration?.dte);
+  const mode = String(card.confluence_mode || "").toUpperCase();
+  const action = (mode === "READY" || mode === "RIDE") ? "BUY" : "WAIT";
+  const expShort = formatConvexityExpShort(card.expiration);
+  const contractBit = Number.isFinite(strike) && strike > 0
+    ? `${Math.round(strike)}${flavor === "put" ? "P" : "C"}`
+    : "";
+  const dteBit = Number.isFinite(dte) ? `${dte}DTE` : "";
+  const playWord = card.earnings_prep ? "earnings-prep lotto" : (isMoon ? "moonshot" : "lotto");
+  const punchCore = [action, "on", ticker, contractBit, expShort, dteBit ? `(${dteBit})` : ""]
+    .filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  const punch = `${punchCore} — ${playWord} ${flavor}, premium may go to zero`;
+  const scan = [
+    Number.isFinite(Number(card.max_loss_usd)) ? `Risk $${Number(card.max_loss_usd)}` : null,
+    Number.isFinite(Number(card.top_target_underlying))
+      ? `3x+ @ $${Number(card.top_target_underlying).toFixed(2)}` : null,
+    Number.isFinite(Number(card.premium_mid))
+      ? `Pay \u2264 $${Number(card.premium_mid).toFixed(2)}` : null,
+    expShort || null,
+    dteBit || null,
+  ].filter(Boolean).join(" \u00b7 ");
+  return { action, flavor, punch, scan, playWord, expShort, contractBit };
+}
+
 /** API card shape for Today row + Snapshot panel. */
 export function toConvexityCard({
   ticker,
@@ -176,7 +226,7 @@ export function toConvexityCard({
     : (mbt["3x_underlying_at"] ?? mbt["5x_underlying_at"]);
   const sl = Number(contract?.sl);
 
-  return {
+  const card = {
     ticker: String(ticker || "").toUpperCase(),
     play_class: playClass,
     direction: dir,
@@ -201,6 +251,11 @@ export function toConvexityCard({
         ? "Short-dated OTM — sized for total premium loss; 3×+ if the move fires."
         : "Gamma window — multi-bagger target if momentum continues.",
   };
+  const copy = convexityPlanCopy(card);
+  card.headline = copy.punch;
+  card.scan_line = copy.scan;
+  card.action = copy.action;
+  return card;
 }
 
 export function rankConvexityCards(cards = []) {
