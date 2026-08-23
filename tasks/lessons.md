@@ -6,6 +6,23 @@
 
 ---
 
+## Today strip chips were repeating the foot [2026-08-23]
+
+**Symptom:** Cloud Desk, Index Day-Trade, and Convexity cards stacked
+WAIT/LONG/cover/last/PAPER/EXT plus R100/S100 chips on top of the same
+facts in the foot. Index Day-Trade also carried Lean / FMV / R:R /
+FLAT 15:45. Card heights jumped because EXT and long feet wrapped.
+
+**Cause:** `TTLaneCard.rankScoreMetricChips` and `extLineFromTicker`
+were passed on every strip, and each strip invented its own chip
+grammar on top of punch/scan/facts.
+
+**Fix:** Universe cards keep only the call chips. Desk mid-body is
+`deskCoverProgressBar` (LAST / NOW / COVER). Family / index /
+convexity keep the compact zone bar. No R/S, no EXT, fixed 312px
+height, punch/scan clamped. Do not remount the generic trader zone
+bar on Cloud Desk.
+
 ## Cloud Desk next cover is the rail level, not a missing magnet [2026-08-23]
 
 **Symptom:** BTC/ETH LONG showed only "last cover" under the live print.

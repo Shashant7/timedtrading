@@ -60,9 +60,11 @@ cd worker
 - Weekend: `inspectTtCloudPivot` returns magnet/curl while
   `detectTtCloudPivot` is null.
 - Today Families strip shows a CLOUD DESK horizontal card row
-  (`TTLaneCard` + Call / Side / Cover / Size) when `desk.watching` is
-  non-empty. One call word: WAIT outside RTH, BUY for a paper 0.1×
-  ticket in the regular session. Cover is labeled ahead vs behind.
+  (`TTLaneCard` + WAIT/BUY + LONG/SHORT chips + LAST/NOW/COVER
+  progress bar) when `desk.watching` is non-empty. One call word:
+  WAIT outside RTH, BUY for a paper 0.1× ticket in the regular
+  session. Cover is labeled ahead vs behind. Do not add cover/last
+  price chips or R/S metrics on these cards.
 - Unit: `npx vitest run worker/foundation/tt-cloud-pivot.test.js`
 
 ## Source
