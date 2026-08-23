@@ -12,12 +12,14 @@ describe("Today Cloud Desk plan copy", () => {
   });
 
   it("uses one call word and cover, not ENTER plus FIRE plus Lead", () => {
-    expect(src).toContain("last cover $");
+    expect(src).toContain("Monthly 21 EMA");
+    expect(src).toContain("last cover, already behind");
     expect(src).toContain("10m Cloud Desk");
     expect(src).toContain("Not the index options lean");
     expect(src).not.toMatch(/label:\s*"Lead"/);
     expect(src).not.toMatch(/deskRoleChipClass/);
     expect(src).not.toMatch(/String\(copy\.role \|\| "watch"\)\.toUpperCase\(\)/);
-    expect(src).toContain("`cover $${magPx.toFixed(2)}`");
+    expect(src).toContain("`cover $${nextPx.toFixed(2)}`");
+    expect(src).toContain("`last $${lastPx.toFixed(2)}`");
   });
 });
