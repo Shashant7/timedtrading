@@ -35,6 +35,13 @@ when the value is missing.
 Cloud Pivot exits do **not** manage a canonical core `entry_path` even
 when a paper family stamp is coincident.
 
+Paper families (Confirm-stack / Cloud Pivot / Continuation) open their
+**own** 0.1× ticket when FIRE + proposal are live and no core path is
+in the enter lane (`resolvePaperFamilyStandaloneEntry`). Path ids look
+like `tt_cloud_pivot_long` — carved out of `isCanonicalCapitalEntryPath`
+so size stays 0.1× and the broker mirror uses the same qty. Do not
+apply that size to `tt_gap_reversal_*` / `tt_n_test_*` / ATH.
+
 ## Verify
 
 ```bash

@@ -995,22 +995,22 @@ function cloudDeskPlanCopy(w) {
   const dir = String(w?.direction || "").toUpperCase();
   const magPx = Number(w?.magnet?.px);
   const magBit = Number.isFinite(magPx) && magPx > 0 ? `$${magPx.toFixed(2)}` : "";
-  const action = "WAIT";
+  const action = role === "fire" ? "ENTER" : "WAIT";
   const leader = String(w?.leader_follow?.leader || w?.leader?.symbol || "").toUpperCase();
-  const playWord = role === "fire" ? "Cloud Pivot print (paper)" : role === "leader" ? "Leader curl" : role === "follow" ? `Follow ${leader || "leader"}` : role === "catalyst" ? "Catalyst if/then" : role === "stalk" ? "Magnet stalk" : "Desk watch";
+  const playWord = role === "fire" ? "Cloud Pivot paper 0.1× ticket" : role === "leader" ? "Leader curl" : role === "follow" ? `Follow ${leader || "leader"}` : role === "catalyst" ? "Catalyst if/then" : role === "stalk" ? "Magnet stalk" : "Desk watch";
   const plan = w?.session_plan;
   const gatePx = dir === "SHORT" ? Number(plan?.short_under) : Number(plan?.long_over);
   const gate = Number.isFinite(gatePx) && gatePx > 0 ? dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}` : null;
   const facts = [{
     label: "Call",
-    value: "WAIT",
-    tone: "wait"
+    value: action,
+    tone: action === "ENTER" ? "enter" : "wait"
   }, {
     label: "Play",
     value: playWord
   }, {
     label: "Size",
-    value: role === "fire" ? "Paper 0.1× — not a ticket" : "Watch only"
+    value: role === "fire" ? "Paper 0.1× ticket" : "Watch only"
   }, {
     label: "Magnet",
     value: magBit || null
@@ -1027,7 +1027,7 @@ function cloudDeskPlanCopy(w) {
     facts,
     magBit,
     leader,
-    punch: `WAIT on ${ticker}`
+    punch: `${action} on ${ticker}`
   };
 }
 function deskRoleChipClass(role) {
@@ -1119,7 +1119,7 @@ function SetupFamiliesStrip({
     className: "tt-ready__title"
   }, "Tracked structure families"), h("p", {
     className: "tt-ready__sub"
-  }, "The model calls the entry. Cards stay WATCH until a card shows ENTER."));
+  }, "The model calls the entry. FIRE / entry-ready opens a paper 0.1× sim ticket and the same 0.1× broker order so exits can be followed."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
@@ -1158,13 +1158,13 @@ function SetupFamiliesStrip({
     className: "tt-sec-title"
   }, "CLOUD DESK"), h("p", {
     className: "tt-ready__sub"
-  }, "Weekend / night watch. FIRE is a paper print — not a ticket. Enter only when a Families card says ENTER."), h("details", {
+  }, "Weekend / night watch. FIRE opens a paper 0.1× sim + broker ticket. Follow the family exits."), h("details", {
     className: "tt-desk-guide"
   }, h("summary", null, "How the desk reads"), h("div", {
     className: "tt-desk-guide__body"
-  }, h("p", null, "Inspect the 10m 5/12 tape and 1H magnets. Size stays paper until a Families card admits the name."), h("ul", {
+  }, h("p", null, "Inspect the 10m 5/12 tape and 1H magnets. FIRE is a paper 0.1× ticket so exits can be followed."), h("ul", {
     className: "tt-desk-howto"
-  }, h("li", null, "FIRE = 10m 5/12 print, paper 0.1×. Not a sized entry."), h("li", null, "Leaders first: BTCUSD, ETHUSD, SPY, QQQ. Followers only on the same side."), h("li", null, "Magnet is the cover. If/then chips are gates, not market orders.")))), h("div", {
+  }, h("li", null, "FIRE opens a paper 0.1× ticket (sim and broker). Follow Cloud Pivot exits when the 10m candle loses 5/12 or tags the magnet."), h("li", null, "Leaders first: BTCUSD, ETHUSD, SPY, QQQ. Followers only on the same side."), h("li", null, "Magnet is the cover. If/then chips are gates, not market orders.")))), h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
     role: "list",
     style: {
@@ -1268,7 +1268,7 @@ function SetupFamiliesStrip({
       style: {
         fontFamily: "var(--tt-font-mono)"
       },
-      title: "Desk is inspect-only until a Families card admits the name"
+      title: role === "fire" ? "Paper 0.1× sim + broker ticket" : "Desk is inspect-only until FIRE"
     }, "PAPER"));
     const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
@@ -8223,6 +8223,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787498368099:459666986
+// cache-bust:1787506112208:474717788
 
-// cache-bust:1787498368099:459666986
+// cache-bust:1787506112208:474717788

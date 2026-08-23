@@ -20,7 +20,8 @@ Same atoms as `tt_cloud_pivot` — branded Timed Trading, not "Ripster":
 `detectTtCloudPivot` stays RTH-windowed for paper entries. The desk
 **inspects without a session** so Saturday/Sunday still ranks magnets.
 
-Paper 0.1× until family attribution says magnet cover keeps MFE.
+FIRE opens a paper 0.1× sim ticket and the same 0.1× broker order so
+5/12 / magnet exits can be followed. Canonical core paths stay full size.
 
 ## Commands
 
@@ -49,8 +50,8 @@ cd worker
 - Weekend: `inspectTtCloudPivot` returns magnet/curl while
   `detectTtCloudPivot` is null.
 - Today Families strip shows a CLOUD DESK horizontal card row
-  (`TTLaneCard` + punch/scan) when `desk.watching` is non-empty. FIRE is
-  a 10m print, not a sized ticket; leaders are BTCUSD/ETHUSD/SPY/QQQ.
+  (`TTLaneCard` + punch/scan) when `desk.watching` is non-empty. FIRE
+  opens a paper 0.1× ticket (RTH); leaders are BTCUSD/ETHUSD/SPY/QQQ.
 - Unit: `npx vitest run worker/foundation/tt-cloud-pivot.test.js`
 
 ## Source
