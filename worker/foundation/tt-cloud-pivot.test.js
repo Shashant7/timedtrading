@@ -473,7 +473,7 @@ describe("tt_cloud_pivot", () => {
 });
 
 describe("cloudDeskPlanCopy", () => {
-  it("writes FIRE as a paper BUY punchline", () => {
+  it("writes FIRE as a paper WAIT punchline, not a ticket", () => {
     const copy = cloudDeskPlanCopy({
       ticker: "BTCUSD",
       role: "fire",
@@ -481,8 +481,8 @@ describe("cloudDeskPlanCopy", () => {
       magnet: { px: 63474.96, label: "1h_34_50" },
       session: "midday",
     });
-    expect(copy.action).toBe("BUY");
-    expect(copy.punch).toBe("BUY on BTCUSD — Cloud Pivot fire, paper size toward $63474.96");
+    expect(copy.action).toBe("WAIT");
+    expect(copy.punch).toBe("WAIT on BTCUSD — Cloud Pivot print (paper) toward $63474.96");
     expect(copy.scan).toContain("Paper 0.1×");
     expect(copy.scan).toContain("magnet $63474.96");
     expect(copy.scan).toContain("midday");
