@@ -9,6 +9,8 @@ import {
   mergeEarningsEventLists,
   isEarningsUpcomingCacheSparse,
   preferRicherEarningsUpcomingCache,
+  isGhostUpcomingEarnings,
+  sanitizeUpcomingEarningsEvents,
 } from "./daily-brief.js";
 
 describe("prioritizeWeekEarnings", () => {
@@ -186,6 +188,31 @@ describe("preferRicherEarningsUpcomingCache", () => {
     expect(out._preserved_prev).toBe(false);
     expect(out.events.length).toBe(3);
     expect(out.events.find((e) => e.symbol === "SANM").epsEstimate).toBe(2.8);
+  });
+});
+
+describe("sanitizeUpcomingEarningsEvents", () => {
+  it("drops TwelveData-only leftover dates after RKT already printed", () => {
+    const recent = new Map([["RKT", "2026-08-06"]]);
+    const out = sanitizeUpcomingEarningsEvents([
+      { symbol: "RKT", date: "2026-08-24", hour: "", epsEstimate: null, _source: "twelvedata" },
+      { symbol: "NVDA", date: "2026-08-26", hour: "amc", epsEstimate: 2.12, _source: "finnhub" },
+      { symbol: "DKS", date: "2026-08-24", hour: "", epsEstimate: 3.79, _source: "finnhub" },
+      { symbol: "INTU", date: "2026-08-25", hour: "amc", epsEstimate: 3.65, _source: "finnhub" },
+    ], recent);
+    expect(out.map((e) => e.symbol).sort()).toEqual(["DKS", "INTU", "NVDA"]);
+  });
+
+  it("keeps a confirmed reprint when session or estimate is present", () => {
+    expect(isGhostUpcomingEarnings({
+      symbol: "INTU", date: "2026-08-25", hour: "amc", epsEstimate: 3.65, _source: "finnhub",
+    }, new Map([["INTU", "2026-08-11"]]))).toBe(false);
+  });
+
+  it("does not invent a drop for Finnhub rows that still have an estimate", () => {
+    expect(isGhostUpcomingEarnings({
+      symbol: "DKS", date: "2026-08-24", hour: "", epsEstimate: 3.79, _source: "finnhub",
+    }, new Map())).toBe(false);
   });
 });
 

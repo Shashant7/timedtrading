@@ -1011,6 +1011,8 @@ import {
   isEarningsUpcomingCacheSparse,
   preferRicherEarningsUpcomingCache,
   normalizeTdEarningsHour,
+  sanitizeUpcomingEarningsEvents,
+  fetchRecentResolvedEarningsMap,
   d1EnsureBriefSchema,
 } from "./daily-brief.js";
 import { seedHistoricalMarketEvents, checkMarketEventsCoverage } from "./market-events-seed.js";
@@ -58067,6 +58069,13 @@ export default {
                 { events: filtered, range: { from: today, to: future } },
                 { fromDate: today, toDate: future },
               );
+              {
+                const recentResolved = await fetchRecentResolvedEarningsMap(env);
+                cached = {
+                  ...cached,
+                  events: sanitizeUpcomingEarningsEvents(cached.events, recentResolved),
+                };
+              }
               ctx.waitUntil(kvPutJSON(KV, "timed:earnings:upcoming", cached, 86400).catch(() => {}));
               console.log(`[EARNINGS] Rebuilt upcoming cache: ${cached.events.length} universe event(s) (${today}→${future})${isSparse ? " [was_sparse]" : ""}`);
             } catch (fetchErr) {
@@ -58136,6 +58145,14 @@ export default {
               if (e?.epsActual != null && Number.isFinite(Number(e.epsActual))) return false;
               return true;
             });
+          }
+          // Drop TwelveData leftover dates after a print already landed
+          // (RKT 8/24 after the 8/6 report) and other session-less stubs.
+          try {
+            const recentResolved = await fetchRecentResolvedEarningsMap(env);
+            events = sanitizeUpcomingEarningsEvents(events, recentResolved);
+          } catch (ghostErr) {
+            console.warn("[EARNINGS] ghost sanitize failed:", String(ghostErr?.message || ghostErr).slice(0, 120));
           }
           const payload = { ok: true, events, updated_at: cached?.updated_at || 0 };
           if (debug && rawFinnhub) {
@@ -106489,10 +106506,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             { events: filtered, range: { from: today, to: future } },
             { fromDate: today, toDate: future },
           );
-          await kvPutJSON(KV, "timed:earnings:upcoming", cached, 86400);
+          const recentResolvedCron = await fetchRecentResolvedEarningsMap(env);
+          const cleaned = {
+            ...cached,
+            events: sanitizeUpcomingEarningsEvents(cached.events, recentResolvedCron),
+          };
+          await kvPutJSON(KV, "timed:earnings:upcoming", cleaned, 86400);
           console.log(
-            `[EARNINGS CRON] Cached ${cached.events.length} earnings events (${today} → ${future})`
-            + ` (fetched=${filtered.length}${cached._preserved_prev ? ", preserved_prev" : ""})`,
+            `[EARNINGS CRON] Cached ${cleaned.events.length} earnings events (${today} → ${future})`
+            + ` (fetched=${filtered.length}${cleaned._preserved_prev ? ", preserved_prev" : ""})`,
           );
 
           // Persist reported results into D1 for CIO + fundamentals merge.

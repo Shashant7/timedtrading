@@ -6,6 +6,19 @@
 
 ---
 
+## RKT 8/24 earnings chip was a TwelveData leftover [2026-08-23]
+
+**Symptom:** Today Event-Driven Risk showed RKT on 8/24. Rocket already
+reported Q2 on 2026-08-06 (IR + D1 `resolved` actual $0.16). Finnhub has
+no RKT in the 5-day window. TwelveData `/earnings_calendar` still emitted
+an 8/24 stub with no session and no estimate.
+
+**Fix:** `sanitizeUpcomingEarningsEvents` drops TwelveData-only rows that
+lack hour + estimate, and any session-less/estimate-less row when D1
+already has a recent resolved actual. Do not invent `bmo` for blank hour
+(DKS Finnhub 8/24 vs IR 8/25 BMO stays date-only until a second source
+confirms).
+
 ## Today blanks when Cloud Desk uses undeclared `role` [2026-08-23]
 
 **Symptom:** Today `#root` empty (nav + Recent Activity + footer still
