@@ -53,8 +53,8 @@
         transform: translate3d(0,0,0); will-change: transform;
       }
       .tt-activity-strip__inner {
-        max-width: 1600px; margin: 0 auto; padding: 11px 24px;
-        display: flex; align-items: center; gap: 12px;
+        max-width: 1600px; margin: 0 auto; padding: 8px 24px;
+        display: flex; align-items: flex-start; gap: 12px;
       }
       @media (max-width: 720px) {
         /* 2026-05-31 — Mobile keeps sticky positioning (was fixed),
@@ -62,7 +62,7 @@
            above force position:static so the strip flows under the
            nav within the sticky container. */
         .tt-activity-strip { position: sticky; top: var(--tt-nav-h, 52px); left: 0; right: 0; }
-        .tt-activity-strip__inner { padding: 10px 12px; gap: 8px; }
+        .tt-activity-strip__inner { padding: 8px 12px; gap: 8px; }
       }
       .tt-activity-strip__label {
         font-size: 11px; font-weight: 700; letter-spacing: 0.10em;
@@ -70,23 +70,47 @@
       }
       .tt-activity-strip__hint { font-size: 10.5px; color: var(--tt-text-faint); display: none; flex-shrink: 0; }
       @media (min-width: 900px) { .tt-activity-strip__hint { display: block; } }
-      .tt-activity-strip__scroll { flex: 1; overflow-x: auto; scrollbar-width: none; }
+      .tt-activity-strip__scroll { flex: 1; overflow-x: auto; scrollbar-width: none; min-width: 0; }
       .tt-activity-strip__scroll::-webkit-scrollbar { display: none; }
-      .tt-activity-strip__row { display: inline-flex; gap: 10px; align-items: center; }
-      .tt-activity-pill {
-        display: inline-flex; align-items: center; gap: 6px;
-        padding: 6px 12px; border-radius: 9px; font-size: 12.5px;
-        font-family: var(--tt-font-mono, ui-monospace, monospace);
+      .tt-activity-strip__row { display: inline-flex; gap: 10px; align-items: stretch; }
+      /* Compact day-trade grammar: chips + punchline + scan. Sticky-safe —
+         two text lines under chips, no sparkline / zone bar. */
+      .tt-activity-pill,
+      .tt-activity-card {
+        display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+        width: 240px; max-width: min(240px, 86vw);
+        padding: 8px 10px; border-radius: 10px; font-size: 12px;
+        font-family: var(--tt-font, Inter, system-ui, sans-serif);
         background: var(--tt-bg-elev, rgba(255,255,255,0.04));
         border: 1px solid var(--tt-border, rgba(255,255,255,0.06));
-        color: var(--tt-text-muted, #8AA39A); white-space: nowrap; cursor: pointer;
-        max-width: min(560px, 96vw); text-align: left; flex-shrink: 0;
+        color: var(--tt-text-muted, #8AA39A); white-space: normal; cursor: pointer;
+        text-align: left; flex-shrink: 0;
       }
-      .tt-activity-pill:hover { border-color: var(--tt-border-hi, rgba(255,255,255,0.12)); }
+      .tt-activity-pill:hover,
+      .tt-activity-card:hover { border-color: var(--tt-border-hi, rgba(255,255,255,0.12)); }
+      .tt-activity-card__chips {
+        display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+        width: 100%;
+      }
+      .tt-activity-card__punch {
+        margin: 0; font-size: 12px; font-weight: 650; line-height: 1.35;
+        color: var(--tt-text, #E8F2EC);
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        overflow: hidden; width: 100%;
+      }
+      .tt-activity-card__scan {
+        margin: 0; font-family: var(--tt-font-mono, ui-monospace, monospace);
+        font-size: 10.5px; line-height: 1.4; color: var(--tt-text, #E8F2EC);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%;
+      }
+      .tt-activity-card__punch.tt-dt-plan__k--buy { color: var(--tt-success, #34d399); }
+      .tt-activity-card__punch.tt-dt-plan__k--sell { color: var(--tt-danger, #ef4444); }
+      .tt-activity-card__punch.tt-dt-plan__k--wait { color: var(--tt-warning, #f59e0b); }
       /* Brand logo to the left of the ticker — monogram fallback until the
          real logo async-loads (mirrors ds-components tickerLogo). */
-      .tt-activity-pill .ev-logo {
-        width: 18px; height: 18px; flex-shrink: 0;
+      .tt-activity-pill .ev-logo,
+      .tt-activity-card .ev-logo {
+        width: 16px; height: 16px; flex-shrink: 0;
         display: inline-flex; align-items: center; justify-content: center;
         border-radius: 50%; overflow: hidden;
         font-size: 8px; font-weight: 700; letter-spacing: 0.02em;
@@ -124,9 +148,7 @@
         border-style: dashed;
         opacity: 0.82;
       }
-      .tt-activity-pill.ev-doing,
       .tt-activity-pill.ev-recommended {
-        background: rgba(251,146,60,0.10);
         border-color: rgba(251,146,60,0.35);
       }
       .tt-activity-strip__filters {
@@ -143,13 +165,13 @@
         border-color: rgba(255,255,255,0.16);
         background: rgba(255,255,255,0.06);
       }
-      .tt-activity-pill[data-scope="investor"] {
-        border-color: rgba(167,139,250,0.28);
-        background: rgba(167,139,250,0.06);
+      .tt-activity-pill[data-scope="investor"],
+      .tt-activity-card[data-scope="investor"] {
+        border-color: rgba(167,139,250,0.22);
       }
-      .tt-activity-pill[data-scope="trader"] {
-        border-color: rgba(103,232,249,0.22);
-        background: rgba(103,232,249,0.04);
+      .tt-activity-pill[data-scope="trader"],
+      .tt-activity-card[data-scope="trader"] {
+        border-color: rgba(103,232,249,0.18);
       }
       .tt-activity-strip__empty { font-size: 12.5px; color: var(--tt-text-faint); font-style: italic; }
     `;
@@ -448,38 +470,71 @@
     return { cls: "", label: t || "EVENT", evType: t, scope };
   }
 
-  function buildPillDetail(ev, meta) {
+  function activityActionChipClass(actionLabel) {
+    const a = String(actionLabel || "").toUpperCase();
+    if (a === "BUY" || a === "ADD") return "ds-chip ds-chip--sm ds-chip--up";
+    if (a === "SELL") return "ds-chip ds-chip--sm ds-chip--dn";
+    if (a === "TIGHTEN") return "ds-chip ds-chip--sm ds-chip--accent";
+    return "ds-chip ds-chip--sm ds-chip--accent";
+  }
+
+  function activityPunchClass(actionLabel) {
+    const a = String(actionLabel || "").toUpperCase();
+    if (a === "BUY" || a === "ADD") return "tt-activity-card__punch tt-dt-plan__k--buy";
+    if (a === "SELL" || a === "TIGHTEN") return "tt-activity-card__punch tt-dt-plan__k--sell";
+    return "tt-activity-card__punch tt-dt-plan__k--wait";
+  }
+
+  function activityDirChipClass(dir) {
+    const d = String(dir || "").toUpperCase();
+    if (d === "SHORT") return "ds-chip ds-chip--sm ds-chip--dn";
+    if (d === "LONG") return "ds-chip ds-chip--sm ds-chip--up";
+    return "ds-chip ds-chip--sm ds-chip--solid";
+  }
+
+  function buildActivityPunchline({ actionLabel, sym, detail }) {
+    const ticker = String(sym || "").toUpperCase();
+    const action = String(actionLabel || "UPDATE").toUpperCase();
+    const core = ticker ? `${action} on ${ticker}` : action;
+    const det = String(detail || "").trim();
+    return det ? `${core} — ${det}` : core;
+  }
+
+  function buildActivityScanLine({ reason, pnlText, timeText }) {
+    return [reason, pnlText, timeText].filter(Boolean).join(" · ");
+  }
+
+  function fmtShareBit(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v) || v <= 0) return "";
+    return v % 1 === 0 ? `${v} sh` : `${v.toFixed(1)} sh`;
+  }
+
+  function buildPunchSize(ev, meta) {
     const price = Number(ev?.price);
     const qty = Number(ev?.qty);
     const shares = Number(ev?.shares);
-    const parts = [];
     const t = meta.evType;
     const shareN = Number.isFinite(shares) && shares > 0 ? shares : qty;
-    if (t === "ENTRY" || t === "ADD_ENTRY" || t === "ADD" || t === "INVESTOR_SIGNAL") {
-      if (Number.isFinite(price) && price > 0) {
-        parts.push(shareN > 0 ? `${shareN % 1 === 0 ? shareN : shareN.toFixed(1)} sh @ ${fmtUsd(price)}` : `@ ${fmtUsd(price)}`);
-      } else if (shareN > 0) {
-        parts.push(`${shareN % 1 === 0 ? shareN : shareN.toFixed(1)} sh`);
-      }
-      const reason = shortReason(ev?.reason || ev?.action);
-      if (reason) parts.push(reason);
-      if (ev?.setup_grade) parts.push(String(ev.setup_grade));
-      return parts.join(" · ");
-    }
-    if (t === "EXIT" || t === "TRIM") {
-      if (shareN > 0) parts.push(`${shareN % 1 === 0 ? shareN : shareN.toFixed(1)} sh`);
-      if (Number.isFinite(price) && price > 0) parts.push(`@ ${fmtUsd(price)}`);
-      const remain = Number(ev?.remaining ?? ev?.remaining_shares ?? ev?.total_shares);
-      if (Number.isFinite(remain) && remain >= 0 && t === "TRIM") parts.push(`${remain % 1 === 0 ? remain : remain.toFixed(1)} sh left`);
-      const reason = shortReason(ev?.reason || ev?.action);
-      if (reason) parts.push(reason);
-      return parts.join(" · ");
-    }
+    const parts = [];
+    const shareBit = fmtShareBit(shareN);
+    if (shareBit) parts.push(shareBit);
     if (Number.isFinite(price) && price > 0) parts.push(`@ ${fmtUsd(price)}`);
-    if (ev?.setup_grade && (t === "ENTRY" || t === "ADD_ENTRY")) parts.push(String(ev.setup_grade));
-    const reason = shortReason(ev?.reason);
-    if (reason) parts.push(reason);
+    const remain = Number(ev?.remaining ?? ev?.remaining_shares ?? ev?.total_shares);
+    if (Number.isFinite(remain) && remain >= 0 && t === "TRIM") {
+      const left = fmtShareBit(remain);
+      if (left) parts.push(`${left} left`);
+    }
+    if (ev?.setup_grade && (t === "ENTRY" || t === "ADD_ENTRY" || t === "ADD" || t === "INVESTOR_SIGNAL")) {
+      parts.push(String(ev.setup_grade));
+    }
     return parts.join(" · ");
+  }
+
+  function buildPillDetail(ev, meta) {
+    const size = buildPunchSize(ev, meta);
+    const reason = shortReason(ev?.reason || ev?.action);
+    return [size, reason].filter(Boolean).join(" · ");
   }
 
   function isActionableActivityEvent(ev) {
@@ -590,7 +645,7 @@
       label.textContent = "Recent activity";
       const hint = document.createElement("span");
       hint.className = "tt-activity-strip__hint";
-      hint.textContent = "Mode · action · ticker · bias · size @ price · when · why";
+      hint.textContent = "Chips · punchline · scan — tap a card to open the tape";
       const scroll = document.createElement("div");
       scroll.className = "tt-activity-strip__scroll";
       const row = document.createElement("div");
@@ -616,56 +671,66 @@
       const sym = String(ev?.ticker || ev?.symbol || "").toUpperCase();
       const ts = ev?.ts ?? ev?.timestamp ?? 0;
       const dir = String(ev?.direction || "").toUpperCase();
+      const size = buildPunchSize(ev, meta);
       const detail = buildPillDetail(ev, meta);
+      const reason = shortReason(ev?.reason || ev?.action);
       const pnlPct = Number(ev?.pnl_pct ?? ev?.pnlPct);
       const showPnl = (meta.evType === "EXIT" || meta.evType === "TRIM") && Number.isFinite(pnlPct);
+      const actionLabel = normalizeDisplayAction(meta);
+      const scopeLabel = scopeDisplayLabel(meta.scope);
+      const punch = buildActivityPunchline({ actionLabel, sym, detail: size });
+      const scan = buildActivityScanLine({
+        reason,
+        pnlText: showPnl ? fmtPct(pnlPct) : "",
+        timeText: fmtAgo(ts),
+      });
 
       const pill = document.createElement("button");
       pill.type = "button";
-      pill.className = `tt-activity-pill ${meta.cls}${meta.mode === "watching" ? " ev-watching" : " ev-doing"}`;
+      pill.className = `tt-activity-pill tt-activity-card ${meta.cls}${meta.mode === "watching" ? " ev-watching" : " ev-doing"}`;
       pill.dataset.scope = meta.scope === "investor" ? "investor" : "trader";
-      const actionLabel = normalizeDisplayAction(meta);
-      const scopeLabel = scopeDisplayLabel(meta.scope);
       pill.title = [scopeLabel, actionLabel, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
 
-      const scopeEl = document.createElement("span");
-      scopeEl.className = `ev-scope ev-scope--${meta.scope === "investor" ? "investor" : "trader"}`;
-      scopeEl.textContent = scopeLabel;
-      pill.appendChild(scopeEl);
+      const chips = document.createElement("div");
+      chips.className = "tt-activity-card__chips";
 
       const typeEl = document.createElement("span");
-      typeEl.className = "ev-type";
+      typeEl.className = activityActionChipClass(actionLabel);
       typeEl.textContent = actionLabel;
-      pill.appendChild(typeEl);
-      if (sym) {
-        pill.appendChild(buildTickerLogo(sym));
-        const symEl = document.createElement("span");
-        symEl.className = "ev-sym";
-        symEl.textContent = sym;
-        pill.appendChild(symEl);
-      }
+      chips.appendChild(typeEl);
+
       if (dir === "LONG" || dir === "SHORT") {
         const dirEl = document.createElement("span");
-        dirEl.className = `ev-dir ev-dir--${dir.toLowerCase()}`;
+        dirEl.className = activityDirChipClass(dir);
         dirEl.textContent = dir;
-        pill.appendChild(dirEl);
+        chips.appendChild(dirEl);
       }
-      if (detail) {
-        const det = document.createElement("span");
-        det.className = "ev-detail";
-        det.textContent = detail;
-        pill.appendChild(det);
+
+      const scopeEl = document.createElement("span");
+      scopeEl.className = `ds-chip ds-chip--sm ev-scope ev-scope--${meta.scope === "investor" ? "investor" : "trader"}`;
+      scopeEl.textContent = scopeLabel;
+      chips.appendChild(scopeEl);
+
+      if (sym) {
+        chips.appendChild(buildTickerLogo(sym));
+        const symEl = document.createElement("span");
+        symEl.className = "ds-chip ds-chip--sm ev-sym";
+        symEl.textContent = sym;
+        chips.appendChild(symEl);
       }
-      if (showPnl) {
-        const pnlEl = document.createElement("span");
-        pnlEl.className = `ev-pnl ${pnlPct >= 0 ? "ev-pnl--up" : "ev-pnl--dn"}`;
-        pnlEl.textContent = fmtPct(pnlPct);
-        pill.appendChild(pnlEl);
+      pill.appendChild(chips);
+
+      const punchEl = document.createElement("p");
+      punchEl.className = activityPunchClass(actionLabel);
+      punchEl.textContent = punch;
+      pill.appendChild(punchEl);
+
+      if (scan) {
+        const scanEl = document.createElement("p");
+        scanEl.className = "tt-activity-card__scan";
+        scanEl.textContent = scan;
+        pill.appendChild(scanEl);
       }
-      const timeEl = document.createElement("span");
-      timeEl.className = "ev-time";
-      timeEl.textContent = fmtAgo(ts);
-      pill.appendChild(timeEl);
 
       pill.addEventListener("click", (e) => { e.preventDefault(); openActivityEvent(ev, sym, meta); });
       row.appendChild(pill);
@@ -794,9 +859,16 @@
   }
 
   window.TTActivityReason = { shortReason, ACTIVITY_REASON_MAP };
+  window.TTActivityCard = {
+    buildActivityPunchline,
+    buildActivityScanLine,
+    activityActionChipClass,
+    activityPunchClass,
+    activityDirChipClass,
+  };
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);
   else mount();
 })();
 
-// cache-bust:1787374463737:143353135
+// cache-bust:1787488266201:413017613
