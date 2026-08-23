@@ -10,6 +10,8 @@ import {
   resolveCloudMagnet,
   inspectTtCloudPivot,
   buildCloudPivotDesk,
+  classifyCloudMagnet,
+  cloudMagnetCoverLine,
   cloudDeskPlanCopy,
   buildCloudSessionPlan,
   annotateCloudPivotLeaderFollows,
@@ -472,40 +474,75 @@ describe("tt_cloud_pivot", () => {
   });
 });
 
+describe("classifyCloudMagnet", () => {
+  it("treats a LONG cover below price as behind, not the destination", () => {
+    expect(classifyCloudMagnet("LONG", 76468, 63474.96)).toBe("behind");
+    expect(classifyCloudMagnet("LONG", 100, 102)).toBe("ahead");
+    expect(classifyCloudMagnet("SHORT", 713.44, 727.84)).toBe("behind");
+    expect(classifyCloudMagnet("SHORT", 730, 727.84)).toBe("ahead");
+  });
+});
+
 describe("cloudDeskPlanCopy", () => {
-  it("writes FIRE as a paper ENTER ticket punchline", () => {
+  it("keeps a weekend desk pick as WAIT, not ENTER", () => {
     const copy = cloudDeskPlanCopy({
       ticker: "BTCUSD",
       role: "fire",
       direction: "LONG",
+      px: 76468,
       magnet: { px: 63474.96, label: "1h_34_50" },
       session: "midday",
     });
-    expect(copy.action).toBe("ENTER");
-    expect(copy.punch).toBe("ENTER on BTCUSD — Cloud Pivot paper 0.1× ticket toward $63474.96");
-    expect(copy.scan).toContain("Paper 0.1×");
-    expect(copy.scan).toContain("magnet $63474.96");
+    expect(copy.action).toBe("WAIT");
+    expect(copy.ticketNow).toBe(false);
+    expect(copy.magnetRelation).toBe("behind");
+    expect(copy.coverLine).toContain("last cover, already behind");
+    expect(copy.punch).toBe("WAIT on BTCUSD — desk pick. A paper 0.1× ticket opens only in the regular session.");
+    expect(copy.scan).toContain("Watch");
     expect(copy.scan).toContain("midday");
+    expect(copy.punch).not.toMatch(/toward|ENTER|FIRE/);
+    expect(copy.leader).toBe("");
   });
 
-  it("keeps STALK / FOLLOW as WAIT", () => {
+  it("writes BUY only when the desk pick can open in RTH", () => {
+    const copy = cloudDeskPlanCopy({
+      ticker: "NVDA",
+      role: "fire",
+      direction: "LONG",
+      px: 100,
+      magnet: { px: 102, label: "1h_34_50" },
+    }, { marketOpen: true });
+    expect(copy.action).toBe("BUY");
+    expect(copy.ticketNow).toBe(true);
+    expect(copy.magnetRelation).toBe("ahead");
+    expect(copy.coverLine).toBe("$102.00 next cover (1H 34/50)");
+    expect(copy.punch).toContain("Paper 0.1× ticket");
+    expect(copy.punch).not.toMatch(/toward|ENTER/);
+  });
+
+  it("keeps STALK as WAIT and never names a lead", () => {
     const stalk = cloudDeskPlanCopy({
       ticker: "QQQ",
       role: "stalk",
       direction: "SHORT",
+      px: 713.44,
       magnet: { px: 727.84 },
     });
     expect(stalk.action).toBe("WAIT");
-    expect(stalk.punch).toBe("WAIT on QQQ — magnet stalk toward $727.84");
+    expect(stalk.punch).toBe("WAIT on QQQ — 10m Cloud Desk SHORT. Not the index options lean.");
+    expect(stalk.magnetRelation).toBe("behind");
     const follow = cloudDeskPlanCopy({
       ticker: "COIN",
       role: "follow",
       direction: "LONG",
+      px: 280,
       leader_follow: { leader: "BTCUSD" },
       magnet: { px: 290 },
     });
     expect(follow.action).toBe("WAIT");
-    expect(follow.punch).toContain("follow BTCUSD");
+    expect(follow.leader).toBe("");
+    expect(follow.punch).not.toMatch(/BTCUSD|lead|toward/i);
     expect(follow.scan).toContain("Watch only");
+    expect(cloudMagnetCoverLine({ px: 290 }, "ahead")).toBe("$290.00 next cover");
   });
 });

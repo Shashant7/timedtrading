@@ -20,8 +20,16 @@ Same atoms as `tt_cloud_pivot` — branded Timed Trading, not "Ripster":
 `detectTtCloudPivot` stays RTH-windowed for paper entries. The desk
 **inspects without a session** so Saturday/Sunday still ranks magnets.
 
-FIRE opens a paper 0.1× sim ticket and the same 0.1× broker order so
-5/12 / magnet exits can be followed. Canonical core paths stay full size.
+A desk pick is not an immediate entry. WAIT outside the regular
+session. BUY in RTH opens a paper 0.1× sim ticket and the same 0.1×
+broker order so 5/12 / magnet exits can be followed. Canonical core
+paths stay full size.
+
+The magnet is the next 1H/4H 34/50 (then 72/89) **cover / trim**
+level, not a breakout destination. A cover below a LONG (or above a
+SHORT) is already behind the live print — never show it as "toward."
+Do not show Lead on the Today cards. Index Day-Trade is a separate
+options lean and can disagree on the same ticker.
 
 ## Commands
 
@@ -50,8 +58,9 @@ cd worker
 - Weekend: `inspectTtCloudPivot` returns magnet/curl while
   `detectTtCloudPivot` is null.
 - Today Families strip shows a CLOUD DESK horizontal card row
-  (`TTLaneCard` + punch/scan) when `desk.watching` is non-empty. FIRE
-  opens a paper 0.1× ticket (RTH); leaders are BTCUSD/ETHUSD/SPY/QQQ.
+  (`TTLaneCard` + Call / Side / Cover / Size) when `desk.watching` is
+  non-empty. One call word: WAIT outside RTH, BUY for a paper 0.1×
+  ticket in the regular session. Cover is labeled ahead vs behind.
 - Unit: `npx vitest run worker/foundation/tt-cloud-pivot.test.js`
 
 ## Source

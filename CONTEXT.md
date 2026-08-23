@@ -412,8 +412,11 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   Cloud Pivot desk (`buildCloudPivotDesk` / `scripts/scan-cloud-pivot-desk.mjs`)
   is the super-minion pass: inspects 10m/1H magnets on nights and weekends
   even when the RTH detector is dark. Today UI: same `TTLaneCard` + punch/scan
-  as Index Day-Trade (`cloudDeskPlanCopy`). FIRE = paper 0.1× ticket (RTH);
-  leaders BTC/ETH/SPY/QQQ. Skill: `skills/cloud-pivot-desk.md`.
+  as Index Day-Trade (`cloudDeskPlanCopy`). One call: WAIT outside RTH,
+  BUY = paper 0.1× ticket in the regular session. Magnet = cover/trim,
+  not a breakout; behind-price covers must not say "toward." No Lead on
+  the cards. Index Day-Trade is a separate options lean. Skill:
+  `skills/cloud-pivot-desk.md`.
   `tt_cloud_pivot` thin slice (not ripster_*): 10m 5/12 curl + 34/50 + 1H MTF,
   paper 0.1× ticket; exit when 10m candle loses 5/12. Magnet = next 1H/4H
   34/50 (then 72/89) — cover/trim on tag. Catalyst names get a one-card
@@ -713,6 +716,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - **Mobile Tab Nav missing / floating / jitter**: never `translateY` or per-frame `visualViewport` top writes (jump/snap). No `transform`/`backdrop-filter` on `.tt-bn`. Prefer CSS `bottom:0`; settle only after scrollend (`tt-shell-v8`).
 - **Earnings chips**: never default missing `hour` to `bmo` (AAPL 07-23 false BMO). Hide rows with `epsActual` from upcoming chips. Drop TwelveData-only leftover dates with no session and no estimate after a print already landed (RKT 8/24 after the 8/6 report). Brief prompts use Short Term / Long Term (not Trader/Investor).
 - **Today Cloud Desk PAPER chip must use `copy.role`** — a bare `role` in the `desk.watching` map is `ReferenceError` and blanks `#root` (nav + activity strip + footer stay). Guard: `tests/today-desk-role.test.js`. (2026-08-23)
+- **Cloud Desk call is WAIT / BUY, not ENTER + FIRE** — magnet is cover/trim (ahead vs behind), never a destination arrow. Drop Lead. Do not mount the generic trader zone bar on desk cards (QQQ SHORT desk vs LONG zone / Index Day-Trade). (2026-08-23)
 - **Recent Activity action word is BUY / SELL / TIGHTEN** — never FORMING. Setup/watch/review labels on a sized row are Buy.
 - **Babel-standalone pages MUST render nav as static HTML** outside `<div id="root">` — JSX compile is 1-3s cold-load → blank-page bug otherwise. See `today.html` / `active-trader.html` for the pattern. (PR #304)
 - **New pages using `.nav-links` markup MUST be added to `JOURNEY_PATHS`** in `tt-nav-extras.js` (line ~370). Otherwise the script prepends a duplicate journey-link strip. (PR #304)

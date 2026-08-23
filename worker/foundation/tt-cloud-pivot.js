@@ -903,7 +903,7 @@ export function inspectTtCloudPivot(payload = {}) {
   const bias10 = cloudSide(rt10?.c34_50);
   const bias1h = cloudSide(rt1h?.c34_50);
   const direction = curl?.direction || bias1h || bias10 || null;
-  const magnet = resolveCloudMagnet(payload, direction, px);
+  const magnet = attachMagnetRelation(resolveCloudMagnet(payload, direction, px), direction, px);
   const plan = buildCloudSessionPlan(payload, direction);
   const atr = cloudPivotAtr(payload);
   let distPct = null;
@@ -953,7 +953,11 @@ export function rankCloudPivotDeskRow(ticker, payload = {}, opts = {}) {
       bias10: null,
       bias1h: null,
       mixed: false,
-      magnet: payload._cloud_magnet || null,
+      magnet: attachMagnetRelation(
+        payload._cloud_magnet || null,
+        det?.direction || payload._cloud_pivot_detect?.direction || null,
+        cloudPivotMarkPx(payload),
+      ),
       dist_pct: null,
       approaching: false,
       session_plan: payload._cloud_session_plan || null,
@@ -1047,38 +1051,108 @@ export function buildCloudPivotDesk(rows = [], opts = {}) {
 }
 
 /**
- * Day-trade strip grammar for a Cloud Desk watch row.
- * FIRE opens a paper 0.1× sim + broker ticket so family exits can attach.
+ * Cover vs live print. LONG ahead = cover at or above. SHORT ahead = cover at or below.
+ * A cover on the wrong side of price is last cover, not the destination.
  */
-export function cloudDeskPlanCopy(w = {}) {
+export function classifyCloudMagnet(direction, price, magnetPx) {
+  const dir = String(direction || "").toUpperCase();
+  const px = Number(price);
+  const mag = Number(magnetPx);
+  if ((dir !== "LONG" && dir !== "SHORT") || !(px > 0) || !(mag > 0)) return null;
+  if (dir === "LONG") return mag >= px ? "ahead" : "behind";
+  return mag <= px ? "ahead" : "behind";
+}
+
+function magnetBandLabel(magnet) {
+  const raw = String(magnet?.label || "").trim();
+  if (!raw) return "";
+  return raw
+    .replace(/_/g, " ")
+    .replace(/\b(\d+)\s*h\b/gi, "$1H")
+    .replace(/\b(\d+)\s+(\d+)\b/g, "$1/$2");
+}
+
+export function attachMagnetRelation(magnet, direction, price) {
+  if (!magnet || typeof magnet !== "object") return magnet || null;
+  const rel = classifyCloudMagnet(direction, price, magnet.px);
+  if (!rel) return { ...magnet, relation: null };
+  return { ...magnet, relation: rel, ahead: rel === "ahead" };
+}
+
+export function cloudMagnetCoverLine(magnet, relation) {
+  const magPx = Number(magnet?.px);
+  if (!(magPx > 0)) return "";
+  const magBit = `$${magPx.toFixed(2)}`;
+  const band = magnetBandLabel(magnet);
+  if (relation === "ahead") {
+    return band ? `${magBit} next cover (${band})` : `${magBit} next cover`;
+  }
+  if (relation === "behind") {
+    return band
+      ? `${magBit} last cover, already behind (${band})`
+      : `${magBit} last cover, already behind`;
+  }
+  return band ? `${magBit} cover (${band})` : `${magBit} cover`;
+}
+
+/**
+ * Today Cloud Desk grammar.
+ * One call word: BUY only when the desk pick can open a paper 0.1× ticket in RTH.
+ * Cover is a trim magnet, never a breakout destination. Lead is omitted.
+ */
+export function cloudDeskPlanCopy(w = {}, opts = {}) {
   const ticker = String(w.ticker || "").toUpperCase();
   const role = String(w.role || "watch").toLowerCase();
   const dir = String(w.direction || "").toUpperCase();
+  const marketOpen = opts.marketOpen === true;
+  const ticketNow = role === "fire" && marketOpen;
+  const action = ticketNow ? "BUY" : "WAIT";
+  const livePx = Number(opts.price ?? w.px);
   const magPx = Number(w.magnet?.px);
-  const magBit = Number.isFinite(magPx) && magPx > 0 ? `$${magPx.toFixed(2)}` : "";
-  const action = role === "fire" ? "ENTER" : "WAIT";
-  const leader = String(w.leader_follow?.leader || w.leader?.symbol || "").toUpperCase();
-  const playWord = role === "fire" ? "Cloud Pivot paper 0.1× ticket"
-    : role === "leader" ? "leader curl"
-    : role === "follow" ? `follow ${leader || "leader"}`
-    : role === "catalyst" ? "catalyst if/then"
-    : role === "stalk" ? "magnet stalk"
-    : "desk watch";
-  const punchBits = [playWord];
-  if (magBit) punchBits.push(`toward ${magBit}`);
-  const punch = `${action} on ${ticker} — ${punchBits.join(" ")}`.replace(/\s+/g, " ").trim();
-  const plan = w.session_plan;
-  const gatePx = dir === "SHORT" ? Number(plan?.short_under) : Number(plan?.long_over);
+  const magBit = magPx > 0 ? `$${magPx.toFixed(2)}` : "";
+  const relation = classifyCloudMagnet(dir, livePx, magPx);
+  const coverLine = cloudMagnetCoverLine(w.magnet, relation);
+  const side = dir === "LONG" || dir === "SHORT" ? dir : "";
+  let size = "Watch only";
+  if (ticketNow) size = "Paper 0.1\u00d7 ticket";
+  else if (role === "fire") size = "Watch \u2014 paper 0.1\u00d7 in the regular session";
+
+  let punch;
+  if (ticketNow) {
+    punch = `BUY on ${ticker} \u2014 desk pick. Paper 0.1\u00d7 ticket, not a full-size core play.`;
+  } else if (role === "fire") {
+    punch = `WAIT on ${ticker} \u2014 desk pick. A paper 0.1\u00d7 ticket opens only in the regular session.`;
+  } else if (side) {
+    punch = `WAIT on ${ticker} \u2014 10m Cloud Desk ${side}. Not the index options lean.`;
+  } else {
+    punch = `WAIT on ${ticker} \u2014 10m Cloud Desk watch.`;
+  }
+
   const scan = [
-    role === "fire" ? "Paper 0.1\u00d7" : "Watch only",
-    magBit ? `magnet ${magBit}` : null,
-    Number.isFinite(gatePx) && gatePx > 0
-      ? (dir === "SHORT" ? `short < $${gatePx.toFixed(2)}` : `long > $${gatePx.toFixed(2)}`)
-      : null,
-    w.day2 ? "day2" : null,
-    w.mixed ? "mixed cloud OK" : null,
-    leader && role !== "follow" ? `lead ${leader}` : null,
+    action,
+    side || null,
+    size,
+    coverLine || null,
     w.session ? String(w.session).replace(/_/g, " ") : "10m 5/12",
   ].filter(Boolean).join(" \u00b7 ");
-  return { action, role, punch, scan, magBit, leader };
+
+  const facts = [
+    { label: "Call", value: action, tone: action === "BUY" ? "buy" : "wait" },
+    { label: "Side", value: side || null },
+    { label: "Cover", value: coverLine || null, tone: relation === "behind" ? "behind" : null },
+    { label: "Size", value: size },
+  ];
+
+  return {
+    action,
+    role,
+    ticketNow,
+    punch,
+    scan,
+    magBit,
+    coverLine,
+    magnetRelation: relation,
+    leader: "",
+    facts,
+  };
 }
