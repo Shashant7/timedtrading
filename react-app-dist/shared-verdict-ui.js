@@ -322,7 +322,7 @@
       ".tt-ready{margin-bottom:18px}",
       ".tt-universe-panel .tt-ready{margin-bottom:0}",
       ".tt-universe-panel__ready{margin:0}",
-      ".tt-universe-panel .tt-ready__head{margin-bottom:4px}",
+      ".tt-universe-panel .tt-ready__head{margin-bottom:2px}",
       ".tt-ready__head{margin-bottom:10px}",
       ".tt-ready__title{font-family:var(--tt-font-display,inherit);font-size:18px;font-weight:800;color:var(--ds-text-headline,#f4f5f7);letter-spacing:-.02em;margin:2px 0 0}",
       ".tt-ready__sub{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);line-height:1.45;margin:4px 0 0;max-width:52em}",
@@ -666,6 +666,48 @@
     return pos === "LONG" || pos === "SHORT" ? pos : "";
   }
 
+  /** Live R:R from current price vs invalidation floor and target on a zone model. */
+  function computeLiveZoneRr(zm, sideIn) {
+    if (!zm || typeof zm !== "object") return null;
+    var price = Number(zm.price);
+    var inv = Number(zm.inv);
+    var tgt = Number(zm.tgt);
+    if (!(price > 0) || !(inv > 0) || !(tgt > 0)) return null;
+    var side = String(sideIn || "LONG").toUpperCase();
+    var risk;
+    var reward;
+    if (side === "SHORT") {
+      risk = inv - price;
+      reward = price - tgt;
+    } else {
+      risk = price - inv;
+      reward = tgt - price;
+    }
+    if (!(risk > 0) || !(reward > 0)) return null;
+    return reward / risk;
+  }
+
+  /** Best-effort live play R:R — zone ladder first, then desk covers, then ticker.rr. */
+  function resolveLivePlayRr(opts) {
+    opts = opts || {};
+    var side = opts.side || inferTickerSide(opts.ticker) || "LONG";
+    var fromZone = computeLiveZoneRr(opts.zone, side);
+    if (Number.isFinite(fromZone) && fromZone > 0) return fromZone;
+    var px = Number(opts.price);
+    if (!(px > 0) && opts.zone) px = Number(opts.zone.price);
+    if (!(px > 0) && opts.ticker) px = headlinePrice(opts.ticker);
+    var last = Number(opts.coverLast);
+    var next = Number(opts.coverNext);
+    if (px > 0 && last > 0 && next > 0) {
+      var coverZm = { inv: last, tgt: next, price: px };
+      var fromCover = computeLiveZoneRr(coverZm, side);
+      if (Number.isFinite(fromCover) && fromCover > 0) return fromCover;
+    }
+    var tickerRr = Number(opts.ticker && opts.ticker.rr);
+    if (Number.isFinite(tickerRr) && tickerRr > 0) return tickerRr;
+    return null;
+  }
+
   /**
    * Ready Setup card headline — avoids a bare "BUY" when price is above the
    * add-on band. Trader entry → BUY NOW; investor in live zone → BUY;
@@ -936,6 +978,20 @@
         className: "tt-lane-badge tt-lane-badge--" + lane,
         title: isInvestor ? "Long Term lane" : "Short Term lane",
       }, label);
+    }
+
+    function appendLiveRrChip(chipRow, opts) {
+      if (!Array.isArray(chipRow)) return chipRow;
+      var rr = resolveLivePlayRr(opts || {});
+      var n = Number(rr);
+      if (!Number.isFinite(n) || n <= 0) return chipRow;
+      chipRow.push(h("span", {
+        key: "rr",
+        className: "ds-chip ds-chip--sm " + (n >= 2 ? "ds-chip--up" : "ds-chip--accent"),
+        style: { fontFamily: "var(--tt-font-mono)" },
+        title: (opts && opts.title) || "Live reward-to-risk from current price to target vs invalidation",
+      }, "R:R " + n.toFixed(2)));
+      return chipRow;
     }
 
     function VerdictWord(props) {
@@ -1464,6 +1520,7 @@
                 title: "Model side",
               }, side));
             }
+            appendLiveRrChip(chipRow, { zone: primaryZone, ticker: tRow, side: side, price: price });
 
             var metrics = [];
 
@@ -1596,6 +1653,9 @@
       holdPositionFact: holdPositionFact,
       isInvestorLiveBuyZone: isInvestorLiveBuyZone,
       inferTickerSide: inferTickerSide,
+      computeLiveZoneRr: computeLiveZoneRr,
+      resolveLivePlayRr: resolveLivePlayRr,
+      appendLiveRrChip: appendLiveRrChip,
       attachCtoProbToZone: attachCtoProbToZone,
       buildTraderZoneModel: buildTraderZoneModel,
       buildInvestorZoneModel: buildInvestorZoneModel,
@@ -1647,6 +1707,8 @@
     holdPositionFact: holdPositionFact,
     isInvestorLiveBuyZone: isInvestorLiveBuyZone,
     inferTickerSide: inferTickerSide,
+    computeLiveZoneRr: computeLiveZoneRr,
+    resolveLivePlayRr: resolveLivePlayRr,
     buildTraderZoneModel: buildTraderZoneModel,
     buildInvestorZoneModel: buildInvestorZoneModel,
     attachCtoProbToZone: attachCtoProbToZone,
@@ -1655,4 +1717,4 @@
   };
 })();
 
-// cache-bust:1787518784207:493979933
+// cache-bust:1787519459157:764214549

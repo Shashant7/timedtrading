@@ -973,7 +973,8 @@ function stripCallChips({
   action,
   horizon,
   side,
-  actionTitle
+  actionTitle,
+  rrOpts
 }) {
   const chips = [];
   chips.push(h("span", {
@@ -1005,6 +1006,8 @@ function stripCallChips({
       title: "Model side"
     }, side));
   }
+  const VU = window.TimedVerdictUI;
+  if (rrOpts && VU?.appendLiveRrChip) VU.appendLiveRrChip(chips, rrOpts);
   return chips;
 }
 function growthCallFromZone(zm, liveT, price, row) {
@@ -1485,7 +1488,15 @@ function SetupFamiliesStrip({
       action: copy.action,
       horizon: "SHORT TERM",
       side: dir,
-      actionTitle: copy.punch
+      actionTitle: copy.punch,
+      rrOpts: {
+        zone: deskZone,
+        ticker: liveT,
+        side: dir,
+        price: livePrice,
+        coverLast: lastPx,
+        coverNext: nextPx
+      }
     });
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const midBody = deskCoverProgressBar({
@@ -1574,7 +1585,13 @@ function SetupFamiliesStrip({
       action: familyCopy.action,
       horizon: zm?.lane === "investor" ? "LONG TERM" : "SHORT TERM",
       side: modelDir === "SHORT" || modelDir === "LONG" ? modelDir : "",
-      actionTitle: familyCopy.punch
+      actionTitle: familyCopy.punch,
+      rrOpts: {
+        zone: zm,
+        ticker: liveT,
+        side: modelDir,
+        price: trackPrice
+      }
     });
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
@@ -1794,10 +1811,7 @@ function ConvexityPlaysStrip({
   const VU = window.TimedVerdictUI;
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
-    role: "list",
-    style: {
-      marginTop: 8
-    }
+    role: "list"
   }, plays.map(p => {
     const sym = String(p.ticker || "").toUpperCase();
     const liveT = data && data[sym] ? data[sym] : {};
@@ -1854,6 +1868,15 @@ function ConvexityPlaysStrip({
     }
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const zm = VU?.buildTraderZoneModel?.(liveT, trackPrice) || VU?.buildInvestorZoneModel?.(liveT, trackPrice) || null;
+    const convSide = flavor === "put" ? "SHORT" : "LONG";
+    if (VU?.appendLiveRrChip) {
+      VU.appendLiveRrChip(chipRow, {
+        zone: zm,
+        ticker: liveT,
+        side: convSide,
+        price: trackPrice
+      });
+    }
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
       planLabel: "Convexity plan",
@@ -2030,6 +2053,7 @@ function IndexDayTradeStrip({
     }, suppressedNote) : null)));
   }
   const LaneCard = window.TTLaneCard;
+  const VU = window.TimedVerdictUI;
   const reviveZone = (zone, livePrice) => {
     if (!zone || !(Number(zone.minPx) < Number(zone.maxPx))) return null;
     const minPx = Number(zone.minPx);
@@ -2045,10 +2069,7 @@ function IndexDayTradeStrip({
   };
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
-    role: "list",
-    style: {
-      marginTop: 8
-    }
+    role: "list"
   }, plays.map(p => {
     const sym = String(p.ticker || "").toUpperCase();
     const liveT = data && data[sym] ? data[sym] : {};
@@ -2103,6 +2124,15 @@ function IndexDayTradeStrip({
     const holdOn = !!(exec.hold_overnight || exec.plan?.hold_overnight);
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const zm = reviveZone(p.zone || exec.zone, trackPrice);
+    const dtSide = flavor === "put" || lean === "SHORT" ? "SHORT" : flavor === "call" || lean === "LONG" ? "LONG" : "";
+    if (VU?.appendLiveRrChip) {
+      VU.appendLiveRrChip(chipRow, {
+        zone: zm,
+        ticker: liveT,
+        side: dtSide,
+        price: trackPrice
+      });
+    }
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
       planLabel: "Day-trade plan",
@@ -4299,7 +4329,13 @@ function GrowthIdeasStrip({
       action,
       horizon: "LONG TERM",
       side,
-      actionTitle: action === "BUY" ? "Price is in the add zone" : action === "SCALE IN" ? "Inside the PB band" : "Add on a pullback into the PB band"
+      actionTitle: action === "BUY" ? "Price is in the add zone" : action === "SCALE IN" ? "Inside the PB band" : "Add on a pullback into the PB band",
+      rrOpts: {
+        zone: zm,
+        ticker: liveT,
+        side,
+        price: trackPrice
+      }
     });
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
@@ -8037,6 +8073,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787518784207:493979933
+// cache-bust:1787519459157:764214549
 
-// cache-bust:1787518784207:493979933
+// cache-bust:1787519459157:764214549
