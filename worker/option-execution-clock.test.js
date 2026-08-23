@@ -298,8 +298,9 @@ describe("buildExecutionClock", () => {
     });
     expect(out.action).toBe("BUY");
     expect(out.headline).toMatch(/Aug 21/);
-    expect(out.scan_line).toMatch(/Pay ≤/);
+    expect(out.scan_line).toMatch(/Debit ≤/);
     expect(out.scan_line).toMatch(/15:45/);
+    expect(out.scan_line).toMatch(/collect trim/);
   });
 
   it("does not gate an overnight trim at the open", () => {
@@ -362,13 +363,15 @@ describe("buildExecutionClock", () => {
     expect(out.why).not.toMatch(/wait for the first pullback/i);
   });
 
-  it("SELLs when the underlying loses invalidation", () => {
+  it("SELLs when the underlying loses invalidation and a book is open", () => {
     const out = buildExecutionClock({
       ...baseClock,
       spot: 760.4,
+      openBook: { status: "open", entry_premium: 1.20, entry_ts: ts(`2026-08-20T09:45:00${ET}`) },
       now: ts(`2026-08-20T10:20:00${ET}`),
     });
     expect(out.action).toBe("SELL");
+    expect(out.display_action).toBe("FLAT");
     expect(out.why).toMatch(/761/);
   });
 
@@ -385,10 +388,11 @@ describe("buildExecutionClock", () => {
     expect(out.headline).toMatch(/flatten at 09:30/);
   });
 
-  it("SELLs invalidation at 09:30 ET, not earlier", () => {
+  it("SELLs invalidation at 09:30 ET when a book is open, not earlier", () => {
     const out = buildExecutionClock({
       ...baseClock,
       spot: 760.4,
+      openBook: { status: "open", entry_premium: 1.20, entry_ts: ts(`2026-08-20T15:50:00${ET}`), held_overnight: true },
       now: ts(`2026-08-21T09:30:00${ET}`),
     });
     expect(out.action).toBe("SELL");
@@ -406,11 +410,12 @@ describe("buildExecutionClock", () => {
     expect(out.why).toMatch(/16:15/);
   });
 
-  it("SELLs a 0 DTE at the noon time stop", () => {
+  it("SELLs a 0 DTE at the noon time stop when a book is open", () => {
     const out = buildExecutionClock({
       ...baseClock,
       expiration: { dte: 0, iso: "2026-08-20", label: "0 DTE" },
       management: { ...baseClock.management, time_stop_et: "12:00" },
+      openBook: { status: "open", entry_premium: 1.20, entry_ts: ts(`2026-08-20T09:45:00${ET}`) },
       now: ts(`2026-08-20T12:05:00${ET}`),
     });
     expect(out.action).toBe("SELL");
@@ -479,11 +484,12 @@ describe("buildExecutionClock", () => {
     expect(out.why).toMatch(/rich vs FMV/);
   });
 
-  it("SELLs 0 DTE after 15:15 even if SuperTrend still agrees", () => {
+  it("SELLs 0 DTE after 15:15 when a book is open, even if SuperTrend still agrees", () => {
     const out = buildExecutionClock({
       ...baseClock,
       expiration: { dte: 0, iso: "2026-08-20", label: "0 DTE" },
       management: { ...baseClock.management, time_stop_et: "12:00" },
+      openBook: { status: "open", entry_premium: 1.20, entry_ts: ts(`2026-08-20T09:45:00${ET}`) },
       now: ts(`2026-08-20T15:20:00${ET}`),
     });
     expect(out.action).toBe("SELL");
@@ -491,7 +497,35 @@ describe("buildExecutionClock", () => {
     expect(out.dte_note).toMatch(/15:15/);
   });
 
-  it("SELLs 1 DTE by 15:45 when leftover R:R does not justify overnight", () => {
+  it("SELLs 1 DTE by 15:45 when leftover R:R does not justify overnight and a book is open", () => {
+    const out = buildExecutionClock({
+      ticker: "SPY",
+      flavor: "put",
+      strike: 763,
+      expiration: { dte: 1, iso: "2026-08-21", label: "1 DTE" },
+      spot: 762.9,
+      premium: 0.38,
+      indicators: { ema21: 763.05, st_dir: 1, st_label: "short", tf: "5" },
+      gamePlan: { bear_target: 762.50, bear_trigger: 764, bull_trigger: 766 },
+      management: {
+        take_profit_1: { pct: 50, size: 0.5 },
+        take_profit_2: { pct: 100, size: 0.5 },
+        hard_stop_pct: -50,
+        time_stop_et: "15:45",
+        invalidation: { underlying_above: 766 },
+      },
+      openBook: { status: "open", entry_premium: 0.38, entry_ts: ts(`2026-08-20T10:00:00${ET}`) },
+      now: ts(`2026-08-20T15:50:00${ET}`),
+    });
+    expect(out.action).toBe("SELL");
+    expect(out.display_action).toBe("FLAT");
+    expect(out.sell_kind).toBe("session_close");
+    expect(out.hold_overnight).toBe(false);
+    expect(out.headline).toMatch(/^FLAT /);
+    expect(out.why).toMatch(/15:45/);
+  });
+
+  it("WAITs at session flatten when no live book is open", () => {
     const out = buildExecutionClock({
       ticker: "SPY",
       flavor: "put",
@@ -510,10 +544,10 @@ describe("buildExecutionClock", () => {
       },
       now: ts(`2026-08-20T15:50:00${ET}`),
     });
-    expect(out.action).toBe("SELL");
-    expect(out.sell_kind).toBe("session_close");
-    expect(out.hold_overnight).toBe(false);
-    expect(out.why).toMatch(/15:45/);
+    expect(out.action).toBe("WAIT");
+    expect(out.display_action).toBe("WAIT");
+    expect(out.sell_kind).toBeNull();
+    expect(out.why).toMatch(/still open/i);
   });
 
   it("holds 1 DTE overnight when leftover R:R is still ≥ 1", () => {

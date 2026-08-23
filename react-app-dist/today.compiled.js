@@ -1633,7 +1633,7 @@ function actionChipClass(action) {
   const a = String(action || "").toUpperCase();
   if (a === "BUY" || a === "ENTER") return "ds-chip ds-chip--sm ds-chip--up";
   if (a === "TRIM") return "ds-chip ds-chip--sm ds-chip--accent";
-  if (a === "SELL") return "ds-chip ds-chip--sm ds-chip--dn";
+  if (a === "SELL" || a === "FLAT") return "ds-chip ds-chip--sm ds-chip--dn";
   return "ds-chip ds-chip--sm ds-chip--accent";
 }
 function convexityPlanCopy(card) {
@@ -2043,7 +2043,7 @@ function IndexDayTradeStrip({
     const strike = primary?.strikes?.primary ?? p.strike;
     const exp = primary?.expiration || p.expiration || {};
     const exec = p.execution || {};
-    const action = String(exec.action || "WAIT").toUpperCase();
+    const action = String(exec.display_action || exec.action || "WAIT").toUpperCase();
     const lean = String(p.day_lean || exec.contract?.flavor || flavor).toUpperCase();
     const biasCls = flavor === "put" || lean === "SHORT" ? "ds-chip--dn" : flavor === "call" || lean === "LONG" ? "ds-chip--up" : "ds-chip--solid";
     const biasLabel = flavor === "put" ? "Put" : flavor === "call" ? "Call" : "Neutral";
@@ -2085,8 +2085,8 @@ function IndexDayTradeStrip({
       trackTitle: flavor === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
     }) : null;
     const punchline = exec.headline || exec.why || `${sym} day-trade — stalk the 21 EMA.`;
-    const scanLine = exec.scan_line || [band && Number.isFinite(Number(band.buy_ceil)) ? `Pay ≤ $${Number(band.buy_ceil).toFixed(2)}` : null, exec.rr?.trim != null ? `trim $${Number(exec.rr.trim).toFixed(2)}` : null, exec.rr?.exit != null ? `exit $${Number(exec.rr.exit).toFixed(2)}` : null, holdOn ? "hold overnight" : "flat 15:45 ET", expShort || null].filter(Boolean).join(" · ");
-    const kClass = action === "BUY" ? "tt-dt-plan__k--buy" : action === "TRIM" || action === "SELL" ? "tt-dt-plan__k--sell" : "tt-dt-plan__k--wait";
+    const scanLine = exec.scan_line || [band && Number.isFinite(Number(band.buy_ceil)) ? `Debit ≤ $${Number(band.buy_ceil).toFixed(2)}` : null, exec.rr?.trim != null ? `collect trim $${Number(exec.rr.trim).toFixed(2)}` : null, exec.rr?.exit != null ? `collect exit $${Number(exec.rr.exit).toFixed(2)}` : null, holdOn ? "hold overnight" : "flat 15:45 ET", expShort || null].filter(Boolean).join(" · ");
+    const kClass = action === "BUY" ? "tt-dt-plan__k--buy" : action === "TRIM" || action === "SELL" || action === "FLAT" ? "tt-dt-plan__k--sell" : "tt-dt-plan__k--wait";
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
@@ -8028,6 +8028,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787515478820:894954600
+// cache-bust:1787516428830:595903395
 
-// cache-bust:1787515478820:894954600
+// cache-bust:1787516428830:595903395

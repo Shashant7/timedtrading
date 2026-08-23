@@ -7,6 +7,14 @@
 //
 // Pure. No I/O.
 
+import {
+  getStaticCalendar,
+  getETDateStr,
+  getEasternParts,
+  isEquityHoliday,
+  isNyRegularMarketOpenStatic,
+} from "./market-calendar.js";
+
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
@@ -54,12 +62,24 @@ export function formatExpirationShort(expiration) {
 
 /** New index-option buys: cash session after the 09:45 open-print wait. */
 export function isOptionsBuyWindowEt(ts) {
+  if (!isNyRegularMarketOpenStatic(new Date(Number(ts)))) return false;
   const m = nyMinutes(ts);
   return m != null && m >= OPEN_PRINT_END_MIN && m < CASH_CLOSE_MIN;
 }
 
+/** US equity session day (weekday, non-holiday) — not necessarily RTH-open at `ts`. */
+function isNyEquityTradingDayStatic(ts) {
+  const now = new Date(Number(ts));
+  const { weekday } = getEasternParts(now);
+  if (["Sat", "Sun"].includes(weekday)) return false;
+  const cal = getStaticCalendar();
+  const dateStr = getETDateStr(now);
+  return !isEquityHoliday(cal, dateStr);
+}
+
 /** Flatten / trim / exit: 09:30 ET until before 16:15 ET. Not premarket. */
 export function isOptionsSellWindowEt(ts) {
+  if (!isNyEquityTradingDayStatic(ts)) return false;
   const m = nyMinutes(ts);
   return m != null && m >= OPEN_PRINT_START_MIN && m < SELL_WINDOW_END_MIN;
 }
