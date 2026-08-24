@@ -28,7 +28,7 @@
 //
 //  Authored 2026-05-30.
 
-import { buildOptionsLadder, contractToLadderInput } from "./options-plays.js";
+import { buildOptionsLadder, contractToLadderInput, shouldIndexAutoMirror } from "./options-plays.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import { getThemesForTicker } from "./sector-mapping.js";
 
@@ -135,6 +135,8 @@ export function archetypeToVehicleKey(archetype) {
   if (a === "moonshot_call" || a === "moonshot_put") return "moonshot";
   if (a === "long_call")                   return "long_call";
   if (a === "long_put")                    return "long_put";
+  if (a === "day_trade_call")              return "long_call";
+  if (a === "day_trade_put")               return "long_put";
   if (a === "vertical_spread")             return "vertical_spread";
   if (a === "long_straddle" || a === "long_strangle") return "straddle";
   return null;
@@ -498,4 +500,98 @@ export async function maybeAutoMirror(env, ctx) {
     daily_counter: decision._global_counter || null,
     vehicle_counter: decision._vehicle_counter || null,
   };
+}
+
+/**
+ * Index 0/1 DTE day-trade BUY → operator broker mirror.
+ * Gated: master auto-mirror switch, per-vehicle long_call/long_put,
+ * options_auto_mirror_indices flag, SPY/QQQ/IWM only.
+ *
+ * Exits (TRIM / PROTECT / EXIT / STOP) stay on the live-premium poll —
+ * the bridge does not host option bracket orders yet; each lifecycle
+ * event would be a separate signed close when we wire Stage 5b.
+ */
+export async function maybeAutoMirrorIndexDayTrade(env, ctx = {}) {
+  const operatorEmail = env.ADMIN_EMAIL;
+  if (!operatorEmail) return { skipped: true, reason: "no_operator_email" };
+
+  const ticker = String(ctx?.ticker || "").toUpperCase();
+  const play = ctx?.play;
+  if (!ticker || !play) return { skipped: true, reason: "missing_context" };
+
+  const archetype = String(play.archetype || "").toLowerCase()
+    || (String(play._day_trade_flavor || "").toLowerCase() === "put" ? "day_trade_put" : "day_trade_call");
+
+  const flagOn = ctx.indicesFlagOn === true;
+  const indexGate = shouldIndexAutoMirror({
+    ticker,
+    archetype,
+    tier: ctx.tier || "gamma",
+    scorecardTierWinRate: ctx.scorecardTierWinRate ?? null,
+    flagOn,
+  });
+  if (!indexGate.should_mirror) {
+    return { skipped: true, reason: indexGate.reason || "index_gate_blocked" };
+  }
+
+  const prefs = await loadAutoMirrorPrefs(env, operatorEmail);
+  if (!prefs.enabled) return { skipped: true, reason: "disabled" };
+
+  const vehicleKey = archetypeToVehicleKey(archetype);
+  if (!vehicleKey) return { skipped: true, reason: `archetype_${archetype}_no_vehicle` };
+
+  const vehicleRow = prefs.vehicles?.[vehicleKey];
+  if (!vehicleRow?.enabled) {
+    return { skipped: true, reason: `vehicle_${vehicleKey}_disabled`, vehicle: vehicleKey };
+  }
+
+  const notional = (Number(play.premium?.mid) || 0) * 100 * (Number(play.contracts) || 1);
+  if (notional > Number(vehicleRow.max_per_order_usd || 0)) {
+    return {
+      skipped: true,
+      reason: `notional_${Math.round(notional)}_exceeds_vehicle_cap_${vehicleRow.max_per_order_usd}`,
+      vehicle: vehicleKey,
+    };
+  }
+  const maxLossCap = Number(vehicleRow.max_loss_per_order_usd || 0);
+  if (maxLossCap > 0 && Number(play.max_loss_usd) > maxLossCap) {
+    return {
+      skipped: true,
+      reason: `max_loss_${play.max_loss_usd}_exceeds_vehicle_cap_${maxLossCap}`,
+      vehicle: vehicleKey,
+    };
+  }
+
+  const vehicleCap = Number(vehicleRow.daily_cap || 0);
+  if (vehicleCap > 0) {
+    const vCounter = await checkAndBumpVehicleCounter(env, operatorEmail, vehicleKey, vehicleCap);
+    if (!vCounter.allowed) {
+      return {
+        skipped: true,
+        reason: `vehicle_daily_cap_${vCounter.cap}_reached_for_${vehicleKey}`,
+        counter: vCounter,
+      };
+    }
+  }
+
+  const globalCap = Number(prefs.daily_cap) || 0;
+  if (globalCap > 0) {
+    const counter = await checkAndBumpDailyCounter(env, operatorEmail, globalCap);
+    if (!counter.allowed) {
+      return { skipped: true, reason: `daily_cap_${counter.cap}_reached`, counter };
+    }
+  }
+
+  const fired = await fireAutoMirror(env, operatorEmail, {
+    trade_id: ctx.signal_id || null,
+    ticker,
+    play,
+    vehicle: vehicleKey,
+    confluence_verdict: ctx.confluence || null,
+    source: "auto_mirror_index_dt",
+    execution_action: ctx.execution?.action || null,
+    buy_limit: ctx.execution?.premium_band?.display_buy_ceil ?? ctx.execution?.premium_band?.buy_ceil ?? null,
+  });
+
+  return { skipped: false, fired, vehicle: vehicleKey, archetype };
 }

@@ -95171,7 +95171,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       honesty_gate_veto: _dtVetoReason,
                       now: Date.now(),
                       loadedBook: _dtLoaded,
-                    }).then((ev) => {
+                    }).then(async (ev) => {
                       if (!ev?.event) return;
                       d1InsertNotification(env, {
                         email: null,
@@ -95184,6 +95184,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         engine: "options_day_trade",
                         exec_state: ev.event,
                       }).catch(() => {});
+                      if (ev.event === "BUY" && _optionsAutoMirrorIndicesEnabled(env)) {
+                        try {
+                          const { maybeAutoMirrorIndexDayTrade } = await import("./options-auto-mirror.js");
+                          queueBackground(maybeAutoMirrorIndexDayTrade(env, {
+                            ticker: _dtSym,
+                            play: _dtPrimary || _dtPlay,
+                            signal_id: _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId,
+                            execution: _dtExecution,
+                            indicesFlagOn: true,
+                          }));
+                        } catch (_) { /* never block on options mirror */ }
+                      }
                     }).catch((err) => {
                       console.warn(`[OPTIONS-DT-ALERT] ${_dtSym}:`, String(err?.message || err).slice(0, 120));
                     });

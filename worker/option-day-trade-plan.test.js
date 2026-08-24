@@ -158,7 +158,7 @@ describe("buildSatyDayTradePlan", () => {
     expect(plan.exits).toMatch(/half/);
     expect(plan.stop).toMatch(/766/);
     expect(plan.flip).toMatch(/766/);
-    expect(plan.bracket.buy_limit).toBe(0.5);
+    expect(plan.bracket.buy_limit).toBeCloseTo(0.437, 2);
     expect(plan.bracket.trim).toBeGreaterThan(0.53);
     expect(plan.bracket.rr_positive).toBe(true);
     expect(plan.hold_overnight).toBe(false);
@@ -353,6 +353,61 @@ describe("classifyPaperEvent", () => {
       premium: 0.60,
     });
     expect(out.event).toBeNull();
+  });
+
+  it("PROTECTs a single-contract book at 1R instead of TRIM", () => {
+    const out = classifyPaperEvent({
+      clock: clockBuy,
+      book: { status: "open", entry_premium: 1.25, trim_premium: 1.88, exit_premium: 2.50, contracts: 1 },
+      premium: 1.90,
+      size: { label: "light", contracts: 1 },
+      now: RTH_NOW,
+    });
+    expect(out.event).toBe("PROTECT");
+    expect(out.nextBook.profit_armed).toBe(true);
+    expect(out.nextBook.trail_stop_premium).toBe(1.25);
+    expect(out.nextBook.status).toBe("open");
+  });
+
+  it("EXITs single-contract book on trail giveback from peak", () => {
+    const out = classifyPaperEvent({
+      clock: clockBuy,
+      book: {
+        status: "open",
+        entry_premium: 1.25,
+        trim_premium: 1.88,
+        exit_premium: 2.50,
+        contracts: 1,
+        profit_armed: true,
+        trail_stop_premium: 1.25,
+        peak_premium: 2.11,
+      },
+      premium: 1.26,
+      size: { label: "light", contracts: 1 },
+      now: RTH_NOW,
+    });
+    expect(out.event).toBe("EXIT");
+    expect(out.reason).toBe("trail_stop");
+  });
+
+  it("STOPs trimmed runner at breakeven after giveback", () => {
+    const out = classifyPaperEvent({
+      clock: clockBuy,
+      book: {
+        status: "trimmed",
+        entry_premium: 1.25,
+        trim_premium: 1.88,
+        exit_premium: 2.50,
+        contracts: 2,
+        profit_armed: true,
+        trail_stop_premium: 1.25,
+        peak_premium: 1.95,
+      },
+      premium: 1.24,
+      now: RTH_NOW,
+    });
+    expect(out.event).toBe("STOP");
+    expect(out.reason).toBe("breakeven_stop");
   });
 });
 

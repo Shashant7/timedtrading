@@ -2167,7 +2167,7 @@ function IndexDayTradeStrip({
       expShort,
       dte: Number(exp?.dte),
       livePremium: band?.premium,
-      debit: band && Number.isFinite(Number(band.buy_ceil)) ? `≤ $${Number(band.buy_ceil).toFixed(2)}` : null,
+      debit: band && Number.isFinite(Number(band.display_buy_ceil ?? band.buy_ceil)) ? `≤ $${Number(band.display_buy_ceil ?? band.buy_ceil).toFixed(2)}` : null,
       trim: exec.rr?.trim != null ? `$${Number(exec.rr.trim).toFixed(2)}` : null,
       exit: exec.rr?.exit != null ? `$${Number(exec.rr.exit).toFixed(2)}` : null
     });

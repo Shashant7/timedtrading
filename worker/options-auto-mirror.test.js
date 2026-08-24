@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { fireAutoMirror } from "./options-auto-mirror.js";
+import { fireAutoMirror, maybeAutoMirrorIndexDayTrade } from "./options-auto-mirror.js";
 
 const PAYLOAD = { ticker: "NEU", side: "buy", contracts: 1, occ_symbol: "NEU260821C00790000", limit_price: 24.2 };
 
@@ -41,5 +41,20 @@ describe("fireAutoMirror — transport (CF 1042 / 404 fix)", () => {
     const r = await fireAutoMirror({ BROKER_BRIDGE_URL: "https://x.example.workers.dev" }, "op@x.com", PAYLOAD);
     expect(r.ok).toBe(false);
     expect(r.error).toBe("missing_hmac_key");
+  });
+});
+
+describe("maybeAutoMirrorIndexDayTrade", () => {
+  it("skips when the index mirror flag is off", async () => {
+    const r = await maybeAutoMirrorIndexDayTrade(
+      { ADMIN_EMAIL: "op@x.com", KV_TIMED: { get: async () => null, put: async () => {} } },
+      {
+        ticker: "QQQ",
+        play: { archetype: "day_trade_call", premium: { mid: 1.25 }, contracts: 1, max_loss_usd: 125 },
+        indicesFlagOn: false,
+      },
+    );
+    expect(r.skipped).toBe(true);
+    expect(r.reason).toBe("flag_off");
   });
 });
