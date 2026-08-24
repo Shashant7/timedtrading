@@ -689,11 +689,11 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         // the book is expected in sync before the open (not only at 9:30).
         if (_marketOpen || _extendedSession) {
           try {
-            const { summarizeValueStaleSymbols } = await import("./feed-outputs.js");
+            const { summarizeValueStaleSymbols, VALUE_STALE_PAGE_GRACE_MS } = await import("./feed-outputs.js");
             const { recordCronFailure, recordCronSuccess } = await import("../alerts.js");
             // Always evaluate against the RTH freshness window — preopen
             // readiness means receipts are minutes-old, not "within 26h".
-            const _vs = summarizeValueStaleSymbols(prices, priceUpdateTs, true, 10, { graceMs: 10 * 60 * 1000 });
+            const _vs = summarizeValueStaleSymbols(prices, priceUpdateTs, true, 10, { graceMs: VALUE_STALE_PAGE_GRACE_MS });
             const _decision = decideValueFreshnessPage({
               count: _vs.count,
               marketOpen: _marketOpen,

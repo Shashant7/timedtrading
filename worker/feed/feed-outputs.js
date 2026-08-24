@@ -31,6 +31,11 @@ import { adjustPrevCloseForSplit } from "./prev-close-reconcile.js";
 
 /** RTH: quote older than 10m is stale (operator rule). Not poll `t` — GS refreshed `t` every minute while `p` stuck at 1090. */
 export const PF_FRESH_MS = 10 * 60 * 1000;
+/** Extra age before Discord / Health watchdog pages. Quiet tape often sits
+ *  11–19m past PF_FRESH_MS in lockstep (TD quantized last_quote_at). Feed
+ *  cron already uses this; /timed/health must match or the watchdog emails
+ *  on a green chain (2026-08-24: 59 names all 11m). */
+export const VALUE_STALE_PAGE_GRACE_MS = 10 * 60 * 1000;
 /** Outside RTH the last trade clock ages normally — 26h catches week-old zombies. */
 export const PF_VALUE_FRESH_MS_CLOSED = 26 * 60 * 60 * 1000;
 
@@ -203,9 +208,12 @@ export function summarizeValueStaleSymbols(prices, nowMs = Date.now(), marketOpe
     stale.push({ sym, age_min: ts > 0 ? Math.round((nowMs - ts) / 60000) : null });
   }
   stale.sort((a, b) => (b.age_min ?? Infinity) - (a.age_min ?? Infinity));
+  const numeric = stale.map((s) => s.age_min).filter((a) => a != null);
   return {
     count: stale.length,
     symbols: stale.slice(0, sampleLimit).map((s) => (s.age_min != null ? `${s.sym}:${s.age_min}m` : `${s.sym}:never`)),
+    max_age_min: numeric.length ? Math.max(...numeric) : null,
+    never_stamped: stale.some((s) => s.age_min == null),
   };
 }
 
