@@ -114,13 +114,13 @@ function nyYmdFromTs(ts) {
  */
 export function pickFreshMarkMid(marks = [], { now = Date.now(), maxAgeMs = LIVE_MARK_FRESH_MS } = {}) {
   const rows = (Array.isArray(marks) ? marks : [])
-    .map((m) => ({ ts: Number(m.ts), mid: num(m.mid ?? m.c) }))
+    .map((m) => ({ ts: Number(m.ts), mid: num(m.mid ?? m.c), bid: num(m.bid), ask: num(m.ask) }))
     .filter((m) => Number.isFinite(m.ts) && m.mid != null && m.mid > 0)
     .sort((a, b) => a.ts - b.ts);
   if (!rows.length) return null;
   const last = rows[rows.length - 1];
   if (now - last.ts <= maxAgeMs) {
-    return { mid: last.mid, source: "option_marks", ts: last.ts };
+    return { mid: last.mid, bid: last.bid, ask: last.ask, source: "option_marks", ts: last.ts };
   }
   return null;
 }

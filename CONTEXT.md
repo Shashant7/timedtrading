@@ -217,6 +217,17 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Index day-trade broker mirror — closes never cap-gated, qty = mirrored fill (2026-08-24)**
+- Daily counters gate BUY only. A TRIM/EXIT/STOP must never be blocked by a
+  cap or the broker is left holding a position the model already exited.
+- Close qty is the mirrored remainder (`timed:opt-dt-mirror`), not the paper
+  book (paper can be 2–3 lots while the mirror bought 1). Bridge
+  `guardOptionsSellQty` rejects SELL > live held qty as defense-in-depth.
+- Persist `entry_fired` / `exit_fired` only after fill reconcile. Working
+  limits stay pending and are polled via `/bridge/options/order/status`.
+- EXIT/STOP price the bid (or mid − 1 tick). Paper sizing is opt-in
+  (`index_dt_follow_paper_size`, default OFF = 1 lot).
+
 **Tom Lee Macro Minute is a first-class research arm (2026-08-13)**
 - Daily MM is FSD+Vimeo captions, not YouTube. HTML ingest is a ~600 char
   teaser; CRO `collectFSDIntel` must pin `role=tom_lee_night_take` from the

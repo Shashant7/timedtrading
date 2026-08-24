@@ -236,16 +236,24 @@ lane uses — same LEFT_MONEY / CORRECT_LOSS verdict semantics.
 Shipped on `maybeAutoMirrorIndexDayTradeEvent`:
 
 - **BUY** — limit entry at `display_buy_ceil` (live mid capped); records
-  `timed:opt-dt-mirror:{signal_id}` when the bridge accepts the order.
-- **TRIM** — SELL `trim_sell_qty` contracts at live premium (≥2-lot books).
-- **EXIT / STOP** — SELL remaining contracts (`contracts_remaining` after
-  trim, or full size on single-lot).
+  `timed:opt-dt-mirror:{signal_id}` when the fill is confirmed (or assumed
+  on a place-ok with no fill echo — Webull pitfall). A rejected / still-
+  working fill does **not** set `entry_fired`; pending orders are polled
+  via `POST /bridge/options/order/status` before a close is allowed.
+- **TRIM** — SELL `trim_sell_qty` contracts at mid (≥2-lot books). A
+  1-lot mirror skips the broker trim (`mirror_single_lot_no_trim`).
+- **EXIT / STOP** — SELL the **mirrored remainder** (never the paper
+  book qty) at a marketable limit: live bid when it is within 60% of
+  mid, otherwise mid minus one tick.
 - **PROTECT** — paper-only (breakeven + trail armed); no broker order.
-- Closes only fire when a mirrored **entry** exists for that signal id
-  (dedup: one trim + one exit per signal).
+- Daily caps gate **entries only**. Closes are never counter-gated.
+- Close qty is capped by mirrored remaining, then again by the bridge
+  `guardOptionsSellQty` (rejects SELL > live held qty).
+- Paper sizing (1 / 2 / 3) is **opt-in**: set
+  `index_dt_follow_paper_size: true` on auto-mirror prefs. Default stays
+  1 lot, still reduced to fit `max_per_order_usd`.
 - Still **not** native bracket orders — each event is a separate signed
-  LMT sell via `POST /bridge/options/order`. Bridge reducer guards
-  enforce held qty.
+  LMT via `POST /bridge/options/order`.
 
 Enable: `options_auto_mirror_indices` + auto-mirror master + vehicle toggles.
 

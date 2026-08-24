@@ -1640,6 +1640,15 @@ export default {
         return await handleOptionsOrderWebhook(env, ctx, payload);
       }
 
+      if (method === "POST" && path === "/bridge/options/order/status") {
+        const rawBody = await req.text();
+        const sigFail = await requireWebhookSignature(env, req, rawBody);
+        if (sigFail) return sigFail;
+        let payload;
+        try { payload = JSON.parse(rawBody); } catch (_) { return json({ ok: false, error: "bad_json" }, 400); }
+        return await handleOptionsOrderStatus(env, payload);
+      }
+
       return json({ ok: false, error: "not_found", path }, 404);
     } catch (e) {
       console.error("[BRIDGE] uncaught:", String(e?.message || e).slice(0, 500));
@@ -2670,8 +2679,7 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
   }
 
   // Load user + check enablement.
-  const { getUser } = await import("./bridge-storage.js");
-  const user = await getUser(env, sanitized.user_id);
+  const user = await readUser(env, sanitized.user_id);
   if (!user) return json({ ok: false, error: "user_not_found" }, 404);
 
   // Global kill switch.
@@ -2715,12 +2723,41 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
       play_archetype: sanitized.play.archetype,
       max_loss_usd: sanitized.play.max_loss_usd,
       max_gain_usd: sanitized.play.max_gain_usd,
+      fill: {
+        status: "filled",
+        filled_qty: Number(brokerOrder.qty) || 1,
+        mock: true,
+      },
       latency_ms: Date.now() - t0,
     }, 200);
   }
 
+  // Live SELL: reject if the broker does not hold enough of this contract.
+  // Mock mode skips — getOptionsPositions returns [] and would false-reject.
+  const { isBridgeMockMode } = await import("./bridge-webull-config.js");
+  if (String(brokerOrder.action || "").toUpperCase() === "SELL" && !isBridgeMockMode(env)) {
+    const { applyOptionsSellGuard } = await import("./bridge-options-guard.js");
+    const loaded = await loadOptionsPositionsForGuard(env, user, broker);
+    if (loaded.error && loaded.positions == null) {
+      return json({
+        ok: false, rejected: true, reason: "positions_unavailable",
+        detail: loaded.error, latency_ms: Date.now() - t0,
+      }, 200);
+    }
+    const guard = applyOptionsSellGuard(brokerOrder, loaded.positions || []);
+    if (!guard.ok) {
+      return json({
+        ok: false, rejected: true, reason: guard.reason,
+        held_qty: guard.held_qty ?? null,
+        requested_qty: guard.requested_qty ?? brokerOrder.qty,
+        latency_ms: Date.now() - t0,
+      }, 200);
+    }
+  }
+
   // Live execution.
   const placed = await placeFn(env, user, brokerOrder);
+  const fill = await resolveOptionsPlaceFill(env, user, placed, brokerOrder);
 
   // Audit log (uses writeAudit which is the canonical helper).
   try {
@@ -2745,8 +2782,105 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
     play_archetype: sanitized.play.archetype,
     translated_order: brokerOrder,
     broker_response: placed,
+    fill,
     latency_ms: Date.now() - t0,
   }, placed?.ok ? 200 : 502);
+}
+
+async function loadOptionsPositionsForGuard(env, user, broker) {
+  try {
+    if (broker === "webull") {
+      const { getOptionsPositions } = await import("./bridge-webull-options.js");
+      const r = await getOptionsPositions(env, user);
+      if (!r?.ok) return { positions: null, error: r?.error || "webull_positions_failed" };
+      return { positions: r.positions || [] };
+    }
+    const r = await IbkrAdapter.getEquityPositions(env, user);
+    const raw = r?.response ?? r?.positions ?? r;
+    const rows = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+    return { positions: rows };
+  } catch (e) {
+    return { positions: null, error: String(e?.message || e).slice(0, 160) };
+  }
+}
+
+function fillFromPlaced(placed, requestedQty) {
+  if (placed?.mock) {
+    return { status: "filled", filled_qty: requestedQty, mock: true, order_id: placed?.response?.order_id || null };
+  }
+  if (placed?.ok === false) {
+    return { status: "rejected", filled_qty: 0, reason: placed?.error || "place_failed" };
+  }
+  const raw = placed?.response || placed || {};
+  const orderId = raw.order_id || raw.orderId || raw.id || null;
+  const filled = Number(raw.filled_qty ?? raw.filled_quantity ?? raw.filledQuantity ?? raw.cumulative_quantity);
+  if (Number.isFinite(filled) && filled > 0) {
+    return { status: "filled", filled_qty: filled, order_id: orderId };
+  }
+  if (orderId) return { status: "working", filled_qty: null, order_id: String(orderId) };
+  return { status: "unknown", filled_qty: null, order_id: null };
+}
+
+async function resolveOptionsPlaceFill(env, user, placed, brokerOrder) {
+  const requested = Number(brokerOrder?.qty) || 1;
+  let fill = fillFromPlaced(placed, requested);
+  if (fill.status === "working" && fill.order_id && !placed?.mock) {
+    const polled = await lookupOptionsOrderFill(env, user, fill.order_id);
+    if (polled?.fill) fill = { ...fill, ...polled.fill, polled: true };
+  }
+  return fill;
+}
+
+async function lookupOptionsOrderFill(env, user, orderId) {
+  try {
+    const adapter = brokerAdapterFor(user);
+    if (typeof adapter.listOrders !== "function") return { ok: false, error: "no_list_orders" };
+    const { normalizeBrokerOrder, extractOrders } = await import("./bridge-fills.js");
+    const listRes = await adapter.listOrders(env, user, { limit: 50 });
+    if (listRes && listRes.ok === false) return { ok: false, error: listRes.error || "list_orders_failed" };
+    const want = String(orderId || "");
+    const match = extractOrders(listRes).find((raw) => {
+      const id = String(raw?.order_id ?? raw?.orderId ?? raw?.id ?? "");
+      const cid = String(raw?.client_order_id ?? raw?.clientOrderId ?? "");
+      return (want && (id === want || cid === want));
+    });
+    if (!match) return { ok: true, fill: null };
+    const n = normalizeBrokerOrder(user?.broker, match);
+    return {
+      ok: true,
+      fill: {
+        status: n?.status || "unknown",
+        filled_qty: n?.filled_qty ?? null,
+        order_id: n?.broker_order_id || want,
+        avg_price: n?.avg_price ?? null,
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 160) };
+  }
+}
+
+async function handleOptionsOrderStatus(env, payload) {
+  const userId = String(payload?.user_id || "").toLowerCase();
+  const orderId = String(payload?.order_id || payload?.trade_id || "").trim();
+  if (!userId || !orderId) return json({ ok: false, error: "missing_required_fields" }, 400);
+  const user = await readUser(env, userId);
+  if (!user) return json({ ok: false, error: "user_not_found" }, 404);
+  const { isBridgeMockMode } = await import("./bridge-webull-config.js");
+  if (isBridgeMockMode(env) || user.mock_mode) {
+    return json({
+      ok: true,
+      mock: true,
+      fill: {
+        status: "filled",
+        filled_qty: Number(payload?.requested_qty) || 1,
+        order_id: orderId,
+        mock: true,
+      },
+    });
+  }
+  const looked = await lookupOptionsOrderFill(env, user, orderId);
+  return json({ ok: !!looked.ok, fill: looked.fill || null, error: looked.error || null });
 }
 
 function _oauthCallbackHtml(result, brokerLabel) {

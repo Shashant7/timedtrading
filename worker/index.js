@@ -95102,6 +95102,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   const _occMarks = _occ ? (_dtMarksByOcc[_occ] || []) : [];
                   const _estimatePrem = _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid;
                   let _clockPrem = _estimatePrem;
+                  let _clockBid = _dtPrimary?.premium?.bid ?? _dtPlay?.premium?.bid ?? null;
                   try {
                     const _livePrem = await _optionMarksResolveLivePremium(env, {
                       ticker: _dtSym,
@@ -95115,6 +95116,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       chain: _dtChainBySym[_dtSym] || null,
                     });
                     if (_livePrem?.mid > 0) _clockPrem = _livePrem.mid;
+                    if (_livePrem?.bid > 0) _clockBid = _livePrem.bid;
                   } catch (_) { /* clock degrades to estimate */ }
                   _dtExecution = _optClockBuild({
                     ticker: _dtSym,
@@ -95131,6 +95133,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     todStudy: _dtTodStudy,
                     openBook: _dtOpenBook,
                   });
+                  if (_dtExecution && _clockBid > 0 && _dtExecution.premium_band) {
+                    _dtExecution = {
+                      ..._dtExecution,
+                      premium_band: { ..._dtExecution.premium_band, bid: _clockBid },
+                    };
+                  }
                 } catch (_clockErr) {
                   console.warn(`[OPTIONS-CLOCK] ${_dtSym}:`, String(_clockErr?.message || _clockErr).slice(0, 120));
                 }
@@ -95191,6 +95199,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                           const _mirrorPrem = _dtExecution.premium_band?.premium
                             ?? _dtPrimary?.premium?.mid
                             ?? _dtPlay?.premium?.mid;
+                          const _mirrorBid = _dtExecution.premium_band?.bid
+                            ?? _clockBid
+                            ?? _dtPrimary?.premium?.bid
+                            ?? _dtPlay?.premium?.bid
+                            ?? _dtPrimary?.legs?.[0]?.premium_bid
+                            ?? null;
                           queueBackground(maybeAutoMirrorIndexDayTradeEvent(env, {
                             event: ev.event,
                             reason: ev.reason || null,
@@ -95199,7 +95213,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                             signal_id: _mirrorSid,
                             execution: _dtExecution,
                             book: ev.book || null,
+                            size: _dtExecution.size || ev.book?.size || null,
                             premium: _mirrorPrem,
+                            bid: _mirrorBid,
                             strike: _dtExecution.contract?.strike ?? _strike,
                             expiration: _dtExecution.contract?.expiration || _dtPrimary?.expiration || _dtPlay.expiration,
                             flavor: _dtExecution.contract?.flavor || _dtPlay._day_trade_flavor,

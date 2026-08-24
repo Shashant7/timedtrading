@@ -679,7 +679,8 @@ working OAuth token + one round of live arg-schema verification.
 | Path | Purpose |
 |---|---|
 | `worker/broker-bridge-client.js` | Client that calls the bridge from the main worker; manages local audit ring buffer in KV |
-| `worker/options-auto-mirror.js` | Options auto-execution policy + dispatch |
+| `worker/options-auto-mirror.js` | Options auto-execution policy + dispatch (index DT Stage 5b: BUY/TRIM/EXIT/STOP) |
+| `worker-bridge/bridge-options-guard.js` | Options SELL qty vs live held — reject oversell |
 | `worker-bridge/` | Bridge worker source — separate Wrangler project |
 | `worker-bridge/bridge-ibkr.js` | IBKR LST flow (DH + RSA + HMAC) |
 | `worker-bridge/bridge-robinhood.js` | Robinhood Agentic flow |
@@ -841,11 +842,26 @@ zone routing entirely and don't trip the loop detector. This is a
 planned refactor; see `tasks/2026-05-29-broker-bridge-phase1-plan.md`
 for context.
 
+## Index day-trade options mirror (Stage 5b)
+
+`maybeAutoMirrorIndexDayTradeEvent` in `worker/options-auto-mirror.js`:
+
+- Caps gate **BUY only**. TRIM / EXIT / STOP never consume or check daily counters.
+- Close qty = mirrored remainder in `timed:opt-dt-mirror:{signal_id}`, not the paper book.
+- Bridge `POST /bridge/options/order` runs `guardOptionsSellQty` on live SELLs (skip in mock).
+- Fill: persist `entry_fired` / `exit_fired` only when reconcile says filled. Working limits
+  stay pending and are polled at `POST /bridge/options/order/status`.
+- EXIT/STOP limit = live bid (or mid − 1 tick). TRIM stays at mid.
+- Paper sizing (1/2/3) is **off by default**. Enable with `index_dt_follow_paper_size: true`
+  on auto-mirror prefs. Still reduced to fit `max_per_order_usd`.
+- Options-order handler must use `readUser` (there is no `getUser` export).
+
 ## Source
 
 - `worker-bridge/bridge-ibkr.js` (especially `_extractDHPrimeHex`)
 - `worker-bridge/bridge-webull.js` + `tasks/2026-06-15-webull-connect-integration-plan.md`
-- `worker/options-auto-mirror.js` (dispatch policy)
+- `worker/options-auto-mirror.js` (dispatch policy + index DT lifecycle)
+- `worker-bridge/bridge-options-guard.js` (SELL vs held qty)
 - `worker/broker-bridge-client.js` (HTTP client + audit ring)
 - Lessons: [`tasks/lessons.md`](../tasks/lessons.md) → IBKR LST entries
 
