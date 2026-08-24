@@ -31,6 +31,8 @@
     <script src="tt-sparkline-config.js?v=20260624a"></script>
     <script src="tt-pattern-detect.js?v=20260624a"></script>
     <script src="shared-signal-grammar.js?v=20260623d"></script>
+    <script src="shared-list-presets.js?v=20260824a"></script>
+    <script src="shared-mtf-chips.js?v=20260824a"></script>
     <script src="shared-lane-card.js?v=20260629-rank-score"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="tt-bubble-map-0714m.compiled.js?v=20260714m"></script>
@@ -689,11 +691,7 @@
       // ── TT Selected universe (mirror of index-react GROUPS at line 2965).
       //   Same shape as today.html.
       const TT_GROUPS = {
-        UPTICKS: new Set([
-          "RDDT","AMZN","BABA","TSLA","KO","WMT","ETHA","BRK-B","MTB",
-          "AMGN","GILD","CSX","GEV","HII","JCI","PH","PWR","TT",
-          "CLS","FSLR","PANW","CRS","VST","BG","MRK","QXO","AXP",
-        ]),
+        UPTICKS: new Set(),
         GRNI: new Set(), GRNJ: new Set(), GRNY: new Set(),
       };
       function _norm(s) {
@@ -712,6 +710,9 @@
       };
       (async () => {
         try {
+          const LP = window.TimedListPresets;
+          if (LP?.load) await LP.load();
+          if (LP?.applyUpticksToGroups) LP.applyUpticksToGroups(TT_GROUPS);
           const r = await fetch(`${API_BASE}/timed/etf/groups`, { cache: "no-store" });
           if (!r.ok) return;
           const j = await r.json();

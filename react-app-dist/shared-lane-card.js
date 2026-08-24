@@ -265,6 +265,17 @@
   function create(p) {
     const sym = String(p.sym || "").toUpperCase();
     const chips = Array.isArray(p.chipRow) ? p.chipRow.filter(Boolean) : [];
+    const listPresetChips = (window.TimedListPresets?.buildChipElements)
+      ? window.TimedListPresets.buildChipElements(sym, h, { max: 2 })
+      : [];
+    const mtfChips = (window.TimedMtfChips?.buildChipElements)
+      ? window.TimedMtfChips.buildChipElements(sym, h, {
+          ticker: p.ticker || p.liveT || null,
+          max: 4,
+          stack: true,
+        })
+      : [];
+    const allChips = chips.concat(mtfChips).concat(listPresetChips);
     const metrics = Array.isArray(p.metrics) ? p.metrics.filter(Boolean) : [];
     const hasMid = !!p.midBody;
     const extraClass = p.button?.className ? ` ${p.button.className}` : "";
@@ -296,7 +307,7 @@
             }),
             p.identityExtra || null,
           ),
-          h("div", { className: "tt-lane-card__chips" }, ...(chips.length ? chips : [])),
+          h("div", { className: "tt-lane-card__chips" }, ...(allChips.length ? allChips : [])),
         ),
         quoteColumn(p.quote || {}),
       ),
@@ -326,4 +337,4 @@
   boot();
 })();
 
-// cache-bust:1787522456034:372091726
+// cache-bust:1787571285365:60583177

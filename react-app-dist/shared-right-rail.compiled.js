@@ -9778,7 +9778,13 @@
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
-          }, strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS"))), React.createElement("div", {
+          }, strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS"), (window.TimedListPresets?.buildChipElements ? window.TimedListPresets.buildChipElements(tickerSymbol, React.createElement, {
+            max: 3
+          }) : []).map(chip => chip), (window.TimedMtfChips?.buildChipElements ? window.TimedMtfChips.buildChipElements(tickerSymbol, React.createElement, {
+            ticker: ticker || latestTicker || null,
+            max: 4,
+            stack: true
+          }) : []).map(chip => chip))), React.createElement("div", {
             className: "flex items-center gap-1 tt-rail-header-actions"
           }, React.createElement("div", {
             className: "flex items-center gap-1 tt-rail-header-actions-secondary"
@@ -19995,4 +20001,4 @@
   };
 })();
 
-// cache-bust:1787522456034:372091726
+// cache-bust:1787571285365:60583177

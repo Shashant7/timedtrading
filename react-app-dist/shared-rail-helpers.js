@@ -346,11 +346,7 @@
 
   // ── GROUPS / GROUP_LABELS / GROUP_ORDER (verbatim from line 2965 / 3003 / 3013) ──
   const GROUPS = {
-    UPTICKS: new Set([
-      "RDDT","AMZN","BABA","TSLA","KO","WMT","ETHA","BRK-B","MTB",
-      "AMGN","GILD","CSX","GEV","HII","JCI","PH","PWR","TT",
-      "CLS","FSLR","PANW","CRS","VST","BG","MRK","QXO","AXP",
-    ]),
+    UPTICKS: new Set(),
     GRNI: new Set(), GRNJ: new Set(), GRNY: new Set(),
     SP_Sectors: new Set([
       "XLK","XLF","XLY","XLP","XLC","XLI","XLB","XLE","XLRE","XLU","XLV",
@@ -388,11 +384,14 @@
     };
   }
 
-  // ── loadETFGroups — populates GRNI/GRNJ/GRNY from server (line 2983 of source) ──
+  // ── loadETFGroups — populates GRNI/GRNJ/GRNY + UPTICKS from server ──
   let _etfGroupsLoaded = false;
   async function loadETFGroups() {
     if (_etfGroupsLoaded) return;
     try {
+      const LP = window.TimedListPresets;
+      if (LP?.load) await LP.load();
+      if (LP?.applyUpticksToGroups) LP.applyUpticksToGroups(GROUPS);
       const resp = await fetch("/timed/etf/groups");
       const data = await resp.json();
       if (data && data.ok && data.groups) {
@@ -1565,4 +1564,4 @@
   });
 })();
 
-// cache-bust:1787522456034:372091726
+// cache-bust:1787571285365:60583177

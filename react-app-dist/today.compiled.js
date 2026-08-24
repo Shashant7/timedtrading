@@ -9,7 +9,7 @@ const {
 const h = React.createElement;
 const API_BASE = "";
 const TT_GROUPS = {
-  UPTICKS: new Set(["RDDT", "AMZN", "BABA", "TSLA", "KO", "WMT", "ETHA", "BRK-B", "MTB", "AMGN", "GILD", "CSX", "GEV", "HII", "JCI", "PH", "PWR", "TT", "CLS", "FSLR", "PANW", "CRS", "VST", "BG", "MRK", "QXO", "AXP"]),
+  UPTICKS: new Set(),
   GRNI: new Set(),
   GRNJ: new Set(),
   GRNY: new Set()
@@ -25,6 +25,9 @@ window.isTickerTTSelected = function (sym) {
 };
 (async () => {
   try {
+    const LP = window.TimedListPresets;
+    if (LP?.load) await LP.load();
+    if (LP?.applyUpticksToGroups) LP.applyUpticksToGroups(TT_GROUPS);
     const r = await fetch(`${API_BASE}/timed/etf/groups`, {
       cache: "no-store"
     });
@@ -1602,6 +1605,7 @@ function SetupFamiliesStrip({
         role: "listitem"
       }, LaneCard.create({
         sym,
+        ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
           title: `${sym} — open cloud desk plan`,
@@ -1698,6 +1702,7 @@ function SetupFamiliesStrip({
         role: "listitem"
       }, LaneCard.create({
         sym,
+        ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
           title: `${sym} — open plan`,
@@ -1958,6 +1963,7 @@ function ConvexityPlaysStrip({
         role: "listitem"
       }, LaneCard.create({
         sym,
+        ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
           title: `${sym} — open options plan`,
@@ -2183,6 +2189,7 @@ function IndexDayTradeStrip({
         role: "listitem"
       }, LaneCard.create({
         sym,
+        ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
           title: `${sym} — open options plan`,
@@ -4380,6 +4387,7 @@ function GrowthIdeasStrip({
         role: "listitem"
       }, LaneCard.create({
         sym,
+        ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "FUNDAMENTALS"),
           title: `${sym} — open Fundamentals`,
@@ -6120,6 +6128,7 @@ function ViewportCard({
   }) : [];
   return window.TTLaneCard.create({
     sym,
+    ticker: t,
     button: {
       onClick: () => onOpen(sym, horizonPath === "long_term" ? "INVESTOR" : null),
       style: cardStyle,
@@ -7276,6 +7285,9 @@ function TodayApp({
             }
           }
           setData(merged);
+          try {
+            window.TimedMtfChips?.setData?.(merged);
+          } catch (_) {}
         } else if (a === null) {
           setError("Couldn't load market data");
         }
@@ -8232,6 +8244,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787522456034:372091726
+// cache-bust:1787571285365:60583177
 
-// cache-bust:1787522456034:372091726
+// cache-bust:1787571285365:60583177

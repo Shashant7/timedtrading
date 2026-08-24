@@ -1417,6 +1417,13 @@
       var setApiTried = _t[1];
       var hasTickerData = tickerData && typeof tickerData === "object" && Object.keys(tickerData).length > 0;
       useEffect(function () {
+        try {
+          if (hasTickerData && window.TimedMtfChips && typeof window.TimedMtfChips.setData === "function") {
+            window.TimedMtfChips.setData(tickerData);
+          }
+        } catch (_) {}
+      }, [hasTickerData, tickerData]);
+      useEffect(function () {
         if (!window._ttIsPro || hasTickerData) return;
         var alive = true;
         fetchVerdict({ cacheTtlMs: 120000 }).then(function (j) {
@@ -1582,6 +1589,7 @@
               return h("div", { key: sym + "-" + lane, className: "tt-strip-card", role: "listitem" },
                 LaneCard.create({
                   sym: sym,
+                  ticker: tRow || null,
                   button: {
                     onClick: function () { if (onSelect) onSelect(sym, railTab); },
                     title: sym + " — open Now tab with lane guide",
@@ -1757,4 +1765,4 @@
   };
 })();
 
-// cache-bust:1787522456034:372091726
+// cache-bust:1787571285365:60583177

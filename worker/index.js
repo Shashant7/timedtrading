@@ -2231,6 +2231,7 @@ const ROUTES = [
   ["POST", "/timed/admin/universe", "POST /timed/admin/universe"],
   ["DELETE", (p) => /^\/timed\/admin\/universe\/[A-Z0-9.!-]+$/i.test(p), "DELETE /timed/admin/universe/:ticker"],
   // ── ETF Holdings Sync ──
+  ["GET", "/timed/list-presets", "GET /timed/list-presets"],
   ["GET", "/timed/etf/groups", "GET /timed/etf/groups"],
   ["GET", (p) => /^\/timed\/etf\/holdings\/[A-Z]+$/i.test(p), "GET /timed/etf/holdings/:symbol"],
   ["POST", "/timed/etf/sync", "POST /timed/etf/sync"],
@@ -8794,10 +8795,12 @@ function qualifiesForEnter(d, asOfTs = null) {
     const c10_34 = tf10?.ripster?.c34_50;
     const c1h_34 = tf1H?.ripster?.c34_50;
     const cD_34 = tfD?.ripster?.c34_50;
+    const cD_21 = tfD?.ripster?.c20_21;
     const c10_5 = tf10?.ripster?.c5_12;
     const c10_8 = tf10?.ripster?.c8_9;
 
-    const dAligned = inferredSide === "LONG" ? !!cD_34?.bull : !!cD_34?.bear;
+    const cD_bias = (ripsterTuneV2 && cD_21) ? cD_21 : cD_34;
+    const dAligned = inferredSide === "LONG" ? !!cD_bias?.bull : !!cD_bias?.bear;
     const h1Aligned = inferredSide === "LONG" ? !!c1h_34?.bull : !!c1h_34?.bear;
     const m10Aligned = inferredSide === "LONG" ? !!c10_34?.bull : !!c10_34?.bear;
     const alignedCount = [dAligned, h1Aligned, m10Aligned].filter(Boolean).length;
@@ -8813,7 +8816,8 @@ function qualifiesForEnter(d, asOfTs = null) {
         ripster_bias: {
           c10_34: c10_34?.bull ? "bull" : c10_34?.bear ? "bear" : "na",
           c1h_34: c1h_34?.bull ? "bull" : c1h_34?.bear ? "bear" : "na",
-          cD_34: cD_34?.bull ? "bull" : cD_34?.bear ? "bear" : "na",
+          cD_34: cD_bias?.bull ? "bull" : cD_bias?.bear ? "bear" : "na",
+          cD_cloud: cD_21 ? "c20_21" : "c34_50",
           aligned_count: alignedCount,
           strong_daily_trend: strongDailyTrend,
         },
@@ -93480,6 +93484,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             added: toAdd,
             removed: toRemove,
           }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── List presets (MAG7, AI Ecosystem, Cybersecurity, SaaS & Cloud) + upticks
+      if (routeKey === "GET /timed/list-presets") {
+        try {
+          const stored = await kvGetJSON(KV, "timed:admin:upticks");
+          const upticks = Array.isArray(stored) && stored.length
+            ? stored.map((t) => String(t).toUpperCase().trim()).filter(Boolean)
+            : [...TT_SELECTED];
+          const { buildListPresets } = await import("./list-presets.js");
+          return sendJSON({ ok: true, presets: buildListPresets(), upticks }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
