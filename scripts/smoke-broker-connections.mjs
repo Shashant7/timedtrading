@@ -22,8 +22,8 @@ const CANNED = {
   "/timed/broker/accounts": {
     ok: true,
     accounts: [
-      { user_id: "op@x.com#webull#roth-ira", broker: "webull", status: "connected", broker_integration_enabled: true, webull_account_label: "Roth IRA", webull_account_id: "LJJ84", user_caps: {} },
-      { user_id: "op@x.com#webull#rollover-ira", broker: "webull", status: "connected", broker_integration_enabled: false, webull_account_label: "Rollover IRA", webull_account_id: "QIJ6P", user_caps: {} },
+      { user_id: "op@x.com#webull#roth-ira", broker: "webull", status: "connected", broker_integration_enabled: true, options_enabled: false, webull_account_label: "Roth IRA", webull_account_id: "LJJ84", user_caps: {}, options_prefs: { vehicles: { long_call: { enabled: false }, long_put: { enabled: false } } } },
+      { user_id: "op@x.com#webull#rollover-ira", broker: "webull", status: "connected", broker_integration_enabled: false, options_enabled: false, webull_account_label: "Rollover IRA", webull_account_id: "QIJ6P", user_caps: {} },
     ],
   },
   "/timed/broker/day-actions": {
@@ -168,6 +168,7 @@ const checks = [
   ["account performance row", /Account performance/],
   ["all connected account copy", /Every connected account/],
   ["mirror-on account card", /MIRROR ON/],
+  ["options strategy toggle", /OPTIONS OFF/],
   ["not-mirrored account card", /NOT MIRRORED/],
   ["since first mirror row", /Since first mirror on/],
   ["truthful longer-range disclaimer", /cash transfers can affect/],

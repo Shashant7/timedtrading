@@ -842,6 +842,16 @@ zone routing entirely and don't trip the loop detector. This is a
 planned refactor; see `tasks/2026-05-29-broker-bridge-phase1-plan.md`
 for context.
 
+## Broker Connections — options strategies
+
+Self-service toggle on `/broker-connections.html` (per account, next to
+equity mirror). `POST /timed/broker/account/options` →
+`POST /bridge/user/options-enable` sets `options_enabled` plus
+`long_call` / `long_put`. Option orders resolve to an opted-in account
+via `pickOptionsAccount`. Operator sessions also sync KV
+`timed:options:auto-mirror:{ADMIN_EMAIL}` so the index day-trade gate
+sees the same vehicles.
+
 ## Index day-trade options mirror (Stage 5b)
 
 `maybeAutoMirrorIndexDayTradeEvent` in `worker/options-auto-mirror.js`:
