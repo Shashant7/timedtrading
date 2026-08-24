@@ -1415,6 +1415,15 @@
           || (curveAcct.broker_account_id && (p.broker_account_id === curveAcct.broker_account_id || p.webull_account_id === curveAcct.broker_account_id))
           || (curveAcct.label && p.label === curveAcct.label));
       }
+      function matchBrokerAccount(curveAcct, live, brokerAccounts) {
+        return (brokerAccounts || []).find((b) =>
+          (curveAcct.user_id && b.user_id === curveAcct.user_id)
+          || (live?.account_id && b.user_id === live.account_id)
+          || (curveAcct.broker_account_id && b.webull_account_id === curveAcct.broker_account_id)
+          || (live?.webull_account_id && b.webull_account_id === live.webull_account_id)
+          || (live?.broker_account_id && b.webull_account_id === live.broker_account_id)
+          || (curveAcct.label && (b.webull_account_label === curveAcct.label || b.webull_account_class === curveAcct.label)));
+      }
       /** Day P&L for the chart's selected accounts — same broker marks the KPI uses. */
       function dayPnlForSelected(selected, liveAccounts) {
         let sum = 0, has = false;
@@ -1769,7 +1778,10 @@
                     title={`Show ${a.label || key} value history`}>
                     <div className="acct-perf-top">
                       <span className="acct-perf-name">{a.label || key}</span>
-                      <span className={`bc-pill ${on ? "p-ok" : "p-off"}`}>{on ? "MIRROR ON" : "NOT MIRRORED"}</span>
+                      <span style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        <span className={`bc-pill ${on ? "p-ok" : "p-off"}`}>{on ? "MIRROR ON" : "NOT MIRRORED"}</span>
+                        <span className={`bc-pill ${accountOptionsOn(a) ? "p-mint" : "p-off"}`}>{accountOptionsOn(a) ? "OPTIONS ON" : "OPTIONS OFF"}</span>
+                      </span>
                     </div>
                     <div className="acct-perf-value">{Number.isFinite(r.current) ? fmtUsd(r.current, { compact: true }) : "—"}</div>
                     <div className={`acct-perf-change ${deltaClass}`}>
@@ -1791,7 +1803,7 @@
         );
       }
 
-      function EquityCurve({ liveAccounts }) {
+      function EquityCurve({ liveAccounts, brokerAccounts }) {
         const [data, setData] = useState(null);
         const [range, setRange] = useState("1D");
         const [focus, setFocus] = useState("mirrored");
@@ -1830,11 +1842,14 @@
                 pts[pts.length - 1] = { ts: now, equity: eq };
               }
             }
+            const listed = matchBrokerAccount(a, live, brokerAccounts);
             return {
               ...a,
               points: pts,
               equity: Number.isFinite(eq) ? eq : a.equity,
               mirror_enabled: live ? live.mirror_enabled === true : a.mirror_enabled === true,
+              options_enabled: listed ? listed.options_enabled === true : a.options_enabled === true,
+              options_prefs: listed?.options_prefs || a.options_prefs || null,
               label: live?.label || a.label,
             };
           });
@@ -1849,12 +1864,15 @@
               .filter((e) => e && Number(e.ts) > 0)
               .map((e) => ({ ts: Number(e.ts), on: e.on === true }))
               .sort((a, b) => a.ts - b.ts);
+            const listed = matchBrokerAccount({ user_id: live.account_id, broker_account_id: live.broker_account_id || live.webull_account_id, label: live.label }, live, brokerAccounts);
             merged.push({
               broker_account_id: live.broker_account_id || live.webull_account_id || live.account_id,
               user_id: live.account_id || null,
               label: live.label || live.account_id,
               broker: live.broker || null,
               mirror_enabled: live.mirror_enabled === true,
+              options_enabled: listed ? listed.options_enabled === true : false,
+              options_prefs: listed?.options_prefs || null,
               points: Number.isFinite(eq) ? [{ ts: Number(live.positions_as_of) || now, equity: eq }] : [],
               markers,
               equity: Number.isFinite(eq) ? eq : null,
@@ -1868,7 +1886,7 @@
             if (histDiff) return histDiff;
             return String(a.label || accountKey(a)).localeCompare(String(b.label || accountKey(b)));
           });
-        }, [data, liveAccounts, tick]);
+        }, [data, liveAccounts, brokerAccounts, tick]);
 
         const selected = useMemo(() => {
           if (focus === "all") return accounts;
@@ -2215,6 +2233,7 @@
         const otherAccounts = (accounts || []).filter((a) => (a.broker || "") !== "webull").slice().sort(_sortMirrorFirst);
         const hasAny = webullAccounts.length > 0 || otherAccounts.length > 0;
         const anyEnabled = (accounts || []).some((a) => a.broker_integration_enabled === true);
+        const anyOptions = (accounts || []).some((a) => accountOptionsOn(a));
         const marketOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : null;
 
         // KPI totals:
@@ -2334,6 +2353,7 @@
                   <span className={`bc-pill ${marketOpen ? "p-ok" : "p-off"}`}><span className="dot" />{marketOpen ? "MARKET OPEN" : "MARKET CLOSED"}</span>
                 )}
                 {hasAny && <span className={`bc-pill ${anyEnabled ? "p-mint" : "p-off"}`}>{anyEnabled ? "MIRROR ACTIVE" : "MIRROR PAUSED"}</span>}
+                {hasAny && <span className={`bc-pill ${anyOptions ? "p-mint" : "p-off"}`}>{anyOptions ? "OPTIONS ON" : "OPTIONS OFF"}</span>}
               </div>
             </div>
 
@@ -2344,6 +2364,44 @@
             )}
 
             {accounts === null && <PageSkeleton />}
+
+            {accounts !== null && hasAny && (
+              <section id="mirror-settings" style={{ marginBottom: 18 }}>
+                <div className="sec-head" style={{ marginBottom: 10 }}>
+                  <div>
+                    <div className="tt-sec-title">Accounts</div>
+                    <div className="tt-sec-h" style={{ fontSize: 18 }}>Mirror settings</div>
+                    <div className="dim" style={{ fontSize: 12, marginTop: 4, maxWidth: 560 }}>
+                      Equity mirror and options strategies are separate switches on each account.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {anyEnabled && (
+                      <button className="bc-btn bc-btn-sm" disabled={busy}
+                        style={{ borderColor: "rgba(245,158,11,0.4)", color: "var(--tt-warning)" }}
+                        title="Kill switch — pause mirroring on every account at once"
+                        onClick={async () => {
+                          if (!confirm("Pause ALL mirroring? Every account stops receiving model orders immediately. Accounts stay connected and can be re-enabled individually.")) return;
+                          setBusy(true);
+                          try { await apiPost("/timed/broker/pause-all", {}); refresh(); }
+                          finally { setBusy(false); }
+                        }}>Pause all mirroring</button>
+                    )}
+                    {webullAccounts.length > 0 && (
+                      <button className="bc-btn bc-btn-sm bc-btn-danger" disabled={busy}
+                        onClick={async () => {
+                          if (!confirm("Disconnect Webull? Mirroring stops for every account under this login and the stored keys are removed.")) return;
+                          setBusy(true);
+                          try { await apiPost("/timed/broker/webull/disconnect", {}); refresh(); }
+                          finally { setBusy(false); }
+                        }}>Disconnect Webull</button>
+                    )}
+                  </div>
+                </div>
+                {webullAccounts.map((acct) => <AccountCard key={acct.user_id} acct={acct} onChanged={refresh} />)}
+                {otherAccounts.map((acct) => <AccountCard key={acct.user_id} acct={acct} onChanged={refresh} />)}
+              </section>
+            )}
 
             {accounts !== null && hasAny && (
               <div className="kpi-strip fade-in">
@@ -2390,45 +2448,10 @@
               </div>
             )}
 
-            {accounts !== null && hasAny && <EquityCurve liveAccounts={posData?.accounts || []} />}
+            {accounts !== null && hasAny && <EquityCurve liveAccounts={posData?.accounts || []} brokerAccounts={accounts} />}
             {accounts !== null && hasAny && <DayActions refreshKey={accounts} />}
             {accounts !== null && hasAny && (
               <PositionsSection refreshKey={accounts} onData={setPosData} onSelectTicker={onSelectTicker} />
-            )}
-
-            {accounts !== null && hasAny && (
-              <section style={{ marginBottom: 18 }}>
-                <div className="sec-head" style={{ marginBottom: 10 }}>
-                  <div>
-                    <div className="tt-sec-title">Accounts</div>
-                    <div className="tt-sec-h" style={{ fontSize: 18 }}>Mirror settings</div>
-                  </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {anyEnabled && (
-                      <button className="bc-btn bc-btn-sm" disabled={busy}
-                        style={{ borderColor: "rgba(245,158,11,0.4)", color: "var(--tt-warning)" }}
-                        title="Kill switch — pause mirroring on every account at once"
-                        onClick={async () => {
-                          if (!confirm("Pause ALL mirroring? Every account stops receiving model orders immediately. Accounts stay connected and can be re-enabled individually.")) return;
-                          setBusy(true);
-                          try { await apiPost("/timed/broker/pause-all", {}); refresh(); }
-                          finally { setBusy(false); }
-                        }}>Pause all mirroring</button>
-                    )}
-                    {webullAccounts.length > 0 && (
-                      <button className="bc-btn bc-btn-sm bc-btn-danger" disabled={busy}
-                        onClick={async () => {
-                          if (!confirm("Disconnect Webull? Mirroring stops for every account under this login and the stored keys are removed.")) return;
-                          setBusy(true);
-                          try { await apiPost("/timed/broker/webull/disconnect", {}); refresh(); }
-                          finally { setBusy(false); }
-                        }}>Disconnect Webull</button>
-                    )}
-                  </div>
-                </div>
-                {webullAccounts.map((acct) => <AccountCard key={acct.user_id} acct={acct} onChanged={refresh} />)}
-                {otherAccounts.map((acct) => <AccountCard key={acct.user_id} acct={acct} onChanged={refresh} />)}
-              </section>
             )}
 
             {accounts !== null && !hasAny && (

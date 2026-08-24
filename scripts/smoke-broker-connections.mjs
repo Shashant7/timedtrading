@@ -188,6 +188,7 @@ const checks = [
   ["horizon chip on managed row", />SHORT TERM<|>LONG TERM</],
   ["open long chip", />Open Long</],
   ["accounts section", /Mirror settings/],
+  ["mirror settings above performance", /Mirror settings[\s\S]*Account performance/],
   ["no daily-cap UI", /no daily order cap/],
   ["kill switch", /Pause all mirroring/],
   ["twelvedata footer", /Twelve Data/],
