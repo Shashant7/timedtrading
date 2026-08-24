@@ -28,7 +28,8 @@
 //
 //  Authored 2026-05-30.
 
-import { buildOptionsLadder, contractToLadderInput } from "./options-plays.js";
+import { buildOptionsLadder, contractToLadderInput, shouldIndexAutoMirror } from "./options-plays.js";
+import { trimSellQty } from "./option-day-trade-plan.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import { getThemesForTicker } from "./sector-mapping.js";
 
@@ -135,6 +136,8 @@ export function archetypeToVehicleKey(archetype) {
   if (a === "moonshot_call" || a === "moonshot_put") return "moonshot";
   if (a === "long_call")                   return "long_call";
   if (a === "long_put")                    return "long_put";
+  if (a === "day_trade_call")              return "long_call";
+  if (a === "day_trade_put")               return "long_put";
   if (a === "vertical_spread")             return "vertical_spread";
   if (a === "long_straddle" || a === "long_strangle") return "straddle";
   return null;
@@ -498,4 +501,293 @@ export async function maybeAutoMirror(env, ctx) {
     daily_counter: decision._global_counter || null,
     vehicle_counter: decision._vehicle_counter || null,
   };
+}
+
+/**
+ * Index 0/1 DTE day-trade BUY → operator broker mirror.
+ * Gated: master auto-mirror switch, per-vehicle long_call/long_put,
+ * options_auto_mirror_indices flag, SPY/QQQ/IWM only.
+ *
+ * Stage 5b exits (TRIM / EXIT / STOP) use maybeAutoMirrorIndexDayTradeEvent.
+ */
+export async function maybeAutoMirrorIndexDayTrade(env, ctx = {}) {
+  return maybeAutoMirrorIndexDayTradeEvent(env, { ...ctx, event: "BUY" });
+}
+
+export function indexDtMirrorKey(signalId) {
+  return `timed:opt-dt-mirror:${String(signalId || "").trim()}`;
+}
+
+/**
+ * Build a single-leg SELL play for broker close / trim mirror.
+ */
+export function buildIndexDayTradeClosePlay(play, {
+  ticker,
+  strike,
+  expiration,
+  flavor,
+  qty,
+  limitPrice,
+  event,
+  signalId,
+} = {}) {
+  const sym = String(ticker || play?.ticker || "").toUpperCase();
+  const leg = play?.legs?.[0];
+  if (!sym || !leg) return null;
+  const flav = String(flavor || play._day_trade_flavor || "").toLowerCase();
+  const isPut = flav === "put";
+  const K = Number(strike) || Number(play.strikes?.primary) || Number(leg.strike);
+  const exp = expiration?.iso || leg.expiration || play.expiration?.iso;
+  const q = Math.max(1, Math.round(Number(qty) || 1));
+  const limit = Number(limitPrice);
+  if (!(K > 0) || !exp || !(limit > 0)) return null;
+  const optType = isPut ? "PUT" : "CALL";
+  const closePlay = {
+    archetype: play.archetype || (isPut ? "day_trade_put" : "day_trade_call"),
+    label: `Close ${sym} ${K}${isPut ? "P" : "C"} (${String(event || "EXIT").toUpperCase()})`,
+    ticker: sym,
+    trade_id: signalId || null,
+    legs: [{
+      action: "SELL",
+      optionType: optType,
+      strike: K,
+      expiration: exp,
+      qty: q,
+      premium_mid: Math.round(limit * 100) / 100,
+      side_label: "credit",
+    }],
+    strikes: { primary: K },
+    expiration: expiration || play.expiration,
+    premium: { mid: Math.round(limit * 100) / 100 },
+    contracts: q,
+    max_loss_usd: Math.round(limit * 100 * q),
+    _day_trade_close: true,
+    _close_event: String(event || "EXIT").toLowerCase(),
+  };
+  return closePlay;
+}
+
+export function computeIndexDayTradeCloseQty(event, book) {
+  const ev = String(event || "").toUpperCase();
+  if (ev === "TRIM") {
+    const trimQty = Number(book?.trim_sell_qty);
+    if (Number.isFinite(trimQty) && trimQty > 0) return Math.round(trimQty);
+    return trimSellQty(book?.contracts);
+  }
+  const remain = Number(book?.contracts_remaining);
+  if (Number.isFinite(remain) && remain > 0) return Math.round(remain);
+  const all = Number(book?.contracts);
+  return Number.isFinite(all) && all > 0 ? Math.round(all) : 1;
+}
+
+async function loadIndexDtMirror(env, signalId) {
+  if (!env?.KV_TIMED || !signalId) return null;
+  try {
+    const raw = await env.KV_TIMED.get(indexDtMirrorKey(signalId));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveIndexDtMirror(env, signalId, patch) {
+  if (!env?.KV_TIMED || !signalId) return;
+  const prev = await loadIndexDtMirror(env, signalId) || {};
+  const merged = { ...prev, ...patch, signal_id: signalId, ts: Date.now() };
+  await env.KV_TIMED.put(indexDtMirrorKey(signalId), JSON.stringify(merged), { expirationTtl: 3 * 86400 });
+}
+
+async function gateIndexDayTradeMirror(env, ctx = {}) {
+  const operatorEmail = env.ADMIN_EMAIL;
+  if (!operatorEmail) return { ok: false, skipped: true, reason: "no_operator_email" };
+
+  const ticker = String(ctx?.ticker || "").toUpperCase();
+  const play = ctx?.play;
+  if (!ticker || !play) return { ok: false, skipped: true, reason: "missing_context" };
+
+  const archetype = String(play.archetype || "").toLowerCase()
+    || (String(play._day_trade_flavor || "").toLowerCase() === "put" ? "day_trade_put" : "day_trade_call");
+
+  const flagOn = ctx.indicesFlagOn === true;
+  const indexGate = shouldIndexAutoMirror({
+    ticker,
+    archetype,
+    tier: ctx.tier || "gamma",
+    scorecardTierWinRate: ctx.scorecardTierWinRate ?? null,
+    flagOn,
+  });
+  if (!indexGate.should_mirror) {
+    return { ok: false, skipped: true, reason: indexGate.reason || "index_gate_blocked" };
+  }
+
+  const prefs = await loadAutoMirrorPrefs(env, operatorEmail);
+  if (!prefs.enabled) return { ok: false, skipped: true, reason: "disabled" };
+
+  const vehicleKey = archetypeToVehicleKey(archetype);
+  if (!vehicleKey) return { ok: false, skipped: true, reason: `archetype_${archetype}_no_vehicle` };
+
+  const vehicleRow = prefs.vehicles?.[vehicleKey];
+  if (!vehicleRow?.enabled) {
+    return { ok: false, skipped: true, reason: `vehicle_${vehicleKey}_disabled`, vehicle: vehicleKey };
+  }
+
+  return {
+    ok: true,
+    operatorEmail,
+    ticker,
+    play,
+    archetype,
+    prefs,
+    vehicleKey,
+    vehicleRow,
+  };
+}
+
+async function bumpMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicleRow) {
+  const vehicleCap = Number(vehicleRow.daily_cap || 0);
+  if (vehicleCap > 0) {
+    const vCounter = await checkAndBumpVehicleCounter(env, operatorEmail, vehicleKey, vehicleCap);
+    if (!vCounter.allowed) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: `vehicle_daily_cap_${vCounter.cap}_reached_for_${vehicleKey}`,
+        counter: vCounter,
+      };
+    }
+  }
+  const globalCap = Number(prefs.daily_cap) || 0;
+  if (globalCap > 0) {
+    const counter = await checkAndBumpDailyCounter(env, operatorEmail, globalCap);
+    if (!counter.allowed) {
+      return { ok: false, skipped: true, reason: `daily_cap_${counter.cap}_reached`, counter };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Stage 5b — index day-trade lifecycle mirror (BUY / TRIM / EXIT / STOP).
+ * PROTECT is paper-only (stop raised, no broker order).
+ * Closes only fire when a mirrored entry exists for the signal id.
+ */
+export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
+  const event = String(ctx.event || "BUY").toUpperCase();
+  if (event === "PROTECT") return { skipped: true, reason: "protect_no_broker_action" };
+
+  const gate = await gateIndexDayTradeMirror(env, ctx);
+  if (!gate.ok) return gate;
+
+  const {
+    operatorEmail, ticker, play, archetype, prefs, vehicleKey, vehicleRow,
+  } = gate;
+  const signalId = String(ctx.signal_id || "").trim();
+
+  const counterOk = await bumpMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicleRow);
+  if (!counterOk.ok) return counterOk;
+
+  if (event === "BUY") {
+    const notional = (Number(play.premium?.mid) || 0) * 100 * (Number(play.contracts) || 1);
+    if (notional > Number(vehicleRow.max_per_order_usd || 0)) {
+      return {
+        skipped: true,
+        reason: `notional_${Math.round(notional)}_exceeds_vehicle_cap_${vehicleRow.max_per_order_usd}`,
+        vehicle: vehicleKey,
+      };
+    }
+    const maxLossCap = Number(vehicleRow.max_loss_per_order_usd || 0);
+    if (maxLossCap > 0 && Number(play.max_loss_usd) > maxLossCap) {
+      return {
+        skipped: true,
+        reason: `max_loss_${play.max_loss_usd}_exceeds_vehicle_cap_${maxLossCap}`,
+        vehicle: vehicleKey,
+      };
+    }
+
+    const fired = await fireAutoMirror(env, operatorEmail, {
+      trade_id: signalId || null,
+      ticker,
+      play,
+      vehicle: vehicleKey,
+      confluence_verdict: ctx.confluence || null,
+      source: "auto_mirror_index_dt",
+      lifecycle: "entry",
+      side: "buy",
+      execution_action: ctx.execution?.action || null,
+      buy_limit: ctx.execution?.premium_band?.display_buy_ceil ?? ctx.execution?.premium_band?.buy_ceil ?? null,
+    });
+
+    if (fired?.ok && signalId) {
+      await saveIndexDtMirror(env, signalId, {
+        entry_fired: true,
+        ticker,
+        contracts: Number(play.contracts) || Number(ctx.book?.contracts) || 1,
+        strike: ctx.strike ?? play.strikes?.primary,
+        flavor: play._day_trade_flavor,
+      });
+    }
+
+    return { skipped: false, fired, vehicle: vehicleKey, archetype, event };
+  }
+
+  // Stage 5b — trim / exit / stop close orders (live premium limit sells).
+  if (!signalId) return { skipped: true, reason: "no_signal_id" };
+
+  const mirror = await loadIndexDtMirror(env, signalId);
+  if (!mirror?.entry_fired) return { skipped: true, reason: "no_mirrored_entry" };
+
+  if (event === "TRIM" && mirror.trim_fired) return { skipped: true, reason: "trim_already_mirrored" };
+  if ((event === "EXIT" || event === "STOP") && mirror.exit_fired) {
+    return { skipped: true, reason: "exit_already_mirrored" };
+  }
+
+  const book = ctx.book || {};
+  const qty = computeIndexDayTradeCloseQty(event, book);
+  const limitPrice = Number(ctx.premium);
+  if (!(limitPrice > 0)) return { skipped: true, reason: "no_close_limit" };
+
+  const closePlay = buildIndexDayTradeClosePlay(play, {
+    ticker,
+    strike: ctx.strike ?? book.strike ?? play.strikes?.primary,
+    expiration: ctx.expiration ?? book.expiration ?? play.expiration,
+    flavor: ctx.flavor ?? book.flavor ?? play._day_trade_flavor,
+    qty,
+    limitPrice,
+    event,
+    signalId,
+  });
+  if (!closePlay) return { skipped: true, reason: "close_play_build_failed" };
+
+  const closeNotional = limitPrice * 100 * qty;
+  if (closeNotional > Number(vehicleRow.max_per_order_usd || 0) * 2) {
+    return {
+      skipped: true,
+      reason: `close_notional_${Math.round(closeNotional)}_exceeds_cap`,
+      vehicle: vehicleKey,
+    };
+  }
+
+  const lifecycle = event === "TRIM" ? "reduce" : "close";
+  const fired = await fireAutoMirror(env, operatorEmail, {
+    trade_id: signalId,
+    ticker,
+    play: closePlay,
+    vehicle: vehicleKey,
+    source: "auto_mirror_index_dt_close",
+    lifecycle,
+    side: event === "TRIM" ? "trim" : "exit",
+    close_event: event,
+    close_reason: ctx.reason || null,
+    close_qty: qty,
+    limit_price: limitPrice,
+  });
+
+  if (fired?.ok) {
+    const patch = event === "TRIM"
+      ? { trim_fired: true, trim_qty: qty, trim_premium: limitPrice }
+      : { exit_fired: true, exit_qty: qty, exit_premium: limitPrice, exit_event: event };
+    await saveIndexDtMirror(env, signalId, patch);
+  }
+
+  return { skipped: false, fired, vehicle: vehicleKey, archetype, event, close_qty: qty };
 }

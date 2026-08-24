@@ -100,9 +100,10 @@ export function extractIndexTimingIndicators(ticker = {}) {
   let tfLabel = null;
   let pick = null;
   for (const k of order) {
-    if (tf[k]?.ema?.ema21 != null || num(tf[k]?.stDir) != null) {
+    const slot = tf[k];
+    if (slot?.ema?.ema21 != null && num(slot?.stDir) != null) {
       tfLabel = k;
-      pick = tf[k];
+      pick = slot;
       break;
     }
   }
@@ -444,6 +445,9 @@ export function buildExecutionClock({
     targetPx,
     pin: value?.pin,
   });
+  const displayBuyCeil = prem != null && prem > 0
+    ? (value?.fmv != null ? round2(Math.min(value.fmv, prem * 1.15)) : round2(prem * 1.08))
+    : value?.buy_ceil;
   let holdOvernight = shouldHoldOvernight({
     dte: num(expiration?.dte),
     stWith: isPut ? stIsBear(ind.st_dir) : stIsBull(ind.st_dir),
@@ -644,7 +648,7 @@ export function buildExecutionClock({
               : (premiumRich ? `rich vs FMV $${value?.fmv}` : `stalk ${tod.buy_window_et} ET`)))}`;
 
   const scanParts = [
-    value?.buy_ceil != null ? `Debit ≤ $${Number(value.buy_ceil).toFixed(2)}` : null,
+    displayBuyCeil != null ? `Debit ≤ $${Number(displayBuyCeil).toFixed(2)}` : null,
     rr?.trim != null ? `collect trim $${Number(rr.trim).toFixed(2)}` : null,
     rr?.exit != null ? `collect exit $${Number(rr.exit).toFixed(2)}` : null,
     holdOvernight || carryOvernight ? "hold overnight" : `flat ${SESSION_FLAT_ET} ET`,
@@ -666,7 +670,7 @@ export function buildExecutionClock({
     sell_rule: sellRule,
     path_note: pathNote,
     dte_note: dteNote,
-    premium_band: value,
+    premium_band: value ? { ...value, display_buy_ceil: displayBuyCeil } : value,
     tod,
     path,
     indicators: {

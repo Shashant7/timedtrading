@@ -37,6 +37,15 @@ export const TRIM_R = 1;
 export const EXIT_R = 2;
 /** Absolute floor so a $0.45 entry does not trim at $0.53. */
 export const MIN_TRIM_DOLLARS = 0.15;
+/** Partial trim needs ≥2 contracts — one-lot books PROTECT at 1R instead. */
+export const MIN_CONTRACTS_FOR_TRIM = 2;
+/** After 1R / trim, exit runner if premium gives back this fraction from peak. */
+export const TRAIL_GIVEBACK_PCT = 0.40;
+/** Sell qty for a 50% trim (whole contracts). */
+export function trimSellQty(contracts) {
+  const c = Math.max(1, Math.round(Number(contracts) || 1));
+  return Math.max(1, Math.round(c * 0.5));
+}
 export const SESSION_FLAT_ET = "15:45";
 /** Overnight is decided from 15:30 ET, not at the morning entry. */
 export const OVERNIGHT_DECIDE_MIN = 15 * 60 + 30;
@@ -281,8 +290,12 @@ export function buildSatyDayTradePlan({
   const contractBit = `${occ}${expBit ? ` ${expBit}` : ""}${dteBit ? ` (${dteBit})` : ""}`;
   const buyCeil = num(band.buy_ceil);
   const pin = num(band.pin);
+  const fmv = num(band.fmv);
   const expected = num(band.expected_close);
-  const fill = mid ?? buyCeil;
+  const entryMax = (mid != null && mid > 0)
+    ? (fmv != null ? Math.min(fmv, mid * 1.15) : mid * 1.08)
+    : (buyCeil ?? fmv ?? mid);
+  const fill = mid ?? entryMax;
   const rr = computePremiumRr({
     entry: fill,
     strike: K,
@@ -319,28 +332,43 @@ export function buildSatyDayTradePlan({
     (expected != null ? `. Pin / FMV uses expected close ${money(expected)}` : "") +
     `. Strike is ATM / one level — not a lottery print.`;
 
-  const triggerLine = `Confirmation: ${tf}-minute SuperTrend ${isPut ? "short" : "long"} and ${sym} holds the ${tf}-minute 21 EMA` +
-    (ema21 != null ? ` (${money(ema21)})` : "") +
-    (trigger != null
+  const triggerLine = (() => {
+    const stBit = `${tf}-minute SuperTrend ${isPut ? "short" : "long"}`;
+    const emaSane = ema21 != null && px != null && px > 0 && Math.abs(ema21 - px) / px <= 0.04;
+    const emaBit = emaSane
+      ? ` and ${sym} holds the ${tf}-minute 21 EMA (${money(ema21)})`
+      : ` and ${sym} pulls back into the ${tf}-minute 21 EMA band (do not chase an extended print)`;
+  const levelBit = trigger != null
       ? `. ${isPut ? "Lose" : "Hold / break"} ${money(trigger)} to start the ${flav}.`
-      : ". First pullback into the 21 EMA after 09:45 ET — not the open print.");
+      : ". First pullback into the 21 EMA after 09:45 ET — not the open print.";
+    return `Confirmation: ${stBit}${emaBit}${levelBit}`;
+  })();
 
-  const entry = `Enter the ${occ} on that confirmation. Pay at or under ${money(buyCeil ?? mid)}` +
-    (pin != null && expected != null ? ` (pin ${money(pin)} if ${sym} closes ${money(expected)})` : "") +
+  const entry = `Enter the ${occ} on that confirmation. Pay at or under ${money(entryMax)}` +
+    (pin != null && expected != null && target != null
+      ? ` (FMV pin ${money(pin)} at ${money(expected)}; full target ${money(target)})`
+      : (pin != null && expected != null ? ` (pin ${money(pin)} if ${sym} closes ${money(expected)})` : "")) +
     `. If the print is already rich or extended, wait for the next pullback — do not chase.`;
 
   const rrBit = rr
     ? ` R:R to target is ${rr.rr != null ? `${rr.rr}:1` : "n/a"}${rr.positive ? "" : " — below 1:1, do not pay this print"}.`
     : "";
-  const exits = `Trim half at ${TRIM_R}R` +
-    (tp1 != null ? ` (${money(tp1)})` : "") +
-    `. Close the rest at ${EXIT_R}R` +
-    (tp2 != null ? ` (${money(tp2)})` : "") +
-    (target != null ? ` or if ${sym} reaches ${money(target)}` : "") +
-    `. After the trim, trail the runner: stop to breakeven, then to the last 5-minute 21 EMA hold.` +
-    (holdOvernight
-      ? " Hold overnight — leftover R:R is still ≥ 1 and the thesis is intact. Trim and exit stay live at the next open — do not wait for 09:45; the opening print is often the profit-taking run."
-      : ` Flatten by ${SESSION_FLAT_ET} ET, before the cash close. Overnight risk can erase the gain.`) +
+  const exits = (sz.contracts >= MIN_CONTRACTS_FOR_TRIM)
+    ? `Trim half at ${TRIM_R}R` +
+      (tp1 != null ? ` (${money(tp1)})` : "") +
+      `. Close the rest at ${EXIT_R}R` +
+      (tp2 != null ? ` (${money(tp2)})` : "") +
+      (target != null ? ` or if ${sym} reaches ${money(target)}` : "") +
+      `. After the trim, trail the runner: stop to breakeven, then give back no more than ${Math.round(TRAIL_GIVEBACK_PCT * 100)}% from the peak premium.`
+    : `Single contract — no partial trim. At ${TRIM_R}R` +
+      (tp1 != null ? ` (${money(tp1)})` : "") +
+      ` raise stop to breakeven and trail (${Math.round(TRAIL_GIVEBACK_PCT * 100)}% giveback from peak). Full exit at ${EXIT_R}R` +
+      (tp2 != null ? ` (${money(tp2)})` : "") +
+      (target != null ? ` or if ${sym} reaches ${money(target)}` : "") +
+      ".";
+  const exitsTail = (holdOvernight
+    ? " Hold overnight — leftover R:R is still ≥ 1 and the thesis is intact. Trim and exit stay live at the next open — do not wait for 09:45; the opening print is often the profit-taking run."
+    : ` Flatten by ${SESSION_FLAT_ET} ET, before the cash close. Overnight risk can erase the gain.`) +
     rrBit;
 
   const stop = `Technical stop: cut the ${flav} if ${sym} ${isPut ? "reclaims" : "loses"} ${money(inv)}` +
@@ -354,25 +382,28 @@ export function buildSatyDayTradePlan({
     : null;
 
   const bracket = {
-    buy_limit: buyCeil ?? mid,
+    buy_limit: entryMax,
     trim: tp1,
     trim_r: rr?.trim_r ?? TRIM_R,
-    trim_pct: 50,
+    trim_pct: sz.contracts >= MIN_CONTRACTS_FOR_TRIM ? 50 : null,
+    protect_at_1r: sz.contracts < MIN_CONTRACTS_FOR_TRIM ? tp1 : null,
     exit: tp2,
     exit_r: rr?.exit_r ?? EXIT_R,
     stop_premium: stopPrem,
     stop_underlying: inv,
+    trail_giveback_pct: TRAIL_GIVEBACK_PCT,
     time_stop_et: timeStop === "overnight" ? "15:45" : timeStop,
     hold_overnight: holdOvernight,
     rr: rr?.rr ?? null,
     rr_positive: !!rr?.positive,
+    single_contract: sz.contracts < MIN_CONTRACTS_FOR_TRIM,
   };
 
   return {
     setup,
     trigger: triggerLine,
     entry,
-    exits,
+    exits: exits + exitsTail,
     stop,
     flip: flipLine,
     bracket,
@@ -385,6 +416,36 @@ export function buildSatyDayTradePlan({
     flavor: flav,
     lean,
   };
+}
+
+function bookContracts(book, sz) {
+  const c = num(book?.contracts) ?? num(sz?.contracts);
+  return c != null && c > 0 ? Math.round(c) : 1;
+}
+
+function hardStopPremium(entry) {
+  const e = num(entry);
+  return e != null ? round2(e * (1 + HARD_STOP_PCT / 100)) : null;
+}
+
+function updatePeak(book, mid) {
+  const peak = num(book?.peak_premium);
+  if (mid == null) return peak;
+  return peak == null ? mid : Math.max(peak, mid);
+}
+
+function trailFloorFromPeak(peak) {
+  const p = num(peak);
+  if (!(p > 0)) return null;
+  return round2(p * (1 - TRAIL_GIVEBACK_PCT));
+}
+
+function isProfitArmed(book) {
+  return !!book?.profit_armed || String(book?.status || "") === "trimmed";
+}
+
+function canTrimContracts(contracts) {
+  return Number(contracts) >= MIN_CONTRACTS_FOR_TRIM;
 }
 
 function inferSellKind(clock) {
@@ -423,6 +484,7 @@ export function classifyPaperEvent({
     needs_wait: true,
     entry_premium: entry,
     contracts: book?.contracts ?? sz?.contracts ?? null,
+    contracts_remaining: book?.contracts_remaining ?? book?.contracts ?? sz?.contracts ?? null,
     size_label: book?.size_label ?? sz?.label ?? null,
     exit_premium: mid,
     exit_ts: now,
@@ -459,9 +521,11 @@ export function classifyPaperEvent({
         entry_premium: mid,
         entry_ts: now,
         last_premium: mid,
+        peak_premium: mid,
         trim_premium: rr?.trim ?? null,
         exit_premium: rr?.exit ?? null,
         contracts: sz?.contracts ?? 1,
+        contracts_remaining: sz?.contracts ?? 1,
         size_label: sz?.label || "medium",
         ticker: clock?.contract?.ticker || null,
         flavor: clock?.contract?.flavor || null,
@@ -476,84 +540,135 @@ export function classifyPaperEvent({
     return { event: null, nextBook: null };
   }
 
+  const contracts = bookContracts(book, sz);
+  const canTrim = canTrimContracts(contracts);
+  const peak = updatePeak(book, mid);
+  const stamped = {
+    ...book,
+    peak_premium: peak,
+    last_premium: mid ?? book?.last_premium ?? null,
+    held_overnight: !!clock?.hold_overnight || !!book?.held_overnight,
+  };
+
   if (!isOptionsSellWindowEt(now)) {
-    return {
-      event: null,
-      nextBook: {
-        ...book,
-        last_premium: mid ?? book?.last_premium ?? null,
-        held_overnight: !!clock?.hold_overnight || !!book?.held_overnight,
-      },
-    };
+    return { event: null, nextBook: stamped };
   }
 
-  const stopHit = (entry != null && mid != null && mid <= entry * (1 + HARD_STOP_PCT / 100))
-    || sellKind === "invalidation";
-  if (stopHit) {
+  const trimPx = num(book?.trim_premium) ?? (entry != null
+    ? round2(Math.max(entry + (entry * Math.abs(HARD_STOP_PCT) / 100), entry + MIN_TRIM_DOLLARS))
+    : null);
+  const exitPx = num(book?.exit_premium) ?? (entry != null
+    ? round2(entry + 2 * (entry * Math.abs(HARD_STOP_PCT) / 100))
+    : null);
+  const hardStop = hardStopPremium(entry);
+
+  if (sellKind === "invalidation") {
     return {
       event: "STOP",
-      reason: sellKind === "invalidation" ? "invalidation" : "premium_stop",
-      nextBook: { ...closed, event: "STOP", held_overnight: false },
+      reason: "invalidation",
+      nextBook: { ...closed, event: "STOP", held_overnight: false, peak_premium: peak },
     };
   }
 
-  if ((sellKind === "open_trim" || action === "TRIM") && status === "open") {
+  if (!isProfitArmed(stamped) && hardStop != null && mid != null && mid + 1e-9 <= hardStop) {
+    return {
+      event: "STOP",
+      reason: "premium_stop",
+      nextBook: { ...closed, event: "STOP", held_overnight: false, peak_premium: peak },
+    };
+  }
+
+  if (isProfitArmed(stamped) && entry != null && mid != null && mid + 1e-9 <= entry) {
+    return {
+      event: "STOP",
+      reason: "breakeven_stop",
+      nextBook: { ...closed, event: "STOP", held_overnight: false, peak_premium: peak },
+    };
+  }
+
+  const trailFloor = isProfitArmed(stamped) ? trailFloorFromPeak(peak ?? mid) : null;
+  if (trailFloor != null && mid != null && peak != null && peak > (entry ?? 0) && mid + 1e-9 <= trailFloor) {
+    return {
+      event: "EXIT",
+      reason: "trail_stop",
+      nextBook: { ...closed, event: "EXIT", held_overnight: false, peak_premium: peak },
+    };
+  }
+
+  if (action === "SELL" || sellKind === "force_liq" || sellKind === "time_stop"
+    || sellKind === "close_auction" || sellKind === "session_close" || sellKind === "open_exit") {
+    return {
+      event: "EXIT",
+      reason: sellKind || "exit",
+      nextBook: { ...closed, event: "EXIT", held_overnight: false, peak_premium: peak },
+    };
+  }
+
+  if (exitPx != null && mid != null && mid + 1e-9 >= exitPx) {
+    if (status === "trimmed" || (status === "open" && !canTrim)) {
+      return {
+        event: "EXIT",
+        reason: "tp2",
+        nextBook: { ...closed, event: "EXIT", held_overnight: false, peak_premium: peak },
+      };
+    }
+  }
+
+  if ((sellKind === "open_trim" || action === "TRIM") && status === "open" && canTrim) {
+    const sellQty = trimSellQty(contracts);
     return {
       event: "TRIM",
       reason: "open_trim",
       nextBook: {
-        ...book,
+        ...stamped,
         status: "trimmed",
         event: "TRIM",
-        last_premium: mid,
         trim_premium: mid,
         trim_ts: now,
+        trim_sell_qty: sellQty,
+        contracts_remaining: Math.max(0, contracts - sellQty),
+        profit_armed: true,
+        trail_stop_premium: entry,
       },
     };
   }
 
-  if (action === "SELL" || sellKind === "force_liq" || sellKind === "time_stop" || sellKind === "close_auction" || sellKind === "session_close" || sellKind === "open_exit") {
-    return {
-      event: "EXIT",
-      reason: sellKind || "exit",
-      nextBook: { ...closed, event: "EXIT", held_overnight: false },
-    };
-  }
-
-  const trimPx = num(book?.trim_premium) ?? (entry != null ? round2(Math.max(entry * 1.5, entry + MIN_TRIM_DOLLARS)) : null);
-  const exitPx = num(book?.exit_premium) ?? (entry != null ? round2(entry + 2 * (entry * Math.abs(HARD_STOP_PCT) / 100)) : null);
   if (status === "open" && trimPx != null && mid != null && mid + 1e-9 >= trimPx) {
-    return {
-      event: "TRIM",
-      nextBook: {
-        ...book,
-        status: "trimmed",
+    if (canTrim) {
+      const sellQty = trimSellQty(contracts);
+      return {
         event: "TRIM",
-        last_premium: mid,
-        trim_premium: mid,
-        trim_ts: now,
-      },
-    };
+        nextBook: {
+          ...stamped,
+          status: "trimmed",
+          event: "TRIM",
+          trim_premium: mid,
+          trim_ts: now,
+          trim_sell_qty: sellQty,
+          contracts_remaining: Math.max(0, contracts - sellQty),
+          profit_armed: true,
+          trail_stop_premium: entry,
+        },
+      };
+    }
+    if (!stamped.profit_armed) {
+      return {
+        event: "PROTECT",
+        reason: "profit_armed_single",
+        nextBook: {
+          ...stamped,
+          profit_armed: true,
+          trail_stop_premium: entry,
+          profit_armed_ts: now,
+          trim_premium: mid,
+        },
+      };
+    }
   }
 
-  if (status === "trimmed" && exitPx != null && mid != null && mid + 1e-9 >= exitPx) {
-    return {
-      event: "EXIT",
-      reason: "tp2",
-      nextBook: { ...closed, event: "EXIT", held_overnight: false },
-    };
-  }
-
-  const stampHold = !!clock?.hold_overnight || !!book?.held_overnight;
+  const stampHold = !!clock?.hold_overnight || !!stamped.held_overnight;
   if (stampHold || mid != null) {
-    return {
-      event: null,
-      nextBook: {
-        ...book,
-        last_premium: mid ?? book?.last_premium ?? null,
-        held_overnight: stampHold,
-      },
-    };
+    return { event: null, nextBook: stamped };
   }
 
   return { event: null, nextBook: null };
@@ -578,12 +693,14 @@ export function buildDayTradeSignalEmbed({
   const px = num(spot);
   const color = ev === "BUY" ? 0x22c55e
     : ev === "TRIM" ? 0xf59e0b
-      : ev === "STOP" ? 0xef4444
-        : 0x3b82f6;
+      : ev === "PROTECT" ? 0xfbbf24
+        : ev === "STOP" ? 0xef4444
+          : 0x3b82f6;
   const verb = ev === "BUY" ? "BUY"
     : ev === "TRIM" ? "TRIM 50%"
-      : ev === "STOP" ? "STOP OUT"
-        : "EXIT";
+      : ev === "PROTECT" ? "PROTECT"
+        : ev === "STOP" ? "STOP OUT"
+          : "EXIT";
   const sizeBit = sz.label ? ` · ${String(sz.label).toUpperCase()}` : "";
   const expBit = plan?.exp_bit ? ` · ${plan.exp_bit}` : "";
   const dteBit = plan?.dte_bit ? ` · ${plan.dte_bit}` : "";
@@ -596,9 +713,12 @@ export function buildDayTradeSignalEmbed({
       descParts.push(`Size **${sz.contracts} contract${sz.contracts === 1 ? "" : "s"}** (${sz.label || "medium"})${sz.debit_usd != null ? ` · debit **$${sz.debit_usd}**` : ""}.`);
     }
   } else if (ev === "TRIM") {
-    descParts.push(`Paper trim half of ${occ} at ${money(mid)} (${TRIM_R}R). Runner stays on, stop to breakeven.`);
+    descParts.push(`Paper trim half of ${occ} at ${money(mid)} (${TRIM_R}R). Runner stays on — stop to breakeven, trail ${Math.round(TRAIL_GIVEBACK_PCT * 100)}% from peak.`);
+  } else if (ev === "PROTECT") {
+    const be = num(execution?.rr?.entry) ?? num(plan?.bracket?.protect_at_1r);
+    descParts.push(`Single contract at ${money(mid)} (${TRIM_R}R) — stop raised to breakeven ${money(be)}. Trail ${Math.round(TRAIL_GIVEBACK_PCT * 100)}% giveback from peak; no partial trim.`);
   } else if (ev === "STOP") {
-    descParts.push(`Paper stop on ${occ} at ${money(mid)}${reason === "invalidation" ? " — underlying invalidation." : " — premium hard stop."}`);
+    descParts.push(`Paper stop on ${occ} at ${money(mid)}${reason === "invalidation" ? " — underlying invalidation." : reason === "breakeven_stop" ? " — breakeven / trail stop." : " — premium hard stop."}`);
   } else {
     descParts.push(`Paper exit ${occ} at ${money(mid)}${reason ? ` (${reason.replace(/_/g, " ")})` : ""}.`);
   }
@@ -615,8 +735,12 @@ export function buildDayTradeSignalEmbed({
   const br = plan?.bracket || {};
   const bracketLines = [
     br.buy_limit != null ? `BUY limit ≤ ${money(br.buy_limit)}` : null,
-    br.trim != null ? `TRIM 50% @ ${money(br.trim)} (${br.trim_r ?? TRIM_R}R)` : null,
-    br.exit != null ? `EXIT rest @ ${money(br.exit)} (${br.exit_r ?? EXIT_R}R)` : null,
+    br.single_contract && br.protect_at_1r != null
+      ? `PROTECT at 1R @ ${money(br.protect_at_1r)} (breakeven + ${Math.round((br.trail_giveback_pct ?? TRAIL_GIVEBACK_PCT) * 100)}% trail)`
+      : null,
+    !br.single_contract && br.trim != null
+      ? `TRIM 50% @ ${money(br.trim)} (${br.trim_r ?? TRIM_R}R)` : null,
+    br.exit != null ? `EXIT @ ${money(br.exit)} (${br.exit_r ?? EXIT_R}R)` : null,
     br.rr != null ? `R:R to target ${br.rr}:1${br.rr_positive ? "" : " — below 1:1"}` : null,
     br.hold_overnight
       ? "HOLD overnight — leftover R:R still ≥ 1. Trim/exit live at the next open (do not wait for 09:45)"

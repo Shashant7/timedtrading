@@ -78,7 +78,10 @@ async function persistDayTradeBook(KV, {
   await KV.put(bookKey, JSON.stringify(book), { expirationTtl: BOOK_TTL }).catch(() => {});
   const carryKey = ticker ? dayTradeCarryKey(ticker) : null;
   if (!carryKey) return;
-  const live = bookIsLive(book) && (book.held_overnight || isOvernightCarry(book, now));
+  // Pin carry for ANY live book (open/trimmed), not only overnight — so a
+  // later */5 tick with a re-snapped strike cannot open a second paper leg
+  // on the same ticker (710C then 711C six minutes later).
+  const live = bookIsLive(book);
   if (live) {
     await KV.put(carryKey, JSON.stringify({
       signal_id: signalId || null,
@@ -193,5 +196,6 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     size,
     embed,
     discord,
+    book: decision.nextBook || book,
   };
 }

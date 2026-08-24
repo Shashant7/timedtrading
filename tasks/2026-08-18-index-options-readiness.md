@@ -231,6 +231,24 @@ lane uses — same LEFT_MONEY / CORRECT_LOSS verdict semantics.
 - Requires Stage 1's scorecard to show ≥60% contract-win rate on
   the graded tier before it comes off paper.
 
+### Stage 5b — lifecycle mirror (trim / exit / stop closes)
+
+Shipped on `maybeAutoMirrorIndexDayTradeEvent`:
+
+- **BUY** — limit entry at `display_buy_ceil` (live mid capped); records
+  `timed:opt-dt-mirror:{signal_id}` when the bridge accepts the order.
+- **TRIM** — SELL `trim_sell_qty` contracts at live premium (≥2-lot books).
+- **EXIT / STOP** — SELL remaining contracts (`contracts_remaining` after
+  trim, or full size on single-lot).
+- **PROTECT** — paper-only (breakeven + trail armed); no broker order.
+- Closes only fire when a mirrored **entry** exists for that signal id
+  (dedup: one trim + one exit per signal).
+- Still **not** native bracket orders — each event is a separate signed
+  LMT sell via `POST /bridge/options/order`. Bridge reducer guards
+  enforce held qty.
+
+Enable: `options_auto_mirror_indices` + auto-mirror master + vehicle toggles.
+
 ### Stage 6 — multi-day (2–5 session) SPY / QQQ / IWM plays
 
 - New builder `buildIndexSwingPlay`: 5–14 DTE ATM or ~2% OTM, sized
