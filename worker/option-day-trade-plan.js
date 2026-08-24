@@ -281,8 +281,12 @@ export function buildSatyDayTradePlan({
   const contractBit = `${occ}${expBit ? ` ${expBit}` : ""}${dteBit ? ` (${dteBit})` : ""}`;
   const buyCeil = num(band.buy_ceil);
   const pin = num(band.pin);
+  const fmv = num(band.fmv);
   const expected = num(band.expected_close);
-  const fill = mid ?? buyCeil;
+  const entryMax = (mid != null && mid > 0)
+    ? (fmv != null ? Math.min(fmv, mid * 1.15) : mid * 1.08)
+    : (buyCeil ?? fmv ?? mid);
+  const fill = mid ?? entryMax;
   const rr = computePremiumRr({
     entry: fill,
     strike: K,
@@ -319,14 +323,22 @@ export function buildSatyDayTradePlan({
     (expected != null ? `. Pin / FMV uses expected close ${money(expected)}` : "") +
     `. Strike is ATM / one level — not a lottery print.`;
 
-  const triggerLine = `Confirmation: ${tf}-minute SuperTrend ${isPut ? "short" : "long"} and ${sym} holds the ${tf}-minute 21 EMA` +
-    (ema21 != null ? ` (${money(ema21)})` : "") +
-    (trigger != null
+  const triggerLine = (() => {
+    const stBit = `${tf}-minute SuperTrend ${isPut ? "short" : "long"}`;
+    const emaSane = ema21 != null && px != null && px > 0 && Math.abs(ema21 - px) / px <= 0.04;
+    const emaBit = emaSane
+      ? ` and ${sym} holds the ${tf}-minute 21 EMA (${money(ema21)})`
+      : ` and ${sym} pulls back into the ${tf}-minute 21 EMA band (do not chase an extended print)`;
+  const levelBit = trigger != null
       ? `. ${isPut ? "Lose" : "Hold / break"} ${money(trigger)} to start the ${flav}.`
-      : ". First pullback into the 21 EMA after 09:45 ET — not the open print.");
+      : ". First pullback into the 21 EMA after 09:45 ET — not the open print.";
+    return `Confirmation: ${stBit}${emaBit}${levelBit}`;
+  })();
 
-  const entry = `Enter the ${occ} on that confirmation. Pay at or under ${money(buyCeil ?? mid)}` +
-    (pin != null && expected != null ? ` (pin ${money(pin)} if ${sym} closes ${money(expected)})` : "") +
+  const entry = `Enter the ${occ} on that confirmation. Pay at or under ${money(entryMax)}` +
+    (pin != null && expected != null && target != null
+      ? ` (FMV pin ${money(pin)} at ${money(expected)}; full target ${money(target)})`
+      : (pin != null && expected != null ? ` (pin ${money(pin)} if ${sym} closes ${money(expected)})` : "")) +
     `. If the print is already rich or extended, wait for the next pullback — do not chase.`;
 
   const rrBit = rr
@@ -354,7 +366,7 @@ export function buildSatyDayTradePlan({
     : null;
 
   const bracket = {
-    buy_limit: buyCeil ?? mid,
+    buy_limit: entryMax,
     trim: tp1,
     trim_r: rr?.trim_r ?? TRIM_R,
     trim_pct: 50,

@@ -67,6 +67,49 @@ describe("maybeNotifyDayTradePaperEvent", () => {
     expect(notifyDiscord).not.toHaveBeenCalled();
   });
 
+  it("suppresses a second BUY when strike resnap opens a new signal id on the same ticker", async () => {
+    const firstId = "dt:QQQ:2026-08-24:2026-08-25:C:710";
+    const store = {};
+    const env = mockEnv(store);
+    const qqqBase = {
+      profile: "speculator",
+      ticker: "QQQ",
+      flavor: "call",
+      expiration: { dte: 1, iso: "2026-08-25" },
+      now: Date.parse("2026-08-24T11:32:00-04:00"),
+      spot: 706.65,
+      premium: 1.25,
+      gamePlan: { lean: "LONG", lean_conviction: "medium", bull_target: 717.29, bull_trigger: 713.44 },
+      execution: {
+        action: "BUY",
+        sell_kind: null,
+        why: "holding the 5-minute 21 EMA",
+        premium_band: { buy_ceil: 1.35, pin: 0.5, fmv: 1.30, expected_close: 706.65, premium: 1.25, band: "fair" },
+        indicators: { ema21: 705.8, st_dir: -1, tf: "10" },
+        contract: { ticker: "QQQ", flavor: "call", strike: 710, expiration: { dte: 1, iso: "2026-08-25" } },
+      },
+    };
+    const first = await maybeNotifyDayTradePaperEvent(env, { ...qqqBase, signal_id: firstId, strike: 710 });
+    expect(first.event).toBe("BUY");
+    expect(notifyDiscord).toHaveBeenCalledTimes(1);
+
+    const second = await maybeNotifyDayTradePaperEvent(env, {
+      ...qqqBase,
+      signal_id: "dt:QQQ:2026-08-24:2026-08-25:C:711",
+      strike: 711,
+      spot: 707.47,
+      premium: 1.19,
+      now: Date.parse("2026-08-24T11:38:00-04:00"),
+      execution: {
+        ...qqqBase.execution,
+        premium_band: { ...qqqBase.execution.premium_band, premium: 1.19 },
+        contract: { ticker: "QQQ", flavor: "call", strike: 711, expiration: { dte: 1, iso: "2026-08-25" } },
+      },
+    });
+    expect(second.event).toBeNull();
+    expect(notifyDiscord).toHaveBeenCalledTimes(1);
+  });
+
   it("TRIMs a carried overnight book on the next session's signal id", async () => {
     const thuId = payload.signal_id;
     const store = {

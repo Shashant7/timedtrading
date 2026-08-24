@@ -100,9 +100,10 @@ export function extractIndexTimingIndicators(ticker = {}) {
   let tfLabel = null;
   let pick = null;
   for (const k of order) {
-    if (tf[k]?.ema?.ema21 != null || num(tf[k]?.stDir) != null) {
+    const slot = tf[k];
+    if (slot?.ema?.ema21 != null && num(slot?.stDir) != null) {
       tfLabel = k;
-      pick = tf[k];
+      pick = slot;
       break;
     }
   }
