@@ -669,7 +669,17 @@ async function bumpMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicle
 /**
  * Stage 5b — index day-trade lifecycle mirror (BUY / TRIM / EXIT / STOP).
  * PROTECT is paper-only (stop raised, no broker order).
- * Closes only fire when a mirrored entry exists for the signal id.
+ *
+ * Safety invariants:
+ *   - Daily caps gate ENTRIES ONLY. A close is risk-reducing — it must
+ *     never be blocked by a cap or the broker is left holding a position
+ *     the model already exited. Counters bump AFTER all entry checks
+ *     pass, immediately before the entry fires.
+ *   - Close qty is capped by the MIRRORED remaining qty (what the broker
+ *     actually holds), never the paper book's contracts — the paper book
+ *     can be 2-3 lots while the mirrored entry bought 1.
+ *   - Entry dedup via mirror state: one mirrored BUY per signal id even
+ *     if the paper book is lost and the BUY event re-fires.
  */
 export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
   const event = String(ctx.event || "BUY").toUpperCase();
@@ -683,11 +693,16 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
   } = gate;
   const signalId = String(ctx.signal_id || "").trim();
 
-  const counterOk = await bumpMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicleRow);
-  if (!counterOk.ok) return counterOk;
-
   if (event === "BUY") {
-    const notional = (Number(play.premium?.mid) || 0) * 100 * (Number(play.contracts) || 1);
+    if (signalId) {
+      const existing = await loadIndexDtMirror(env, signalId);
+      if (existing?.entry_fired) {
+        return { skipped: true, reason: "entry_already_mirrored" };
+      }
+    }
+
+    const entryContracts = Number(play.contracts) || 1;
+    const notional = (Number(play.premium?.mid) || 0) * 100 * entryContracts;
     if (notional > Number(vehicleRow.max_per_order_usd || 0)) {
       return {
         skipped: true,
@@ -703,6 +718,10 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
         vehicle: vehicleKey,
       };
     }
+
+    // Caps consume only when every entry check above passed.
+    const counterOk = await bumpMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicleRow);
+    if (!counterOk.ok) return counterOk;
 
     const fired = await fireAutoMirror(env, operatorEmail, {
       trade_id: signalId || null,
@@ -721,7 +740,8 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
       await saveIndexDtMirror(env, signalId, {
         entry_fired: true,
         ticker,
-        contracts: Number(play.contracts) || Number(ctx.book?.contracts) || 1,
+        contracts: entryContracts,
+        contracts_remaining: entryContracts,
         strike: ctx.strike ?? play.strikes?.primary,
         flavor: play._day_trade_flavor,
       });
@@ -730,7 +750,8 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
     return { skipped: false, fired, vehicle: vehicleKey, archetype, event };
   }
 
-  // Stage 5b — trim / exit / stop close orders (live premium limit sells).
+  // ── Stage 5b closes (TRIM / EXIT / STOP) — limit sells at live premium.
+  // NEVER cap-gated: closing risk must not be blocked by a daily counter.
   if (!signalId) return { skipped: true, reason: "no_signal_id" };
 
   const mirror = await loadIndexDtMirror(env, signalId);
@@ -741,10 +762,32 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
     return { skipped: true, reason: "exit_already_mirrored" };
   }
 
+  // Broker-side remaining qty — what the mirrored entry actually bought,
+  // minus any mirrored trim. The paper book may hold more contracts than
+  // the mirror; selling the paper qty would oversell into a naked short.
+  const mirroredTotal = Number(mirror.contracts) || 1;
+  const mirroredRemaining = Number.isFinite(Number(mirror.contracts_remaining))
+    ? Math.max(0, Math.round(Number(mirror.contracts_remaining)))
+    : Math.max(0, mirroredTotal - (Number(mirror.trim_qty) || 0));
+  if (mirroredRemaining <= 0) {
+    return { skipped: true, reason: "mirror_position_already_flat" };
+  }
+
   const book = ctx.book || {};
-  const qty = computeIndexDayTradeCloseQty(event, book);
+  const paperQty = computeIndexDayTradeCloseQty(event, book);
+  // TRIM sells the smaller of the paper trim qty and the mirrored trim qty;
+  // EXIT / STOP always flattens the full mirrored remainder.
+  const qty = event === "TRIM"
+    ? Math.min(Math.max(1, trimSellQty(mirroredTotal)), Math.max(1, paperQty), mirroredRemaining)
+    : mirroredRemaining;
   const limitPrice = Number(ctx.premium);
   if (!(limitPrice > 0)) return { skipped: true, reason: "no_close_limit" };
+
+  // A 1-lot mirror cannot partial-trim — skip the broker trim and let the
+  // model's EXIT/STOP flatten it (paper PROTECT already moved the stop).
+  if (event === "TRIM" && mirroredRemaining <= 1 && mirroredTotal <= 1) {
+    return { skipped: true, reason: "mirror_single_lot_no_trim" };
+  }
 
   const closePlay = buildIndexDayTradeClosePlay(play, {
     ticker,
@@ -757,15 +800,6 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
     signalId,
   });
   if (!closePlay) return { skipped: true, reason: "close_play_build_failed" };
-
-  const closeNotional = limitPrice * 100 * qty;
-  if (closeNotional > Number(vehicleRow.max_per_order_usd || 0) * 2) {
-    return {
-      skipped: true,
-      reason: `close_notional_${Math.round(closeNotional)}_exceeds_cap`,
-      vehicle: vehicleKey,
-    };
-  }
 
   const lifecycle = event === "TRIM" ? "reduce" : "close";
   const fired = await fireAutoMirror(env, operatorEmail, {
@@ -783,9 +817,10 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
   });
 
   if (fired?.ok) {
+    const remainingAfter = Math.max(0, mirroredRemaining - qty);
     const patch = event === "TRIM"
-      ? { trim_fired: true, trim_qty: qty, trim_premium: limitPrice }
-      : { exit_fired: true, exit_qty: qty, exit_premium: limitPrice, exit_event: event };
+      ? { trim_fired: true, trim_qty: qty, trim_premium: limitPrice, contracts_remaining: remainingAfter }
+      : { exit_fired: true, exit_qty: qty, exit_premium: limitPrice, exit_event: event, contracts_remaining: remainingAfter };
     await saveIndexDtMirror(env, signalId, patch);
   }
 

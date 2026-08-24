@@ -110,6 +110,168 @@ describe("maybeAutoMirrorIndexDayTrade", () => {
   });
 });
 
+function kvMock(seed = {}) {
+  const store = new Map(Object.entries(seed));
+  return {
+    store,
+    get: async (k) => (store.has(k) ? store.get(k) : null),
+    put: async (k, v) => { store.set(k, v); },
+  };
+}
+
+function bridgeEnv(kv, captured) {
+  return {
+    ADMIN_EMAIL: "op@x.com",
+    KV_TIMED: kv,
+    BROKER_BRIDGE_HMAC_KEY: "secret",
+    BROKER_BRIDGE_URL: "https://tt-broker-bridge.example.workers.dev",
+    BROKER_BRIDGE: {
+      fetch: async (req) => {
+        captured.push(await req.clone().json());
+        return new Response(JSON.stringify({ ok: true, order_id: "OPT1" }), { status: 200 });
+      },
+    },
+  };
+}
+
+const SID = "dt:QQQ:2026-08-24:2026-08-25:C:710";
+const PREFS = JSON.stringify({
+  enabled: true,
+  daily_cap: 2,
+  vehicles: { long_call: { enabled: true, daily_cap: 2, max_per_order_usd: 300, max_loss_per_order_usd: 0 } },
+});
+const CALL_PLAY = {
+  archetype: "day_trade_call",
+  _day_trade_flavor: "call",
+  strikes: { primary: 710 },
+  expiration: { iso: "2026-08-25", dte: 1 },
+  legs: [{ action: "BUY", optionType: "CALL", strike: 710, expiration: "2026-08-25", qty: 1 }],
+  premium: { mid: 1.25 },
+  contracts: 1,
+  max_loss_usd: 125,
+};
+
+describe("Stage 5b mirror safety invariants", () => {
+  const today = new Date().toISOString().slice(0, 10);
+
+  it("EXIT close fires even when daily caps are exhausted (closes never cap-gated)", async () => {
+    const captured = [];
+    const kv = kvMock({
+      "timed:options:auto-mirror:op@x.com": PREFS,
+      [`timed:options:auto-mirror:count:op@x.com:${today}`]: "2",
+      [`timed:options:auto-mirror:count:op@x.com:long_call:${today}`]: "2",
+      [`timed:opt-dt-mirror:${SID}`]: JSON.stringify({ entry_fired: true, contracts: 1, contracts_remaining: 1 }),
+    });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, captured), {
+      event: "EXIT",
+      ticker: "QQQ",
+      signal_id: SID,
+      premium: 1.85,
+      book: { contracts: 1, contracts_remaining: 1 },
+      play: CALL_PLAY,
+      indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(false);
+    expect(r.fired.ok).toBe(true);
+    expect(r.close_qty).toBe(1);
+    expect(captured[0].play.legs[0].action).toBe("SELL");
+  });
+
+  it("close qty is capped at the mirrored remainder, not the paper book qty", async () => {
+    const captured = [];
+    const kv = kvMock({
+      "timed:options:auto-mirror:op@x.com": PREFS,
+      [`timed:opt-dt-mirror:${SID}`]: JSON.stringify({ entry_fired: true, contracts: 1, contracts_remaining: 1 }),
+    });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, captured), {
+      event: "EXIT",
+      ticker: "QQQ",
+      signal_id: SID,
+      premium: 2.1,
+      book: { contracts: 3, contracts_remaining: 3 },
+      play: CALL_PLAY,
+      indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(false);
+    expect(r.close_qty).toBe(1);
+    expect(captured[0].play.legs[0].qty).toBe(1);
+  });
+
+  it("skips a broker TRIM when the mirror only holds one contract", async () => {
+    const kv = kvMock({
+      "timed:options:auto-mirror:op@x.com": PREFS,
+      [`timed:opt-dt-mirror:${SID}`]: JSON.stringify({ entry_fired: true, contracts: 1, contracts_remaining: 1 }),
+    });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, []), {
+      event: "TRIM",
+      ticker: "QQQ",
+      signal_id: SID,
+      premium: 1.9,
+      book: { contracts: 2, contracts_remaining: 2, trim_sell_qty: 1 },
+      play: CALL_PLAY,
+      indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(true);
+    expect(r.reason).toBe("mirror_single_lot_no_trim");
+  });
+
+  it("dedupes BUY when an entry was already mirrored for the signal id", async () => {
+    const kv = kvMock({
+      "timed:options:auto-mirror:op@x.com": PREFS,
+      [`timed:opt-dt-mirror:${SID}`]: JSON.stringify({ entry_fired: true, contracts: 1, contracts_remaining: 1 }),
+    });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, []), {
+      event: "BUY",
+      ticker: "QQQ",
+      signal_id: SID,
+      play: CALL_PLAY,
+      indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(true);
+    expect(r.reason).toBe("entry_already_mirrored");
+  });
+
+  it("does not consume the daily counter when the BUY is skipped on notional", async () => {
+    const kv = kvMock({ "timed:options:auto-mirror:op@x.com": PREFS });
+    const bigPlay = { ...CALL_PLAY, premium: { mid: 9.99 }, max_loss_usd: 999 };
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, []), {
+      event: "BUY",
+      ticker: "QQQ",
+      signal_id: SID,
+      play: bigPlay,
+      indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(true);
+    expect(String(r.reason)).toContain("notional_");
+    expect(kv.store.has(`timed:options:auto-mirror:count:op@x.com:${today}`)).toBe(false);
+    expect(kv.store.has(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBe(false);
+  });
+
+  it("EXIT after a mirrored TRIM sells only the mirrored remainder", async () => {
+    const captured = [];
+    const kv = kvMock({
+      "timed:options:auto-mirror:op@x.com": PREFS,
+      [`timed:opt-dt-mirror:${SID}`]: JSON.stringify({
+        entry_fired: true, trim_fired: true, contracts: 2, trim_qty: 1, contracts_remaining: 1,
+      }),
+    });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, captured), {
+      event: "STOP",
+      ticker: "QQQ",
+      signal_id: SID,
+      premium: 1.25,
+      book: { contracts: 2, contracts_remaining: 1 },
+      play: CALL_PLAY,
+      indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(false);
+    expect(r.close_qty).toBe(1);
+    const saved = JSON.parse(kv.store.get(`timed:opt-dt-mirror:${SID}`));
+    expect(saved.exit_fired).toBe(true);
+    expect(saved.contracts_remaining).toBe(0);
+  });
+});
+
 describe("buildIndexDayTradeClosePlay", () => {
   const basePlay = {
     archetype: "day_trade_call",
