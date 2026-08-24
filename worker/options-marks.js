@@ -94,6 +94,121 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+const LIVE_MARK_FRESH_MS = 20 * 60 * 1000;
+
+function nyYmdFromTs(ts) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(Number(ts)));
+  const y = parts.find((p) => p.type === "year")?.value;
+  const m = parts.find((p) => p.type === "month")?.value;
+  const d = parts.find((p) => p.type === "day")?.value;
+  return y && m && d ? `${y}-${m}-${d}` : null;
+}
+
+/**
+ * Latest mark mid when the snapshot is still fresh (default 20 min).
+ */
+export function pickFreshMarkMid(marks = [], { now = Date.now(), maxAgeMs = LIVE_MARK_FRESH_MS } = {}) {
+  const rows = (Array.isArray(marks) ? marks : [])
+    .map((m) => ({ ts: Number(m.ts), mid: num(m.mid ?? m.c) }))
+    .filter((m) => Number.isFinite(m.ts) && m.mid != null && m.mid > 0)
+    .sort((a, b) => a.ts - b.ts);
+  if (!rows.length) return null;
+  const last = rows[rows.length - 1];
+  if (now - last.ts <= maxAgeMs) {
+    return { mid: last.mid, source: "option_marks", ts: last.ts };
+  }
+  return null;
+}
+
+function pickLegMidFromChain(chain, { right, strike, optionSymbol } = {}) {
+  if (!chain?.ok) return null;
+  const r = String(right || "").toUpperCase();
+  const legs = r === "P" || r === "PUT" ? chain.puts : chain.calls;
+  const occ = optionSymbol ? String(optionSymbol).toUpperCase() : null;
+  const k = num(strike);
+  const leg = occ
+    ? (legs || []).find((l) => String(l.symbol || "").toUpperCase() === occ)
+    : (legs || []).find((l) => Math.abs(Number(l.strike) - k) < 0.01);
+  const mid = num(leg?.mid);
+  if (!(mid > 0)) return null;
+  return {
+    mid,
+    source: "live_chain",
+    bid: num(leg.bid),
+    ask: num(leg.ask),
+    ts: Date.now(),
+  };
+}
+
+/**
+ * Resolve the premium the Today index cards should show as "Live prem".
+ * Prefer fresh option_marks, then a live Alpaca chain leg, then today's
+ * last mark, then an open paper book, then the BS estimate fallback.
+ */
+export async function resolveLiveOptionPremium(env, {
+  ticker,
+  expirationIso,
+  right,
+  strike,
+  optionSymbol,
+  marks = [],
+  estimateMid,
+  openBook = null,
+  chain = null,
+  now = Date.now(),
+  maxAgeMs = LIVE_MARK_FRESH_MS,
+} = {}) {
+  const fresh = pickFreshMarkMid(marks, { now, maxAgeMs });
+  if (fresh?.mid > 0) return fresh;
+
+  const fromChain = pickLegMidFromChain(chain, { right, strike, optionSymbol });
+  if (fromChain?.mid > 0) return fromChain;
+
+  if (env?.ALPACA_API_KEY_ID && env?.ALPACA_API_SECRET_KEY && ticker && expirationIso) {
+    try {
+      const fetched = await alpacaFetchOptionsChain(env, ticker, expirationIso, {
+        skipOI: true,
+        strikeRangePct: 0.03,
+      });
+      const live = pickLegMidFromChain(fetched, { right, strike, optionSymbol });
+      if (live?.mid > 0) return live;
+    } catch (_) { /* fall through */ }
+  }
+
+  const todayYmd = nyYmdFromTs(now);
+  const todayRows = (Array.isArray(marks) ? marks : [])
+    .map((m) => ({
+      ts: Number(m.ts),
+      mid: num(m.mid ?? m.c),
+      source: String(m.source || ""),
+    }))
+    .filter((m) => Number.isFinite(m.ts) && m.mid != null && m.mid > 0 && nyYmdFromTs(m.ts) === todayYmd)
+    .sort((a, b) => a.ts - b.ts);
+  if (todayRows.length) {
+    const last = todayRows[todayRows.length - 1];
+    if (last.source === "live_chain" || last.source === "alpaca") {
+      return { mid: last.mid, source: "option_marks", ts: last.ts };
+    }
+  }
+
+  const bookPrem = num(openBook?.last_premium);
+  if (bookPrem > 0) {
+    const status = String(openBook?.status || "").toLowerCase();
+    if (status === "open" || status === "trimmed") {
+      return { mid: bookPrem, source: "open_book", ts: num(openBook?.updated_at) || now };
+    }
+  }
+
+  const est = num(estimateMid);
+  if (est > 0) return { mid: est, source: "estimate", ts: now };
+  return null;
+}
+
 /** OCC symbol builder: SPY251218C00450000 = SPY 2025-12-18 C 450.00. */
 export function buildOccSymbol(ticker, expirationIso, right, strike) {
   const t = String(ticker || "").toUpperCase();

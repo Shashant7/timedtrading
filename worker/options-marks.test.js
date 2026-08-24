@@ -4,6 +4,8 @@ import {
   computeOptionOutcome,
   optionMarksEnabled,
   summarizeScorecard,
+  pickFreshMarkMid,
+  resolveLiveOptionPremium,
   _resetOptionMarksSchemaCache,
 } from "./options-marks.js";
 
@@ -74,6 +76,53 @@ describe("optionMarksEnabled", () => {
   });
   it("respects env fallback", () => {
     expect(optionMarksEnabled({ OPTIONS_MARKS_ENABLED: "true" })).toBe(true);
+  });
+});
+
+describe("pickFreshMarkMid", () => {
+  it("returns the latest mark when within maxAgeMs", () => {
+    const now = Date.now();
+    const out = pickFreshMarkMid([
+      { ts: now - 120_000, mid: 0.7 },
+      { ts: now - 60_000, mid: 0.8 },
+    ], { now, maxAgeMs: 5 * 60 * 1000 });
+    expect(out?.mid).toBe(0.8);
+    expect(out?.source).toBe("option_marks");
+  });
+
+  it("returns null when the last mark is stale", () => {
+    const now = Date.now();
+    expect(pickFreshMarkMid([{ ts: now - 30 * 60 * 1000, mid: 1.2 }], { now })).toBeNull();
+  });
+});
+
+describe("resolveLiveOptionPremium", () => {
+  it("prefers a prefetched chain leg over the BS estimate", async () => {
+    const out = await resolveLiveOptionPremium({}, {
+      ticker: "SPY",
+      expirationIso: "2026-08-25",
+      right: "P",
+      strike: 759,
+      estimateMid: 1.38,
+      chain: {
+        ok: true,
+        puts: [{ symbol: "SPY260825P00759000", strike: 759, mid: 0.8, bid: 0.78, ask: 0.82 }],
+      },
+    });
+    expect(out?.mid).toBe(0.8);
+    expect(out?.source).toBe("live_chain");
+  });
+
+  it("falls back to estimate when no live sources exist", async () => {
+    const out = await resolveLiveOptionPremium({}, {
+      ticker: "SPY",
+      expirationIso: "2026-08-25",
+      right: "P",
+      strike: 759,
+      estimateMid: 1.38,
+    });
+    expect(out?.mid).toBe(1.38);
+    expect(out?.source).toBe("estimate");
   });
 });
 
