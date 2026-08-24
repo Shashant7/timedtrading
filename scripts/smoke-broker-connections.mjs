@@ -189,6 +189,8 @@ const checks = [
   ["open long chip", />Open Long</],
   ["accounts section", /Mirror settings/],
   ["mirror settings above performance", /Mirror settings[\s\S]*Account performance/],
+  ["compact account rows", /bc-acct-row/],
+  ["account admin disclose", /Account admin/],
   ["no daily-cap UI", /no daily order cap/],
   ["kill switch", /Pause all mirroring/],
   ["twelvedata footer", /Twelve Data/],

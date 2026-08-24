@@ -255,7 +255,28 @@ function PageSkeleton() {
   return React.createElement("div", {
     "aria-busy": "true",
     "aria-label": "Loading broker connections"
+  }, React.createElement("section", {
+    className: "tt-card tt-card-pad bc-settings",
+    "aria-hidden": "true"
   }, React.createElement("div", {
+    className: "skel skel-lbl",
+    style: {
+      width: 90
+    }
+  }), React.createElement("div", {
+    className: "skel skel-val",
+    style: {
+      width: 180,
+      marginBottom: 10
+    }
+  }), [0, 1, 2].map(i => React.createElement("div", {
+    key: i,
+    className: "skel",
+    style: {
+      height: 36,
+      marginBottom: 8
+    }
+  }))), React.createElement("div", {
     className: "kpi-strip"
   }, [0, 1, 2, 3].map(i => React.createElement("div", {
     key: i,
@@ -488,7 +509,7 @@ function GrowthStackSkeleton({
   }), React.createElement("div", {
     className: "skel",
     style: {
-      height: 220,
+      height: 168,
       borderRadius: 12
     }
   })));
@@ -564,13 +585,19 @@ function ActionRow({
   isLast,
   showDay
 }) {
+  const [open, setOpen] = useState(false);
   const ev = EVENT_STYLE[a.event] || {
     label: a.event,
     color: "var(--tt-text-dim)"
   };
   const mc = MIRROR_CHIP[a.mirror] || MIRROR_CHIP.not_mirrored;
   const reason = humanizeReason(a.mirror_reason);
-  const hasDetail = a.fills && a.fills.length || a.rejects && a.rejects.length || reason || a.note;
+  const fills = a.fills || [];
+  const rejects = a.rejects || [];
+  const hasDetail = fills.length || rejects.length || reason || a.note;
+  const extraDetail = fills.length > 1 || rejects.length > 1 || !!a.note;
+  const fillHint = fills[0];
+  const rejectHint = rejects[0];
   const pnl = Number(a.realized_pnl) || 0;
   return React.createElement("div", null, showDay && React.createElement("div", {
     className: "dim",
@@ -630,9 +657,25 @@ function ActionRow({
     className: `bc-pill ${mc.cls}`
   }, React.createElement("span", {
     className: "dot"
-  }), mc.label, a.fills?.length > 1 ? ` ×${a.fills.length}` : "")), hasDetail && React.createElement("div", {
+  }), mc.label, fills.length > 1 ? ` ×${fills.length}` : "")), hasDetail && React.createElement("div", {
+    className: "tl-compact"
+  }, fillHint && React.createElement("span", null, fillHint.account || "Account", " \xB7 ", fmtQty(fillHint.qty), " sh", React.createElement("span", {
+    className: "bc-pill p-ok",
+    style: {
+      marginLeft: 6
+    }
+  }, "FILLED")), rejectHint && React.createElement("span", null, rejectHint.account || "Account", " \xB7 ", humanizeReason(rejectHint.reject_reason) || "Rejected", React.createElement("span", {
+    className: "bc-pill p-err",
+    style: {
+      marginLeft: 6
+    }
+  }, "REJECTED")), !fills.length && !rejects.length && reason && React.createElement("span", null, reason), extraDetail && React.createElement("button", {
+    type: "button",
+    className: "tl-more",
+    onClick: () => setOpen(v => !v)
+  }, open ? "Less" : "More")), open && extraDetail && React.createElement("div", {
     className: "tl-detail"
-  }, (a.fills || []).map((f, i) => React.createElement("div", {
+  }, fills.map((f, i) => React.createElement("div", {
     key: "f" + i,
     className: "tl-acct-row"
   }, React.createElement("span", {
@@ -645,7 +688,7 @@ function ActionRow({
     className: "dim"
   }, "\xB7"), " ", fmtUsd(f.value)), React.createElement("span", {
     className: "bc-pill p-ok"
-  }, "FILLED"))), (a.rejects || []).map((r, i) => React.createElement("div", {
+  }, "FILLED"))), rejects.map((r, i) => React.createElement("div", {
     key: "r" + i,
     className: "tl-acct-row"
   }, React.createElement("span", {
@@ -659,9 +702,7 @@ function ActionRow({
     }
   }, humanizeReason(r.reject_reason) || "Rejected"), React.createElement("span", {
     className: "bc-pill p-err"
-  }, "REJECTED"))), !a.fills?.length && !a.rejects?.length && reason && React.createElement("div", {
-    className: "dim"
-  }, reason), a.note && React.createElement("div", {
+  }, "REJECTED"))), a.note && React.createElement("div", {
     className: "dim",
     style: {
       marginTop: 5,
@@ -673,6 +714,7 @@ function DayActions({
   refreshKey
 }) {
   const [data, setData] = useState(null);
+  const [showAllDays, setShowAllDays] = useState({});
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -720,6 +762,7 @@ function DayActions({
   const todayKey = nyDateKey(Date.now());
   const hasToday = !!groups.find(([k]) => k === todayKey)?.[1]?.length;
   const expandKey = hasToday ? todayKey : groups[0]?.[0] || todayKey;
+  const TL_PREVIEW = 8;
   return React.createElement("section", {
     className: "tt-card tt-card-pad",
     style: {
@@ -738,10 +781,10 @@ function DayActions({
     className: "dim",
     style: {
       fontSize: 12,
-      margin: "0 0 10px",
-      lineHeight: 1.6
+      margin: "0 0 8px",
+      lineHeight: 1.5
     }
-  }, "Every trade the model executed, whether the mirror followed on the connected accounts, and why when it did not. Today stays expanded; the previous two sessions collapse \u2014 tap to expand."), data === null && React.createElement("div", null, [0, 1, 2].map(i => React.createElement("div", {
+  }, "Whether the mirror followed each model action, and why when it did not. Older sessions stay collapsed."), data === null && React.createElement("div", null, [0, 1, 2].map(i => React.createElement("div", {
     key: i,
     className: "skel",
     style: {
@@ -758,17 +801,26 @@ function DayActions({
     }
   }, "No model actions in this window. The timeline fills in as the model trades."), data?.ok && groups.map(([key, rows]) => {
     const expanded = key === expandKey;
+    const showAll = !!showAllDays[key];
+    const visible = showAll || rows.length <= TL_PREVIEW ? rows : rows.slice(0, TL_PREVIEW);
     const head = React.createElement("div", {
       className: "tl-day-h"
     }, fmtDay(rows[0].ts), " \xB7 ", rows.length, " action", rows.length === 1 ? "" : "s", key === todayKey ? " · today" : "");
-    const list = React.createElement("div", {
+    const list = React.createElement(React.Fragment, null, React.createElement("div", {
       className: "tl"
-    }, rows.map((a, i) => React.createElement(ActionRow, {
+    }, visible.map((a, i) => React.createElement(ActionRow, {
       key: key + i,
       a: a,
-      isLast: i === rows.length - 1,
+      isLast: i === visible.length - 1,
       showDay: false
-    })));
+    }))), rows.length > TL_PREVIEW && !showAll && React.createElement("button", {
+      type: "button",
+      className: "bc-btn bc-btn-sm tl-show-more",
+      onClick: () => setShowAllDays(m => ({
+        ...m,
+        [key]: true
+      }))
+    }, "Show ", rows.length - TL_PREVIEW, " more actions"));
     if (expanded) {
       return React.createElement("div", {
         key: key,
@@ -1415,9 +1467,9 @@ function PositionsSection({
     style: {
       fontSize: 12,
       margin: "0 0 6px",
-      lineHeight: 1.6
+      lineHeight: 1.5
     }
-  }, "Each account's holdings against the model book, with action history inline. AUTO-SYNC positions fill in on the model's own buy windows \u2014 sync is never forced. User-bought positions the model also holds can be handed to the model (CAN SYNC, no order placed); broker-only holdings are never touched. Accounts with mirroring off show holdings only \u2014 no sync-manifest outcomes."), data?.prices_included === false && React.createElement("div", {
+  }, "Holdings vs the model book. AUTO-SYNC fills on the model's own buy windows; CAN SYNC hands a user-bought lot to the model with no order."), data?.prices_included === false && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 11,
@@ -1445,56 +1497,53 @@ function PositionsSection({
     style: {
       fontSize: 13
     }
-  }, "No connected accounts yet."), accounts.map(acct => React.createElement("div", {
-    key: acct.account_id,
-    style: {
-      marginBottom: 20
-    }
-  }, React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      flexWrap: "wrap",
-      marginBottom: 2
-    }
-  }, React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 800
-    }
-  }, acct.label || acct.account_id), !acct.mirror_enabled && React.createElement("span", {
-    className: "bc-pill p-off"
-  }, "MIRROR OFF"), acct.positions_stale && React.createElement("span", {
-    className: "bc-pill p-warn",
-    title: humanizeReason(acct.positions_stale_reason) || ""
-  }, "AS OF ", minsAgo(acct.positions_as_of), "M AGO")), (acct.summary?.positions_value > 0 || Number.isFinite(acct.summary?.day_pnl)) && React.createElement("div", {
-    className: "acct-summary mono"
-  }, acct.summary.positions_value > 0 && React.createElement("span", null, "Value ", React.createElement("b", null, fmtUsd(acct.summary.positions_value))), Number.isFinite(acct.summary.day_pnl) && acct.summary.day_pnl !== null && React.createElement("span", null, "Today ", React.createElement("b", {
-    className: acct.summary.day_pnl >= 0 ? "up" : "dn"
-  }, fmtSigned(acct.summary.day_pnl))), Number.isFinite(acct.summary.unrealized_pnl) && acct.summary.unrealized_pnl !== null && React.createElement("span", null, "Open P&L ", React.createElement("b", {
-    className: acct.summary.unrealized_pnl >= 0 ? "up" : "dn"
-  }, fmtSigned(acct.summary.unrealized_pnl)))), acct.positions_error && React.createElement("div", {
-    className: "msg-err",
-    style: {
-      fontSize: 12,
-      margin: "6px 0"
-    }
-  }, "Broker positions unavailable right now (", humanizeReason(acct.positions_error), "). The view retries automatically."), (acct.items || []).length === 0 && !acct.positions_error && React.createElement("div", {
-    className: "dim",
-    style: {
-      fontSize: 12,
-      padding: "6px 0"
-    }
-  }, "No positions."), (() => {
+  }, "No connected accounts yet."), accounts.map((acct, idx) => {
+    const primaryId = (accounts.find(a => a.mirror_enabled === true) || accounts[0] || {}).account_id;
+    const isPrimary = acct.account_id === primaryId || !primaryId && idx === 0;
+    const header = React.createElement("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        flexWrap: "wrap"
+      }
+    }, React.createElement("span", {
+      style: {
+        fontSize: 13,
+        fontWeight: 800
+      }
+    }, acct.label || acct.account_id), !acct.mirror_enabled && React.createElement("span", {
+      className: "bc-pill p-off"
+    }, "MIRROR OFF"), acct.positions_stale && React.createElement("span", {
+      className: "bc-pill p-warn",
+      title: humanizeReason(acct.positions_stale_reason) || ""
+    }, "AS OF ", minsAgo(acct.positions_as_of), "M AGO"));
+    const summaryLine = (acct.summary?.positions_value > 0 || Number.isFinite(acct.summary?.day_pnl)) && React.createElement("div", {
+      className: "acct-summary mono"
+    }, acct.summary.positions_value > 0 && React.createElement("span", null, "Value ", React.createElement("b", null, fmtUsd(acct.summary.positions_value))), Number.isFinite(acct.summary.day_pnl) && acct.summary.day_pnl !== null && React.createElement("span", null, "Today ", React.createElement("b", {
+      className: acct.summary.day_pnl >= 0 ? "up" : "dn"
+    }, fmtSigned(acct.summary.day_pnl))), Number.isFinite(acct.summary.unrealized_pnl) && acct.summary.unrealized_pnl !== null && React.createElement("span", null, "Open P&L ", React.createElement("b", {
+      className: acct.summary.unrealized_pnl >= 0 ? "up" : "dn"
+    }, fmtSigned(acct.summary.unrealized_pnl))));
     const rows = (acct.items || []).filter(it => {
       if (acct.mirror_enabled) return true;
       if (it.auto_sync && !(Number(it.broker_qty) > 0.0001)) return false;
       if (!it.managed && it.model_open && !(Number(it.broker_qty) > 0.0001)) return false;
       return Number(it.broker_qty) > 0.0001 || it.managed;
     });
-    if (!rows.length) return null;
-    return React.createElement("div", null, React.createElement("div", {
+    const body = React.createElement(React.Fragment, null, isPrimary && summaryLine, acct.positions_error && React.createElement("div", {
+      className: "msg-err",
+      style: {
+        fontSize: 12,
+        margin: "6px 0"
+      }
+    }, "Broker positions unavailable right now (", humanizeReason(acct.positions_error), "). The view retries automatically."), rows.length === 0 && !acct.positions_error && React.createElement("div", {
+      className: "dim",
+      style: {
+        fontSize: 12,
+        padding: "6px 0"
+      }
+    }, "No positions."), rows.length > 0 && React.createElement("div", null, React.createElement("div", {
       className: "pos-head"
     }, React.createElement("span", null), React.createElement("span", null, "Position"), React.createElement("span", null, "Price"), React.createElement("span", null, "Value"), React.createElement("span", null, "Open P&L"), React.createElement("span", {
       style: {
@@ -1511,8 +1560,20 @@ function PositionsSection({
       syncBusy: syncBusyFor === `${acct.account_id}:${it.ticker}`,
       onSync: tk => doSync(acct.account_id, tk),
       onSelectTicker: onSelectTicker
-    })));
-  })())));
+    }))));
+    if (isPrimary) {
+      return React.createElement("div", {
+        key: acct.account_id,
+        style: {
+          marginBottom: 12
+        }
+      }, header, body);
+    }
+    return React.createElement("details", {
+      key: acct.account_id,
+      className: "bc-acct-fold"
+    }, React.createElement("summary", null, header, summaryLine), body);
+  }));
 }
 function accountOptionsOn(acct) {
   if (acct?.options_enabled === true) return true;
@@ -1569,51 +1630,13 @@ function AccountCard({
     }, next ? "Options strategies enabled" : "Options strategies paused");
   };
   return React.createElement("div", {
-    className: "tt-card tt-card-pad",
-    style: {
-      marginBottom: 12
-    }
-  }, React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "flex-start",
-      flexWrap: "wrap",
-      gap: 10
-    }
+    className: "bc-acct-row"
   }, React.createElement("div", null, React.createElement("div", {
-    style: {
-      fontWeight: 800,
-      fontSize: 15,
-      fontFamily: "Manrope, Inter, sans-serif"
-    }
+    className: "bc-acct-name"
   }, acct.webull_account_label || acct.webull_account_class || "Account"), React.createElement("div", {
-    className: "mono dim",
-    style: {
-      fontSize: 11,
-      marginTop: 3
-    }
-  }, (acct.broker || "webull").toUpperCase(), acct.webull_account_id ? ` · ${acct.webull_account_id}` : ""), React.createElement("p", {
-    className: "dim",
-    style: {
-      fontSize: 12,
-      margin: "8px 0 0",
-      lineHeight: 1.55,
-      maxWidth: 520
-    }
-  }, "Equity mirror and options strategies are separate. Order size follows the model proportionally to this account's equity \u2014 there is no daily order cap.")), React.createElement("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "flex-end",
-      gap: 10
-    }
-  }, React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10
-    }
+    className: "mono dim bc-acct-id"
+  }, (acct.broker || "webull").toUpperCase(), acct.webull_account_id ? ` · ${acct.webull_account_id}` : "")), React.createElement("div", {
+    className: "bc-acct-switch"
   }, React.createElement("span", {
     className: `bc-pill ${enabled ? "p-ok" : "p-off"}`
   }, React.createElement("span", {
@@ -1639,11 +1662,7 @@ function AccountCard({
       left: enabled ? 22 : 3
     }
   }))), React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10
-    }
+    className: "bc-acct-switch"
   }, React.createElement("span", {
     className: `bc-pill ${optionsOn ? "p-mint" : "p-off"}`
   }, React.createElement("span", {
@@ -1661,13 +1680,8 @@ function AccountCard({
     style: {
       left: optionsOn ? 22 : 3
     }
-  }))))), optionsOn && React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 6,
-      flexWrap: "wrap",
-      marginTop: 12
-    }
+  }))), optionsOn && React.createElement("div", {
+    className: "bc-acct-vehicles"
   }, React.createElement("button", {
     className: `bc-btn bc-btn-sm ${callOn ? "bc-btn-primary" : ""}`,
     disabled: busy,
@@ -1705,7 +1719,7 @@ function AccountCard({
   }, "Long put ", putOn ? "on" : "off")), msg && React.createElement("div", {
     className: msg.ok ? "msg-ok" : "msg-err",
     style: {
-      marginTop: 10
+      gridColumn: "1 / -1"
     }
   }, msg.text));
 }
@@ -2318,7 +2332,8 @@ function AccountPerformanceRow({
     }, Number.isFinite(r.delta) ? fmtSigned(r.delta) : "—", Number.isFinite(r.pct) ? ` (${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(2)}%)` : ""), React.createElement("div", {
       className: "acct-perf-sub"
     }, rangeCopy), React.createElement("div", {
-      className: "acct-perf-since"
+      className: "acct-perf-since",
+      title: r.firstMirrorOn ? "Since first mirror on" : "Model-managed history"
     }, React.createElement("span", null, r.firstMirrorOn ? "Since first mirror on" : "Model-managed history"), React.createElement("b", {
       className: Number.isFinite(r.sinceMirror) ? r.sinceMirror >= 0 ? "up" : "dn" : "dim"
     }, r.firstMirrorOn && Number.isFinite(r.sinceMirror) ? fmtSigned(r.sinceMirror) : "Not started")));
@@ -2477,11 +2492,11 @@ function EquityCurve({
   const fill = up ? "rgba(52,211,153,0.14)" : "rgba(239,68,68,0.12)";
   const rangeLabel = range === "1D" ? "today" : range === "ALL" ? "all time" : range;
   const W = 640,
-    H = 200,
+    H = 160,
     padL = 6,
     padR = 6,
-    padT = 18,
-    padB = 22;
+    padT = 14,
+    padB = 20;
   let path = "",
     area = "";
   let liveX = null,
@@ -3000,13 +3015,11 @@ function BrokerConnectionsApp({
     }
   }, "Status: ", err)), accounts === null && React.createElement(PageSkeleton, null), accounts !== null && hasAny && React.createElement("section", {
     id: "mirror-settings",
-    style: {
-      marginBottom: 18
-    }
+    className: "tt-card tt-card-pad bc-settings"
   }, React.createElement("div", {
     className: "sec-head",
     style: {
-      marginBottom: 10
+      marginBottom: 6
     }
   }, React.createElement("div", null, React.createElement("div", {
     className: "tt-sec-title"
@@ -3020,15 +3033,9 @@ function BrokerConnectionsApp({
     style: {
       fontSize: 12,
       marginTop: 4,
-      maxWidth: 560
+      maxWidth: 620
     }
-  }, "Equity mirror and options strategies are separate switches on each account.")), React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8,
-      flexWrap: "wrap"
-    }
-  }, anyEnabled && React.createElement("button", {
+  }, "Equity mirror and options strategies are separate. Size follows each account's equity \u2014 there is no daily order cap.")), anyEnabled && React.createElement("button", {
     className: "bc-btn bc-btn-sm",
     disabled: busy,
     style: {
@@ -3046,20 +3053,7 @@ function BrokerConnectionsApp({
         setBusy(false);
       }
     }
-  }, "Pause all mirroring"), webullAccounts.length > 0 && React.createElement("button", {
-    className: "bc-btn bc-btn-sm bc-btn-danger",
-    disabled: busy,
-    onClick: async () => {
-      if (!confirm("Disconnect Webull? Mirroring stops for every account under this login and the stored keys are removed.")) return;
-      setBusy(true);
-      try {
-        await apiPost("/timed/broker/webull/disconnect", {});
-        refresh();
-      } finally {
-        setBusy(false);
-      }
-    }
-  }, "Disconnect Webull"))), webullAccounts.map(acct => React.createElement(AccountCard, {
+  }, "Pause all mirroring")), webullAccounts.map(acct => React.createElement(AccountCard, {
     key: acct.user_id,
     acct: acct,
     onChanged: refresh
@@ -3147,23 +3141,40 @@ function BrokerConnectionsApp({
     className: "tt-disclose"
   }, React.createElement("summary", null, React.createElement("span", {
     className: "tt-disclose-title"
-  }, "Rotate keys"), React.createElement("span", {
+  }, "Account admin"), React.createElement("span", {
     className: "tt-disclose-sub"
-  }, "paste a regenerated Webull key pair \u2014 accounts and settings are preserved"), React.createElement("span", {
+  }, "rotate keys or disconnect Webull"), React.createElement("span", {
     className: "tt-disclose-caret"
   }, "\u25BC")), React.createElement("div", {
     className: "tt-disclose-body"
   }, React.createElement(ConnectForm, {
     onConnected: refresh,
     compact: true
-  }))), React.createElement("p", {
+  }), webullAccounts.length > 0 && React.createElement("div", {
+    style: {
+      marginTop: 14
+    }
+  }, React.createElement("button", {
+    className: "bc-btn bc-btn-sm bc-btn-danger",
+    disabled: busy,
+    onClick: async () => {
+      if (!confirm("Disconnect Webull? Mirroring stops for every account under this login and the stored keys are removed.")) return;
+      setBusy(true);
+      try {
+        await apiPost("/timed/broker/webull/disconnect", {});
+        refresh();
+      } finally {
+        setBusy(false);
+      }
+    }
+  }, "Disconnect Webull")))), React.createElement("p", {
     className: "dim",
     style: {
       fontSize: 11,
       marginTop: 20,
       lineHeight: 1.6
     }
-  }, "Optional auto-mirror sends model BUY/TRIM/EXIT signals to connected brokerage accounts, sized per account with hard per-order and per-day limits. Order confirmations and mirror-sync notices are emailed to the account holder and the Timed Trading admin desk. Market data powered by Twelve Data.")), RailOverlay && railTickerObj && React.createElement(RailOverlay, {
+  }, "Optional auto-mirror sends model BUY/TRIM/EXIT signals to connected brokerage accounts, sized proportionally to each account's equity. There is no daily order cap. Order confirmations and mirror-sync notices are emailed to the account holder and the Timed Trading admin desk. Market data powered by Twelve Data.")), RailOverlay && railTickerObj && React.createElement(RailOverlay, {
     ticker: railTickerObj,
     allLoadedData: null,
     initialRailTab: railInitialTab,
@@ -3180,6 +3191,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787593817703:969491295
+// cache-bust:1787594405625:127263363
 
-// cache-bust:1787593817703:969491295
+// cache-bust:1787594405625:127263363
