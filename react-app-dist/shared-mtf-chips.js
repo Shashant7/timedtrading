@@ -1,9 +1,9 @@
 /**
  * MTF EMA-cloud chips for ticker cards and Right Rail.
- * Uses Ripster-style clouds we already compute on tf_tech:
- *   1H 34/50  (matches Ripster 1HR 50/34)
- *   D  34/50  (daily mid — closest available to D 20/21)
- *   D  72/89  (daily structure — closest available to D 50/55)
+ * Uses Ripster-style clouds we compute on tf_tech:
+ *   1H 34/50  (Ripster 1HR 50/34)
+ *   D  20/21  (daily support — key for reclaim / support setups)
+ *   D  50/55  (daily structure)
  * Direction = price vs cloud (above ↑ / below ↓ / in-cloud ·).
  */
 (function () {
@@ -13,8 +13,8 @@
 
   const READS = [
     { id: "1h_34_50", label: "1H", title: "1H 34/50 EMA cloud", tfKeys: ["1H", "60"], cloud: "c34_50" },
-    { id: "d_34_50", label: "D", title: "Daily 34/50 EMA cloud", tfKeys: ["D"], cloud: "c34_50" },
-    { id: "d_72_89", label: "72", title: "Daily 72/89 EMA cloud", tfKeys: ["D"], cloud: "c72_89" },
+    { id: "d_20_21", label: "21", title: "Daily 20/21 EMA cloud", tfKeys: ["D"], cloud: "c20_21", fallbackCloud: "c34_50" },
+    { id: "d_50_55", label: "55", title: "Daily 50/55 EMA cloud", tfKeys: ["D"], cloud: "c50_55", fallbackCloud: "c72_89" },
   ];
 
   function setData(map) {
@@ -34,6 +34,17 @@
     for (const k of tfKeys) {
       const rt = tech[k]?.ripster;
       if (rt) return rt;
+    }
+    return null;
+  }
+
+  function resolveCloud(rt, spec) {
+    if (!rt) return null;
+    const primary = rt[spec.cloud];
+    if (primary && typeof primary === "object") return primary;
+    if (spec.fallbackCloud) {
+      const fb = rt[spec.fallbackCloud];
+      if (fb && typeof fb === "object") return fb;
     }
     return null;
   }
@@ -66,7 +77,7 @@
     const out = [];
     for (const spec of READS) {
       const rt = tfRipster(ticker, spec.tfKeys);
-      const cloud = rt?.[spec.cloud];
+      const cloud = resolveCloud(rt, spec);
       const dir = cloudDir(cloud);
       if (!dir) continue;
       const dist = Number(cloud?.distToCloudPct);
@@ -158,4 +169,4 @@
   };
 })();
 
-// cache-bust:1787538464337:156238394
+// cache-bust:1787571285365:60583177
