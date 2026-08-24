@@ -2692,6 +2692,50 @@ async function handleSingleAccountOrder(env, ctx, payload) {
 //
 // 2026-05-30 — Phase 3 of the TT Options Engine.
 // ─────────────────────────────────────────────────────────────────────
+async function recordOptionsAccountFill(env, {
+  user, sanitized, brokerOrder = null, fill = null, placed = null,
+  status, reject_reason = null,
+} = {}) {
+  const action = String(
+    brokerOrder?.action
+    || sanitized?.play?.legs?.[0]?.action
+    || sanitized?.side
+    || "BUY",
+  ).toUpperCase();
+  const side = action === "SELL" ? "sell" : "buy";
+  const qty = Number(brokerOrder?.qty ?? fill?.filled_qty ?? sanitized?.play?.contracts) || 1;
+  const price = Number(
+    brokerOrder?.limit_price
+    ?? brokerOrder?.price
+    ?? sanitized?.play?.premium?.mid
+    ?? sanitized?.play?.legs?.[0]?.premium
+    ?? 0,
+  ) || 0;
+  const tradeId = sanitized?.trade_id || null;
+  await recordAccountFill(env, {
+    ts: Date.now(),
+    owner_id: user?.owner_email || sanitized?.user_id || null,
+    user_id: user?.user_id || sanitized?.user_id || null,
+    broker: user?.broker || null,
+    broker_account_id: resolveBrokerAccountId(user),
+    model_trade_id: tradeId,
+    client_order_id: tradeId ? `tt-opt-${tradeId}-${side}` : null,
+    broker_order_id: fill?.order_id || placed?.response?.order_id || placed?.response?.orderId || null,
+    ticker: sanitized?.ticker || null,
+    side,
+    event_type: side === "sell" ? "EXIT" : "ENTRY",
+    qty,
+    price,
+    status: status || "rejected",
+    reject_reason: reject_reason || null,
+    meta: {
+      source: sanitized?.source || null,
+      vehicle: "options",
+      archetype: sanitized?.play?.archetype || null,
+    },
+  }).catch(() => {});
+}
+
 async function handleOptionsOrderWebhook(env, ctx, payload) {
   const t0 = Date.now();
   const sanitized = {
@@ -2777,6 +2821,11 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
     const { applyOptionsSellGuard } = await import("./bridge-options-guard.js");
     const loaded = await loadOptionsPositionsForGuard(env, user, broker);
     if (loaded.error && loaded.positions == null) {
+      await recordOptionsAccountFill(env, {
+        user, sanitized, brokerOrder,
+        status: "rejected",
+        reject_reason: "positions_unavailable",
+      });
       return json({
         ok: false, rejected: true, reason: "positions_unavailable",
         detail: loaded.error, latency_ms: Date.now() - t0,
@@ -2784,6 +2833,22 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
     }
     const guard = applyOptionsSellGuard(brokerOrder, loaded.positions || []);
     if (!guard.ok) {
+      await recordOptionsAccountFill(env, {
+        user, sanitized, brokerOrder,
+        status: "rejected",
+        reject_reason: guard.reason || "no_tracked_option_entry",
+      });
+      await writeAudit(env, {
+        ts: Date.now(),
+        user_id: sanitized.user_id,
+        trade_id: sanitized.trade_id,
+        ticker: sanitized.ticker,
+        action: "reject",
+        side: "sell",
+        qty: brokerOrder.qty,
+        status: "rejected",
+        reject_reason: guard.reason,
+      }).catch(() => {});
       return json({
         ok: false, rejected: true, reason: guard.reason,
         held_qty: guard.held_qty ?? null,
@@ -2796,6 +2861,12 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
   // Live execution.
   const placed = await placeFn(env, user, brokerOrder);
   const fill = await resolveOptionsPlaceFill(env, user, placed, brokerOrder);
+  const placeOk = !!placed?.ok;
+  await recordOptionsAccountFill(env, {
+    user, sanitized, brokerOrder, fill, placed,
+    status: placeOk ? (fill?.status === "filled" ? "ok" : (fill?.status || "ok")) : "rejected",
+    reject_reason: placeOk ? null : (placed?.error || fill?.reason || "place_failed"),
+  });
 
   // Audit log (uses writeAudit which is the canonical helper).
   try {
@@ -2805,6 +2876,10 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
       ticker: sanitized.ticker,
       trade_id: sanitized.trade_id,
       source: sanitized.source,
+      side: String(brokerOrder?.action || "").toLowerCase() === "sell" ? "sell" : "buy",
+      qty: brokerOrder?.qty,
+      status: placeOk ? "ok" : "rejected",
+      reject_reason: placeOk ? null : (placed?.error || "place_failed"),
       play_archetype: sanitized.play.archetype,
       confluence_mode: sanitized.confluence?.mode || null,
       confluence_score: sanitized.confluence?.score || null,

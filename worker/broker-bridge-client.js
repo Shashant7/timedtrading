@@ -120,6 +120,12 @@ export function isEquityMirrorVehicle(vehicle) {
   return v === "shares" || v === "equity" || v === "equity_long" || v === "";
 }
 
+/** ENTRY / TRIM / EXIT all use this — options and LETF paper must not go out as share orders. */
+export function shouldForwardTraderMirrorAsEquity(trade) {
+  if (trade?.options_paper || trade?.letf_paper) return false;
+  return isEquityMirrorVehicle(trade?.executed_vehicle || trade?.vehicle || "shares");
+}
+
 /**
  * Record an intentional skip (vehicle gating, missing env, etc.) so operators
  * can see why a model fill did NOT hit the broker — without treating it as a

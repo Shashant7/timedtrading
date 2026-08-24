@@ -16,6 +16,39 @@ import {
 
 const BOOK_TTL = 3 * 86400;
 const DEFAULT_PROFILE = "speculator";
+const DT_ACTIONS_KEY = "timed:opt-dt-actions";
+const DT_ACTIONS_MAX = 80;
+
+export async function recordDayTradeAction(env, row) {
+  const KV = env?.KV_TIMED;
+  if (!KV || !row?.event || !row?.signal_id) return;
+  try {
+    const raw = await KV.get(DT_ACTIONS_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    list.unshift({
+      ts: Number(row.ts) || Date.now(),
+      event: String(row.event).toUpperCase(),
+      ticker: String(row.ticker || "").toUpperCase(),
+      signal_id: String(row.signal_id),
+      contracts: Number(row.contracts) || 1,
+      premium: Number(row.premium) || 0,
+      reason: row.reason || null,
+    });
+    if (list.length > DT_ACTIONS_MAX) list.length = DT_ACTIONS_MAX;
+    await KV.put(DT_ACTIONS_KEY, JSON.stringify(list), { expirationTtl: 7 * 86400 });
+  } catch (_) { /* best-effort — timeline join must never block Discord */ }
+}
+
+export async function readDayTradeActions(env, sinceMs = 0) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return [];
+  try {
+    const list = JSON.parse((await KV.get(DT_ACTIONS_KEY)) || "[]");
+    return (Array.isArray(list) ? list : []).filter((a) => Number(a?.ts) >= sinceMs);
+  } catch (_) {
+    return [];
+  }
+}
 
 export function dayTradeBookKey(signalId) {
   return `timed:opt-dt-book:${String(signalId || "").trim()}`;
@@ -188,6 +221,17 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     error: String(err?.message || err).slice(0, 160),
   }));
 
+  const nextBook = decision.nextBook || book;
+  await recordDayTradeAction(env, {
+    ts: payload.now || Date.now(),
+    event: decision.event,
+    ticker: payload.ticker,
+    signal_id: persistSignalId,
+    contracts: nextBook?.contracts_remaining ?? nextBook?.contracts ?? size?.contracts ?? 1,
+    premium: payload.premium ?? payload.execution?.premium_band?.premium,
+    reason: decision.reason || null,
+  }).catch(() => {});
+
   return {
     ok: !!discord?.ok,
     event: decision.event,
@@ -196,6 +240,6 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     size,
     embed,
     discord,
-    book: decision.nextBook || book,
+    book: nextBook,
   };
 }

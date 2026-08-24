@@ -5,7 +5,7 @@ vi.mock("./alerts.js", () => ({
 }));
 
 import { notifyDiscord } from "./alerts.js";
-import { maybeNotifyDayTradePaperEvent } from "./option-day-trade-alerts.js";
+import { maybeNotifyDayTradePaperEvent, readDayTradeActions } from "./option-day-trade-alerts.js";
 
 function mockEnv(store = {}) {
   return {
@@ -48,6 +48,10 @@ describe("maybeNotifyDayTradePaperEvent", () => {
     const env = mockEnv(store);
     const first = await maybeNotifyDayTradePaperEvent(env, payload);
     expect(first.event).toBe("BUY");
+    const ring = await readDayTradeActions(env, 0);
+    expect(ring[0].signal_id).toBe(payload.signal_id);
+    expect(ring[0].event).toBe("BUY");
+    expect(ring[0].ticker).toBe("SPY");
     expect(notifyDiscord).toHaveBeenCalledTimes(1);
     const embed = notifyDiscord.mock.calls[0][0] ? notifyDiscord.mock.calls[0][1] : null;
     expect(notifyDiscord.mock.calls[0][2]).toBe("trade");
