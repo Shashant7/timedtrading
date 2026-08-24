@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   detectTtCloudPivot,
+  earlyRthFakeoutBlocksCloudPivot,
+  openCloudPivotIsChase,
   buildCloudPivotPaperQueueProposal,
   stampTtCloudPivotThinSlice,
   cloudPivotPaperSizeMult,
@@ -22,7 +24,9 @@ import {
 
 /** Wed 2026-07-15 11:15 ET ≈ midday curl window. */
 const MIDDAY_TS = Date.parse("2026-07-15T15:15:00Z");
-/** Wed 2026-07-15 09:40 ET ≈ open (still in noise if end=45). */
+/** Wed 2026-07-15 09:33 ET ≈ open, inside forming first 10m bar. */
+const OPEN_EARLY_TS = Date.parse("2026-07-15T13:33:00Z");
+/** Wed 2026-07-15 09:40 ET ≈ first 10m bar closed. */
 const OPEN_TS = Date.parse("2026-07-15T13:40:00Z");
 /** Wed 2026-07-15 10:15 ET ≈ ten_am. */
 const TEN_AM_TS = Date.parse("2026-07-15T14:15:00Z");
@@ -83,6 +87,71 @@ describe("tt_cloud_pivot", () => {
       },
     });
     expect(detectTtCloudPivot(noCross, {}, { asOfTs: OPEN_TS })).toBeNull();
+  });
+
+  it("blocks open window before first 10m bar closes", () => {
+    const earlyCross = payload({
+      ts: OPEN_EARLY_TS,
+      tf_tech: {
+        "10": {
+          ripster: {
+            c5_12: {
+              bull: true, inCloud: true, crossUp: true, crossDn: false, fastSlope: 0.2,
+            },
+            c34_50: { bull: true, above: true },
+          },
+        },
+        "1H": { ripster: { c34_50: { bull: true, above: true } } },
+      },
+    });
+    expect(detectTtCloudPivot(earlyCross, {}, { asOfTs: OPEN_EARLY_TS })).toBeNull();
+    expect(earlyRthFakeoutBlocksCloudPivot(9 * 60 + 33, "open", {})).toBe(true);
+    expect(earlyRthFakeoutBlocksCloudPivot(9 * 60 + 40, "open", {})).toBe(false);
+  });
+
+  it("open window blocks extended chase above 5/12 cloud", () => {
+    const chase = payload({
+      ts: OPEN_TS,
+      tf_tech: {
+        "10": {
+          ripster: {
+            c5_12: {
+              bull: true, above: true, inCloud: false,
+              crossUp: true, crossDn: false, fastSlope: 0.3,
+              distToCloudPct: 0.012,
+            },
+            c34_50: { bull: true, above: true },
+          },
+        },
+        "1H": { ripster: { c34_50: { bull: true, above: true } } },
+      },
+    });
+    expect(detectTtCloudPivot(chase, {}, { asOfTs: OPEN_TS })).toBeNull();
+    expect(openCloudPivotIsChase("LONG", chase.tf_tech["10"].ripster.c5_12, "5_12_cross_up", {})).toBe(true);
+  });
+
+  it("open window allows in-cloud curl pullback", () => {
+    const curl = payload({
+      ts: OPEN_TS,
+      tf_tech: {
+        "10": {
+          ripster: {
+            c5_12: {
+              bull: true, inCloud: true, above: false,
+              crossUp: true, crossDn: false, fastSlope: 0.15,
+              distToCloudPct: 0,
+            },
+            c34_50: { bull: true, above: true },
+          },
+        },
+        "1H": { ripster: { c34_50: { bull: true, above: true } } },
+      },
+    });
+    const d = detectTtCloudPivot(curl, {}, { asOfTs: OPEN_TS });
+    expect(d?.fires).toBe(true);
+    expect(d?.direction).toBe("LONG");
+    expect(d?.trigger).toBe("5_12_cross_up");
+    expect(openCloudPivotIsChase("LONG", curl.tf_tech["10"].ripster.c5_12, "5_12_cross_up", {})).toBe(false);
   });
 
   it("builds paper Queued proposal", () => {

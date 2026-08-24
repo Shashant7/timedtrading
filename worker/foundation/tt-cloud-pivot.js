@@ -31,6 +31,8 @@ export const CLOUD_PIVOT_WINDOWS = {
 
 const RTH_START_MIN = 9 * 60 + 30;
 const RTH_END_MIN = 16 * 60;
+/** First RTH 10m bar closes at 9:40 ET — crosses on the forming 9:30 bar are noise. */
+export const RTH_FIRST_10M_CLOSE_MIN = RTH_START_MIN + 10;
 const MAGNET_TF_KEYS = [
   ["1H", "1H"],
   ["60", "1H"],
@@ -48,11 +50,17 @@ export function loadCloudPivotConfig(daCfg = {}) {
   const raw = Number(daCfg.deep_audit_tt_cloud_pivot_paper_size_mult);
   const sizeMult = Number.isFinite(raw) && raw > 0 && raw <= 1 ? raw : CLOUD_PIVOT_PAPER_SIZE_MULT;
   const openNoiseEnd = Number(daCfg.deep_audit_tt_cloud_pivot_opening_noise_end_minute);
+  const openMin10 = Number(daCfg.deep_audit_tt_cloud_pivot_open_min_10m_close_min);
+  const openChaseDist = Number(daCfg.deep_audit_tt_cloud_pivot_open_chase_dist_pct);
   return {
     enabled,
     exitEnabled,
     sizeMult,
     openNoiseEndMin: Number.isFinite(openNoiseEnd) && openNoiseEnd >= 0 ? openNoiseEnd : 45,
+    openMin10mCloseMin: Number.isFinite(openMin10) ? openMin10 : RTH_FIRST_10M_CLOSE_MIN,
+    openMaxChaseDistToCloudPct: Number.isFinite(openChaseDist) && openChaseDist > 0
+      ? openChaseDist
+      : 0.0045,
   };
 }
 
@@ -125,6 +133,35 @@ function cloudSide(cloud) {
   if (cloud.bull === true || cloud.above === true) return "LONG";
   if (cloud.bear === true || cloud.below === true) return "SHORT";
   return null;
+}
+
+/**
+ * Early RTH fakeout guard: no cloud-pivot open fires until the first 10m bar closes.
+ */
+export function earlyRthFakeoutBlocksCloudPivot(mins, session, cfg = {}) {
+  if (mins == null || session !== "open") return false;
+  const min10Eff = Number(cfg.openMin10mCloseMin) || RTH_FIRST_10M_CLOSE_MIN;
+  return mins < min10Eff;
+}
+
+/**
+ * Open-window chase block — enter pullbacks/curls into the 5/12 band, not extended runs.
+ */
+export function openCloudPivotIsChase(direction, c512, trigger, cfg = {}) {
+  if (!c512 || !direction) return false;
+  if (trigger === "5_12_open_hold") return true;
+
+  const maxDist = Number(cfg.openMaxChaseDistToCloudPct);
+  const maxEff = Number.isFinite(maxDist) && maxDist > 0 ? maxDist : 0.0045;
+  const dist = Number(c512.distToCloudPct);
+  if (!Number.isFinite(dist)) return false;
+
+  if (trigger === "5_12_curl_bounce" || trigger === "5_12_curl_reject") return false;
+  if (c512.inCloud === true) return false;
+
+  if (direction === "LONG" && c512.above === true && dist > maxEff) return true;
+  if (direction === "SHORT" && c512.below === true && dist > maxEff) return true;
+  return false;
 }
 
 export function cloudPivotMarkPx(payload = {}, fallback = null) {
@@ -498,6 +535,12 @@ export function detectTtCloudPivot(payload = {}, daCfg = {}, opts = {}) {
 
   // Open window: require an actual cross (avoid noise chase).
   if (session === "open" && !(crossUp || crossDn)) return null;
+
+  // Wait for the first RTH 10m bar to close (default 9:40 ET) — skip forming-bar fakeouts.
+  if (earlyRthFakeoutBlocksCloudPivot(mins, session, cfg)) return null;
+
+  // Open window: pullbacks into the 5/12 band only — no extended chase.
+  if (session === "open" && openCloudPivotIsChase(direction, c512, trigger, cfg)) return null;
 
   const px = cloudPivotMarkPx(payload);
   const magnet = resolveCloudMagnet(payload, direction, px);
