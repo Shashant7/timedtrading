@@ -14,6 +14,7 @@
   var RAIL_SCRIPTS = [
     "/vendor/lightweight-charts.standalone.production.js?v=vendor",
     "shared-list-presets.js" + _bust,
+    "shared-mtf-chips.js" + _bust,
     "shared-rail-helpers.js" + _bust,
     "shared-verdict-ui.js" + _bust,
     "tt-cycle-intel.js" + _bust,
@@ -55,4 +56,4 @@
   };
 })();
 
-// cache-bust:1787534541263:895069725
+// cache-bust:1787538464337:156238394

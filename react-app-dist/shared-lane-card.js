@@ -266,9 +266,16 @@
     const sym = String(p.sym || "").toUpperCase();
     const chips = Array.isArray(p.chipRow) ? p.chipRow.filter(Boolean) : [];
     const listPresetChips = (window.TimedListPresets?.buildChipElements)
-      ? window.TimedListPresets.buildChipElements(sym, h, { max: 3 })
+      ? window.TimedListPresets.buildChipElements(sym, h, { max: 2 })
       : [];
-    const allChips = chips.concat(listPresetChips);
+    const mtfChips = (window.TimedMtfChips?.buildChipElements)
+      ? window.TimedMtfChips.buildChipElements(sym, h, {
+          ticker: p.ticker || p.liveT || null,
+          max: 4,
+          stack: true,
+        })
+      : [];
+    const allChips = chips.concat(mtfChips).concat(listPresetChips);
     const metrics = Array.isArray(p.metrics) ? p.metrics.filter(Boolean) : [];
     const hasMid = !!p.midBody;
     const extraClass = p.button?.className ? ` ${p.button.className}` : "";
@@ -330,4 +337,4 @@
   boot();
 })();
 
-// cache-bust:1787534541263:895069725
+// cache-bust:1787538464337:156238394

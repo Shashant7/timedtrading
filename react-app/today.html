@@ -14,6 +14,7 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="shared-list-presets.js?v=20260824a"></script>
+    <script src="shared-mtf-chips.js?v=20260824a"></script>
     <script src="shared-rail-helpers.js?v=20260706-buyzone"></script>
     <script src="shared-verdict-ui.js?v=20260706-strip-v3"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -4449,6 +4450,7 @@
                     return h("div", { key: "desk-" + sym, className: "tt-strip-card", role: "listitem" },
                       LaneCard.create({
                         sym,
+                        ticker: liveT,
                         button: {
                           onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
                           title: `${sym} — open cloud desk plan`,
@@ -4571,6 +4573,7 @@
                 return h("div", { key: sym + (p.kind || ""), className: `tt-strip-card${familyCopy.modelEntry ? " tt-strip-card--enter" : ""}`, role: "listitem" },
                   LaneCard.create({
                     sym,
+                    ticker: liveT,
                     button: {
                       onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
                       title: `${sym} — open plan`,
@@ -4835,6 +4838,7 @@
                 return h("div", { key: sym + (p.play_class || ""), className: "tt-strip-card", role: "listitem" },
                   LaneCard.create({
                     sym,
+                    ticker: liveT,
                     button: {
                       onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
                       title: `${sym} — open options plan`,
@@ -5069,6 +5073,7 @@
                 return h("div", { key: sym, className: "tt-strip-card", role: "listitem" },
                   LaneCard.create({
                     sym,
+                    ticker: liveT,
                     button: {
                       onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
                       title: `${sym} — open options plan`,
@@ -6789,6 +6794,7 @@
                 return h("div", { key: sym, className: "tt-strip-card", role: "listitem" },
                   LaneCard.create({
                     sym,
+                    ticker: liveT,
                     button: {
                       onClick: () => onSelectTicker && onSelectTicker(sym, "FUNDAMENTALS"),
                       title: `${sym} — open Fundamentals`,
@@ -8474,6 +8480,7 @@
 
         return window.TTLaneCard.create({
           sym,
+          ticker: t,
           button: {
             onClick: () => onOpen(sym, horizonPath === "long_term" ? "INVESTOR" : null),
             style: cardStyle,
@@ -9411,6 +9418,7 @@
                   }
                 }
                 setData(merged);
+                try { window.TimedMtfChips?.setData?.(merged); } catch (_) {}
               } else if (a === null) {
                 setError("Couldn't load market data");
               }

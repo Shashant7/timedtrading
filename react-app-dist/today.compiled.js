@@ -1605,6 +1605,7 @@ function SetupFamiliesStrip({
         role: "listitem"
       }, LaneCard.create({
         sym,
+        ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
           title: `${sym} — open cloud desk plan`,
@@ -1701,6 +1702,7 @@ function SetupFamiliesStrip({
         role: "listitem"
       }, LaneCard.create({
         sym,
+        ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
           title: `${sym} — open plan`,
@@ -1961,6 +1963,7 @@ function ConvexityPlaysStrip({
         role: "listitem"
       }, LaneCard.create({
         sym,
+        ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
           title: `${sym} — open options plan`,
@@ -2186,6 +2189,7 @@ function IndexDayTradeStrip({
         role: "listitem"
       }, LaneCard.create({
         sym,
+        ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
           title: `${sym} — open options plan`,
@@ -4383,6 +4387,7 @@ function GrowthIdeasStrip({
         role: "listitem"
       }, LaneCard.create({
         sym,
+        ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "FUNDAMENTALS"),
           title: `${sym} — open Fundamentals`,
@@ -6123,6 +6128,7 @@ function ViewportCard({
   }) : [];
   return window.TTLaneCard.create({
     sym,
+    ticker: t,
     button: {
       onClick: () => onOpen(sym, horizonPath === "long_term" ? "INVESTOR" : null),
       style: cardStyle,
@@ -7279,6 +7285,9 @@ function TodayApp({
             }
           }
           setData(merged);
+          try {
+            window.TimedMtfChips?.setData?.(merged);
+          } catch (_) {}
         } else if (a === null) {
           setError("Couldn't load market data");
         }
@@ -8235,6 +8244,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787534541263:895069725
+// cache-bust:1787538464337:156238394
 
-// cache-bust:1787534541263:895069725
+// cache-bust:1787538464337:156238394
