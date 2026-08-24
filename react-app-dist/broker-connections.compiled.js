@@ -1875,6 +1875,9 @@ function nyWallClockMs(hour, minute, now = Date.now()) {
 function matchLiveAccount(curveAcct, liveAccounts) {
   return (liveAccounts || []).find(p => curveAcct.user_id && p.account_id === curveAcct.user_id || curveAcct.broker_account_id && (p.broker_account_id === curveAcct.broker_account_id || p.webull_account_id === curveAcct.broker_account_id) || curveAcct.label && p.label === curveAcct.label);
 }
+function matchBrokerAccount(curveAcct, live, brokerAccounts) {
+  return (brokerAccounts || []).find(b => curveAcct.user_id && b.user_id === curveAcct.user_id || live?.account_id && b.user_id === live.account_id || curveAcct.broker_account_id && b.webull_account_id === curveAcct.broker_account_id || live?.webull_account_id && b.webull_account_id === live.webull_account_id || live?.broker_account_id && b.webull_account_id === live.broker_account_id || curveAcct.label && (b.webull_account_label === curveAcct.label || b.webull_account_class === curveAcct.label));
+}
 function dayPnlForSelected(selected, liveAccounts) {
   let sum = 0,
     has = false;
@@ -2296,8 +2299,17 @@ function AccountPerformanceRow({
     }, React.createElement("span", {
       className: "acct-perf-name"
     }, a.label || key), React.createElement("span", {
+      style: {
+        display: "flex",
+        gap: 4,
+        flexWrap: "wrap",
+        justifyContent: "flex-end"
+      }
+    }, React.createElement("span", {
       className: `bc-pill ${on ? "p-ok" : "p-off"}`
-    }, on ? "MIRROR ON" : "NOT MIRRORED")), React.createElement("div", {
+    }, on ? "MIRROR ON" : "NOT MIRRORED"), React.createElement("span", {
+      className: `bc-pill ${accountOptionsOn(a) ? "p-mint" : "p-off"}`
+    }, accountOptionsOn(a) ? "OPTIONS ON" : "OPTIONS OFF"))), React.createElement("div", {
       className: "acct-perf-value"
     }, Number.isFinite(r.current) ? fmtUsd(r.current, {
       compact: true
@@ -2313,7 +2325,8 @@ function AccountPerformanceRow({
   })));
 }
 function EquityCurve({
-  liveAccounts
+  liveAccounts,
+  brokerAccounts
 }) {
   const [data, setData] = useState(null);
   const [range, setRange] = useState("1D");
@@ -2370,11 +2383,14 @@ function EquityCurve({
           };
         }
       }
+      const listed = matchBrokerAccount(a, live, brokerAccounts);
       return {
         ...a,
         points: pts,
         equity: Number.isFinite(eq) ? eq : a.equity,
         mirror_enabled: live ? live.mirror_enabled === true : a.mirror_enabled === true,
+        options_enabled: listed ? listed.options_enabled === true : a.options_enabled === true,
+        options_prefs: listed?.options_prefs || a.options_prefs || null,
         label: live?.label || a.label
       };
     });
@@ -2386,12 +2402,19 @@ function EquityCurve({
         ts: Number(e.ts),
         on: e.on === true
       })).sort((a, b) => a.ts - b.ts);
+      const listed = matchBrokerAccount({
+        user_id: live.account_id,
+        broker_account_id: live.broker_account_id || live.webull_account_id,
+        label: live.label
+      }, live, brokerAccounts);
       merged.push({
         broker_account_id: live.broker_account_id || live.webull_account_id || live.account_id,
         user_id: live.account_id || null,
         label: live.label || live.account_id,
         broker: live.broker || null,
         mirror_enabled: live.mirror_enabled === true,
+        options_enabled: listed ? listed.options_enabled === true : false,
+        options_prefs: listed?.options_prefs || null,
         points: Number.isFinite(eq) ? [{
           ts: Number(live.positions_as_of) || now,
           equity: eq
@@ -2408,7 +2431,7 @@ function EquityCurve({
       if (histDiff) return histDiff;
       return String(a.label || accountKey(a)).localeCompare(String(b.label || accountKey(b)));
     });
-  }, [data, liveAccounts, tick]);
+  }, [data, liveAccounts, brokerAccounts, tick]);
   const selected = useMemo(() => {
     if (focus === "all") return accounts;
     if (focus === "mirrored") return accounts.filter(a => a.mirror_enabled === true);
@@ -2835,6 +2858,7 @@ function BrokerConnectionsApp({
   const otherAccounts = (accounts || []).filter(a => (a.broker || "") !== "webull").slice().sort(_sortMirrorFirst);
   const hasAny = webullAccounts.length > 0 || otherAccounts.length > 0;
   const anyEnabled = (accounts || []).some(a => a.broker_integration_enabled === true);
+  const anyOptions = (accounts || []).some(a => accountOptionsOn(a));
   const marketOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : null;
   const totals = useMemo(() => {
     const accs = posData?.accounts || [];
@@ -2961,7 +2985,9 @@ function BrokerConnectionsApp({
     className: "dot"
   }), marketOpen ? "MARKET OPEN" : "MARKET CLOSED"), hasAny && React.createElement("span", {
     className: `bc-pill ${anyEnabled ? "p-mint" : "p-off"}`
-  }, anyEnabled ? "MIRROR ACTIVE" : "MIRROR PAUSED"))), err && React.createElement("div", {
+  }, anyEnabled ? "MIRROR ACTIVE" : "MIRROR PAUSED"), hasAny && React.createElement("span", {
+    className: `bc-pill ${anyOptions ? "p-mint" : "p-off"}`
+  }, anyOptions ? "OPTIONS ON" : "OPTIONS OFF"))), err && React.createElement("div", {
     className: "tt-card tt-card-pad",
     style: {
       borderColor: "rgba(245,158,11,0.35)",
@@ -2972,7 +2998,76 @@ function BrokerConnectionsApp({
       color: "var(--tt-warning)",
       fontSize: 13
     }
-  }, "Status: ", err)), accounts === null && React.createElement(PageSkeleton, null), accounts !== null && hasAny && React.createElement("div", {
+  }, "Status: ", err)), accounts === null && React.createElement(PageSkeleton, null), accounts !== null && hasAny && React.createElement("section", {
+    id: "mirror-settings",
+    style: {
+      marginBottom: 18
+    }
+  }, React.createElement("div", {
+    className: "sec-head",
+    style: {
+      marginBottom: 10
+    }
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "tt-sec-title"
+  }, "Accounts"), React.createElement("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 18
+    }
+  }, "Mirror settings"), React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      marginTop: 4,
+      maxWidth: 560
+    }
+  }, "Equity mirror and options strategies are separate switches on each account.")), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, anyEnabled && React.createElement("button", {
+    className: "bc-btn bc-btn-sm",
+    disabled: busy,
+    style: {
+      borderColor: "rgba(245,158,11,0.4)",
+      color: "var(--tt-warning)"
+    },
+    title: "Kill switch \u2014 pause mirroring on every account at once",
+    onClick: async () => {
+      if (!confirm("Pause ALL mirroring? Every account stops receiving model orders immediately. Accounts stay connected and can be re-enabled individually.")) return;
+      setBusy(true);
+      try {
+        await apiPost("/timed/broker/pause-all", {});
+        refresh();
+      } finally {
+        setBusy(false);
+      }
+    }
+  }, "Pause all mirroring"), webullAccounts.length > 0 && React.createElement("button", {
+    className: "bc-btn bc-btn-sm bc-btn-danger",
+    disabled: busy,
+    onClick: async () => {
+      if (!confirm("Disconnect Webull? Mirroring stops for every account under this login and the stored keys are removed.")) return;
+      setBusy(true);
+      try {
+        await apiPost("/timed/broker/webull/disconnect", {});
+        refresh();
+      } finally {
+        setBusy(false);
+      }
+    }
+  }, "Disconnect Webull"))), webullAccounts.map(acct => React.createElement(AccountCard, {
+    key: acct.user_id,
+    acct: acct,
+    onChanged: refresh
+  })), otherAccounts.map(acct => React.createElement(AccountCard, {
+    key: acct.user_id,
+    acct: acct,
+    onChanged: refresh
+  }))), accounts !== null && hasAny && React.createElement("div", {
     className: "kpi-strip fade-in"
   }, React.createElement("div", {
     className: "kpi"
@@ -3025,75 +3120,15 @@ function BrokerConnectionsApp({
   }, modelActionsTile.count), React.createElement("div", {
     className: "k-sub"
   }, modelActionsTile.sub))), accounts !== null && hasAny && React.createElement(EquityCurve, {
-    liveAccounts: posData?.accounts || []
+    liveAccounts: posData?.accounts || [],
+    brokerAccounts: accounts
   }), accounts !== null && hasAny && React.createElement(DayActions, {
     refreshKey: accounts
   }), accounts !== null && hasAny && React.createElement(PositionsSection, {
     refreshKey: accounts,
     onData: setPosData,
     onSelectTicker: onSelectTicker
-  }), accounts !== null && hasAny && React.createElement("section", {
-    style: {
-      marginBottom: 18
-    }
-  }, React.createElement("div", {
-    className: "sec-head",
-    style: {
-      marginBottom: 10
-    }
-  }, React.createElement("div", null, React.createElement("div", {
-    className: "tt-sec-title"
-  }, "Accounts"), React.createElement("div", {
-    className: "tt-sec-h",
-    style: {
-      fontSize: 18
-    }
-  }, "Mirror settings")), React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8,
-      flexWrap: "wrap"
-    }
-  }, anyEnabled && React.createElement("button", {
-    className: "bc-btn bc-btn-sm",
-    disabled: busy,
-    style: {
-      borderColor: "rgba(245,158,11,0.4)",
-      color: "var(--tt-warning)"
-    },
-    title: "Kill switch \u2014 pause mirroring on every account at once",
-    onClick: async () => {
-      if (!confirm("Pause ALL mirroring? Every account stops receiving model orders immediately. Accounts stay connected and can be re-enabled individually.")) return;
-      setBusy(true);
-      try {
-        await apiPost("/timed/broker/pause-all", {});
-        refresh();
-      } finally {
-        setBusy(false);
-      }
-    }
-  }, "Pause all mirroring"), webullAccounts.length > 0 && React.createElement("button", {
-    className: "bc-btn bc-btn-sm bc-btn-danger",
-    disabled: busy,
-    onClick: async () => {
-      if (!confirm("Disconnect Webull? Mirroring stops for every account under this login and the stored keys are removed.")) return;
-      setBusy(true);
-      try {
-        await apiPost("/timed/broker/webull/disconnect", {});
-        refresh();
-      } finally {
-        setBusy(false);
-      }
-    }
-  }, "Disconnect Webull"))), webullAccounts.map(acct => React.createElement(AccountCard, {
-    key: acct.user_id,
-    acct: acct,
-    onChanged: refresh
-  })), otherAccounts.map(acct => React.createElement(AccountCard, {
-    key: acct.user_id,
-    acct: acct,
-    onChanged: refresh
-  }))), accounts !== null && !hasAny && React.createElement("section", {
+  }), accounts !== null && !hasAny && React.createElement("section", {
     className: "tt-card tt-card-pad",
     style: {
       marginBottom: 18
@@ -3145,6 +3180,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787592006275:229684353
+// cache-bust:1787593817703:969491295
 
-// cache-bust:1787592006275:229684353
+// cache-bust:1787593817703:969491295
