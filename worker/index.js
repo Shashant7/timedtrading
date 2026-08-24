@@ -802,6 +802,7 @@ import {
   buildOccSymbol as _optionMarksBuildOcc,
   computeOptionOutcome as _optionMarksComputeOutcome,
   summarizeScorecard as _optionMarksSummarize,
+  resolveLiveOptionPremium as _optionMarksResolveLivePremium,
 } from "./options-marks.js";
 import {
   extractIndexTimingIndicators as _optClockIndicators,
@@ -94941,6 +94942,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _dtMarksByOcc = _optClockGroupMarks(_markRows);
               _dtTodStudy = _optClockTod(_markRows);
             } catch (_) { /* clock degrades to the playbook */ }
+            const _dtChainBySym = {};
+            try {
+              await Promise.all(_dtTickers.map(async (_sym) => {
+                try {
+                  const res = await _alpacaFetchOptionsChain(env, _sym, _dtExpiration.iso, {
+                    skipOI: true,
+                    strikeRangePct: 0.03,
+                  });
+                  if (res?.ok) _dtChainBySym[_sym] = res;
+                } catch (_) { /* per-ticker chain is best-effort */ }
+              }));
+            } catch (_) { /* chain prefetch is best-effort */ }
             for (const _dtSym of _dtTickers) {
               try {
                 const _dtContract = await buildTraderPredictionContract(env, _dtSym);
@@ -94979,6 +94992,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   expiration: _dtExpiration,
                   verdict: _dtVerdict,
                   profile,
+                  chain: _dtChainBySym[_dtSym] || null,
                 };
                 const _dtPlay = _buildDayTrade(_dtCtx);
                 if (!_dtPlay) {
@@ -95086,11 +95100,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   const _occRight = String(_clockFlavor || "").toLowerCase() === "put" ? "P" : "C";
                   const _occ = _optionMarksBuildOcc(_dtSym, _clockExp?.iso, _occRight, _clockStrike);
                   const _occMarks = _occ ? (_dtMarksByOcc[_occ] || []) : [];
-                  const _occLast = _occMarks.length ? _occMarks[_occMarks.length - 1] : null;
-                  const _occMid = Number(_occLast?.mid ?? _occLast?.c);
-                  let _clockPrem = _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid;
-                  if (_dtUseCarry && _occMid > 0) _clockPrem = _occMid;
-                  else if (_dtUseCarry && Number(_dtOpenBook?.last_premium) > 0) _clockPrem = Number(_dtOpenBook.last_premium);
+                  const _estimatePrem = _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid;
+                  let _clockPrem = _estimatePrem;
+                  try {
+                    const _livePrem = await _optionMarksResolveLivePremium(env, {
+                      ticker: _dtSym,
+                      expirationIso: _clockExp?.iso,
+                      right: _occRight,
+                      strike: _clockStrike,
+                      optionSymbol: _occ,
+                      marks: _occMarks,
+                      estimateMid: _estimatePrem,
+                      openBook: _dtOpenBook,
+                      chain: _dtChainBySym[_dtSym] || null,
+                    });
+                    if (_livePrem?.mid > 0) _clockPrem = _livePrem.mid;
+                  } catch (_) { /* clock degrades to estimate */ }
                   _dtExecution = _optClockBuild({
                     ticker: _dtSym,
                     flavor: _clockFlavor,
