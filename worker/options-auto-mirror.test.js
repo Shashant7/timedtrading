@@ -1,5 +1,16 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { fireAutoMirror, maybeAutoMirrorIndexDayTradeEvent, buildIndexDayTradeClosePlay, computeIndexDayTradeCloseQty } from "./options-auto-mirror.js";
+import {
+  fireAutoMirror,
+  maybeAutoMirrorIndexDayTradeEvent,
+  buildIndexDayTradeClosePlay,
+  computeIndexDayTradeCloseQty,
+  marketableCloseLimit,
+  optionTick,
+  extractMirrorFill,
+  reconcileIndexDtFill,
+  resolveIndexDtEntryContracts,
+  scaleIndexDtEntryPlay,
+} from "./options-auto-mirror.js";
 import { trimSellQty } from "./option-day-trade-plan.js";
 
 const PAYLOAD = { ticker: "NEU", side: "buy", contracts: 1, occ_symbol: "NEU260821C00790000", limit_price: 24.2 };
@@ -269,6 +280,177 @@ describe("Stage 5b mirror safety invariants", () => {
     const saved = JSON.parse(kv.store.get(`timed:opt-dt-mirror:${SID}`));
     expect(saved.exit_fired).toBe(true);
     expect(saved.contracts_remaining).toBe(0);
+  });
+});
+
+describe("marketableCloseLimit", () => {
+  it("TRIM stays at mid", () => {
+    expect(marketableCloseLimit({ event: "TRIM", mid: 1.85, bid: 1.70 })).toBe(1.85);
+  });
+
+  it("EXIT / STOP hit a usable bid", () => {
+    expect(marketableCloseLimit({ event: "EXIT", mid: 1.85, bid: 1.70 })).toBe(1.70);
+    expect(marketableCloseLimit({ event: "STOP", mid: 1.85, bid: 1.80 })).toBe(1.80);
+  });
+
+  it("falls back to mid minus one tick when bid is missing", () => {
+    expect(optionTick(1.85)).toBe(0.01);
+    expect(marketableCloseLimit({ event: "EXIT", mid: 1.85 })).toBe(1.84);
+    expect(marketableCloseLimit({ event: "STOP", mid: 3.20 })).toBe(3.15);
+  });
+
+  it("ignores a stale bid more than 60% below mid", () => {
+    expect(marketableCloseLimit({ event: "EXIT", mid: 1.85, bid: 0.05 })).toBe(1.84);
+  });
+});
+
+describe("extractMirrorFill / reconcileIndexDtFill", () => {
+  it("treats mock / assumed place-ok as filled at requested qty", () => {
+    const fill = extractMirrorFill({ ok: true, response: { ok: true, order_id: "OPT1" } }, 2);
+    expect(fill.assumed).toBe(true);
+    const rec = reconcileIndexDtFill({ event: "BUY", requestedQty: 2, fill });
+    expect(rec.persist).toBe(true);
+    expect(rec.filledQty).toBe(2);
+  });
+
+  it("does not persist a rejected fill", () => {
+    const fill = extractMirrorFill({
+      ok: false,
+      response: { ok: false, fill: { status: "rejected", filled_qty: 0 } },
+    }, 1);
+    expect(fill.status).toBe("rejected");
+    const rec = reconcileIndexDtFill({ event: "EXIT", requestedQty: 1, fill });
+    expect(rec.persist).toBe(false);
+    expect(rec.pending).toBe(false);
+  });
+
+  it("marks a working fill as pending (retry later)", () => {
+    const fill = extractMirrorFill({
+      ok: true,
+      response: { ok: true, fill: { status: "working", filled_qty: null, order_id: "ord-9" } },
+    }, 1);
+    const rec = reconcileIndexDtFill({ event: "EXIT", requestedQty: 1, fill });
+    expect(rec.persist).toBe(false);
+    expect(rec.pending).toBe(true);
+    expect(rec.order_id).toBe("ord-9");
+  });
+
+  it("persists a partial at the filled qty", () => {
+    const rec = reconcileIndexDtFill({
+      event: "BUY",
+      requestedQty: 3,
+      fill: { status: "partial", filled_qty: 1 },
+    });
+    expect(rec.persist).toBe(true);
+    expect(rec.filledQty).toBe(1);
+    expect(rec.pending).toBe(true);
+  });
+});
+
+describe("resolveIndexDtEntryContracts / scaleIndexDtEntryPlay", () => {
+  it("defaults to 1 lot when follow_paper_size is off", () => {
+    expect(resolveIndexDtEntryContracts({
+      prefs: { index_dt_follow_paper_size: false },
+      book: { contracts: 3 },
+      play: { premium: { mid: 1.25 }, contracts: 1 },
+      vehicleRow: { max_per_order_usd: 500 },
+    })).toBe(1);
+  });
+
+  it("follows paper size 1–3 when the pref is on", () => {
+    expect(resolveIndexDtEntryContracts({
+      prefs: { index_dt_follow_paper_size: true },
+      book: { contracts: 3 },
+      play: { premium: { mid: 1.25 }, contracts: 1 },
+      vehicleRow: { max_per_order_usd: 500 },
+    })).toBe(3);
+  });
+
+  it("scales down so notional fits the vehicle cap", () => {
+    expect(resolveIndexDtEntryContracts({
+      prefs: { index_dt_follow_paper_size: true },
+      book: { contracts: 3 },
+      play: { premium: { mid: 1.25 }, contracts: 1 },
+      vehicleRow: { max_per_order_usd: 200 }, // 3×$125 = $375 > $200 → 1
+    })).toBe(1);
+  });
+
+  it("rewrites play qty + max_loss for the mirrored entry", () => {
+    const scaled = scaleIndexDtEntryPlay(
+      { premium: { mid: 1.25 }, contracts: 1, legs: [{ action: "BUY", qty: 1, premium_mid: 1.25 }], max_loss_usd: 125 },
+      { contracts: 2, limit: 1.20 },
+    );
+    expect(scaled.contracts).toBe(2);
+    expect(scaled.legs[0].qty).toBe(2);
+    expect(scaled.premium.mid).toBe(1.20);
+    expect(scaled.max_loss_usd).toBe(240);
+  });
+});
+
+describe("Stage 5b fill + paper-size wiring", () => {
+  it("does not persist entry_fired when the bridge fill is rejected", async () => {
+    const captured = [];
+    const kv = kvMock({ "timed:options:auto-mirror:op@x.com": PREFS });
+    const env = bridgeEnv(kv, captured);
+    env.BROKER_BRIDGE.fetch = async () => new Response(JSON.stringify({
+      ok: false, rejected: true, fill: { status: "rejected", filled_qty: 0 },
+    }), { status: 200 });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(env, {
+      event: "BUY",
+      ticker: "QQQ",
+      signal_id: SID,
+      play: CALL_PLAY,
+      indicesFlagOn: true,
+    });
+    expect(r.reconcile.persist).toBe(false);
+    expect(kv.store.has(`timed:opt-dt-mirror:${SID}`)).toBe(false);
+  });
+
+  it("EXIT prices the close at the bid, not mid", async () => {
+    const captured = [];
+    const kv = kvMock({
+      "timed:options:auto-mirror:op@x.com": PREFS,
+      [`timed:opt-dt-mirror:${SID}`]: JSON.stringify({ entry_fired: true, contracts: 1, contracts_remaining: 1 }),
+    });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, captured), {
+      event: "EXIT",
+      ticker: "QQQ",
+      signal_id: SID,
+      premium: 1.85,
+      bid: 1.70,
+      book: { contracts: 1, contracts_remaining: 1 },
+      play: CALL_PLAY,
+      indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(false);
+    expect(r.limit_price).toBe(1.70);
+    expect(captured[0].play.premium.mid).toBe(1.70);
+    expect(captured[0].play.legs[0].action).toBe("SELL");
+  });
+
+  it("BUY follows paper size when the pref is on", async () => {
+    const captured = [];
+    const prefs = JSON.stringify({
+      enabled: true,
+      daily_cap: 5,
+      index_dt_follow_paper_size: true,
+      vehicles: { long_call: { enabled: true, daily_cap: 5, max_per_order_usd: 500, max_loss_per_order_usd: 0 } },
+    });
+    const kv = kvMock({ "timed:options:auto-mirror:op@x.com": prefs });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, captured), {
+      event: "BUY",
+      ticker: "QQQ",
+      signal_id: SID,
+      play: CALL_PLAY,
+      book: { contracts: 2 },
+      indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(false);
+    expect(captured[0].play.contracts).toBe(2);
+    expect(captured[0].play.legs[0].qty).toBe(2);
+    const saved = JSON.parse(kv.store.get(`timed:opt-dt-mirror:${SID}`));
+    expect(saved.contracts).toBe(2);
+    expect(saved.entry_fired).toBe(true);
   });
 });
 

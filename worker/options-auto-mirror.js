@@ -117,6 +117,11 @@ const DEFAULT_PREFS = {
   daily_cap: 5,
   max_notional_per_order_usd: 5000,
   max_loss_per_order_usd: 2000,
+  // Default OFF — keep mirrored index day-trades at 1 lot until the
+  // 1-contract flow is proven live. When true, BUY follows the paper
+  // book's light/medium/heavy size (1 / 2 / 3), still capped by the
+  // vehicle notional.
+  index_dt_follow_paper_size: false,
 };
 
 /**
@@ -387,7 +392,7 @@ export async function readVehicleCountersToday(env, userEmail) {
  * The original implementation used the bridge-side env var name, a hex
  * digest, and a different header — every call 401'd at the bridge.
  */
-export async function fireAutoMirror(env, userEmail, payload) {
+async function signedBridgePost(env, userEmail, path, payload) {
   const bridgeUrl = (env.BROKER_BRIDGE_URL || env.BRIDGE_URL || "https://tt-broker-bridge.shashant.workers.dev").replace(/\/$/, "");
   const hmacKey = env.BROKER_BRIDGE_HMAC_KEY || env.BRIDGE_INTERNAL_HMAC_KEY;
   if (!hmacKey) return { ok: false, error: "missing_hmac_key" };
@@ -415,7 +420,7 @@ export async function fireAutoMirror(env, userEmail, payload) {
   // fetch when the binding is absent (local dev).
   const svc = env?.BROKER_BRIDGE;
   const hasSvc = !!(svc && typeof svc.fetch === "function");
-  const reqUrl = `${bridgeUrl}/bridge/options/order`;
+  const reqUrl = `${bridgeUrl}${path}`;
   const reqInit = {
     method: "POST",
     headers: {
@@ -429,6 +434,17 @@ export async function fireAutoMirror(env, userEmail, payload) {
     : await fetch(reqUrl, reqInit);
   const json = await r.json().catch(() => ({}));
   return { ok: r.ok, status: r.status, response: json, transport: hasSvc ? "service-binding" : "http" };
+}
+
+export async function fireAutoMirror(env, userEmail, payload) {
+  return signedBridgePost(env, userEmail, "/bridge/options/order", payload);
+}
+
+export async function queryAutoMirrorOrderStatus(env, userEmail, { order_id, requested_qty } = {}) {
+  return signedBridgePost(env, userEmail, "/bridge/options/order/status", {
+    order_id,
+    requested_qty,
+  });
 }
 
 /**
@@ -516,6 +532,142 @@ export async function maybeAutoMirrorIndexDayTrade(env, ctx = {}) {
 
 export function indexDtMirrorKey(signalId) {
   return `timed:opt-dt-mirror:${String(signalId || "").trim()}`;
+}
+
+/** Standard US equity-option tick: $0.05 at/above $3, else $0.01. */
+export function optionTick(premium) {
+  return Number(premium) >= 3 ? 0.05 : 0.01;
+}
+
+/**
+ * Close limit for a day-trade SELL.
+ * TRIM stays at mid (passive). EXIT / STOP hit the live bid so the
+ * flatten is marketable; if bid is missing or >60% below mid (stale),
+ * price one tick under mid.
+ */
+export function marketableCloseLimit({ event, mid, bid, tick } = {}) {
+  const ev = String(event || "").toUpperCase();
+  const m = Number(mid);
+  if (!(m > 0)) return null;
+  const t = Number(tick) > 0 ? Number(tick) : optionTick(m);
+  if (ev === "TRIM") return Math.round(m * 100) / 100;
+  const b = Number(bid);
+  const bidUsable = b > 0 && b >= m * 0.40;
+  const raw = bidUsable ? b : Math.max(t, m - t);
+  const px = Math.min(m, raw);
+  return Math.round(Math.max(t, px) * 100) / 100;
+}
+
+export function extractMirrorFill(fired, requestedQty = 1) {
+  const res = fired?.response || {};
+  const fill = res.fill || res.broker_response?.fill || null;
+  const placed = res.broker_response || null;
+  const mock = !!(res.mock || res.dry_run || placed?.mock || fill?.mock);
+  const requested = Math.max(1, Math.round(Number(requestedQty) || 1));
+  if (mock) {
+    return {
+      status: "filled",
+      filled_qty: requested,
+      mock: true,
+      order_id: fill?.order_id || res.order_id || placed?.response?.order_id || null,
+    };
+  }
+  if (fill) {
+    const qty = Number(fill.filled_qty);
+    return {
+      status: String(fill.status || (qty > 0 ? "filled" : "working")).toLowerCase(),
+      filled_qty: Number.isFinite(qty) ? qty : null,
+      order_id: fill.order_id || fill.broker_order_id || null,
+    };
+  }
+  if (fired?.ok === false || res.rejected || res.ok === false) {
+    return { status: "rejected", filled_qty: 0, reason: res.reason || res.error || "rejected" };
+  }
+  // Place accepted, no fill echo (tests + Webull pitfall) — assume filled.
+  return { status: "filled", filled_qty: requested, assumed: true };
+}
+
+export function reconcileIndexDtFill({ event, requestedQty, fill } = {}) {
+  const status = String(fill?.status || "unknown").toLowerCase();
+  const requested = Math.max(1, Math.round(Number(requestedQty) || 1));
+  const qty = Number(fill?.filled_qty);
+  if (status === "rejected" || status === "cancelled") {
+    return { persist: false, pending: false, filledQty: 0, status, reason: `order_${status}` };
+  }
+  if (fill?.mock || fill?.assumed) {
+    return { persist: true, pending: false, filledQty: requested, status: "filled" };
+  }
+  if (status === "working" || status === "unknown") {
+    return {
+      persist: false,
+      pending: true,
+      filledQty: 0,
+      status: "working",
+      order_id: fill?.order_id || null,
+    };
+  }
+  if (status === "partial" && qty > 0) {
+    return { persist: true, pending: qty < requested, filledQty: Math.round(qty), status: "partial" };
+  }
+  if (status === "filled") {
+    return { persist: true, pending: false, filledQty: qty > 0 ? Math.round(qty) : requested, status: "filled" };
+  }
+  return { persist: false, pending: true, filledQty: 0, status };
+}
+
+export function resolveIndexDtEntryContracts({ prefs, play, book, size, vehicleRow } = {}) {
+  const follow = prefs?.index_dt_follow_paper_size === true
+    || vehicleRow?.follow_paper_size === true;
+  if (!follow) return 1;
+  const raw = Number(book?.contracts) || Number(size?.contracts) || Number(play?.contracts) || 1;
+  let q = Math.max(1, Math.min(3, Math.round(raw)));
+  const mid = Number(play?.premium?.mid) || 0;
+  const cap = Number(vehicleRow?.max_per_order_usd) || 0;
+  if (cap > 0 && mid > 0) {
+    while (q > 1 && mid * 100 * q > cap) q -= 1;
+  }
+  return q;
+}
+
+export function scaleIndexDtEntryPlay(play, { contracts, limit } = {}) {
+  if (!play) return play;
+  const q = Math.max(1, Math.round(Number(contracts) || 1));
+  const mid = Number(limit) > 0 ? Number(limit) : (Number(play.premium?.mid) || 0);
+  const px = mid > 0 ? Math.round(mid * 100) / 100 : null;
+  return {
+    ...play,
+    contracts: q,
+    max_loss_usd: px != null ? Math.round(px * 100 * q) : play.max_loss_usd,
+    premium: { ...(play.premium || {}), mid: px ?? play.premium?.mid },
+    legs: (play.legs || []).map((leg) => ({
+      ...leg,
+      qty: q,
+      premium_mid: px ?? leg.premium_mid,
+      leg_cost_usd: px != null ? Math.round(px * 100 * q) : leg.leg_cost_usd,
+    })),
+  };
+}
+
+async function pollFillIfNeeded(env, operatorEmail, fill, requestedQty) {
+  if (!fill || fill.status !== "working" || !fill.order_id) return fill;
+  try {
+    const polled = await queryAutoMirrorOrderStatus(env, operatorEmail, {
+      order_id: fill.order_id,
+      requested_qty: requestedQty,
+    });
+    const next = polled?.response?.fill;
+    if (!next) return fill;
+    return {
+      ...fill,
+      status: String(next.status || fill.status).toLowerCase(),
+      filled_qty: next.filled_qty ?? fill.filled_qty,
+      order_id: next.order_id || fill.order_id,
+      mock: !!(next.mock || fill.mock),
+      polled: true,
+    };
+  } catch {
+    return fill;
+  }
 }
 
 /**
@@ -696,13 +848,19 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
   if (event === "BUY") {
     if (signalId) {
       const existing = await loadIndexDtMirror(env, signalId);
-      if (existing?.entry_fired) {
+      if (existing?.entry_fired || existing?.entry_placed) {
         return { skipped: true, reason: "entry_already_mirrored" };
       }
     }
 
-    const entryContracts = Number(play.contracts) || 1;
-    const notional = (Number(play.premium?.mid) || 0) * 100 * entryContracts;
+    const entryContracts = resolveIndexDtEntryContracts({
+      prefs, play, book: ctx.book, size: ctx.size || ctx.book?.size || ctx.execution?.size, vehicleRow,
+    });
+    const buyLimit = ctx.execution?.premium_band?.display_buy_ceil
+      ?? ctx.execution?.premium_band?.buy_ceil
+      ?? null;
+    const entryPlay = scaleIndexDtEntryPlay(play, { contracts: entryContracts, limit: buyLimit });
+    const notional = (Number(entryPlay.premium?.mid) || 0) * 100 * entryContracts;
     if (notional > Number(vehicleRow.max_per_order_usd || 0)) {
       return {
         skipped: true,
@@ -711,10 +869,10 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
       };
     }
     const maxLossCap = Number(vehicleRow.max_loss_per_order_usd || 0);
-    if (maxLossCap > 0 && Number(play.max_loss_usd) > maxLossCap) {
+    if (maxLossCap > 0 && Number(entryPlay.max_loss_usd) > maxLossCap) {
       return {
         skipped: true,
-        reason: `max_loss_${play.max_loss_usd}_exceeds_vehicle_cap_${maxLossCap}`,
+        reason: `max_loss_${entryPlay.max_loss_usd}_exceeds_vehicle_cap_${maxLossCap}`,
         vehicle: vehicleKey,
       };
     }
@@ -726,40 +884,115 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
     const fired = await fireAutoMirror(env, operatorEmail, {
       trade_id: signalId || null,
       ticker,
-      play,
+      play: entryPlay,
       vehicle: vehicleKey,
       confluence_verdict: ctx.confluence || null,
       source: "auto_mirror_index_dt",
       lifecycle: "entry",
       side: "buy",
       execution_action: ctx.execution?.action || null,
-      buy_limit: ctx.execution?.premium_band?.display_buy_ceil ?? ctx.execution?.premium_band?.buy_ceil ?? null,
+      buy_limit: buyLimit,
     });
 
-    if (fired?.ok && signalId) {
+    let fill = extractMirrorFill(fired, entryContracts);
+    fill = await pollFillIfNeeded(env, operatorEmail, fill, entryContracts);
+    const rec = reconcileIndexDtFill({ event: "BUY", requestedQty: entryContracts, fill });
+
+    if (signalId && rec.persist) {
       await saveIndexDtMirror(env, signalId, {
         entry_fired: true,
+        entry_placed: true,
         ticker,
-        contracts: entryContracts,
-        contracts_remaining: entryContracts,
+        contracts: rec.filledQty,
+        contracts_remaining: rec.filledQty,
         strike: ctx.strike ?? play.strikes?.primary,
         flavor: play._day_trade_flavor,
+        entry_order_id: fill.order_id || null,
+        entry_fill_status: rec.status,
+      });
+    } else if (signalId && rec.pending) {
+      await saveIndexDtMirror(env, signalId, {
+        entry_fired: false,
+        entry_placed: true,
+        entry_pending: true,
+        ticker,
+        contracts: entryContracts,
+        contracts_remaining: 0,
+        strike: ctx.strike ?? play.strikes?.primary,
+        flavor: play._day_trade_flavor,
+        entry_order_id: fill.order_id || rec.order_id || null,
+        entry_fill_status: rec.status,
       });
     }
 
-    return { skipped: false, fired, vehicle: vehicleKey, archetype, event };
+    return {
+      skipped: false, fired, fill, reconcile: rec,
+      vehicle: vehicleKey, archetype, event, contracts: rec.filledQty || entryContracts,
+    };
   }
 
-  // ── Stage 5b closes (TRIM / EXIT / STOP) — limit sells at live premium.
+  // ── Stage 5b closes (TRIM / EXIT / STOP) — marketable limit sells.
   // NEVER cap-gated: closing risk must not be blocked by a daily counter.
   if (!signalId) return { skipped: true, reason: "no_signal_id" };
 
-  const mirror = await loadIndexDtMirror(env, signalId);
+  let mirror = await loadIndexDtMirror(env, signalId);
+
+  if (mirror?.entry_pending && !mirror.entry_fired && mirror.entry_order_id) {
+    const polled = await pollFillIfNeeded(env, operatorEmail, {
+      status: "working", order_id: mirror.entry_order_id,
+    }, Number(mirror.contracts) || 1);
+    const rec = reconcileIndexDtFill({
+      event: "BUY", requestedQty: Number(mirror.contracts) || 1, fill: polled,
+    });
+    if (rec.persist) {
+      mirror = {
+        ...mirror,
+        entry_fired: true,
+        entry_pending: false,
+        contracts: rec.filledQty,
+        contracts_remaining: rec.filledQty,
+      };
+      await saveIndexDtMirror(env, signalId, {
+        entry_fired: true,
+        entry_pending: false,
+        contracts: rec.filledQty,
+        contracts_remaining: rec.filledQty,
+        entry_fill_status: rec.status,
+      });
+    } else if (rec.status === "rejected" || rec.status === "cancelled") {
+      await saveIndexDtMirror(env, signalId, { entry_placed: false, entry_pending: false, entry_fired: false });
+      return { skipped: true, reason: "entry_fill_rejected" };
+    } else {
+      return { skipped: true, reason: "entry_fill_pending" };
+    }
+  }
+
   if (!mirror?.entry_fired) return { skipped: true, reason: "no_mirrored_entry" };
 
   if (event === "TRIM" && mirror.trim_fired) return { skipped: true, reason: "trim_already_mirrored" };
   if ((event === "EXIT" || event === "STOP") && mirror.exit_fired) {
     return { skipped: true, reason: "exit_already_mirrored" };
+  }
+
+  // A still-working close must not stack a second SELL. Poll; retry only if rejected.
+  const pendingKey = event === "TRIM" ? "trim" : "exit";
+  if (mirror[`${pendingKey}_pending`] && mirror[`${pendingKey}_order_id`]) {
+    const polled = await pollFillIfNeeded(env, operatorEmail, {
+      status: "working", order_id: mirror[`${pendingKey}_order_id`],
+    }, Number(mirror[`${pendingKey}_qty`]) || 1);
+    const rec = reconcileIndexDtFill({
+      event, requestedQty: Number(mirror[`${pendingKey}_qty`]) || 1, fill: polled,
+    });
+    if (rec.persist) {
+      const remainingAfter = Math.max(0, (Number(mirror.contracts_remaining) || 0) - rec.filledQty);
+      const patch = event === "TRIM"
+        ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, contracts_remaining: remainingAfter }
+        : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, contracts_remaining: remainingAfter };
+      await saveIndexDtMirror(env, signalId, patch);
+      return { skipped: true, reason: `${pendingKey}_fill_confirmed`, reconcile: rec };
+    }
+    if (rec.pending) return { skipped: true, reason: `${pendingKey}_still_working` };
+    // rejected — fall through and replace the working order
   }
 
   // Broker-side remaining qty — what the mirrored entry actually bought,
@@ -780,7 +1013,9 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
   const qty = event === "TRIM"
     ? Math.min(Math.max(1, trimSellQty(mirroredTotal)), Math.max(1, paperQty), mirroredRemaining)
     : mirroredRemaining;
-  const limitPrice = Number(ctx.premium);
+  const mid = Number(ctx.premium);
+  const bid = Number(ctx.bid ?? ctx.execution?.premium_band?.bid ?? play?.premium?.bid ?? play?.legs?.[0]?.premium_bid);
+  const limitPrice = marketableCloseLimit({ event, mid, bid });
   if (!(limitPrice > 0)) return { skipped: true, reason: "no_close_limit" };
 
   // A 1-lot mirror cannot partial-trim — skip the broker trim and let the
@@ -816,13 +1051,25 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
     limit_price: limitPrice,
   });
 
-  if (fired?.ok) {
-    const remainingAfter = Math.max(0, mirroredRemaining - qty);
+  let fill = extractMirrorFill(fired, qty);
+  fill = await pollFillIfNeeded(env, operatorEmail, fill, qty);
+  const rec = reconcileIndexDtFill({ event, requestedQty: qty, fill });
+
+  if (rec.persist) {
+    const remainingAfter = Math.max(0, mirroredRemaining - rec.filledQty);
     const patch = event === "TRIM"
-      ? { trim_fired: true, trim_qty: qty, trim_premium: limitPrice, contracts_remaining: remainingAfter }
-      : { exit_fired: true, exit_qty: qty, exit_premium: limitPrice, exit_event: event, contracts_remaining: remainingAfter };
+      ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, trim_premium: limitPrice, contracts_remaining: remainingAfter }
+      : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, exit_premium: limitPrice, exit_event: event, contracts_remaining: remainingAfter };
+    await saveIndexDtMirror(env, signalId, patch);
+  } else if (rec.pending) {
+    const patch = event === "TRIM"
+      ? { trim_pending: true, trim_qty: qty, trim_order_id: fill.order_id || rec.order_id || null, trim_premium: limitPrice }
+      : { exit_pending: true, exit_qty: qty, exit_order_id: fill.order_id || rec.order_id || null, exit_premium: limitPrice, exit_event: event };
     await saveIndexDtMirror(env, signalId, patch);
   }
 
-  return { skipped: false, fired, vehicle: vehicleKey, archetype, event, close_qty: qty };
+  return {
+    skipped: false, fired, fill, reconcile: rec,
+    vehicle: vehicleKey, archetype, event, close_qty: rec.filledQty || qty, limit_price: limitPrice,
+  };
 }
