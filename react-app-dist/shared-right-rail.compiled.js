@@ -9778,7 +9778,9 @@
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
-          }, strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS"))), React.createElement("div", {
+          }, strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS"), (window.TimedListPresets?.buildChipElements ? window.TimedListPresets.buildChipElements(tickerSymbol, React.createElement, {
+            max: 4
+          }) : []).map(chip => chip))), React.createElement("div", {
             className: "flex items-center gap-1 tt-rail-header-actions"
           }, React.createElement("div", {
             className: "flex items-center gap-1 tt-rail-header-actions-secondary"
@@ -19995,4 +19997,4 @@
   };
 })();
 
-// cache-bust:1787522456034:372091726
+// cache-bust:1787534541263:895069725

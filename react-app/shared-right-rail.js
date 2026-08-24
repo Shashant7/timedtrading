@@ -8570,6 +8570,9 @@
                           {strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS"}
                         </span>
                       )}
+                      {(window.TimedListPresets?.buildChipElements
+                        ? window.TimedListPresets.buildChipElements(tickerSymbol, React.createElement, { max: 4 })
+                        : []).map((chip) => chip)}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 tt-rail-header-actions">

@@ -261,7 +261,7 @@ export const TACTICAL_SIGNALS = [
     evidence: "8/19/2026 Market Update Top 5 Large-Cap Core Ideas — NVDA, BNY (NEW), LLY, JPM, ANET. BNY and ANET fresh adds; LLY/JPM/NVDA carry-over. Prior 7/15–8/18 return −1.6% vs SPX −3.1%.",
     playbook_action: "Treat NVDA/BNY/LLY/JPM/ANET as highest-conviction Large-Cap entries: accept pullback adds, respect Weekly ATR floors, do not counter-fade. New adds (BNY, ANET) get a 30-day conviction window.",
     tickers_top: ["NVDA", "BNY", "LLY", "JPM", "ANET"],
-    affected_tier1_themes: ["ai_infra_compute", "banks_money_center", "weight_loss", "ai_infra_networking"],
+    affected_tier1_themes: ["ai_infra_compute", "banks_money_center", "weight_loss", "ai_infra_semicap"],
     affected_sectors_overweight: ["Information Technology", "Financials", "Health Care"],
   },
   {
@@ -272,7 +272,7 @@ export const TACTICAL_SIGNALS = [
     evidence: "8/19/2026 Market Update Bottom 5 Large-Cap Core Ideas — ECHO (NEW), MSTR, TSLA (NEW), VST, HOOD. TSLA and ECHO fresh adds; MSTR/VST/HOOD carry-over. Return 7/15–8/18 −1.3% vs SPX −2.9%.",
     playbook_action: "Bias REJECT on new LONG entries in ECHO, MSTR, TSLA, VST, HOOD. Treat existing exposure as reduce-on-strength. Do not add on weakness — the desk's own read is unfavorable.",
     tickers_bottom: ["ECHO", "MSTR", "TSLA", "VST", "HOOD"],
-    affected_tier1_themes: ["crypto_treasury", "ai_infra_energy", "ev_battery", "fintech"],
+    affected_tier1_themes: ["crypto_proxies", "ai_infra_energy", "ev_battery", "fintech"],
     affected_sectors_overweight: ["Consumer Discretionary", "Utilities"],
   },
   {
@@ -283,7 +283,7 @@ export const TACTICAL_SIGNALS = [
     evidence: "8/19/2026 Market Update Top 5 SMID-Cap Core Ideas — DINO, HALO (NEW), IESC (NEW), LITE (NEW), CRDO (NEW). Four fresh adds — largest single-month refresh since May. Prior period −5.7% vs R2500 −7.9%.",
     playbook_action: "Treat DINO/HALO/IESC/LITE/CRDO as highest-conviction SMID entries. IESC re-entering the SMID top-5 warrants a fresh accumulate window (prior invalidation exit 2026-08-14 is no longer the desk's read).",
     tickers_top: ["DINO", "HALO", "IESC", "LITE", "CRDO"],
-    affected_tier1_themes: ["energy_refiners", "biotech", "ai_infra_electric", "ai_infra_optical"],
+    affected_tier1_themes: ["refiners", "weight_loss", "ai_infra_energy", "ai_infra_compute"],
     affected_sectors_overweight: ["Energy", "Health Care", "Industrials", "Information Technology"],
   },
   {
@@ -294,7 +294,7 @@ export const TACTICAL_SIGNALS = [
     evidence: "8/19/2026 Market Update Bottom 5 SMID-Cap Core Ideas — GLXY, UUUU, RIOT, RKLB, IONQ. All carry-over. Return 7/15–8/18 +5.7% vs R2500 +3.5% — desk stayed underweight despite counter-move.",
     playbook_action: "Bias REJECT on new SMID LONG entries in GLXY, UUUU, RIOT, RKLB, IONQ. These are Speculative / crypto-adjacent / retail-quant plays that repeatedly generated bad exits — desk's own scoring keeps them at the bottom.",
     tickers_bottom: ["GLXY", "UUUU", "RIOT", "RKLB", "IONQ"],
-    affected_tier1_themes: ["crypto_treasury", "uranium", "quantum_compute", "space_defense"],
+    affected_tier1_themes: ["crypto_proxies", "uranium_nuclear", "ai_infra_compute", "space_tech", "defense"],
     affected_sectors_overweight: ["Financials", "Energy", "Information Technology"],
   },
   {

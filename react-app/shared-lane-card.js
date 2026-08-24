@@ -265,6 +265,10 @@
   function create(p) {
     const sym = String(p.sym || "").toUpperCase();
     const chips = Array.isArray(p.chipRow) ? p.chipRow.filter(Boolean) : [];
+    const listPresetChips = (window.TimedListPresets?.buildChipElements)
+      ? window.TimedListPresets.buildChipElements(sym, h, { max: 3 })
+      : [];
+    const allChips = chips.concat(listPresetChips);
     const metrics = Array.isArray(p.metrics) ? p.metrics.filter(Boolean) : [];
     const hasMid = !!p.midBody;
     const extraClass = p.button?.className ? ` ${p.button.className}` : "";
@@ -296,7 +300,7 @@
             }),
             p.identityExtra || null,
           ),
-          h("div", { className: "tt-lane-card__chips" }, ...(chips.length ? chips : [])),
+          h("div", { className: "tt-lane-card__chips" }, ...(allChips.length ? allChips : [])),
         ),
         quoteColumn(p.quote || {}),
       ),

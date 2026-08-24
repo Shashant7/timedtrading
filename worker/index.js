@@ -2231,6 +2231,7 @@ const ROUTES = [
   ["POST", "/timed/admin/universe", "POST /timed/admin/universe"],
   ["DELETE", (p) => /^\/timed\/admin\/universe\/[A-Z0-9.!-]+$/i.test(p), "DELETE /timed/admin/universe/:ticker"],
   // ── ETF Holdings Sync ──
+  ["GET", "/timed/list-presets", "GET /timed/list-presets"],
   ["GET", "/timed/etf/groups", "GET /timed/etf/groups"],
   ["GET", (p) => /^\/timed\/etf\/holdings\/[A-Z]+$/i.test(p), "GET /timed/etf/holdings/:symbol"],
   ["POST", "/timed/etf/sync", "POST /timed/etf/sync"],
@@ -93480,6 +93481,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             added: toAdd,
             removed: toRemove,
           }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── List presets (MAG7, AI Ecosystem, Cybersecurity, SaaS & Cloud) + upticks
+      if (routeKey === "GET /timed/list-presets") {
+        try {
+          const stored = await kvGetJSON(KV, "timed:admin:upticks");
+          const upticks = Array.isArray(stored) && stored.length
+            ? stored.map((t) => String(t).toUpperCase().trim()).filter(Boolean)
+            : [...TT_SELECTED];
+          const { buildListPresets } = await import("./list-presets.js");
+          return sendJSON({ ok: true, presets: buildListPresets(), upticks }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }

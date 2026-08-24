@@ -1184,6 +1184,7 @@
     <script src="shared-price-utils.js?v=20260211a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260610-verda3"></script>
+    <script src="shared-list-presets.js?v=20260824a"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="tt-cycle-intel.js?v=20260707b"></script>
     <script src="tt-harmonic-chart.js?v=20260707a"></script>
@@ -3016,11 +3017,7 @@
       // Groups (GRNY/GRNI/GRNJ loaded dynamically from ETF sync)
       // ─────────────────────────────────────────────────────────────
       const GROUPS = {
-        UPTICKS: new Set([
-          "RDDT", "AMZN", "BABA", "TSLA", "KO", "WMT", "ETHA", "BRK-B", "MTB",
-          "AMGN", "GILD", "CSX", "GEV", "HII", "JCI", "PH", "PWR", "TT",
-          "CLS", "FSLR", "PANW", "CRS", "VST", "BG", "MRK", "QXO", "AXP",
-        ]),
+        UPTICKS: new Set(),
         GRNI: new Set(),
         GRNJ: new Set(),
         GRNY: new Set(),
@@ -3036,6 +3033,9 @@
       async function loadETFGroups() {
         if (_etfGroupsLoaded) return;
         try {
+          const LP = window.TimedListPresets;
+          if (LP?.load) await LP.load();
+          if (LP?.applyUpticksToGroups) LP.applyUpticksToGroups(GROUPS);
           const resp = await fetch("/timed/etf/groups");
           const data = await resp.json();
           if (data.ok && data.groups) {

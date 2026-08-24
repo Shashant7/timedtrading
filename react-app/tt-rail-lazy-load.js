@@ -13,6 +13,7 @@
   } catch (_) {}
   var RAIL_SCRIPTS = [
     "/vendor/lightweight-charts.standalone.production.js?v=vendor",
+    "shared-list-presets.js" + _bust,
     "shared-rail-helpers.js" + _bust,
     "shared-verdict-ui.js" + _bust,
     "tt-cycle-intel.js" + _bust,
