@@ -95184,14 +95184,25 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         engine: "options_day_trade",
                         exec_state: ev.event,
                       }).catch(() => {});
-                      if (ev.event === "BUY" && _optionsAutoMirrorIndicesEnabled(env)) {
+                      if (_optionsAutoMirrorIndicesEnabled(env)) {
                         try {
-                          const { maybeAutoMirrorIndexDayTrade } = await import("./options-auto-mirror.js");
-                          queueBackground(maybeAutoMirrorIndexDayTrade(env, {
+                          const { maybeAutoMirrorIndexDayTradeEvent } = await import("./options-auto-mirror.js");
+                          const _mirrorSid = _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId;
+                          const _mirrorPrem = _dtExecution.premium_band?.premium
+                            ?? _dtPrimary?.premium?.mid
+                            ?? _dtPlay?.premium?.mid;
+                          queueBackground(maybeAutoMirrorIndexDayTradeEvent(env, {
+                            event: ev.event,
+                            reason: ev.reason || null,
                             ticker: _dtSym,
                             play: _dtPrimary || _dtPlay,
-                            signal_id: _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId,
+                            signal_id: _mirrorSid,
                             execution: _dtExecution,
+                            book: ev.book || null,
+                            premium: _mirrorPrem,
+                            strike: _dtExecution.contract?.strike ?? _strike,
+                            expiration: _dtExecution.contract?.expiration || _dtPrimary?.expiration || _dtPlay.expiration,
+                            flavor: _dtExecution.contract?.flavor || _dtPlay._day_trade_flavor,
                             indicesFlagOn: true,
                           }));
                         } catch (_) { /* never block on options mirror */ }

@@ -41,6 +41,11 @@ export const MIN_TRIM_DOLLARS = 0.15;
 export const MIN_CONTRACTS_FOR_TRIM = 2;
 /** After 1R / trim, exit runner if premium gives back this fraction from peak. */
 export const TRAIL_GIVEBACK_PCT = 0.40;
+/** Sell qty for a 50% trim (whole contracts). */
+export function trimSellQty(contracts) {
+  const c = Math.max(1, Math.round(Number(contracts) || 1));
+  return Math.max(1, Math.round(c * 0.5));
+}
 export const SESSION_FLAT_ET = "15:45";
 /** Overnight is decided from 15:30 ET, not at the morning entry. */
 export const OVERNIGHT_DECIDE_MIN = 15 * 60 + 30;
@@ -479,6 +484,7 @@ export function classifyPaperEvent({
     needs_wait: true,
     entry_premium: entry,
     contracts: book?.contracts ?? sz?.contracts ?? null,
+    contracts_remaining: book?.contracts_remaining ?? book?.contracts ?? sz?.contracts ?? null,
     size_label: book?.size_label ?? sz?.label ?? null,
     exit_premium: mid,
     exit_ts: now,
@@ -519,6 +525,7 @@ export function classifyPaperEvent({
         trim_premium: rr?.trim ?? null,
         exit_premium: rr?.exit ?? null,
         contracts: sz?.contracts ?? 1,
+        contracts_remaining: sz?.contracts ?? 1,
         size_label: sz?.label || "medium",
         ticker: clock?.contract?.ticker || null,
         flavor: clock?.contract?.flavor || null,
@@ -608,6 +615,7 @@ export function classifyPaperEvent({
   }
 
   if ((sellKind === "open_trim" || action === "TRIM") && status === "open" && canTrim) {
+    const sellQty = trimSellQty(contracts);
     return {
       event: "TRIM",
       reason: "open_trim",
@@ -617,6 +625,8 @@ export function classifyPaperEvent({
         event: "TRIM",
         trim_premium: mid,
         trim_ts: now,
+        trim_sell_qty: sellQty,
+        contracts_remaining: Math.max(0, contracts - sellQty),
         profit_armed: true,
         trail_stop_premium: entry,
       },
@@ -625,6 +635,7 @@ export function classifyPaperEvent({
 
   if (status === "open" && trimPx != null && mid != null && mid + 1e-9 >= trimPx) {
     if (canTrim) {
+      const sellQty = trimSellQty(contracts);
       return {
         event: "TRIM",
         nextBook: {
@@ -633,6 +644,8 @@ export function classifyPaperEvent({
           event: "TRIM",
           trim_premium: mid,
           trim_ts: now,
+          trim_sell_qty: sellQty,
+          contracts_remaining: Math.max(0, contracts - sellQty),
           profit_armed: true,
           trail_stop_premium: entry,
         },

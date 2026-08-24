@@ -196,5 +196,6 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     size,
     embed,
     discord,
+    book: decision.nextBook || book,
   };
 }
