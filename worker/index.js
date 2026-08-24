@@ -2386,6 +2386,7 @@ const ROUTES = [
   ["POST", "/timed/broker/webull/disconnect",            "POST /timed/broker/webull/disconnect"],
   ["POST", "/timed/broker/account/enable",               "POST /timed/broker/account/enable"],
   ["POST", "/timed/broker/account/caps",                 "POST /timed/broker/account/caps"],
+  ["POST", "/timed/broker/account/options",              "POST /timed/broker/account/options"],
   ["POST", "/timed/broker/pause-all",                    "POST /timed/broker/pause-all"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
@@ -83801,6 +83802,7 @@ export default {
         || routeKey === "POST /timed/broker/webull/disconnect"
         || routeKey === "POST /timed/broker/account/enable"
         || routeKey === "POST /timed/broker/account/caps"
+        || routeKey === "POST /timed/broker/account/options"
         || routeKey === "POST /timed/broker/pause-all";
       if (_isBrokerRoute) {
         try { await d1EnsureAdminSchema(env); } catch (_) {}
@@ -84090,6 +84092,44 @@ export default {
           if (body.max_orders_per_day !== undefined) payload.max_orders_per_day = body.max_orders_per_day;
           if (body.max_account_pct !== undefined) payload.max_account_pct = body.max_account_pct;
           return _bridgeJson(await _postBridge("/bridge/user/caps", payload));
+        }
+        if (routeKey === "POST /timed/broker/account/options") {
+          const body = await req.json().catch(() => ({}));
+          const accountId = String(body?.account_id || "").trim().toLowerCase();
+          if (!_ownsAccount(accountId)) {
+            return sendJSON({ ok: false, error: "account_not_owned_by_session_user" }, 403, corsHeaders(env, req));
+          }
+          const payload = { user_id: accountId };
+          if (typeof body?.options_enabled === "boolean") payload.options_enabled = body.options_enabled;
+          if (body?.vehicles && typeof body.vehicles === "object") payload.vehicles = body.vehicles;
+          const result = await _postBridge("/bridge/user/options-enable", payload);
+          // Operator KV auto-mirror must stay in sync — index day-trade
+          // gates read timed:options:auto-mirror:{ADMIN_EMAIL}, not the
+          // bridge user row. Flip long_call / long_put when the operator
+          // enables options on one of their own accounts.
+          try {
+            const admin = String(env.ADMIN_EMAIL || "").toLowerCase();
+            if (admin && email === admin) {
+              const prefs = await _loadAutoMirrorPrefs(env, email);
+              const on = payload.options_enabled === true
+                || payload.vehicles?.long_call?.enabled === true
+                || payload.vehicles?.long_put?.enabled === true;
+              const off = payload.options_enabled === false;
+              const vehicles = { ...(prefs.vehicles || {}) };
+              if (on || off) {
+                const callOn = payload.vehicles?.long_call?.enabled;
+                const putOn = payload.vehicles?.long_put?.enabled;
+                vehicles.long_call = { ...vehicles.long_call, enabled: callOn !== undefined ? !!callOn : on };
+                vehicles.long_put = { ...vehicles.long_put, enabled: putOn !== undefined ? !!putOn : on };
+              }
+              await _saveAutoMirrorPrefs(env, email, {
+                ...prefs,
+                enabled: off ? prefs.enabled : (prefs.enabled || on),
+                vehicles,
+              });
+            }
+          } catch (_) { /* never block the account toggle on KV sync */ }
+          return _bridgeJson(result);
         }
       }
 

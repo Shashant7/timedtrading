@@ -1311,6 +1311,7 @@ export default {
         return json({
           ok: true, user_id: userId,
           options_prefs: user.options_prefs,
+          options_enabled: !!user.options_enabled,
           updated_at: user.options_prefs_updated_at,
         });
       }
@@ -1325,7 +1326,36 @@ export default {
         return json({
           ok: true, user_id: userId,
           options_prefs: user.options_prefs || null,
+          options_enabled: !!user.options_enabled,
           updated_at: user.options_prefs_updated_at || null,
+        });
+      }
+
+      // 2026-08-24 — Self-service options-strategy toggle (Broker Connections).
+      // Sets options_enabled + long_call / long_put vehicles. Ownership is
+      // enforced by the main worker before this is proxied.
+      if (method === "POST" && path === "/bridge/user/options-enable") {
+        if (operatorFail) return operatorFail;
+        const body = await req.json().catch(() => ({}));
+        const userId = String(body?.user_id || "").trim().toLowerCase();
+        if (!userId) return json({ ok: false, error: "user_id_required" }, 400);
+        const user = await readUser(env, userId);
+        if (!user) return json({ ok: false, error: "user_not_found" }, 404);
+        if (user.status !== "connected") {
+          return json({ ok: false, error: `user_status_${user.status}_must_be_connected` }, 400);
+        }
+        const { applyOptionsStrategyPatch } = await import("./bridge-options-prefs.js");
+        const next = applyOptionsStrategyPatch(user, {
+          options_enabled: typeof body?.options_enabled === "boolean" ? body.options_enabled : undefined,
+          vehicles: body?.vehicles || null,
+        });
+        await writeUser(env, userId, next);
+        return json({
+          ok: true,
+          user_id: userId,
+          options_enabled: !!next.options_enabled,
+          options_prefs: next.options_prefs,
+          updated_at: next.options_prefs_updated_at,
         });
       }
 
@@ -2678,8 +2708,15 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
     return json({ ok: false, error: "missing_required_fields" }, 400);
   }
 
-  // Load user + check enablement.
-  const user = await readUser(env, sanitized.user_id);
+  // Prefer a connected account that opted into options strategies
+  // (Broker Connections toggle). Owner emails resolve to the opted-in
+  // Webull sub-account instead of a creds-less parent row.
+  const { pickOptionsAccount, optionsStrategiesOn } = await import("./bridge-options-prefs.js");
+  const ownerAccounts = await resolveBridgeAccounts(env, sanitized.user_id, { enabledOnly: true }).catch(() => []);
+  const opted = pickOptionsAccount(ownerAccounts, {
+    preferClass: env?.WEBULL_DEFAULT_ACCOUNT_CLASS || "ROTH_IRA",
+  });
+  const user = opted || await resolveBridgeUser(env, sanitized.user_id) || await readUser(env, sanitized.user_id);
   if (!user) return json({ ok: false, error: "user_not_found" }, 404);
 
   // Global kill switch.
@@ -2690,8 +2727,9 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
     return json({ ok: false, rejected: true, reason: "user_disabled" }, 200);
   }
   // Options-specific gate — separate from stock enablement so users
-  // can authorize stocks-only without options.
-  if (!user.options_enabled && user.role !== "operator") {
+  // can authorize stocks-only without options. Broker Connections
+  // toggle writes options_enabled + long_call/long_put vehicles.
+  if (!optionsStrategiesOn(user) && user.role !== "operator") {
     return json({ ok: false, rejected: true, reason: "options_not_enabled" }, 200);
   }
 
@@ -2923,6 +2961,7 @@ function _redactUserForList(user) {
     broker: user.broker || null,
     status: user.status,
     broker_integration_enabled: !!user.broker_integration_enabled,
+    options_enabled: !!user.options_enabled,
     rh_account_number: user.rh_account_number || null,
     webull_account_id: user.webull_account_id || null,
     webull_account_label: user.webull_account_label || null,

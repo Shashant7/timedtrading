@@ -1514,6 +1514,11 @@ function PositionsSection({
     })));
   })())));
 }
+function accountOptionsOn(acct) {
+  if (acct?.options_enabled === true) return true;
+  const v = acct?.options_prefs?.vehicles || {};
+  return !!(v.long_call?.enabled || v.long_put?.enabled);
+}
 function AccountCard({
   acct,
   onChanged
@@ -1521,6 +1526,9 @@ function AccountCard({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const enabled = !!acct.broker_integration_enabled;
+  const optionsOn = accountOptionsOn(acct);
+  const callOn = acct?.options_prefs?.vehicles?.long_call?.enabled === true;
+  const putOn = acct?.options_prefs?.vehicles?.long_put?.enabled === true;
   const call = async (path, body, okText) => {
     setBusy(true);
     setMsg(null);
@@ -1545,6 +1553,21 @@ function AccountCard({
       setBusy(false);
     }
   };
+  const setOptions = (next, vehicles, {
+    confirmMaster = true
+  } = {}) => {
+    if (confirmMaster) {
+      const warn = next ? "Enable options strategies on this account? Long calls and puts from the model (including index day-trades) will place real option orders here." : "Disable options strategies on this account? Equity mirroring stays as it is; no further option orders will be placed.";
+      if (!confirm(warn)) return;
+    }
+    call("/timed/broker/account/options", {
+      account_id: acct.user_id,
+      options_enabled: next,
+      ...(vehicles ? {
+        vehicles
+      } : {})
+    }, next ? "Options strategies enabled" : "Options strategies paused");
+  };
   return React.createElement("div", {
     className: "tt-card tt-card-pad",
     style: {
@@ -1554,7 +1577,7 @@ function AccountCard({
     style: {
       display: "flex",
       justifyContent: "space-between",
-      alignItems: "center",
+      alignItems: "flex-start",
       flexWrap: "wrap",
       gap: 10
     }
@@ -1578,7 +1601,14 @@ function AccountCard({
       lineHeight: 1.55,
       maxWidth: 520
     }
-  }, "Mirror on/off is the only account control. Order size follows the model proportionally to this account's equity \u2014 there is no daily order cap.")), React.createElement("div", {
+  }, "Equity mirror and options strategies are separate. Order size follows the model proportionally to this account's equity \u2014 there is no daily order cap.")), React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "flex-end",
+      gap: 10
+    }
+  }, React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -1608,7 +1638,71 @@ function AccountCard({
     style: {
       left: enabled ? 22 : 3
     }
-  })))), msg && React.createElement("div", {
+  }))), React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, React.createElement("span", {
+    className: `bc-pill ${optionsOn ? "p-mint" : "p-off"}`
+  }, React.createElement("span", {
+    className: "dot"
+  }), optionsOn ? "OPTIONS ON" : "OPTIONS OFF"), React.createElement("button", {
+    className: "toggle",
+    disabled: busy || !enabled,
+    title: enabled ? optionsOn ? "Disable options strategies" : "Enable options strategies" : "Turn on equity mirroring first",
+    style: {
+      background: optionsOn ? "rgba(56,242,161,0.55)" : "rgba(255,255,255,0.12)"
+    },
+    onClick: () => setOptions(!optionsOn)
+  }, React.createElement("span", {
+    className: "knob",
+    style: {
+      left: optionsOn ? 22 : 3
+    }
+  }))))), optionsOn && React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexWrap: "wrap",
+      marginTop: 12
+    }
+  }, React.createElement("button", {
+    className: `bc-btn bc-btn-sm ${callOn ? "bc-btn-primary" : ""}`,
+    disabled: busy,
+    title: "Long calls \u2014 including index day-trade calls",
+    onClick: () => {
+      const nextCall = !callOn;
+      setOptions(nextCall || putOn, {
+        long_call: {
+          enabled: nextCall
+        },
+        long_put: {
+          enabled: putOn
+        }
+      }, {
+        confirmMaster: false
+      });
+    }
+  }, "Long call ", callOn ? "on" : "off"), React.createElement("button", {
+    className: `bc-btn bc-btn-sm ${putOn ? "bc-btn-primary" : ""}`,
+    disabled: busy,
+    title: "Long puts \u2014 including index day-trade puts",
+    onClick: () => {
+      const nextPut = !putOn;
+      setOptions(callOn || nextPut, {
+        long_call: {
+          enabled: callOn
+        },
+        long_put: {
+          enabled: nextPut
+        }
+      }, {
+        confirmMaster: false
+      });
+    }
+  }, "Long put ", putOn ? "on" : "off")), msg && React.createElement("div", {
     className: msg.ok ? "msg-ok" : "msg-err",
     style: {
       marginTop: 10
@@ -3051,6 +3145,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787571285365:60583177
+// cache-bust:1787592006275:229684353
 
-// cache-bust:1787571285365:60583177
+// cache-bust:1787592006275:229684353
