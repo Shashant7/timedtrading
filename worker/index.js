@@ -814,7 +814,9 @@ import {
   assembleDayTradePlan as _optDtAssemblePlan,
   maybeNotifyDayTradePaperEvent as _optDtNotifyPaper,
   loadDayTradeBook as _optDtLoadBook,
+  readDayTradeActions as _optDtReadActions,
 } from "./option-day-trade-alerts.js";
+import { extraActionFromLedger, modelRowFromDayTradeAction } from "./broker-day-actions-join.js";
 import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
@@ -20986,7 +20988,11 @@ async function processTradeSimulation(
               // var presence — no-op until operator deploys the bridge.
               if (env?.BROKER_BRIDGE_URL && env?.BROKER_BRIDGE_HMAC_KEY) {
                 try {
-                  const { forwardOrderToBridge } = await import("./broker-bridge-client.js");
+                  const {
+                    forwardOrderToBridge,
+                    shouldForwardTraderMirrorAsEquity,
+                    recordBridgeMirrorSkip,
+                  } = await import("./broker-bridge-client.js");
                   // Exit qty MUST be the remaining (untrimmed) position size.
                   // Prior code sent trade.size/trade.qty which are undefined on
                   // trader trades (they use `shares`) → qty 0 or full-size sells
@@ -20994,24 +21000,39 @@ async function processTradeSimulation(
                   const _bridgeExitQty = Number.isFinite(remainingShares) && remainingShares > 0
                     ? remainingShares
                     : Number(trade.shares) || 0;
-                  queueBackground(forwardOrderToBridge(env, {
-                    user_id: env?.ADMIN_EMAIL || "operator",
-                    trade_id: trade.id || null,
-                    // Stable per-trade exit id → the bridge can dedupe repeat
-                    // false-exit fires (AMZN fired 3x) into ONE real sell.
-                    client_order_id: trade.id ? `tt-exit-${trade.id}` : null,
-                    ticker: sym,
-                    side: "exit",
-                    qty: _bridgeExitQty,
-                    entry: Number(trade.exitPrice) || null,
-                    sl: null,
-                    tp: null,
-                    decision_reason: closeReason || trade.status || null,
-                    action_ts: tsMs,
-                    mode: "trader",
-                    horizon: "short_term",
-                    vehicle: "equity_long",
-                  }));
+                  // ENTRY and TRIM already skip options/LETF paper. EXIT used
+                  // to forward those as equity SELL 1 sh @ premium (QQQ $1.75)
+                  // — no trade-id tie to the options entry, no notification
+                  // path, and the broker never saw a real share order.
+                  if (!shouldForwardTraderMirrorAsEquity(trade)) {
+                    queueBackground(recordBridgeMirrorSkip(env, {
+                      ticker: sym,
+                      side: "exit",
+                      reason: `vehicle_${trade.executed_vehicle || trade.vehicle || "options"}_not_mirrored_as_equity`,
+                      trade_id: trade.id || null,
+                      qty: _bridgeExitQty,
+                      meta: { close_reason: closeReason || trade.status || null },
+                    }));
+                  } else {
+                    queueBackground(forwardOrderToBridge(env, {
+                      user_id: env?.ADMIN_EMAIL || "operator",
+                      trade_id: trade.id || null,
+                      // Stable per-trade exit id → the bridge can dedupe repeat
+                      // false-exit fires (AMZN fired 3x) into ONE real sell.
+                      client_order_id: trade.id ? `tt-exit-${trade.id}` : null,
+                      ticker: sym,
+                      side: "exit",
+                      qty: _bridgeExitQty,
+                      entry: Number(trade.exitPrice) || null,
+                      sl: null,
+                      tp: null,
+                      decision_reason: closeReason || trade.status || null,
+                      action_ts: tsMs,
+                      mode: "trader",
+                      horizon: "short_term",
+                      vehicle: "equity_long",
+                    }));
+                  }
                 } catch (_) { /* never block trade flow on bridge issues */ }
               }
               await upsertAlertSafe({
@@ -21400,11 +21421,11 @@ async function processTradeSimulation(
         try {
           const {
             forwardOrderToBridge,
-            isEquityMirrorVehicle,
+            shouldForwardTraderMirrorAsEquity,
             recordBridgeMirrorSkip,
           } = await import("./broker-bridge-client.js");
           const _trimVeh = trade.executed_vehicle || trade.vehicle || "shares";
-          if (!isEquityMirrorVehicle(_trimVeh)) {
+          if (!shouldForwardTraderMirrorAsEquity(trade)) {
             queueBackground(recordBridgeMirrorSkip(env, {
               ticker: sym,
               side: isFullClose ? "exit" : "trim",
@@ -28370,11 +28391,11 @@ async function processTradeSimulation(
                     try {
                       const {
                         forwardOrderToBridge,
-                        isEquityMirrorVehicle,
+                        shouldForwardTraderMirrorAsEquity,
                         recordBridgeMirrorSkip,
                       } = await import("./broker-bridge-client.js");
                       const _bridgeEntryId = trade.id || tradeId || null;
-                      if (!isEquityMirrorVehicle(_executedVehicle)) {
+                      if (!shouldForwardTraderMirrorAsEquity(trade)) {
                         queueBackground(recordBridgeMirrorSkip(env, {
                           ticker: sym,
                           side: String(direction || "").toLowerCase() === "short" ? "short" : "buy",
@@ -40281,6 +40302,10 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
     ).bind(sinceMs).all();
     modelRows = r?.results || [];
   } catch (_) { modelRows = []; }
+  try {
+    const dtRows = await _optDtReadActions(env, sinceMs);
+    for (const a of dtRows) modelRows.push(modelRowFromDayTradeAction(a));
+  } catch (_) { /* paper DT ring is optional */ }
   // 2. Mothership forward/skip records (client ring).
   let ring = [];
   try {
@@ -40407,20 +40432,7 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
   const extras = [];
   (bridge.ledger || []).forEach((b, i) => {
     if (usedLedger.has(i)) return;
-    extras.push({
-      ts: b.ts,
-      mode: "mirror",
-      event: String(b.side || b.event_type || "ORDER").toUpperCase(),
-      ticker: String(b.ticker || "").toUpperCase(),
-      qty: Number(b.qty) || 0,
-      price: Number(b.price) || 0,
-      value: Number(b.value) || 0,
-      mirror: String(b.status || "").toLowerCase() === "ok" ? "mirrored" : "rejected",
-      mirror_reason: b.reject_reason || null,
-      fills: [],
-      rejects: [],
-      account: _acctLabel(b),
-    });
+    extras.push(extraActionFromLedger(b, _acctLabel(b)));
   });
   const all = actions.concat(extras).sort((a, b) => b.ts - a.ts);
   const summary = {

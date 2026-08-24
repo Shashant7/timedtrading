@@ -6,6 +6,30 @@
 
 ---
 
+## QQQ options SELL leaked as an equity reject [2026-08-24]
+
+**Symptom:** Broker Connections showed `MIRROR SELL QQQ 1 sh @ $1.75
+REJECTED` with no reason line, no trade-signal notification, and no
+options broker order. The GE TRIM reject on the same day correctly
+showed "No tracked entry…".
+
+**Cause:** Trader `closeTradeAtPrice` forwarded every EXIT via
+`/bridge/order` as equity. ENTRY and TRIM already skipped options/LETF
+(`isEquityMirrorVehicle`). Index DT paper lives in KV
+(`timed:opt-dt-book:{signal_id}`), not `account_ledger`, so the equity
+SELL had no `model_trade_id` join — an orphan extra with `fills: []`
+and `rejects: []`. Real options closes go through
+`maybeAutoMirrorIndexDayTradeEvent` → `/bridge/options/order` and only
+fire after a paper event (Discord + bell). After the paper book is
+flat, the clock returns `event: null`, so a ghost equity SELL also
+never notified.
+
+**Fix:** `shouldForwardTraderMirrorAsEquity` on EXIT (and ENTRY/TRIM).
+Options place/guard writes `broker_account_ledger` with
+`model_trade_id = signal_id` and `client_order_id = tt-opt-{id}-{side}`.
+Paper BUY/TRIM/EXIT/STOP append `timed:opt-dt-actions` so day-actions
+join like shares. Extras copy `rejects[]` / `mirror_reason`.
+
 ## Today strip chips were repeating the foot [2026-08-23]
 
 **Symptom:** Cloud Desk, Index Day-Trade, and Convexity cards stacked

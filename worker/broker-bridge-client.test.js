@@ -3,6 +3,7 @@ import {
   forwardOrderToBridge,
   readClientRing,
   isEquityMirrorVehicle,
+  shouldForwardTraderMirrorAsEquity,
   recordBridgeMirrorSkip,
   parseBridgeOrderIds,
 } from "./broker-bridge-client.js";
@@ -51,6 +52,17 @@ describe("isEquityMirrorVehicle", () => {
     expect(isEquityMirrorVehicle("options")).toBe(false);
     expect(isEquityMirrorVehicle("letf")).toBe(false);
     expect(isEquityMirrorVehicle("long_call")).toBe(false);
+  });
+});
+
+describe("shouldForwardTraderMirrorAsEquity", () => {
+  it("forwards share books and skips options / LETF paper", () => {
+    expect(shouldForwardTraderMirrorAsEquity({ vehicle: "shares" })).toBe(true);
+    expect(shouldForwardTraderMirrorAsEquity({})).toBe(true);
+    expect(shouldForwardTraderMirrorAsEquity({ executed_vehicle: "options", options_paper: {} })).toBe(false);
+    expect(shouldForwardTraderMirrorAsEquity({ options_paper: { premium: 1.75 } })).toBe(false);
+    expect(shouldForwardTraderMirrorAsEquity({ vehicle: "letf" })).toBe(false);
+    expect(shouldForwardTraderMirrorAsEquity({ letf_paper: { ticker: "TQQQ" } })).toBe(false);
   });
 });
 
