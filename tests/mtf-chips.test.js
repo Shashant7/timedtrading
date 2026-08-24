@@ -20,10 +20,26 @@ describe("TimedMtfChips", () => {
     MTF = loadMtfChips();
   });
 
-  it("reads 1H / D / 72 cloud directions with arrows", () => {
+  it("reads 1H / D 20/21 / D 50/55 cloud directions with arrows", () => {
     const ticker = {
       tf_tech: {
         "1H": { ripster: { c34_50: { above: true, bull: true } } },
+        D: {
+          ripster: {
+            c20_21: { below: true, bear: true },
+            c50_55: { above: true, bull: true },
+          },
+        },
+      },
+    };
+    const reads = MTF.readsForTicker(ticker);
+    expect(reads.map((r) => r.label)).toEqual(["1H↑", "21↓", "55↑"]);
+  });
+
+  it("falls back to legacy D clouds when 20/21 and 50/55 absent", () => {
+    const ticker = {
+      tf_tech: {
+        "1H": { ripster: { c34_50: { above: true } } },
         D: {
           ripster: {
             c34_50: { below: true, bear: true },
@@ -33,7 +49,7 @@ describe("TimedMtfChips", () => {
       },
     };
     const reads = MTF.readsForTicker(ticker);
-    expect(reads.map((r) => r.label)).toEqual(["1H↑", "D↓", "72↑"]);
+    expect(reads.map((r) => r.label)).toEqual(["1H↑", "21↓", "55↑"]);
   });
 
   it("builds stack chip when majority agree", () => {
@@ -42,8 +58,8 @@ describe("TimedMtfChips", () => {
         "1H": { ripster: { c34_50: { above: true } } },
         D: {
           ripster: {
-            c34_50: { above: true },
-            c72_89: { above: true },
+            c20_21: { above: true },
+            c50_55: { above: true },
           },
         },
       },

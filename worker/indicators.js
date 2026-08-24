@@ -1093,10 +1093,12 @@ export function computeTfBundle(bars, anchors = null) {
   const e9s = emaSeries(closes, 9);
   const e12s = emaSeries(closes, 12);
   const e13s = emaSeries(closes, 13);
+  const e20s = emaSeries(closes, 20);
   const e21s = emaSeries(closes, 21);
   const e34s = emaSeries(closes, 34);
   const e48s = emaSeries(closes, 48);
   const e50s = emaSeries(closes, 50);
+  const e55s = emaSeries(closes, 55);
   const e72s = emaSeries(closes, 72);
   const e89s = emaSeries(closes, 89);
   const e180s = emaSeries(closes, 180);
@@ -1109,10 +1111,12 @@ export function computeTfBundle(bars, anchors = null) {
   const e9 = e9s[last];
   const e12 = e12s[last];
   const e13 = e13s[last]; // eFast (emaFastLen=13)
+  const e20 = e20s[last];
   const e21 = e21s[last];
   const e34 = e34s[last];
   const e48 = e48s[last]; // eSlow (emaSlowLen=48)
   const e50 = e50s[last];
+  const e55 = e55s[last];
   const e72 = e72s[last];
   const e89 = e89s[last];
   const e180 = e180s[last];
@@ -1607,6 +1611,9 @@ export function computeTfBundle(bars, anchors = null) {
   const ripsterClouds = {
     c5_12: cloudState(e5, e12, e5s[last - 1], e12s[last - 1]),
     c8_9: cloudState(e8, e9, e8s[last - 1], e9s[last - 1]),
+  // Ripster D 20/21 + D 50/55 — primary daily support / structure clouds.
+    c20_21: cloudState(e20, e21, e20s[last - 1], e21s[last - 1]),
+    c50_55: cloudState(e50, e55, e50s[last - 1], e55s[last - 1]),
     c34_50: cloudState(e34, e50, e34s[last - 1], e50s[last - 1]),
     c72_89: cloudState(e72, e89, e72s[last - 1], e89s[last - 1]),
     c180_200: cloudState(e180, e200, e180s[last - 1], e200s[last - 1]),
@@ -2022,7 +2029,7 @@ export function computeTfBundle(bars, anchors = null) {
 
   return {
     px, pxPrev, barHigh, barLow, lastTs,
-    e3, e5, e8, e9, e12, e13, e21, e34, e48, e50, e72, e89, e180, e200, e233,
+    e3, e5, e8, e9, e12, e13, e20, e21, e34, e48, e50, e55, e72, e89, e180, e200, e233,
     eFast, eSlow,
     e21_slope_5bar_pct, e48_slope_10bar_pct,
     barsAboveE21,
@@ -4926,7 +4933,10 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         structure: Math.round((b.emaStructure || 0) * 1000) / 1000,
         momentum: Math.round((b.emaMomentum || 0) * 1000) / 1000,
         priceAboveEma21,
+        ema20: Number.isFinite(b.e20) ? Math.round(b.e20 * 100) / 100 : undefined,
         ema21: Number.isFinite(b.e21) ? Math.round(b.e21 * 100) / 100 : undefined,
+        ema50: Number.isFinite(b.e50) ? Math.round(b.e50 * 100) / 100 : undefined,
+        ema55: Number.isFinite(b.e55) ? Math.round(b.e55 * 100) / 100 : undefined,
         ema200: Number.isFinite(b.e200) ? Math.round(b.e200 * 100) / 100 : undefined,
         // 2026-08-05 — Investor LTF leading gate (IESC/AMD July LT autopsy):
         // longs want LTF reclaim / break through EMA-233, not sit under it.
@@ -5367,8 +5377,11 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       const dpx = Number.isFinite(bD.px) ? bD.px : null;
       const de5 = Number.isFinite(bD.e5) ? bD.e5 : null;
       const de12 = Number.isFinite(bD.e12) ? bD.e12 : null;
+      const de20 = Number.isFinite(bD.e20) ? bD.e20 : null;
       const de21 = Number.isFinite(bD.e21) ? bD.e21 : null;
       const de48 = Number.isFinite(bD.e48) ? bD.e48 : null;
+      const de50 = Number.isFinite(bD.e50) ? bD.e50 : null;
+      const de55 = Number.isFinite(bD.e55) ? bD.e55 : null;
       const de200 = Number.isFinite(bD.e200) ? bD.e200 : null;
       const pct = (ref) => (dpx != null && ref != null && ref > 0)
         ? Math.round(((dpx - ref) / ref) * 10000) / 100
@@ -5385,13 +5398,19 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         // "testing/holding EMA12 = healthy pullback in trend".
         e5: de5 != null ? Math.round(de5 * 100) / 100 : undefined,
         e12: de12 != null ? Math.round(de12 * 100) / 100 : undefined,
+        e20: de20 != null ? Math.round(de20 * 100) / 100 : undefined,
         e21: de21 != null ? Math.round(de21 * 100) / 100 : undefined,
         e48: de48 != null ? Math.round(de48 * 100) / 100 : undefined,
+        e50: de50 != null ? Math.round(de50 * 100) / 100 : undefined,
+        e55: de55 != null ? Math.round(de55 * 100) / 100 : undefined,
         e200: de200 != null ? Math.round(de200 * 100) / 100 : undefined,
         pct_above_e5: pct(de5),
         pct_above_e12: pct(de12),
+        pct_above_e20: pct(de20),
         pct_above_e21: pct(de21),
         pct_above_e48: pct(de48),
+        pct_above_e50: pct(de50),
+        pct_above_e55: pct(de55),
         pct_above_e200: pct(de200),
         e21_slope_5d_pct: Number.isFinite(bD.e21_slope_5bar_pct)
           ? Math.round(bD.e21_slope_5bar_pct * 100) / 100 : null,
