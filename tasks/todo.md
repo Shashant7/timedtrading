@@ -21,7 +21,7 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-- [ ] **Health watchdog 11m lockstep false page (2026-08-24).** Run 32768985744: 59 symbols all 11m (BK/BNY/CRDO…), feed/chain/scoring green. Align `/timed/health` with feed 20m page window; watchdog fails only if max age ≥20m. Branch: `cursor/watchdog-stale-grace-dbdd`.
+- [x] **Health watchdog 11m lockstep false page (2026-08-24).** Run 32768985744: 59 symbols all 11m (BK/BNY/CRDO…), feed/chain/scoring green. Align `/timed/health` with feed 20m page window; watchdog fails only if max age ≥20m. Branch: `cursor/watchdog-stale-grace-dbdd`.
 - [x] **ST test-and-hold scan + TSLA miss (2026-08-21).** All-four TF holds: 10 names, losing cut. TSLA this week = Friday daily ST flip through $357, not a hold. Writeup: `tasks/2026-08-21-st-hold-scan.md`.
 - [x] **ETHUSD-like TD13→9 + 233 scan (2026-08-21).** Phase Leaving is not a signal. Monthly TD13→9 + 233: ETHUSD only. Weekly + 233: 11 names. Writeup: `tasks/2026-08-21-eth-stack-scan.md`.
 - [ ] **Investor (long-term) stop forensics (2026-08-17).** 63 positions
