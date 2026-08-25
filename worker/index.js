@@ -95367,6 +95367,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               day_trade_suppressed: _dtSuppressed,
               day_trade_expiration: _dtExpiration,
               day_trade_count: _dtPlays.length,
+              // Day-trade cards are rebuilt on every request (cache hit
+              // included), so they carry their own stamp — the strip head
+              // must not inherit the swing payload's cache age.
+              day_trade_generated_at: Date.now(),
             };
           };
           if (!_bypassCache) {
