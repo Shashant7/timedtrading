@@ -54,6 +54,9 @@ import {
   resolveChainLegMid,
   buildOptionsLadder,
   resolveChainLegMid,
+  buildLotto,
+  LOTTO_TARGET_DELTA,
+  EARNINGS_PREP_LOTTO_TARGET_DELTA,
 } from "./options-plays.js";
 
 const SPY_CONTRACT = {
@@ -1276,5 +1279,35 @@ describe("LEAP premium expiration binding", () => {
     expect(Number(ladder.primary.expiration.dte)).toBeGreaterThan(270);
     expect(ladder.primary.premium.mid).toBe(45.5);
     expect(ladder.primary.premium.source).toBe("live_chain");
+  });
+});
+
+describe("buildLotto — earnings-prep uses a closer (IV-crush-resilient) strike", () => {
+  // Into an earnings print the chain prices a wide move, so 0.15Δ sits far
+  // OTM (300P vs spot 357) while 0.25Δ sits nearer the expected move (330P).
+  const intuChain = {
+    expiration: "2026-08-28",
+    calls: [],
+    puts: [
+      { strike: 300, bid: 0.60, ask: 0.86, mid: 0.73, delta: -0.15, expiration: "2026-08-28", implied_volatility: 0.9 },
+      { strike: 330, bid: 2.30, ask: 2.70, mid: 2.50, delta: -0.25, expiration: "2026-08-28", implied_volatility: 0.8 },
+      { strike: 345, bid: 4.00, ask: 4.40, mid: 4.20, delta: -0.35, expiration: "2026-08-28", implied_volatility: 0.75 },
+    ],
+  };
+  const ctx = { ticker: "INTU", price: 357, sl: 345, atrPct: 0.03, chain: intuChain };
+
+  it("quiet-tape lotto keeps the deep-OTM 0.15Δ strike", () => {
+    const lotto = buildLotto(ctx, "SHORT", { targetDelta: LOTTO_TARGET_DELTA });
+    expect(lotto?.strikes?.primary).toBe(300);
+  });
+
+  it("earnings-prep lotto pulls the strike closer to the money", () => {
+    const lotto = buildLotto(ctx, "SHORT", { targetDelta: EARNINGS_PREP_LOTTO_TARGET_DELTA });
+    expect(lotto?.strikes?.primary).toBe(330);
+    expect(Number(lotto.strikes.primary)).toBeGreaterThan(300);
+  });
+
+  it("earnings-prep default delta is closer than the quiet-tape default", () => {
+    expect(EARNINGS_PREP_LOTTO_TARGET_DELTA).toBeGreaterThan(LOTTO_TARGET_DELTA);
   });
 });
