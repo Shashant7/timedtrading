@@ -95187,12 +95187,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             let _dtTodStudy = null;
             try {
               const _lookback = Date.now() - 14 * 86400000;
+              // NEWEST rows, not oldest. `ORDER BY ts ASC LIMIT 4000` returned
+              // the first 4000 of the window — once >4000 marks accrued it
+              // capped at multi-day-stale data (excluded today entirely), so
+              // the live-premium/peak clock was blind to the current session
+              // and open books never armed their trailing exit. Take the most
+              // recent rows and hand them downstream in ascending order.
               const _markQ = await env.DB.prepare(
                 `SELECT ticker, option_symbol, ts, mid FROM option_marks
                   WHERE ticker IN ('SPY','QQQ','IWM','DIA') AND ts >= ?1
-                  ORDER BY ts ASC LIMIT 4000`
+                  ORDER BY ts DESC LIMIT 6000`
               ).bind(_lookback).all();
-              const _markRows = _markQ?.results || [];
+              const _markRows = (_markQ?.results || []).reverse();
               _dtMarksByOcc = _optClockGroupMarks(_markRows);
               _dtTodStudy = _optClockTod(_markRows);
             } catch (_) { /* clock degrades to the playbook */ }

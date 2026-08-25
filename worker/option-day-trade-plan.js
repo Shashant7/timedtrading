@@ -41,6 +41,15 @@ export const MIN_TRIM_DOLLARS = 0.15;
 export const MIN_CONTRACTS_FOR_TRIM = 2;
 /** After 1R / trim, exit runner if premium gives back this fraction from peak. */
 export const TRAIL_GIVEBACK_PCT = 0.40;
+/**
+ * Peak profit-lock. Once the contract has been up by at least this fraction
+ * at any point in the session, arm the breakeven + trailing-giveback exits
+ * even if the 1R trim/protect never fired. A winner that ran well into
+ * profit must never round-trip through breakeven to the -50% hard stop.
+ * (QQQ 711C 2026-08-24: peaked +207% at the open, then rode the full
+ * give-back to a -53% premium stop because it never "armed".)
+ */
+export const PROFIT_LOCK_ARM_PCT = 0.40;
 /** Sell qty for a 50% trim (whole contracts). */
 export function trimSellQty(contracts) {
   const c = Math.max(1, Math.round(Number(contracts) || 1));
@@ -543,11 +552,19 @@ export function classifyPaperEvent({
   const contracts = bookContracts(book, sz);
   const canTrim = canTrimContracts(contracts);
   const peak = updatePeak(book, mid);
+  // Profit-lock: the breakeven + trailing-giveback exits normally wait for a
+  // 1R trim/protect to "arm" (profit_armed). That leaves a runner that ran
+  // to +40%..+50% (but never tagged 1R) with NO downside protection except
+  // the -50% hard stop — so a big intraday winner can round-trip to a full
+  // loss. Arm the giveback once the peak alone clears PROFIT_LOCK_ARM_PCT.
+  const peakLockArmed = isProfitArmed(book)
+    || (entry != null && peak != null && entry > 0 && peak >= entry * (1 + PROFIT_LOCK_ARM_PCT));
   const stamped = {
     ...book,
     peak_premium: peak,
     last_premium: mid ?? book?.last_premium ?? null,
     held_overnight: !!clock?.hold_overnight || !!book?.held_overnight,
+    profit_lock_armed: peakLockArmed,
   };
 
   if (!isOptionsSellWindowEt(now)) {
@@ -570,7 +587,7 @@ export function classifyPaperEvent({
     };
   }
 
-  if (!isProfitArmed(stamped) && hardStop != null && mid != null && mid + 1e-9 <= hardStop) {
+  if (!peakLockArmed && hardStop != null && mid != null && mid + 1e-9 <= hardStop) {
     return {
       event: "STOP",
       reason: "premium_stop",
@@ -578,7 +595,7 @@ export function classifyPaperEvent({
     };
   }
 
-  if (isProfitArmed(stamped) && entry != null && mid != null && mid + 1e-9 <= entry) {
+  if (peakLockArmed && entry != null && mid != null && mid + 1e-9 <= entry) {
     return {
       event: "STOP",
       reason: "breakeven_stop",
@@ -586,7 +603,7 @@ export function classifyPaperEvent({
     };
   }
 
-  const trailFloor = isProfitArmed(stamped) ? trailFloorFromPeak(peak ?? mid) : null;
+  const trailFloor = peakLockArmed ? trailFloorFromPeak(peak ?? mid) : null;
   if (trailFloor != null && mid != null && peak != null && peak > (entry ?? 0) && mid + 1e-9 <= trailFloor) {
     return {
       event: "EXIT",
