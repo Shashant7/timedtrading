@@ -39,10 +39,14 @@ describe("modelRowFromDayTradeAction", () => {
     expect(buy.event_type).toBe("ENTRY");
     expect(buy.position_id).toBe("dt:QQQ:x");
     expect(buy.price).toBe(1.3);
+    // Options day-trades carry an instrument marker so the timeline labels
+    // the qty as contracts, not shares.
+    expect(buy.instrument).toBe("option");
     const sell = modelRowFromDayTradeAction({
       ts: 20, event: "STOP", ticker: "QQQ", signal_id: "dt:QQQ:x", contracts: 1, premium: 1.75,
     });
     expect(sell.event_type).toBe("EXIT");
     expect(sell.position_id).toBe("dt:QQQ:x");
+    expect(sell.instrument).toBe("option");
   });
 });
