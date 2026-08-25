@@ -1831,7 +1831,8 @@ function convexityPlanCopy(card) {
   const strike = Number(card?.strike);
   const dte = Number(card?.expiration?.dte);
   const mode = String(card?.confluence_mode || "").toUpperCase();
-  const action = mode === "READY" || mode === "RIDE" ? "BUY" : "WAIT";
+  const fadeBuy = !!card?.earnings_prep && mode === "FADE";
+  const action = card?.h4_close_pending ? "WAIT" : mode === "READY" || mode === "RIDE" || fadeBuy ? "BUY" : "WAIT";
   const expShort = formatExpShort(card?.expiration);
   const contractBit = Number.isFinite(strike) && strike > 0 ? `${Math.round(strike)}${flavor === "put" ? "P" : "C"}` : "";
   const dteBit = Number.isFinite(dte) ? `${dte}DTE` : "";
@@ -1849,9 +1850,16 @@ function convexityPlanCopy(card) {
   };
 }
 function convexityShotReason(card) {
+  if (card?.h4_close_pending) {
+    return "4H still open — SuperTrend flip or hold confirms after the 1:30 PM ET close.";
+  }
   if (card?.shot_reason) return card.shot_reason;
   if (card?.earnings_play?.catalyst) return card.earnings_play.catalyst;
-  if (card?.earnings_prep) return "Earnings-prep — cheap OTM into the print, not a share entry.";
+  if (card?.earnings_prep) {
+    const days = Number(card?.earnings_play?.days_to_print ?? card?.earnings_dte);
+    if (days === 0) return "Earnings today AMC — cheap OTM into the print, not a share entry.";
+    return "Earnings-prep — cheap OTM into the print, not a share entry.";
+  }
   const mode = String(card?.confluence_mode || "").toUpperCase();
   if (mode === "RIDE") return "Tape is in motion — cheap OTM if the move continues.";
   if (mode === "READY") return "Setup is READY — floor and timing aligned.";
@@ -8663,6 +8671,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787669764275:986414567
+// cache-bust:1787671138972:965603465
 
-// cache-bust:1787669764275:986414567
+// cache-bust:1787671138972:965603465

@@ -94838,9 +94838,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const rk = Number(t?.rank || 0);
               return eq > 0 || rk > 0;
             });
-          // Bias the scan toward names with earnings in 1–5d so prep-lotto
-          // candidates (AEHR-class pullback-into-print) are not starved by
-          // the plain entry_quality top-30 cut.
+          // Bias the scan toward names with earnings in 0–5d so prep-lotto
+          // candidates (AEHR-class pullback-into-print, same-day AMC) are
+          // not starved by the plain entry_quality top-30 cut.
           let _cxEarnBySym = {};
           // Full event (date + session) is kept alongside the day count so
           // the earnings-play block can name the catalyst, not just the
@@ -94865,7 +94865,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const sym = String(t?.ticker || "").toUpperCase();
             const d = _cxEarnBySym[sym];
             if (!Number.isFinite(d)) return t;
-            return { ...t, earnings_dte: d, days_to_earnings: d };
+            const ev = _cxEarnEventBySym[sym] || {};
+            return {
+              ...t,
+              earnings_dte: d,
+              days_to_earnings: d,
+              earnings_hour: ev.hour || t.earnings_hour || null,
+            };
           };
           const ranked = [...tickersRaw]
             .sort((a, b) => {

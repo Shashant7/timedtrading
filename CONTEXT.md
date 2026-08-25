@@ -559,6 +559,11 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   research-desk/FSD mentions), implied-move target, `covers_print`, and
   a measured IV-crush block. Bounded to 3 cards per scan (chain fetches
   on the cache-miss path only).
+  **Same-day AMC lotto (2026-08-25):** window is 1–5d **or** `dte===0`
+  + session AMC (BMO same-day is already printed). FADE SHORT is a put.
+  First RTH 4H (09:30–13:30 ET) still open → card stays WAIT; after the
+  1:30 PM ET close, FADE earnings-prep maps to BUY. Contract remains
+  next-Friday weekly (never 0 DTE).
   **IV crush (2026-08-25):** `buildCrushBlock()` measures the crush
   instead of warning about it. Post-print vol = next expiration's ATM IV
   (term structure) else the ATR×√252 realized proxy; `crush_pct`,

@@ -1,7 +1,8 @@
 // worker/earnings-play.js — Earnings play block for the lotto strip (2026-08-25)
 //
 // The earnings-prep lotto (options-plays.js `shouldActivateEarningsPrepLotto`)
-// already decides WHEN a cheap OTM contract into a 1–5 day print is allowed.
+// already decides WHEN a cheap OTM contract into a 1–5 day (or same-day AMC)
+// print is allowed.
 // This module answers the operator's next three questions on that card:
 //
 //   Catalyst   — when is the print, and what move does the options market
@@ -600,7 +601,9 @@ export function buildEarningsPlay({
 
   const catalystBits = [
     `Earnings${session ? ` ${session}` : ""}${dateLabel ? ` ${dateLabel}` : ""}`,
-    Number.isFinite(daysToPrint) ? `${daysToPrint}d out` : null,
+    Number.isFinite(daysToPrint)
+      ? (daysToPrint === 0 ? "today" : `${daysToPrint}d out`)
+      : null,
     movePct > 0 ? `implied move ±${round(movePct, 1)}%` : "implied move unavailable",
   ].filter(Boolean);
 
@@ -740,7 +743,11 @@ export async function enrichEarningsPlayCards(env, cards, opts = {}) {
       });
       if (block) {
         card.earnings_play = block;
-        if (block.catalyst) card.shot_reason = block.catalyst;
+        if (card.h4_close_pending) {
+          card.shot_reason = "4H still open — SuperTrend flip or hold confirms after the 1:30 PM ET close.";
+        } else if (block.catalyst) {
+          card.shot_reason = block.catalyst;
+        }
       }
     } catch (e) {
       console.warn(`[EARNINGS PLAY] ${sym} enrich failed:`, String(e?.message || e).slice(0, 120));
