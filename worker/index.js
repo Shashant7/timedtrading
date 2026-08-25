@@ -95199,6 +95199,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
           const _opaCacheKey = `timed:options:plays-of-day:${profile}:${limit}`;
           const _bypassCache = String(url.searchParams.get("_nocache") || "0") === "1";
+          // Paper-book mutation + Discord/broker dispatch is a SIDE EFFECT that
+          // must be driven only by the internal */5 cron self-dispatch (which
+          // carries the API key), never by an organic page load. Otherwise a
+          // user's GET could open/close a paper position out-of-band from the
+          // alert feed — the card would flip to HELD (or vanish as "closed")
+          // with no trade signal ever fired. Organic loads still LOAD and
+          // DISPLAY the book read-only; only the cron advances it.
+          const _dtDispatchAllowed = (() => {
+            try {
+              const k = req.headers.get("X-API-Key") || req.headers.get("x-api-key") || "";
+              return !!env.TIMED_API_KEY && k === env.TIMED_API_KEY;
+            } catch (_) { return false; }
+          })();
           const _optionsPlaysMod = await import("./options-plays.js");
           const _flattenOptionsTickers = (all) => {
             if (Array.isArray(all?.tickers)) return all.tickers;
@@ -95474,7 +95487,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       plan: _assembled.plan,
                       size: _assembled.size,
                     };
-                    _optDtNotifyPaper(env, {
+                    if (_dtDispatchAllowed) _optDtNotifyPaper(env, {
                       profile,
                       signal_id: _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId,
                       ticker: _dtSym,
