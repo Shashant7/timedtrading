@@ -1251,13 +1251,16 @@ function optionsPlanFacts({
 }
 function convexityOptionFactCells(p, flavor, expShort, dte) {
   const cells = [];
+  const liveChain = String(p.premium_source || "").toLowerCase() === "live_chain";
   const prem = formatLivePremium(Number(p.premium_mid));
-  if (prem) cells.push({
-    k: "LIVE",
-    v: prem,
-    tone: "live",
-    title: "Live premium — refreshes on each options poll"
-  });
+  if (prem) {
+    cells.push({
+      k: liveChain ? "LIVE" : "EST",
+      v: prem,
+      tone: liveChain ? "live" : "",
+      title: liveChain ? "Live chain mid — refreshes on each options poll" : "Model estimate until chain quotes land for this strike"
+    });
+  }
   if (Number.isFinite(Number(p.premium_mid))) {
     cells.push({
       k: "DEBIT",
@@ -9076,6 +9079,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787687256433:724759712
+// cache-bust:1787688978822:557428190
 
-// cache-bust:1787687256433:724759712
+// cache-bust:1787688978822:557428190
