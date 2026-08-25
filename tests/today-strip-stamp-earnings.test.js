@@ -114,6 +114,7 @@ const DAY_TRADE_PLAY = {
   day_trade: true,
   day_trade_dte: 0,
   confluence_mode: "RIDE",
+  day_lean: "LONG",
   primary: { _day_trade_flavor: "call", strikes: { primary: 641 }, expiration: { iso: "2026-08-25", dte: 0 } },
   execution: {
     action: "BUY",
@@ -241,6 +242,14 @@ describe("Today strips — published stamp + lotto earnings play", () => {
     expect(text).toContain("4.2% post-print");
     expect(text).toContain("close Thu Aug 27");
     expect(text).toMatch(/Thin cushion: breakeven 4\.2% against an implied 6\.5%/);
+  });
+
+  it("shows model status and readable punch on the index day-trade card", () => {
+    const text = document.body.textContent || "";
+    expect(text).toMatch(/BUY on SPY 641C Aug 25 \(0DTE\) — day-trade call/);
+    expect(text).toContain("RIDE");
+    expect(text).toContain("LONG");
+    expect(text).toMatch(/Live \$1\.20/);
   });
 
   it("shows a brief why on a non-earnings lotto and never labels it 0 DTE", () => {

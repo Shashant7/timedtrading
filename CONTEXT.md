@@ -551,6 +551,11 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   render `Published <clock> ET · <age>` from `day_trade_generated_at` /
   `generated_at`; it ticks every 60s and turns amber past the refresh
   budget. Lotto polls every 5 min while visible, same as Index DT.
+  **Index Day-Trade cards (2026-08-25):** chips are clock action + LONG/SHORT
+  + confluence mode (READY/RIDE/DRIFT). Foot is punch + scan, not the
+  cramped Why/Strike fact list. A STOP OUT on #trade-signals can be
+  yesterday's paper book (signal id includes the NY date) — look at
+  `timed:opt-dt-carry:{TICKER}` before assuming no BUY fired.
   **Earnings play (2026-08-25):** earnings-prep lotto cards carry
   `earnings_play` from `worker/earnings-play.js` — catalyst (date +
   session), implied move (ATM straddle minus intrinsic × 0.85, else
