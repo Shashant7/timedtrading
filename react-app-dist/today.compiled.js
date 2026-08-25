@@ -948,15 +948,7 @@ function tickerIsModelEntry(t, play) {
   return seqs.some(s => String(s?.status || "").toLowerCase() === "entry_ready");
 }
 function planFactList(facts) {
-  const VU = window.TimedVerdictUI;
-  if (VU?.stripFactsGrid) return VU.stripFactsGrid(facts);
-  const cells = (Array.isArray(facts) ? facts : []).filter(f => f && f.value).map(f => ({
-    k: String(f.label || "").slice(0, 6).toUpperCase(),
-    v: String(f.value),
-    tone: f.tone === "buy" || f.tone === "trim" ? "trim" : f.tone === "wait" || f.tone === "exit" ? "exit" : "",
-    title: f.title || ""
-  }));
-  return dayTradeFactsRow(cells);
+  return stripFactStack(factsToStackItems(facts));
 }
 function stripPlanFoot(punch, facts) {
   const grid = planFactList(facts);
@@ -1131,7 +1123,7 @@ function factsToStackItems(facts) {
     v: String(f.value),
     tone: f.tone === "buy" || f.tone === "trim" ? "trim" : f.tone === "wait" || f.tone === "exit" ? "exit" : "",
     title: f.title || "",
-    full: /^(catalyst|implied|crush|needs|exit)/i.test(String(f.label || ""))
+    full: /^(catalyst|implied|crush|needs|exit|hold|own)/i.test(String(f.label || ""))
   }));
 }
 function dayTradePositionPnl(pos) {
@@ -1916,7 +1908,7 @@ function SetupFamiliesStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -2011,7 +2003,7 @@ function SetupFamiliesStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -2441,7 +2433,7 @@ function ConvexityPlaysStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -2697,7 +2689,7 @@ function IndexDayTradeStrip({
         dayPct,
         dayChg,
         dir: quoteDir,
-        extLine: null
+        extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
       },
       sparkSvg,
       midBody,
@@ -2814,7 +2806,7 @@ function IndexDayTradeStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody: posMidBody,
@@ -5011,7 +5003,7 @@ function GrowthIdeasStrip({
           dayPct: liveDayPct,
           dayChg,
           dir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -5249,7 +5241,7 @@ function ValueBottomsStrip({
           dayPct: liveDayPct,
           dayChg,
           dir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -9101,6 +9093,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787693263933:713021122
+// cache-bust:1787700096813:207866799
 
-// cache-bust:1787693263933:713021122
+// cache-bust:1787700096813:207866799
