@@ -1032,6 +1032,91 @@ function dayTradePlanCopy({
     flavor: flav
   };
 }
+function dayTradeActionChip(action, flavor, title) {
+  const a = String(action || "WAIT").toUpperCase();
+  const flav = flavor === "put" ? "PUT" : "CALL";
+  let label;
+  let cls;
+  if (a === "BUY" || a === "ENTER" || a === "FIRE" || a === "ADD" || a === "SCALE IN") {
+    label = `BUY ${flav}`;
+    cls = flavor === "put" ? "ds-chip ds-chip--sm ds-chip--dn" : "ds-chip ds-chip--sm ds-chip--up";
+  } else if (a === "SELL" || a === "FLAT" || a === "EXIT") {
+    label = "EXIT";
+    cls = "ds-chip ds-chip--sm ds-chip--dn";
+  } else if (a === "TRIM") {
+    label = "TRIM";
+    cls = "ds-chip ds-chip--sm ds-chip--accent";
+  } else {
+    label = "WAIT";
+    cls = "ds-chip ds-chip--sm ds-chip--solid";
+  }
+  return h("span", {
+    key: "act",
+    className: cls,
+    title: title || "",
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontWeight: 800
+    }
+  }, label);
+}
+function dayTradePlanFacts({
+  livePremium,
+  debit,
+  trim,
+  exit
+}) {
+  const cells = [];
+  const lp = formatLivePremium(livePremium);
+  if (lp) cells.push({
+    k: "LIVE",
+    v: lp,
+    tone: "live"
+  });
+  if (debit) cells.push({
+    k: "DEBIT",
+    v: String(debit).replace(/\s+/g, ""),
+    tone: ""
+  });
+  if (trim) cells.push({
+    k: "TRIM",
+    v: trim,
+    tone: "trim"
+  });
+  if (exit) cells.push({
+    k: "EXIT",
+    v: exit,
+    tone: "exit"
+  });
+  return cells;
+}
+function dayTradeFactsRow(cells) {
+  if (!cells || !cells.length) return null;
+  return h("div", {
+    className: "tt-dt-plan__facts",
+    style: {
+      "--tt-dt-fact-n": cells.length
+    }
+  }, cells.map((c, i) => h("div", {
+    key: c.k + i,
+    className: `tt-dt-plan__fact${c.tone ? ` tt-dt-plan__fact--${c.tone}` : ""}`
+  }, h("span", {
+    className: "tt-dt-plan__fk"
+  }, c.k), h("span", {
+    className: "tt-dt-plan__fv"
+  }, c.v))));
+}
+function dayTradePositionPnl(pos) {
+  const entry = Number(pos?.entry_premium);
+  const last = Number(pos?.last_premium);
+  let pct = Number(pos?.pnl_pct);
+  if (!Number.isFinite(pct) && entry > 0 && last > 0) pct = (last - entry) / entry * 100;
+  return Number.isFinite(pct) ? pct : null;
+}
+function dayTradePositionOpen(pos) {
+  const st = String(pos?.status || "").toLowerCase();
+  return !!pos && (st === "open" || st === "trimmed") && Number(pos?.strike) > 0;
+}
 function optionsPlanFacts({
   action,
   flavor,
@@ -1995,19 +2080,22 @@ function ConvexityPlaysStrip({
   sparkCache,
   ensureSpark
 }) {
-  const [plays, setPlays] = useState(null);
-  const [publishedAt, setPublishedAt] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
+  const url = `${API_BASE}/timed/options/convexity?limit=10`;
+  const seed = CACHE && window._ttIsPro ? CACHE.peek(url) : null;
+  const seedPlays = seed && Array.isArray(seed.plays) && seed.plays.length ? seed.plays : null;
+  const [plays, setPlays] = useState(seedPlays);
+  const [publishedAt, setPublishedAt] = useState(seed ? Number(seed.generated_at) || null : null);
+  const [loading, setLoading] = useState(!seedPlays);
   useEffect(() => {
     let alive = true;
-    const url = `${API_BASE}/timed/options/convexity?limit=10`;
     const load = async () => {
       if (!window._ttIsPro) {
-        if (alive) setLoading(true);
+        if (alive) setLoading(false);
         return;
       }
       try {
-        if (alive) setLoading(true);
+        if (alive && !seedPlays) setLoading(true);
         try {
           window.TTFetchCache?.invalidate?.(url);
         } catch (_) {}
@@ -2028,11 +2116,11 @@ function ConvexityPlaysStrip({
           try {
             window.TTFetchCache?.put?.(url, j);
           } catch (_) {}
-        } else {
+        } else if (!seedPlays) {
           setPlays([]);
         }
       } catch (_) {
-        if (alive) setPlays([]);
+        if (alive && !seedPlays) setPlays([]);
       } finally {
         if (alive) setLoading(false);
       }
@@ -2349,7 +2437,7 @@ function IndexDayTradeStrip({
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
     role: "list"
-  }, plays.map(p => {
+  }, plays.flatMap(p => {
     const sym = String(p.ticker || "").toUpperCase();
     const liveT = data && data[sym] ? data[sym] : {};
     const livePrice = tickerHeadlinePrice(liveT, p.price);
@@ -2388,14 +2476,23 @@ function IndexDayTradeStrip({
       trim,
       exit
     });
-    const modelSide = lean === "LONG" || lean === "SHORT" ? lean : flavor === "put" ? "SHORT" : flavor === "call" ? "LONG" : "";
-    const chipRow = stripCallChips({
-      action,
-      side: modelSide,
-      actionTitle: copy.punch
-    });
+    const pos = dayTradePositionOpen(p.position) ? p.position : null;
+    const holdingThis = pos && Number(pos.strike) === Number(strike);
+    const chipRow = [dayTradeActionChip(action, flavor, copy.punch)];
     const modeChip = confluenceModeChip(mode, p.confluence_summary || "Model confluence");
     if (modeChip) chipRow.push(modeChip);
+    if (holdingThis) {
+      const hPnl = dayTradePositionPnl(pos);
+      chipRow.push(h("span", {
+        key: "held",
+        className: "ds-chip ds-chip--sm " + (hPnl != null && hPnl < 0 ? "ds-chip--dn" : "ds-chip--up"),
+        title: `Model holds ${pos.contracts || 1} × ${pos.strike}${flavor === "put" ? "P" : "C"} from $${Number(pos.entry_premium).toFixed(2)}`,
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontWeight: 800
+        }
+      }, hPnl != null ? `HELD ${hPnl >= 0 ? "+" : ""}${hPnl.toFixed(0)}%` : "HELD"));
+    }
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const zm = reviveZone(p.zone || exec.zone, trackPrice);
     const dtSide = flavor === "put" || lean === "SHORT" ? "SHORT" : flavor === "call" || lean === "LONG" ? "LONG" : "";
@@ -2417,31 +2514,115 @@ function IndexDayTradeStrip({
       label: "Exit",
       value: exit
     } : null].filter(Boolean), rrOpts) : [];
-    const scan = copy.scan || liveRr.map(f => `${f.label} ${f.value}`).join(" · ");
+    const liveTrim = (liveRr.find(f => f.label === "Trim") || {}).value || trim;
+    const liveExit = (liveRr.find(f => f.label === "Exit") || {}).value || exit;
+    const factCells = dayTradePlanFacts({
+      livePremium: band?.premium,
+      debit,
+      trim: liveTrim,
+      exit: liveExit
+    });
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
     }, h("p", {
       className: "tt-dt-plan__punch"
-    }, copy.punch), scan ? h("p", {
-      className: "tt-dt-plan__scan"
-    }, scan) : null)];
-    if (LaneCard?.create) {
-      return h("div", {
-        key: sym,
-        className: "tt-strip-card",
+    }, copy.punch), dayTradeFactsRow(factCells))];
+    const signalCard = LaneCard?.create ? h("div", {
+      key: sym + ":sig",
+      className: "tt-strip-card",
+      role: "listitem"
+    }, LaneCard.create({
+      sym,
+      ticker: liveT,
+      button: {
+        onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
+        title: `${sym} — open options plan`,
+        style: {
+          textAlign: "left"
+        }
+      },
+      chipRow,
+      mtfBelow: true,
+      quote: {
+        price: livePrice,
+        dayPct,
+        dayChg,
+        dir: quoteDir,
+        extLine: null
+      },
+      sparkSvg,
+      midBody,
+      metrics: []
+    }), h("div", {
+      className: "tt-strip-card__foot"
+    }, footEls)) : h("button", {
+      key: sym + ":sig",
+      type: "button",
+      className: "tt-opp-card",
+      onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS")
+    }, h("div", {
+      className: "tt-dt-plan"
+    }, h("p", {
+      className: "tt-dt-plan__punch"
+    }, copy.punch), dayTradeFactsRow(factCells)));
+    let posCard = null;
+    if (pos && !holdingThis && LaneCard?.create) {
+      const pPnl = dayTradePositionPnl(pos);
+      const pFlav = pos.flavor === "put" ? "put" : "call";
+      const pExpShort = formatExpShort(pos.expiration);
+      const pContracts = Number(pos.contracts_remaining || pos.contracts) || 1;
+      const heldChip = h("span", {
+        key: "held",
+        className: "ds-chip ds-chip--sm " + (pPnl != null && pPnl < 0 ? "ds-chip--dn" : "ds-chip--up"),
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontWeight: 800
+        },
+        title: `Open paper position: ${pContracts} × ${pos.strike}${pFlav === "put" ? "P" : "C"} from $${Number(pos.entry_premium).toFixed(2)}`
+      }, pPnl != null ? `HELD ${pPnl >= 0 ? "+" : ""}${pPnl.toFixed(0)}%` : "HELD");
+      const sizeChip = pos.size_label ? h("span", {
+        key: "size",
+        className: "ds-chip ds-chip--sm ds-chip--solid",
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, String(pos.size_label).toUpperCase()) : null;
+      const posPunch = `HOLDING ${sym} ${Math.round(Number(pos.strike))}${pFlav === "put" ? "P" : "C"}${pExpShort ? ` ${pExpShort}` : ""} — ${pContracts} contract${pContracts === 1 ? "" : "s"}`;
+      const posFacts = [Number(pos.entry_premium) > 0 ? {
+        k: "ENTRY",
+        v: `$${Number(pos.entry_premium).toFixed(2)}`,
+        tone: ""
+      } : null, Number(pos.last_premium) > 0 ? {
+        k: "LIVE",
+        v: `$${Number(pos.last_premium).toFixed(2)}`,
+        tone: "live"
+      } : null, Number(pos.peak_premium) > 0 ? {
+        k: "PEAK",
+        v: `$${Number(pos.peak_premium).toFixed(2)}`,
+        tone: "trim"
+      } : null, pPnl != null ? {
+        k: "P&L",
+        v: `${pPnl >= 0 ? "+" : ""}${pPnl.toFixed(0)}%`,
+        tone: pPnl >= 0 ? "trim" : "exit"
+      } : null].filter(Boolean);
+      const posMgmt = pos.profit_lock_armed ? "Profit lock armed — trailing the stop; flat by 3:45 ET." : "Managing to the model stop; flat by 3:45 ET.";
+      posCard = h("div", {
+        key: sym + ":pos",
+        className: "tt-strip-card tt-strip-card--position",
         role: "listitem"
       }, LaneCard.create({
         sym,
         ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
-          title: `${sym} — open options plan`,
+          title: `${sym} — open position`,
           style: {
             textAlign: "left"
           }
         },
-        chipRow,
+        chipRow: [heldChip, sizeChip].filter(Boolean),
+        mtfBelow: true,
         quote: {
           price: livePrice,
           dayPct,
@@ -2450,24 +2631,19 @@ function IndexDayTradeStrip({
           extLine: null
         },
         sparkSvg,
-        midBody,
+        midBody: null,
         metrics: []
       }), h("div", {
         className: "tt-strip-card__foot"
-      }, footEls));
+      }, h("div", {
+        className: "tt-dt-plan"
+      }, h("p", {
+        className: "tt-dt-plan__punch"
+      }, posPunch), dayTradeFactsRow(posFacts), h("p", {
+        className: "tt-dt-plan__mgmt"
+      }, posMgmt))));
     }
-    return h("button", {
-      key: sym,
-      type: "button",
-      className: "tt-opp-card",
-      onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS")
-    }, h("div", {
-      className: "tt-dt-plan"
-    }, h("p", {
-      className: "tt-dt-plan__punch"
-    }, copy.punch), scan ? h("p", {
-      className: "tt-dt-plan__scan"
-    }, scan) : null));
+    return [posCard, signalCard].filter(Boolean);
   }))));
 }
 function computeOpenPositionPnlPct(tr, livePx) {
@@ -8741,6 +8917,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787678646200:627718478
+// cache-bust:1787681930679:808449670
 
-// cache-bust:1787678646200:627718478
+// cache-bust:1787681930679:808449670

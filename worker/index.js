@@ -95561,6 +95561,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   honesty_gate_veto: _dtVetoReason,
                   execution: _dtExecution,
                   zone: _dtExecution?.zone || null,
+                  // Open paper position (if the model is holding this ticker),
+                  // so the strip can show the live position ALONGSIDE a fresh
+                  // signal instead of silently mutating the strike on one card.
+                  position: _dtOpenBook ? {
+                    signal_id: _dtOpenBook.signal_id || _dtSignalId,
+                    status: _dtOpenBook.status,
+                    flavor: _dtOpenBook.flavor,
+                    strike: _dtOpenBook.strike,
+                    expiration: _dtOpenBook.expiration,
+                    entry_premium: _dtOpenBook.entry_premium,
+                    last_premium: _dtOpenBook.last_premium,
+                    peak_premium: _dtOpenBook.peak_premium,
+                    contracts: _dtOpenBook.contracts,
+                    contracts_remaining: _dtOpenBook.contracts_remaining,
+                    size_label: _dtOpenBook.size_label,
+                    held_overnight: !!_dtOpenBook.held_overnight,
+                    profit_lock_armed: !!_dtOpenBook.profit_lock_armed,
+                    entry_ts: _dtOpenBook.entry_ts,
+                    pnl_pct: (Number(_dtOpenBook.entry_premium) > 0 && Number(_dtOpenBook.last_premium) > 0)
+                      ? Math.round(((Number(_dtOpenBook.last_premium) - Number(_dtOpenBook.entry_premium)) / Number(_dtOpenBook.entry_premium)) * 1000) / 10
+                      : null,
+                  } : null,
                 });
                 // Stage 1+2 — record every tier we published so the
                 // scorecard grades each independently. Signal ids are
