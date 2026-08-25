@@ -112,10 +112,10 @@ describe("Ready Setups zone-bar cards", () => {
     expect(container.textContent).toMatch(/INV/);
     expect(container.textContent).toMatch(/PB/);
     expect(container.textContent).toMatch(/TGT/);
-    expect(html).toContain("tt-plan-facts");
-    expect(container.textContent).toMatch(/Inv\$480/);
+    expect(html).toContain("tt-dt-plan__facts");
+    expect(container.textContent).toMatch(/INV\$480/);
     expect(container.textContent).toMatch(/PB\$495/);
-    expect(container.textContent).toMatch(/Tgt\$540/);
+    expect(container.textContent).toMatch(/TGT\$540/);
     // Both lane badges present (compact strip labels: ST / LT).
     expect(html).toMatch(/tt-lane-badge--trader[^>]*>ST</);
     expect(html).toMatch(/tt-lane-badge--investor[^>]*>LT</);

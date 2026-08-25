@@ -349,6 +349,16 @@
       ".tt-plan-facts dd{margin:0;font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:11.5px;font-weight:550;line-height:1.3;color:var(--ds-text,#e5e7eb)}",
       ".tt-plan-facts__v--buy{color:var(--tt-success,#34d399);font-weight:700}",
       ".tt-plan-facts__v--wait{color:var(--tt-warning,#fbbf24)}",
+      ".tt-dt-plan{display:flex;flex-direction:column;gap:5px}",
+      ".tt-dt-plan__punch{margin:0;font-size:12px;font-weight:650;line-height:1.35;color:var(--ds-text,#e5e7eb)}",
+      ".tt-dt-plan__why{margin:0;font-size:11px;line-height:1.4;color:var(--ds-text-muted,#9ca3af);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}",
+      ".tt-dt-plan__facts{display:grid;grid-template-columns:repeat(var(--tt-dt-fact-n,4),minmax(0,1fr));gap:5px;margin:4px 0 0}",
+      ".tt-dt-plan__fact{display:flex;flex-direction:column;gap:1px;min-width:0;padding:4px 6px;border-radius:6px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}",
+      ".tt-dt-plan__fk{font-size:8.5px;font-weight:800;letter-spacing:.05em;color:var(--ds-text-muted,#9ca3af);white-space:nowrap}",
+      ".tt-dt-plan__fv{font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:11px;font-weight:700;color:var(--ds-text,#e5e7eb);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+      ".tt-dt-plan__fact--live .tt-dt-plan__fv{color:#67e8f9}",
+      ".tt-dt-plan__fact--trim .tt-dt-plan__fv{color:var(--tt-success,#34d399)}",
+      ".tt-dt-plan__fact--exit .tt-dt-plan__fv{color:var(--tt-warning,#fbbf24)}",
       ".tt-strip-subhead{margin:4px 0 10px}",
       ".tt-strip-subhead .tt-sec-title{margin-bottom:2px}",
       ".tt-strip-subhead .tt-ready__sub{margin-top:2px}",
@@ -1001,6 +1011,68 @@
     var useEffect = React.useEffect;
     var useMemo = React.useMemo;
 
+    function stripFactKey(label) {
+      var map = {
+        Inv: "INV", PB: "PB", Tgt: "TGT", "R:R": "RR", Hold: "HOLD",
+        "Live prem": "LIVE", Debit: "DEBIT", Trim: "TRIM", Exit: "EXIT",
+        Risk: "RISK", Payoff: "PAYOFF", Strike: "STRK", Exp: "EXP",
+        Catalyst: "CAT", "Implied move": "IMPL", Confluence: "CONF",
+        Target: "TGT", Crush: "CRUSH", Needs: "NEEDS", "Exit by": "BY",
+        FV: "FV", Score: "SCR", Why: "WHY",
+      };
+      var k = String(label || "").trim();
+      return map[k] || k.replace(/\s+/g, "").slice(0, 6).toUpperCase();
+    }
+
+    function stripFactToneToCell(tone) {
+      var t = String(tone || "").toLowerCase();
+      if (t === "live") return "live";
+      if (t === "buy" || t === "enter" || t === "trim") return "trim";
+      if (t === "wait" || t === "exit") return "exit";
+      return "";
+    }
+
+    function factsToCells(facts) {
+      return (facts || []).filter(function (f) { return f && f.value; }).map(function (f) {
+        var v = String(f.value);
+        return {
+          k: stripFactKey(f.label),
+          v: v,
+          tone: stripFactToneToCell(f.tone),
+          title: f.title || "",
+        };
+      });
+    }
+
+    function stripFactsRow(cells) {
+      if (!cells || !cells.length) return null;
+      return h("div", {
+        className: "tt-dt-plan__facts",
+        style: { "--tt-dt-fact-n": cells.length },
+      }, cells.map(function (c, i) {
+        return h("div", {
+          key: c.k + i,
+          className: "tt-dt-plan__fact" + (c.tone ? " tt-dt-plan__fact--" + c.tone : ""),
+          title: c.title || undefined,
+        },
+          h("span", { className: "tt-dt-plan__fk" }, c.k),
+          h("span", { className: "tt-dt-plan__fv" }, c.v),
+        );
+      }));
+    }
+
+    function stripFactsGrid(facts, opts) {
+      opts = opts || {};
+      var maxPerRow = opts.maxPerRow || 4;
+      var cells = factsToCells(facts);
+      if (!cells.length) return null;
+      var rows = [];
+      for (var i = 0; i < cells.length; i += maxPerRow) {
+        rows.push(stripFactsRow(cells.slice(i, i + maxPerRow)));
+      }
+      return h(React.Fragment, null, rows);
+    }
+
     function LaneBadge(props) {
       var lane = String(props.lane || "trader").toLowerCase();
       var isInvestor = lane === "investor";
@@ -1489,16 +1561,7 @@
       var investorByTicker = props.investorByTicker || null;
       var LaneCard = window.TTLaneCard;
       var planFacts = function (facts) {
-        var rows = (facts || []).filter(function (f) { return f && f.value; });
-        if (!rows.length) return null;
-        return h("dl", { className: "tt-plan-facts" },
-          rows.map(function (f) {
-            return h("div", { key: f.label, className: "tt-plan-facts__row" },
-              h("dt", null, f.label),
-              h("dd", { className: f.tone ? "tt-plan-facts__v--" + f.tone : null }, f.value),
-            );
-          }),
-        );
+        return stripFactsGrid(facts);
       };
       return wrap(h(React.Fragment, null,
         headCopy,
@@ -1582,7 +1645,12 @@
               side: side,
               price: price,
             }));
-            if (factsEl) footEls.push(h("div", { key: "levels", className: "tt-dt-plan" }, factsEl));
+            if (factsEl) {
+              footEls.push(h("div", { key: "levels", className: "tt-dt-plan" },
+                h("p", { className: "tt-dt-plan__punch" }, disp.label || ("BUY on " + sym)),
+                factsEl,
+              ));
+            }
             if (row.blocker) footEls.push(h("div", { key: "blocker", className: "tt-ready-card__blocker" }, row.blocker));
 
             if (LaneCard && typeof LaneCard.create === "function") {
@@ -1693,6 +1761,9 @@
       rankReadySetupsFromData: rankReadySetupsFromData,
       resolveReadySetupCardDisplay: resolveReadySetupCardDisplay,
       zoneLevelFacts: zoneLevelFacts,
+      stripFactsGrid: stripFactsGrid,
+      stripFactsRow: stripFactsRow,
+      factsToCells: factsToCells,
       priceInPbBand: priceInPbBand,
       holdPositionFact: holdPositionFact,
       isInvestorLiveBuyZone: isInvestorLiveBuyZone,

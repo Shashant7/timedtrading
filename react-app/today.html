@@ -1979,17 +1979,20 @@
         flex: 0 0 280px;
         width: 280px;
         max-width: 280px;
-        height: 260px;
-        max-height: 260px;
+        height: 288px;
+        max-height: 288px;
         overflow: hidden;
         box-sizing: border-box;
       }
-      /* Day-trade cards carry more structure now (a clear action chip, the
-         full-width MTF/EMA row, and a 4-cell fact grid) — give them room so
-         the layout breathes instead of clipping at the old 260px. */
+      /* Day-trade + lotto cards carry punchline, fact grid, and optional
+         MTF row — taller than compounder strips so nothing clips. */
       #index-day-trade-plays .tt-strip-card {
         height: 300px;
         max-height: 300px;
+      }
+      #convexity-plays .tt-strip-card {
+        height: 332px;
+        max-height: 332px;
       }
       .tt-universe-panel .tt-strip-card .ds-tickercard.tt-lane-card {
         padding: 10px 12px 8px !important;
@@ -2007,10 +2010,10 @@
       }
       .tt-universe-panel .tt-strip-card .tt-lane-card__ext { display: none; }
       .tt-universe-panel .tt-strip-card__foot {
-        overflow: hidden;
-        flex: 1 1 auto;
+        overflow: visible;
+        flex: 0 0 auto;
         min-height: 0;
-        padding: 6px 12px 8px;
+        padding: 6px 12px 10px;
       }
       .tt-universe-panel .tt-dt-plan__punch {
         display: -webkit-box;
@@ -3926,16 +3929,25 @@
       }
 
       function planFactList(facts) {
-        const rows = (Array.isArray(facts) ? facts : []).filter((f) => f && f.value);
-        if (!rows.length) return null;
-        return h("dl", { className: "tt-plan-facts" },
-          rows.map((f) => h("div", { key: f.label, className: "tt-plan-facts__row" },
-            h("dt", null, f.label),
-            h("dd", {
-              className: f.tone ? `tt-plan-facts__v--${f.tone}` : null,
-              title: f.title || undefined,
-            }, f.value),
-          )),
+        const VU = window.TimedVerdictUI;
+        if (VU?.stripFactsGrid) return VU.stripFactsGrid(facts);
+        const cells = (Array.isArray(facts) ? facts : [])
+          .filter((f) => f && f.value)
+          .map((f) => ({
+            k: String(f.label || "").slice(0, 6).toUpperCase(),
+            v: String(f.value),
+            tone: f.tone === "buy" || f.tone === "trim" ? "trim" : f.tone === "wait" || f.tone === "exit" ? "exit" : "",
+            title: f.title || "",
+          }));
+        return dayTradeFactsRow(cells);
+      }
+
+      function stripPlanFoot(punch, facts) {
+        const grid = planFactList(facts);
+        if (!punch && !grid) return null;
+        return h("div", { className: "tt-dt-plan" },
+          punch && h("p", { className: "tt-dt-plan__punch" }, punch),
+          grid,
         );
       }
 
@@ -4130,6 +4142,104 @@
         if (risk) rows.push({ label: "Risk", value: risk });
         if (payoff) rows.push({ label: "Payoff", value: payoff });
         return rows.filter((f) => f && f.value);
+      }
+
+      function convexityOptionFactCells(p, flavor, expShort, dte) {
+        const cells = [];
+        const prem = formatLivePremium(Number(p.premium_mid));
+        if (prem) cells.push({ k: "LIVE", v: prem, tone: "live", title: "Live premium — refreshes on each options poll" });
+        if (Number.isFinite(Number(p.premium_mid))) {
+          cells.push({ k: "DEBIT", v: `≤ $${Number(p.premium_mid).toFixed(2)}`, title: "Max debit to enter" });
+        }
+        if (Number.isFinite(Number(p.max_loss_usd))) {
+          cells.push({ k: "RISK", v: `$${Number(p.max_loss_usd)}`, title: "Sized max loss at entry" });
+        }
+        if (Number.isFinite(Number(p.top_target_underlying))) {
+          cells.push({
+            k: "PAYOFF",
+            v: `3x+ $${Number(p.top_target_underlying).toFixed(2)}`,
+            tone: "trim",
+            title: "Underlying target for 3x+ payoff",
+          });
+        }
+        const k = Number(p.strike);
+        if (Number.isFinite(k) && k > 0) {
+          cells.push({ k: "STRK", v: `${Math.round(k)}${flavor === "put" ? "P" : "C"}` });
+        }
+        if (expShort) {
+          const d = Number(dte);
+          cells.push({
+            k: "EXP",
+            v: Number.isFinite(d) ? `${expShort} (${d} DTE)` : expShort,
+          });
+        }
+        // Prefer contract timing over payoff when the grid is tight — the
+        // punch already names the play; EXP must stay visible on lotto cards.
+        const priority = ["LIVE", "DEBIT", "STRK", "EXP", "RISK", "PAYOFF"];
+        const picked = [];
+        for (const key of priority) {
+          const hit = cells.find((c) => c.k === key);
+          if (hit) picked.push(hit);
+        }
+        return picked;
+      }
+
+      function convexityOptionFactRows(p, flavor, expShort, dte) {
+        const cells = convexityOptionFactCells(p, flavor, expShort, dte);
+        const rows = [];
+        for (let i = 0; i < cells.length; i += 4) rows.push(cells.slice(i, i + 4));
+        return rows;
+      }
+
+      function convexityEarnPrimaryCells(earn) {
+        if (!earn) return [];
+        const cells = [];
+        const label = earn.report_date_label || earn.report_date || "";
+        const days = Number(earn.days_to_print);
+        cells.push({
+          k: "CAT",
+          v: `${earn.report_session ? `${earn.report_session} ` : ""}${label}${Number.isFinite(days) ? ` (${days}d)` : ""}`.trim(),
+          title: earn.covers_print === false
+            ? "The contract expires before the print — trades the run-up."
+            : "Report session + date from the earnings calendar.",
+        });
+        const movePct = Number(earn.implied_move_pct);
+        const moveUsd = Number(earn.implied_move_usd);
+        if (Number.isFinite(movePct) && movePct > 0) {
+          cells.push({
+            k: "IMPL",
+            v: `±${movePct.toFixed(1)}%${Number.isFinite(moveUsd) && moveUsd > 0 ? ` ($${moveUsd.toFixed(2)})` : ""}`,
+            title: earn.implied_move_basis === "atm_straddle"
+              ? "Priced off the at-the-money straddle through this expiration."
+              : "Estimated from at-the-money implied volatility.",
+          });
+        }
+        const al = earn.alignment || {};
+        if (al.verdict) {
+          cells.push({
+            k: "CONF",
+            v: `${al.verdict}${al.summary ? ` · ${al.summary}` : ""}`.trim(),
+            tone: al.verdict === "CONFLUENT" ? "trim" : al.verdict === "THIN" ? "" : "exit",
+            title: (Array.isArray(al.pillars) ? al.pillars : [])
+              .map((pillar) => `${pillar.label}: ${pillar.note}`).join(" — "),
+          });
+        }
+        const tgt = Number(earn.target?.underlying);
+        if (earn.target?.basis === "implied_move" && Number.isFinite(tgt) && tgt > 0) {
+          cells.push({
+            k: "TGT",
+            v: `$${tgt.toFixed(2)}`,
+            tone: "trim",
+            title: earn.target.note || "Implied-move target",
+          });
+        }
+        return cells.slice(0, 4);
+      }
+
+      function convexityEarnMgmtFacts(earn) {
+        if (!earn) return [];
+        const labels = ["Crush", "Needs", "Exit by"];
+        return earningsPlayFacts(earn).filter((f) => labels.includes(f.label));
       }
 
       function stripHoldFact(trade, invPos, liveT) {
@@ -4655,10 +4765,8 @@
                   });
 
                   const footEls = [
-                    h("div", { key: "plan", className: "tt-dt-plan" },
-                      planFactList(copy.facts),
-                    ),
-                  ];
+                    stripPlanFoot(copy.punch, copy.facts),
+                  ].filter(Boolean);
 
                   if (LaneCard?.create) {
                     return h("div", { key: "desk-" + sym, className: "tt-strip-card", role: "listitem" },
@@ -4776,10 +4884,8 @@
                 : null;
 
               const footEls = [
-                h("div", { key: "plan", className: "tt-dt-plan" },
-                  planFactList(familyCopy.facts),
-                ),
-              ];
+                stripPlanFoot(familyCopy.punch, familyCopy.facts),
+              ].filter(Boolean);
 
               const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
 
@@ -5233,28 +5339,19 @@
                   })
                 : null;
 
-              const optionFacts = optionsPlanFacts({
-                action,
-                flavor,
-                strike,
-                expShort,
-                dte: Number(exp?.dte),
-                livePremium: Number(p.premium_mid),
-                debit: Number.isFinite(Number(p.premium_mid)) ? `≤ $${Number(p.premium_mid).toFixed(2)}` : null,
-                risk: Number.isFinite(Number(p.max_loss_usd)) ? `$${Number(p.max_loss_usd)}` : null,
-                payoff: Number.isFinite(Number(p.top_target_underlying))
-                  ? `3x+ @ $${Number(p.top_target_underlying).toFixed(2)}`
-                  : null,
-                why: earn?.catalyst ? null : convexityShotReason(p),
-              });
-              const rrOpts = { zone: zm, ticker: liveT, side: convSide, price: trackPrice };
-              const footFacts = (VU?.factsWithLiveRr
-                ? VU.factsWithLiveRr(optionFacts, rrOpts)
-                : optionFacts).concat(earningsPlayFacts(earn));
+              const whyLine = earn?.catalyst ? null : convexityShotReason(p);
+              const optRows = convexityOptionFactRows(p, flavor, expShort, Number(exp?.dte));
+              const earnCells = convexityEarnPrimaryCells(earn);
+              const earnMgmt = convexityEarnMgmtFacts(earn);
+              const footPlanChildren = [
+                h("p", { key: "punch", className: "tt-dt-plan__punch" }, copy.punch),
+                whyLine && h("p", { key: "why", className: "tt-dt-plan__why", title: whyLine }, whyLine),
+                ...optRows.map((row, i) => dayTradeFactsRow(row) || h("span", { key: "opt-" + i })),
+                earnCells.length ? dayTradeFactsRow(earnCells) : null,
+                earnMgmt.length ? planFactList(earnMgmt) : null,
+              ].filter(Boolean);
               const footEls = [
-                h("div", { key: "plan", className: "tt-dt-plan" },
-                  planFactList(footFacts),
-                ),
+                h("div", { key: "plan", className: "tt-dt-plan" }, footPlanChildren),
               ];
               if (earn?.crush_note) {
                 footEls.push(h("div", {
@@ -5297,7 +5394,7 @@
                 onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
               },
                 h("div", { className: "tt-dt-plan" },
-                  planFactList(footFacts),
+                  footPlanChildren,
                 ),
               );
             }),
@@ -7295,9 +7392,7 @@
                 liveT,
               );
               const footEls = [
-                h("div", { key: "levels", className: "tt-dt-plan" },
-                  planFactList(stripZoneFacts(zm, hold, rrOpts)),
-                ),
+                stripPlanFoot(`${action} on ${sym}`, stripZoneFacts(zm, hold, rrOpts)),
               ].filter(Boolean);
 
               if (LaneCard?.create) {
@@ -7533,10 +7628,8 @@
               );
               const rrOpts = { zone: zm, ticker: liveT, side: "LONG", price: trackPrice };
               const footEls = [
-                h("div", { key: "levels", className: "tt-dt-plan" },
-                  planFactList(valueBottomFootFacts(row, zm, hold, rrOpts)),
-                ),
-              ];
+                stripPlanFoot(`${action} on ${sym}`, valueBottomFootFacts(row, zm, hold, rrOpts)),
+              ].filter(Boolean);
 
               if (LaneCard?.create) {
                 return h("div", { key: sym, className: "tt-strip-card", role: "listitem" },
