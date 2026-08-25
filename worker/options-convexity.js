@@ -11,6 +11,8 @@ import {
   isDayTradeTicker,
   pickDayTradeExpiration,
   resolveContractDirection,
+  bindChainLegForStrike,
+  estimatePremium,
 } from "./options-plays.js";
 
 export const CONVEXITY_LOTTO_MAX_LOSS_DEFAULT_USD = 50;
@@ -404,6 +406,73 @@ export function toConvexityCard({
   card.scan_line = copy.scan;
   card.action = copy.action;
   return card;
+}
+
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Overlay a live chain mid on a convexity card — replaces Black-Scholes
+ * estimates that understate earnings IV (e.g. INTU 345P ~$9 vs ~$0.9 BS).
+ */
+export function overlayConvexityCardPremium(card, chain, ctx = {}) {
+  if (!card || !chain?.ok) return card;
+  const strike = num(card.strike);
+  if (!(strike > 0)) return card;
+  const dir = String(card.direction || "").toUpperCase();
+  const side = dir === "SHORT" ? "P" : "C";
+  const leg = bindChainLegForStrike(chain, side, strike);
+  const spot = num(ctx.spot) ?? num(chain.underlying_price);
+  const dte = num(card.expiration?.dte);
+  const atrPct = num(ctx.atrPct);
+  const est = estimatePremium({
+    price: spot,
+    strike,
+    dte,
+    atrPct,
+    type: side,
+    chainLeg: leg,
+  });
+  const mid = num(est?.mid);
+  if (!(mid > 0)) return card;
+  card.premium_mid = mid;
+  if (num(ctx.lottoMaxLossUsd) > 0) {
+    card.max_loss_usd = Math.round(ctx.lottoMaxLossUsd);
+  } else if (mid > 0) {
+    card.max_loss_usd = Math.round(mid * 100);
+  }
+  card.chain_status = "live";
+  const copy = convexityPlanCopy(card);
+  card.headline = copy.punch;
+  card.scan_line = copy.scan;
+  card.action = copy.action;
+  return card;
+}
+
+/**
+ * Fetch chain mids for ranked convexity cards still on estimates.
+ */
+export async function enrichConvexityChainPremiums(env, cards, opts = {}) {
+  const list = Array.isArray(cards) ? cards : [];
+  const fetchChain = opts.fetchChain;
+  if (!fetchChain) return list;
+  await Promise.all(list.map(async (card) => {
+    if (!card?.ticker || !card?.expiration?.iso) return;
+    if (card.chain_status === "live") return;
+    const sym = String(card.ticker).toUpperCase();
+    const expIso = String(card.expiration.iso).slice(0, 10);
+    try {
+      const chain = await fetchChain(env, sym, expIso, { strikeRangePct: 0.08, skipOI: true });
+      overlayConvexityCardPremium(card, chain, {
+        spot: opts.spotBySym?.[sym],
+        atrPct: opts.atrPctBySym?.[sym],
+        lottoMaxLossUsd: opts.lottoMaxLossUsd,
+      });
+    } catch (_) { /* keep estimate */ }
+  }));
+  return list;
 }
 
 export function rankConvexityCards(cards = []) {

@@ -15,6 +15,7 @@
 // the chain is missing the implied move is null and the card says so.
 
 import { blackScholes } from "./options-plays.js";
+import { overlayConvexityCardPremium } from "./options-convexity.js";
 import { getStaticCalendar, previousTradingDay } from "./market-calendar.js";
 
 export const EARNINGS_PLAY_MAX_CARDS = 3;
@@ -701,6 +702,13 @@ export async function enrichEarningsPlayCards(env, cards, opts = {}) {
           : Promise.resolve(null),
       ]);
       const spot = num(opts.spotBySym?.[sym]) ?? num(chain?.underlying_price);
+      if (chain?.ok) {
+        overlayConvexityCardPremium(card, chain, {
+          spot,
+          atrPct: opts.atrPctBySym?.[sym],
+          lottoMaxLossUsd: opts.lottoMaxLossUsd,
+        });
+      }
       const impliedMove = chain?.ok
         ? resolveImpliedMove({ chain, spot, days: num(card.expiration?.dte) })
         : null;

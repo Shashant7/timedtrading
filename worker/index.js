@@ -1188,6 +1188,7 @@ import {
   isConvexityPlayActionable as _isConvexityPlayActionable,
   toConvexityCard as _toConvexityCard,
   rankConvexityCards as _rankConvexityCards,
+  enrichConvexityChainPremiums as _enrichConvexityChainPremiums,
 } from "./options-convexity.js";
 import { enrichEarningsPlayCards as _enrichEarningsPlayCards } from "./earnings-play.js";
 import {
@@ -95138,8 +95139,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               confluenceBySym: _cxConfluenceBySym,
               spotBySym: _cxSpotBySym,
               atrPctBySym: _cxAtrPctBySym,
+              lottoMaxLossUsd: _lottoMax,
               fetchChain: _alpacaFetchOptionsChain,
               fetchExpirations: _alpacaFetchOptionsExpirations,
+            });
+            await _enrichConvexityChainPremiums(env, plays, {
+              spotBySym: _cxSpotBySym,
+              atrPctBySym: _cxAtrPctBySym,
+              lottoMaxLossUsd: _lottoMax,
+              fetchChain: _alpacaFetchOptionsChain,
             });
           } catch (e) {
             console.warn("[CONVEXITY] earnings-play enrich failed:", String(e?.message || e).slice(0, 160));
