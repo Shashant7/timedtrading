@@ -293,9 +293,11 @@ describe("Today strips — published stamp + lotto earnings play", () => {
     expect(text).toContain("RIDE");
     // One authoritative action chip — no confusing BUY/LONG/WAIT triple.
     expect(text).toContain("BUY CALL");
-    // Structured, non-wrapping fact grid carries the live premium.
+    // Structured fact grid carries the live premium. Unified with the
+    // options-lotto strip: day-trade facts now render through stripFactStack
+    // (.tt-strip-fact-stack) instead of the old .tt-dt-plan__facts row.
     expect(text).toContain("$1.20");
-    expect(document.querySelector(".tt-dt-plan__facts")).toBeTruthy();
+    expect(document.querySelector(".tt-strip-fact-stack")).toBeTruthy();
   });
 
   it("renders the open position as its own card when the held strike differs", () => {
