@@ -833,7 +833,49 @@ async function bumpMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicle
  *   - Entry dedup via mirror state: one mirrored BUY per signal id even
  *     if the paper book is lost and the BUY event re-fires.
  */
+// 2026-08-25 — Index DT mirror decision log. Every BUY/TRIM/EXIT/STOP the
+// model produces records whether it was mirrored and, if not, WHY — so the
+// Broker Connections timeline can explain a "NOT MIRRORED" options row
+// (auto-mirror off, vehicle disabled, globally paused, exit with no mirrored
+// entry, …) the same way equity skips already do, instead of a mystery pill.
+export const OPT_DT_MIRROR_LOG_KEY = "timed:opt-dt-mirror-log";
+const OPT_DT_MIRROR_LOG_MAX = 120;
+
+export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
+  if (!env?.KV_TIMED) return;
+  const signalId = String(ctx?.signal_id || "").trim();
+  const event = String(ctx?.event || "BUY").toUpperCase();
+  if (!signalId || event === "PROTECT") return;
+  const mirrored = result?.skipped === false;
+  const entry = {
+    signal_id: signalId,
+    ticker: String(ctx?.ticker || "").toUpperCase(),
+    event,
+    side: event === "BUY" ? "buy" : "sell",
+    decision: mirrored ? "mirrored" : "skipped",
+    reason: mirrored ? null : (result?.reason || "skipped"),
+    ts: Date.now(),
+  };
+  try {
+    const raw = await env.KV_TIMED.get(OPT_DT_MIRROR_LOG_KEY);
+    let ring = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(ring)) ring = [];
+    // One entry per (signal, event) — keep the latest decision.
+    ring = ring.filter((r) => !(String(r?.signal_id) === signalId
+      && String(r?.event).toUpperCase() === event));
+    ring.push(entry);
+    if (ring.length > OPT_DT_MIRROR_LOG_MAX) ring = ring.slice(-OPT_DT_MIRROR_LOG_MAX);
+    await env.KV_TIMED.put(OPT_DT_MIRROR_LOG_KEY, JSON.stringify(ring), { expirationTtl: 3 * 86400 });
+  } catch (_) { /* telemetry only — never block a mirror on it */ }
+}
+
 export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
+  const result = await runIndexDayTradeMirror(env, ctx);
+  try { await recordIndexDtMirrorDecision(env, ctx, result); } catch (_) { /* best-effort */ }
+  return result;
+}
+
+async function runIndexDayTradeMirror(env, ctx = {}) {
   const event = String(ctx.event || "BUY").toUpperCase();
   if (event === "PROTECT") return { skipped: true, reason: "protect_no_broker_action" };
 

@@ -341,6 +341,19 @@
       function humanizeReason(raw) {
         const r = String(raw || "").toLowerCase();
         if (!r) return null;
+        // Index options day-trade mirror skips (paper DT → broker). These
+        // explain a "NOT MIRRORED" options row so the operator knows which
+        // toggle to flip on Broker Connections.
+        if (/^disabled$|options_auto_mirror_off/.test(r)) {
+          return "Options auto-mirror is off — enable options on the account to mirror index day-trades";
+        }
+        if (/vehicle_long_call_disabled/.test(r)) return "Index-call mirroring is off — enable options on the account";
+        if (/vehicle_long_put_disabled/.test(r)) return "Index-put mirroring is off — enable options on the account";
+        if (/flag_off|indices_paused/.test(r)) return "Index options auto-mirror is globally paused";
+        if (/no_mirrored_entry|entry_fill_rejected|entry_fill_pending/.test(r)) return "The entry never mirrored, so this exit was skipped";
+        if (/entry_already_mirrored/.test(r)) return "Already mirrored";
+        if (/ticker_not_index|archetype_not_directional_day_trade|index_gate_blocked/.test(r)) return "Not an eligible index day-trade for mirroring";
+        if (/mirror_position_already_flat|mirror_single_lot_no_trim/.test(r)) return "Broker position already flat — nothing to close";
         if (/match within tolerance|within.*tolerance/.test(r)) return "In sync — broker shares match the model";
         if (/duplicate_client_order_id/.test(r)) return "Duplicate order blocked (safety guard)";
         if (/parameter error|invalid client order id|client.?order.?id.*length|length should be between/.test(r)) {
