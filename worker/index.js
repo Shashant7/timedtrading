@@ -846,6 +846,12 @@ import {
   attachCompounderFromSnapshot,
 } from "./growth-compounder.js";
 import {
+  rankValueBottoms,
+  buildValueBottomsPayload,
+  valueBottomToSignal,
+  overlayValueBottomsPrices,
+} from "./value-bottoms.js";
+import {
   classifyBusinessCharacter,
   businessCharacterLineage,
 } from "./business-character.js";
@@ -1898,6 +1904,7 @@ const ROUTES = [
   // ── Investor Intelligence endpoints ──
   ["GET", "/timed/investor/scores", "GET /timed/investor/scores"],
   ["GET", "/timed/investor/holdbook", "GET /timed/investor/holdbook"],
+  ["GET", "/timed/investor/value-bottoms", "GET /timed/investor/value-bottoms"],
   ["GET", "/timed/investor/market-health", "GET /timed/investor/market-health"],
   ["GET", "/timed/investor/portfolio", "GET /timed/investor/portfolio"],
   ["GET", "/timed/investor/ticker", "GET /timed/investor/ticker"],
@@ -47279,6 +47286,37 @@ async function cacheInvestorHoldbook(env, investorResults, opts = {}) {
   return { ...holdbook, computedAt };
 }
 
+async function cacheInvestorValueBottoms(env, investorResults, opts = {}) {
+  const pricesKV = await kvGetJSON(env.KV_TIMED, "timed:prices") || {};
+  const priceMap = pricesKV.prices || {};
+  const rows = Object.entries(investorResults || {}).map(([ticker, data]) => ({
+    ticker,
+    ...data,
+    companyName: data?.companyName || null,
+    sector: data?.sector || SECTOR_MAP[ticker] || "Unknown",
+  }));
+  const ranked = rankValueBottoms(rows, {
+    limit: Number(opts.limit) || 16,
+    minScore: Number(opts.minScore) || undefined,
+    priceMap,
+    nowMs: Date.now(),
+  });
+  const payload = buildValueBottomsPayload(ranked, { computedAt: Date.now() });
+  await kvPutJSON(env.KV_TIMED, "timed:investor:value-bottoms", payload);
+
+  // Publish to Signal Outcome Ledger — one row per ticker per ET day.
+  // Idempotent INSERT OR IGNORE; never blocks compute on ledger failure.
+  try {
+    for (const row of ranked) {
+      const sig = valueBottomToSignal(row, { ymd: payload.ymd, published_at: payload.computedAt });
+      if (sig) await _soRecordSignal(env, sig);
+    }
+  } catch (e) {
+    console.warn("[VALUE_BOTTOMS] ledger record failed:", String(e?.message || e).slice(0, 160));
+  }
+  return payload;
+}
+
 function parseEpsCurrencyField(v) {
   if (v == null || v === "") return null;
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
@@ -92533,6 +92571,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.warn("[INVESTOR COMPUTE] holdbook cache failed:", String(hbErr?.message || hbErr).slice(0, 200));
           }
 
+          try {
+            if (!_focusOnly) {
+              const _vb = await cacheInvestorValueBottoms(env, scoresToSave);
+              console.log(`[INVESTOR COMPUTE] value-bottoms cached count=${_vb.count ?? 0}`);
+            }
+          } catch (vbErr) {
+            console.warn("[INVESTOR COMPUTE] value-bottoms cache failed:", String(vbErr?.message || vbErr).slice(0, 200));
+          }
+
           // Convenience heal on every compute — thesis / invalidation / stage /
           // notes / DCA must not stay null on OPEN rows after scores exist.
           if (!_focusOnly && env.DB) {
@@ -95868,6 +95915,30 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         const computedAt = holdbook.computedAt || scoresComputedAt || null;
         const withPrices = overlayHoldbookPrices(holdbook, priceMap);
         return sendJSON({ ...withPrices, computedAt, cached: true }, 200, corsHeaders(env, req));
+      }
+
+      // GET /timed/investor/value-bottoms — FV discount + technical bottom strip
+      if (routeKey === "GET /timed/investor/value-bottoms") {
+        const _vbTier = await resolveRequestDataTier(req, env);
+        if (!canAccessLivePrices(_vbTier)) {
+          return sendJSON(
+            { ok: true, count: 0, holdings: [], error_kind: "tier_required" },
+            200,
+            corsHeaders(env, req),
+          );
+        }
+        const pricesKV = await kvGetJSON(env.KV_TIMED, "timed:prices") || {};
+        const priceMap = pricesKV.prices || {};
+        let payload = await kvGetJSON(env.KV_TIMED, "timed:investor:value-bottoms");
+        if (!payload?.holdings) {
+          const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores");
+          if (!scores) {
+            return sendJSON({ ok: false, error: "No investor scores computed yet." }, 404, corsHeaders(env, req));
+          }
+          payload = await cacheInvestorValueBottoms(env, scores);
+        }
+        const withPrices = overlayValueBottomsPrices(payload, priceMap);
+        return sendJSON({ ...withPrices, cached: true }, 200, corsHeaders(env, req));
       }
 
       // GET /timed/investor/market-health — Get market health (from KV cache)
