@@ -700,7 +700,11 @@ export async function enrichEarningsPlayCards(env, cards, opts = {}) {
           ? FSD.loadFSDIntelForTicker(env, sym, { limit: 4, lookbackDays: 14, includeText: false }).catch(() => null)
           : Promise.resolve(null),
         (typeof opts.fetchChain === "function" && expIso)
-          ? opts.fetchChain(env, sym, expIso, { strikeRangePct, skipOI: true }).catch(() => null)
+          ? opts.fetchChain(env, sym, expIso, {
+            strikeRangePct,
+            skipOI: true,
+            playStrike: card.strike,
+          }).catch(() => null)
           : Promise.resolve(null),
       ]);
       const spot = num(opts.spotBySym?.[sym]) ?? num(chain?.underlying_price);

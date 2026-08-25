@@ -377,8 +377,8 @@ export function toConvexityCard({
     confluence_mode: confluence?.mode || null,
     confluence_score: Number(confluence?.score) || null,
     stop_level: Number.isFinite(sl) && sl > 0 ? sl : null,
-    chain_status: chainStatus && !String(chainStatus).includes("not_attempted")
-      && !String(chainStatus).startsWith("exception") ? "live" : "estimated",
+    premium_source: play.premium?.source || null,
+    chain_status: play.premium?.source === "live_chain" ? "live" : "estimated",
     as_of_ms: Number(asOfMs) || Date.now(),
     label: play.label || null,
     earnings_prep: !!play._earnings_prep,
@@ -481,7 +481,11 @@ export async function enrichConvexityChainPremiums(env, cards, opts = {}) {
     const spot = num(opts.spotBySym?.[sym]);
     const strikeRangePct = chainStrikeRangeForPlay(spot, card.strike, 0.08);
     try {
-      const chain = await fetchChain(env, sym, expIso, { strikeRangePct, skipOI: true });
+      const chain = await fetchChain(env, sym, expIso, {
+        strikeRangePct,
+        skipOI: true,
+        playStrike: card.strike,
+      });
       overlayConvexityCardPremium(card, chain, {
         spot,
         atrPct: opts.atrPctBySym?.[sym],

@@ -693,3 +693,23 @@ describe("chainStrikeRangeForPlay", () => {
     expect(chainStrikeRangeForPlay(357, 345, 0.08)).toBe(0.08);
   });
 });
+
+describe("resolveAlpacaStrikeBand", () => {
+  it("includes play strike when underlying price is missing", async () => {
+    const { resolveAlpacaStrikeBand } = await import("./alpaca-options.js");
+    const band = resolveAlpacaStrikeBand({ playStrike: 300 });
+    expect(band.gte).toBeLessThanOrEqual(300);
+    expect(band.lte).toBeGreaterThanOrEqual(300);
+  });
+
+  it("widens pct band to cover deep OTM play strikes", async () => {
+    const { resolveAlpacaStrikeBand } = await import("./alpaca-options.js");
+    const band = resolveAlpacaStrikeBand({
+      underlyingPx: 357,
+      strikeRangePct: 0.08,
+      playStrike: 300,
+    });
+    expect(band.gte).toBeLessThanOrEqual(300);
+    expect(band.lte).toBeGreaterThanOrEqual(345);
+  });
+});

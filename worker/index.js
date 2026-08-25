@@ -94953,7 +94953,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
           const limit = Math.min(10, Math.max(1, Number(url.searchParams.get("limit")) || 10));
           const profile = "speculator";
-          const _cxCacheKey = `timed:options:convexity:v2:${limit}`;
+          const _cxCacheKey = `timed:options:convexity:v3:${limit}`;
           const _bypassCx = String(url.searchParams.get("_nocache") || "0") === "1";
           if (!_bypassCx) {
             const cached = await kvGetJSON(env.KV_TIMED, _cxCacheKey).catch(() => null);
