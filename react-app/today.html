@@ -2064,7 +2064,10 @@
         flex-shrink: 0;
         font-size: 9px;
       }
-      .tt-universe-panel .tt-strip-card .tt-lane-card__ext { display: none; }
+      /* EXT (extended-hours) line now shows on every strip card, matching
+         the viewport / active-trader cards. Kept compact within the quote
+         column. */
+      .tt-universe-panel .tt-strip-card .tt-lane-card__ext { display: flex; }
       .tt-universe-panel .tt-strip-card__foot {
         overflow: visible;
         flex: 0 0 auto;
@@ -4003,17 +4006,11 @@
       }
 
       function planFactList(facts) {
-        const VU = window.TimedVerdictUI;
-        if (VU?.stripFactsGrid) return VU.stripFactsGrid(facts);
-        const cells = (Array.isArray(facts) ? facts : [])
-          .filter((f) => f && f.value)
-          .map((f) => ({
-            k: String(f.label || "").slice(0, 6).toUpperCase(),
-            v: String(f.value),
-            tone: f.tone === "buy" || f.tone === "trim" ? "trim" : f.tone === "wait" || f.tone === "exit" ? "exit" : "",
-            title: f.title || "",
-          }));
-        return dayTradeFactsRow(cells);
+        // Unified with the options-lotto strip: growth-idea / family /
+        // value-bottom / desk strips render their facts through the same
+        // 2-col stripFactStack grid instead of the horizontal stripFactsGrid,
+        // so every strip on the page shares one fact layout.
+        return stripFactStack(factsToStackItems(facts));
       }
 
       function stripPlanFoot(punch, facts) {
@@ -4174,7 +4171,9 @@
             v: String(f.value),
             tone: f.tone === "buy" || f.tone === "trim" ? "trim" : f.tone === "wait" || f.tone === "exit" ? "exit" : "",
             title: f.title || "",
-            full: /^(catalyst|implied|crush|needs|exit)/i.test(String(f.label || "")),
+            // Long-form values span the full row so they don't crush the
+            // 2-col grid (e.g. HOLD "0.52 sh · @$1216 · Aug 18").
+            full: /^(catalyst|implied|crush|needs|exit|hold|own)/i.test(String(f.label || "")),
           }));
       }
 
@@ -4933,7 +4932,7 @@
                           dayPct,
                           dayChg,
                           dir: quoteDir,
-                          extLine: null,
+                          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null,
                         },
                         sparkSvg,
                         midBody,
@@ -5055,7 +5054,7 @@
                       dayPct,
                       dayChg,
                       dir: quoteDir,
-                      extLine: null,
+                      extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null,
                     },
                     sparkSvg,
                     midBody,
@@ -5534,7 +5533,7 @@
                       dayPct,
                       dayChg,
                       dir: quoteDir,
-                      extLine: null,
+                      extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null,
                     },
                     sparkSvg,
                     midBody,
@@ -5783,7 +5782,7 @@
                       },
                       chipRow,
                       mtfBelow: true,
-                      quote: { price: livePrice, dayPct, dayChg, dir: quoteDir, extLine: null },
+                      quote: { price: livePrice, dayPct, dayChg, dir: quoteDir, extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null },
                       sparkSvg,
                       midBody,
                       metrics: [],
@@ -5867,7 +5866,7 @@
                     },
                     chipRow: [heldChip, sizeChip].filter(Boolean),
                     mtfBelow: true,
-                    quote: { price: livePrice, dayPct, dayChg, dir: quoteDir, extLine: null },
+                    quote: { price: livePrice, dayPct, dayChg, dir: quoteDir, extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null },
                     sparkSvg,
                     midBody: posMidBody,
                     metrics: [],
@@ -7588,7 +7587,7 @@
                       dayPct: liveDayPct,
                       dayChg,
                       dir,
-                      extLine: null,
+                      extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null,
                     },
                     sparkSvg,
                     midBody,
@@ -7825,7 +7824,7 @@
                       dayPct: liveDayPct,
                       dayChg,
                       dir,
-                      extLine: null,
+                      extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null,
                     },
                     sparkSvg,
                     midBody,

@@ -112,7 +112,9 @@ describe("Ready Setups zone-bar cards", () => {
     expect(container.textContent).toMatch(/INV/);
     expect(container.textContent).toMatch(/PB/);
     expect(container.textContent).toMatch(/TGT/);
-    expect(html).toContain("tt-dt-plan__facts");
+    // Capital-shortlist cards render facts through the shared stripFactsGrid
+    // 2-col stack (.tt-strip-fact-stack), unified with the options-lotto grid.
+    expect(html).toContain("tt-strip-fact-stack");
     expect(container.textContent).toMatch(/INV\$480/);
     expect(container.textContent).toMatch(/PB\$495/);
     expect(container.textContent).toMatch(/TGT\$540/);
