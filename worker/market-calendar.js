@@ -16,7 +16,9 @@
 export const PM_START    = 240;   // 4:00 AM ET — pre-market opens
 export const RTH_OPEN    = 570;   // 9:30 AM ET — regular trading hours open
 export const RTH_CLOSE   = 960;   // 4:00 PM ET — regular trading hours close
-export const AH_END      = 1200;  // 8:00 PM ET — after-hours ends
+export const AH_END      = 1200;  // 8:00 PM ET — official after-hours ends
+export const AH_BROKER_END = 1140; // 7:00 PM ET — last hour of AH is too thin for ST share mirrors
+export const EARLY_AH_BROKER_END = 1020; // 5:00 PM ET — Webull AH end on early-close days
 export const FUT_OPEN    = 1080;  // 6:00 PM ET — futures open (Sunday evening)
 export const FUT_CLOSE   = 1020;  // 5:00 PM ET — futures close (next day)
 export const FUT_EARLY   = 780;   // 1:00 PM ET — futures early close
@@ -530,6 +532,28 @@ export function isTickerSessionActive(cal, sym, now = new Date()) {
   if (isEquityHoliday(cal, dateStr)) return false;
   if (isSat || isSun) return false;
   return etMins >= PM_START && etMins < AH_END;
+}
+
+/**
+ * Can a Short Term share order still follow through at the broker?
+ * Premarket + RTH + the liquid part of after-hours (through 7:00 PM ET,
+ * or 5:00 PM on early-close days). Official AH runs to 8:00 PM, but the
+ * last hour is dead tape and 8:00+ is overnight ATS (select names only).
+ * Scoring/Discord paper can still run until AH_END; live ST flatten should
+ * not claim a fill the broker cannot take.
+ */
+export function isEquityBrokerFollowThrough(cal, now = new Date()) {
+  const { weekday, hour, minute } = getEasternParts(now);
+  if (["Sat", "Sun"].includes(weekday)) return false;
+  const dateStr = getETDateStr(now);
+  if (isEquityHoliday(cal, dateStr)) return false;
+  const mins = hour * 60 + minute;
+  const end = isEquityEarlyClose(cal, dateStr) ? EARLY_AH_BROKER_END : AH_BROKER_END;
+  return mins >= PM_START && mins < end;
+}
+
+export function isEquityBrokerFollowThroughStatic(now = new Date()) {
+  return isEquityBrokerFollowThrough(_buildStaticCalendar(), now);
 }
 
 /** Classify timestamp into session type: PM, RTH, AH, CLOSED */

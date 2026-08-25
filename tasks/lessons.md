@@ -6,6 +6,20 @@
 
 ---
 
+## ST share Discord at 8pm ET cannot follow through at the broker [2026-08-25]
+
+**Symptom:** `#trade-signals` posted TSLA max-loss exit @ 8:01 PM ET and
+DPZ 50% TP trim @ 8:02 PM ET. Post-RTH share management is intended
+(earnings). 8pm is the official AH close; overnight ATS is select names
+only. Webull rejects MARKET in ETH; a paper "Filled at" does not mean
+the account got a fill.
+
+**Fix:** Live Short Term equity exit/trim (and the trader mirror) only
+through **7:00 PM ET** (5:00 PM on early-close days). 4:00–7:00 PM still
+runs and the trader mirror sends LIMIT + ALL + GTC. After 7:00 the close
+waits for the next live window — no Discord fill claim. Replay unchanged.
+Crypto/futures unchanged. Investor GTC flatten path unchanged.
+
 ## Health watchdog false-paged 59 names at 11m [2026-08-24]
 
 **Symptom:** GitHub Health watchdog red at 19:35 UTC

@@ -192,3 +192,14 @@ describe("isNyRegularMarketOpenStatic / getMarketSession", () => {
     expect(s.source).toBe("alpaca");
   });
 });
+
+describe("isEquityBrokerFollowThrough", () => {
+  it("keeps post-RTH earnings live and blocks the 8pm official AH close", async () => {
+    const { isEquityBrokerFollowThroughStatic } = await import("./market-calendar.js");
+    expect(isEquityBrokerFollowThroughStatic(new Date("2026-08-24T15:00:00-04:00"))).toBe(true);
+    expect(isEquityBrokerFollowThroughStatic(new Date("2026-08-24T17:00:00-04:00"))).toBe(true);
+    expect(isEquityBrokerFollowThroughStatic(new Date("2026-08-24T18:59:00-04:00"))).toBe(true);
+    expect(isEquityBrokerFollowThroughStatic(new Date("2026-08-24T19:00:00-04:00"))).toBe(false);
+    expect(isEquityBrokerFollowThroughStatic(new Date("2026-08-24T20:01:00-04:00"))).toBe(false);
+  });
+});

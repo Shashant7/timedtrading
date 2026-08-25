@@ -235,6 +235,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   shares; paper DT ring `timed:opt-dt-actions` is the model side.
   Day-action extras must carry `rejects[]` so the reason line shows.
 
+**ST share broker follow-through ends 7:00 PM ET (2026-08-25)**
+- Post-RTH (earnings) stays: price-driven SL / max-loss / TP through 7:00 PM
+  (5:00 PM early-close). Official AH ends 8:00; overnight ATS is select names.
+- Live ST equity exit/trim + trader mirror stop at 19:00 ET. 16:00–19:00
+  sends LIMIT + ALL + GTC (Webull rejects MARKET in ETH). Replay / crypto /
+  futures / investor GTC flatten unchanged.
+
 **Tom Lee Macro Minute is a first-class research arm (2026-08-13)**
 - Daily MM is FSD+Vimeo captions, not YouTube. HTML ingest is a ~600 char
   teaser; CRO `collectFSDIntel` must pin `role=tom_lee_night_take` from the
