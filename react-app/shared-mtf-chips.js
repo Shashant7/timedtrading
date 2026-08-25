@@ -12,9 +12,9 @@
   let _data = null;
 
   const READS = [
-    { id: "1h_34_50", label: "1H", title: "1H 34/50 EMA cloud", tfKeys: ["1H", "60"], cloud: "c34_50" },
-    { id: "d_20_21", label: "21", title: "Daily 20/21 EMA cloud", tfKeys: ["D"], cloud: "c20_21", fallbackCloud: "c34_50" },
-    { id: "d_50_55", label: "55", title: "Daily 50/55 EMA cloud", tfKeys: ["D"], cloud: "c50_55", fallbackCloud: "c72_89" },
+    { id: "1h_34_50", label: "1H EMA", title: "1H 34/50 EMA cloud", tfKeys: ["1H", "60"], cloud: "c34_50" },
+    { id: "d_20_21", label: "D 21 EMA", title: "Daily 20/21 EMA cloud", tfKeys: ["D"], cloud: "c20_21", fallbackCloud: "c34_50" },
+    { id: "d_50_55", label: "D 55 EMA", title: "Daily 50/55 EMA cloud", tfKeys: ["D"], cloud: "c50_55", fallbackCloud: "c72_89" },
   ];
 
   function setData(map) {
@@ -86,7 +86,7 @@
         : "";
       out.push({
         id: spec.id,
-        label: `${spec.label}${arrowFor(dir)}`,
+        label: `${spec.label} ${arrowFor(dir)}`.trim(),
         dir,
         title: `${spec.title} — price ${dir === "up" ? "above" : dir === "dn" ? "below" : "inside"}${distBit}`,
       });
@@ -105,28 +105,28 @@
     if (up >= 2 && up > dn) {
       return {
         id: "mtf_stack",
-        label: `MTF ${up}\u2191`,
+        label: `MTF ${up} ${arrowFor("up")}`,
         dir: "up",
-        title: `${up} of ${reads.length} MTF clouds above — stack lean long`,
+        title: `${up} of ${reads.length} MTF EMA clouds above — stack lean long`,
       };
     }
     if (dn >= 2 && dn > up) {
       return {
         id: "mtf_stack",
-        label: `MTF ${dn}\u2193`,
+        label: `MTF ${dn} ${arrowFor("dn")}`,
         dir: "dn",
-        title: `${dn} of ${reads.length} MTF clouds below — stack lean short`,
+        title: `${dn} of ${reads.length} MTF EMA clouds below — stack lean short`,
       };
     }
     if (up === reads.length && up >= 2) {
-      return { id: "mtf_stack", label: `MTF ${up}\u2191`, dir: "up", title: "All MTF clouds above" };
+      return { id: "mtf_stack", label: `MTF ${up} ${arrowFor("up")}`, dir: "up", title: "All MTF EMA clouds above" };
     }
     if (dn === reads.length && dn >= 2) {
-      return { id: "mtf_stack", label: `MTF ${dn}\u2193`, dir: "dn", title: "All MTF clouds below" };
+      return { id: "mtf_stack", label: `MTF ${dn} ${arrowFor("dn")}`, dir: "dn", title: "All MTF EMA clouds below" };
     }
     return {
       id: "mtf_stack",
-      label: "MTF mix",
+      label: `MTF mix ${arrowFor("flat")}`,
       dir: "flat",
       title: `MTF mixed — ${up} above, ${dn} below`,
     };

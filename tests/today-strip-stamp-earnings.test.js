@@ -273,7 +273,8 @@ describe("Today strips — published stamp + lotto earnings play", () => {
     expect(text).toContain("EARN Aug 27 AMC");
     expect(text).toContain("AMC Thu Aug 27 (2d)");
     expect(text).toContain("±6.5% ($6.50)");
-    expect(text).toContain("CONFLUENT · 4/4 aligned");
+    expect(text).toContain("CONFLUENT");
+    expect(document.querySelector("[title*='4/4 aligned']")).toBeTruthy();
     expect(text).toContain("$106.50");
   });
 

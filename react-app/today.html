@@ -1976,37 +1976,44 @@
         margin-top: 0;
       }
       .tt-universe-panel .tt-strip-card {
-        flex: 0 0 280px;
-        width: 280px;
-        max-width: 280px;
-        height: 288px;
-        max-height: 288px;
+        flex: 0 0 300px;
+        width: 300px;
+        max-width: 300px;
+        height: 300px;
+        max-height: 300px;
         overflow: hidden;
         box-sizing: border-box;
       }
-      /* Day-trade + lotto cards carry punchline, fact grid, and optional
-         MTF row — taller than compounder strips so nothing clips. */
+      /* Day-trade + lotto cards carry punchline, fact grid, and MTF row. */
       #index-day-trade-plays .tt-strip-card {
-        height: 300px;
-        max-height: 300px;
+        height: 312px;
+        max-height: 312px;
       }
       #convexity-plays .tt-strip-card {
-        height: 332px;
-        max-height: 332px;
+        height: 368px;
+        max-height: 368px;
       }
       .tt-universe-panel .tt-strip-card .ds-tickercard.tt-lane-card {
         padding: 10px 12px 8px !important;
       }
       .tt-universe-panel .tt-strip-card .tt-lane-card__chips {
-        flex-wrap: nowrap;
-        overflow: hidden;
-        max-height: 18px;
+        flex-wrap: wrap;
+        overflow: visible;
+        max-height: none;
         gap: 3px;
       }
-      .tt-universe-panel .tt-strip-card .tt-lane-card__chips .ds-chip,
-      .tt-universe-panel .tt-strip-card .tt-lane-card__chips .tt-lane-badge {
+      .tt-universe-panel .tt-strip-card .tt-lane-card__chiprow {
+        flex-wrap: wrap;
+        gap: 3px;
+        padding: 4px 0 0;
+        margin-top: 2px;
+        max-height: none;
+      }
+      .tt-universe-panel .tt-strip-card .tt-lane-card__chiprow .ds-chip,
+      .tt-universe-panel .tt-strip-card .tt-lane-card__chiprow .tt-lane-badge {
         white-space: nowrap;
         flex-shrink: 0;
+        font-size: 9px;
       }
       .tt-universe-panel .tt-strip-card .tt-lane-card__ext { display: none; }
       .tt-universe-panel .tt-strip-card__foot {
@@ -2014,6 +2021,17 @@
         flex: 0 0 auto;
         min-height: 0;
         padding: 6px 12px 10px;
+      }
+      .tt-universe-panel .tt-strip-card__foot .tt-dt-plan__fv {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+        font-size: 11px;
+        line-height: 1.25;
+        word-break: break-word;
+      }
+      .tt-universe-panel .tt-strip-card__foot .tt-dt-plan__fk {
+        font-size: 8px;
       }
       .tt-universe-panel .tt-dt-plan__punch {
         display: -webkit-box;
@@ -2042,6 +2060,13 @@
       }
       .tt-universe-panel #index-day-trade-plays .tt-lane-card__chips {
         flex-wrap: wrap;
+        max-height: none;
+      }
+      /* Viewport lane cards — same bottom MTF row as universe strips. */
+      .vp-list .tt-lane-card__chiprow,
+      .vp-lane .tt-lane-card__chiprow {
+        flex-wrap: wrap;
+        gap: 3px;
         max-height: none;
       }
       .tt-universe-panel .tt-lane-card__metrics,
@@ -4069,6 +4094,7 @@
           cells.map((c, i) => h("div", {
             key: c.k + i,
             className: `tt-dt-plan__fact${c.tone ? ` tt-dt-plan__fact--${c.tone}` : ""}`,
+            title: c.title || undefined,
           },
             h("span", { className: "tt-dt-plan__fk" }, c.k),
             h("span", { className: "tt-dt-plan__fv" }, c.v),
@@ -4239,10 +4265,12 @@
         if (al.verdict) {
           cells.push({
             k: "CONF",
-            v: `${al.verdict}${al.summary ? ` · ${al.summary}` : ""}`.trim(),
+            v: al.verdict,
             tone: al.verdict === "CONFLUENT" ? "trim" : al.verdict === "THIN" ? "" : "exit",
-            title: (Array.isArray(al.pillars) ? al.pillars : [])
-              .map((pillar) => `${pillar.label}: ${pillar.note}`).join(" — "),
+            title: al.summary
+              ? `${al.verdict} — ${al.summary}`
+              : (Array.isArray(al.pillars) ? al.pillars : [])
+                .map((pillar) => `${pillar.label}: ${pillar.note}`).join(" — "),
           });
         }
         const tgt = Number(earn.target?.underlying);
@@ -4800,6 +4828,7 @@
                           style: { textAlign: "left" },
                         },
                         chipRow,
+                        mtfBelow: true,
                         quote: {
                           price: livePrice,
                           dayPct,
@@ -4921,6 +4950,7 @@
                       style: { textAlign: "left" },
                     },
                     chipRow,
+                    mtfBelow: true,
                     quote: {
                       price: livePrice,
                       dayPct,
@@ -5393,6 +5423,7 @@
                       style: { textAlign: "left" },
                     },
                     chipRow,
+                    mtfBelow: true,
                     quote: {
                       price: livePrice,
                       dayPct,
@@ -7431,6 +7462,7 @@
                       style: { textAlign: "left" },
                     },
                     chipRow,
+                    mtfBelow: true,
                     quote: {
                       price: livePrice,
                       dayPct: liveDayPct,
@@ -7667,6 +7699,7 @@
                       style: { textAlign: "left" },
                     },
                     chipRow,
+                    mtfBelow: true,
                     quote: {
                       price: livePrice,
                       dayPct: liveDayPct,
@@ -9375,6 +9408,7 @@
               title: p.tooltip,
             }, `${p.icon} ${p.type}`)),
           ],
+          mtfBelow: true,
           quote: { price, dayPct, dayChg, dir, extLine },
           sparkSvg,
           metrics: rankScoreMetrics,
