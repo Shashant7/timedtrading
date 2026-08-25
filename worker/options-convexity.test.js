@@ -11,6 +11,7 @@ import {
   formatConvexityExpShort,
   buildConvexityShotReason,
   overlayConvexityCardPremium,
+  chainStrikeRangeForPlay,
 } from "./options-convexity.js";
 import {
   shouldActivateLotto,
@@ -661,6 +662,54 @@ describe("overlayConvexityCardPremium", () => {
     overlayConvexityCardPremium(card, chain, { spot: 359, atrPct: 0.02 });
     expect(card.premium_mid).toBeGreaterThan(8);
     expect(card.chain_status).toBe("live");
+    expect(card.premium_source).toBe("live_chain");
     expect(card.headline).toMatch(/INTU/);
+  });
+
+  it("does not mark live when the play strike is missing from the chain", () => {
+    const card = {
+      ticker: "INTU",
+      direction: "SHORT",
+      strike: 300,
+      expiration: { dte: 3 },
+      premium_mid: 0.73,
+      chain_status: "estimated",
+    };
+    const chain = {
+      ok: true,
+      underlying_price: 357,
+      puts: [{ strike: 345, bid: 11, ask: 12 }],
+    };
+    overlayConvexityCardPremium(card, chain, { spot: 357 });
+    expect(card.premium_mid).toBe(0.73);
+    expect(card.chain_status).toBe("estimated");
+    expect(card.premium_source).toBeUndefined();
+  });
+});
+
+describe("chainStrikeRangeForPlay", () => {
+  it("widens fetch band to include deep OTM earnings strikes", () => {
+    expect(chainStrikeRangeForPlay(357, 300, 0.08)).toBeGreaterThan(0.15);
+    expect(chainStrikeRangeForPlay(357, 345, 0.08)).toBe(0.08);
+  });
+});
+
+describe("resolveAlpacaStrikeBand", () => {
+  it("includes play strike when underlying price is missing", async () => {
+    const { resolveAlpacaStrikeBand } = await import("./alpaca-options.js");
+    const band = resolveAlpacaStrikeBand({ playStrike: 300 });
+    expect(band.gte).toBeLessThanOrEqual(300);
+    expect(band.lte).toBeGreaterThanOrEqual(300);
+  });
+
+  it("widens pct band to cover deep OTM play strikes", async () => {
+    const { resolveAlpacaStrikeBand } = await import("./alpaca-options.js");
+    const band = resolveAlpacaStrikeBand({
+      underlyingPx: 357,
+      strikeRangePct: 0.08,
+      playStrike: 300,
+    });
+    expect(band.gte).toBeLessThanOrEqual(300);
+    expect(band.lte).toBeGreaterThanOrEqual(345);
   });
 });

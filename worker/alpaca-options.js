@@ -25,6 +25,36 @@
 
 const ALPACA_DATA_BASE = "https://data.alpaca.markets";
 
+/**
+ * Merge underlying ±pct band with an explicit play strike so deep OTM
+ * earnings lottos (INTU 300P vs spot 357) stay in the snapshot even when
+ * KV price is missing and Alpaca's 200-leg limit would otherwise drop them.
+ */
+export function resolveAlpacaStrikeBand({
+  underlyingPx = null,
+  strikeRangePct = 0.25,
+  playStrike = null,
+  padAbs = 5,
+} = {}) {
+  const px = Number(underlyingPx);
+  const pct = Number(strikeRangePct);
+  let gte = null;
+  let lte = null;
+  if (px > 0 && pct > 0) {
+    gte = Math.floor(px * (1 - pct));
+    lte = Math.ceil(px * (1 + pct));
+  }
+  const k = Number(playStrike);
+  if (k > 0) {
+    const pad = Math.max(Number(padAbs) || 5, k * 0.05);
+    const kGte = Math.floor(k - pad);
+    const kLte = Math.ceil(k + pad);
+    gte = gte != null ? Math.min(gte, kGte) : kGte;
+    lte = lte != null ? Math.max(lte, kLte) : kLte;
+  }
+  return { gte, lte };
+}
+
 function _alpacaHeaders(env) {
   const keyId = env?.ALPACA_API_KEY_ID;
   const secret = env?.ALPACA_API_SECRET_KEY;
@@ -94,9 +124,14 @@ export async function alpacaFetchOptionsChain(env, symbol, expirationDate, opts 
       if (row?.p) underlyingPx = Number(row.p);
     }
   } catch (_) {}
-  if (underlyingPx > 0 && strikeRangePct > 0) {
-    params.set("strike_price_gte", String(Math.floor(underlyingPx * (1 - strikeRangePct))));
-    params.set("strike_price_lte", String(Math.ceil(underlyingPx * (1 + strikeRangePct))));
+  const band = resolveAlpacaStrikeBand({
+    underlyingPx,
+    strikeRangePct,
+    playStrike: opts.playStrike,
+  });
+  if (band.gte != null && band.lte != null) {
+    params.set("strike_price_gte", String(band.gte));
+    params.set("strike_price_lte", String(band.lte));
   }
 
   const url = `${ALPACA_DATA_BASE}/v1beta1/options/snapshots/${encodeURIComponent(tdSym)}?${params.toString()}`;
