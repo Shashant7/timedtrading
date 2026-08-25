@@ -409,6 +409,67 @@ describe("classifyPaperEvent", () => {
     expect(out.event).toBe("STOP");
     expect(out.reason).toBe("breakeven_stop");
   });
+
+  // 2026-08-25 — QQQ 711C class: a runner that peaked well into profit but
+  // never tagged 1R (so profit_armed was never set) must still be protected.
+  it("trails a big never-trimmed winner off its peak instead of riding to the hard stop", () => {
+    const out = classifyPaperEvent({
+      clock: clockBuy,
+      book: {
+        status: "open",
+        entry_premium: 1.19,
+        trim_premium: 1.79,
+        exit_premium: 2.38,
+        contracts: 1,
+        // peaked +207% but profit_armed was never set (book never saw 1R)
+        peak_premium: 3.65,
+      },
+      premium: 2.10,
+      size: { label: "light", contracts: 1 },
+      now: RTH_NOW,
+    });
+    expect(out.event).toBe("EXIT");
+    expect(out.reason).toBe("trail_stop");
+    expect(out.nextBook.status).toBe("closed");
+  });
+
+  it("stops a never-trimmed +40% peak at breakeven, not the -50% hard stop", () => {
+    const out = classifyPaperEvent({
+      clock: clockBuy,
+      book: {
+        status: "open",
+        entry_premium: 1.19,
+        trim_premium: 1.79,
+        exit_premium: 2.38,
+        contracts: 1,
+        peak_premium: 1.70, // +43% — clears the profit-lock arm
+      },
+      premium: 1.18, // back to breakeven
+      size: { label: "light", contracts: 1 },
+      now: RTH_NOW,
+    });
+    expect(out.event).toBe("STOP");
+    expect(out.reason).toBe("breakeven_stop");
+  });
+
+  it("still hard-stops a contract that never ran into profit", () => {
+    const out = classifyPaperEvent({
+      clock: clockBuy,
+      book: {
+        status: "open",
+        entry_premium: 1.19,
+        trim_premium: 1.79,
+        exit_premium: 2.38,
+        contracts: 1,
+        peak_premium: 1.30, // only +9% — profit lock never armed
+      },
+      premium: 0.56,
+      size: { label: "light", contracts: 1 },
+      now: RTH_NOW,
+    });
+    expect(out.event).toBe("STOP");
+    expect(out.reason).toBe("premium_stop");
+  });
 });
 
 describe("buildDayTradeSignalEmbed", () => {
