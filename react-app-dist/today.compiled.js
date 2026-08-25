@@ -1106,7 +1106,8 @@ function dayTradeFactsRow(cells) {
     }
   }, cells.map((c, i) => h("div", {
     key: c.k + i,
-    className: `tt-dt-plan__fact${c.tone ? ` tt-dt-plan__fact--${c.tone}` : ""}`
+    className: `tt-dt-plan__fact${c.tone ? ` tt-dt-plan__fact--${c.tone}` : ""}`,
+    title: c.title || undefined
   }, h("span", {
     className: "tt-dt-plan__fk"
   }, c.k), h("span", {
@@ -1296,9 +1297,9 @@ function convexityEarnPrimaryCells(earn) {
   if (al.verdict) {
     cells.push({
       k: "CONF",
-      v: `${al.verdict}${al.summary ? ` · ${al.summary}` : ""}`.trim(),
+      v: al.verdict,
       tone: al.verdict === "CONFLUENT" ? "trim" : al.verdict === "THIN" ? "" : "exit",
-      title: (Array.isArray(al.pillars) ? al.pillars : []).map(pillar => `${pillar.label}: ${pillar.note}`).join(" — ")
+      title: al.summary ? `${al.verdict} — ${al.summary}` : (Array.isArray(al.pillars) ? al.pillars : []).map(pillar => `${pillar.label}: ${pillar.note}`).join(" — ")
     });
   }
   const tgt = Number(earn.target?.underlying);
@@ -1874,6 +1875,7 @@ function SetupFamiliesStrip({
           }
         },
         chipRow,
+        mtfBelow: true,
         quote: {
           price: livePrice,
           dayPct,
@@ -1968,6 +1970,7 @@ function SetupFamiliesStrip({
           }
         },
         chipRow,
+        mtfBelow: true,
         quote: {
           price: livePrice,
           dayPct,
@@ -2393,6 +2396,7 @@ function ConvexityPlaysStrip({
           }
         },
         chipRow,
+        mtfBelow: true,
         quote: {
           price: livePrice,
           dayPct,
@@ -4943,6 +4947,7 @@ function GrowthIdeasStrip({
           }
         },
         chipRow,
+        mtfBelow: true,
         quote: {
           price: livePrice,
           dayPct: liveDayPct,
@@ -5180,6 +5185,7 @@ function ValueBottomsStrip({
           }
         },
         chipRow,
+        mtfBelow: true,
         quote: {
           price: livePrice,
           dayPct: liveDayPct,
@@ -6937,6 +6943,7 @@ function ViewportCard({
       className: `tt-pattern-chip ${p.bias === "bullish" ? "tt-pattern-chip--bull" : p.bias === "bearish" ? "tt-pattern-chip--bear" : ""}`,
       title: p.tooltip
     }, `${p.icon} ${p.type}`))],
+    mtfBelow: true,
     quote: {
       price,
       dayPct,
@@ -9036,6 +9043,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787684525401:906352549
+// cache-bust:1787685795091:9272963
 
-// cache-bust:1787684525401:906352549
+// cache-bust:1787685795091:9272963
