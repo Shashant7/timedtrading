@@ -816,6 +816,7 @@ import {
   loadDayTradeBook as _optDtLoadBook,
   readDayTradeActions as _optDtReadActions,
 } from "./option-day-trade-alerts.js";
+import { buildDayTradePositionMgmtLine as _optDtPositionMgmtLine } from "./option-day-trade-plan.js";
 import { extraActionFromLedger, modelRowFromDayTradeAction } from "./broker-day-actions-join.js";
 import {
   recordSignal as _soRecordSignal,
@@ -95564,25 +95565,60 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   // Open paper position (if the model is holding this ticker),
                   // so the strip can show the live position ALONGSIDE a fresh
                   // signal instead of silently mutating the strike on one card.
-                  position: _dtOpenBook ? {
-                    signal_id: _dtOpenBook.signal_id || _dtSignalId,
-                    status: _dtOpenBook.status,
-                    flavor: _dtOpenBook.flavor,
-                    strike: _dtOpenBook.strike,
-                    expiration: _dtOpenBook.expiration,
-                    entry_premium: _dtOpenBook.entry_premium,
-                    last_premium: _dtOpenBook.last_premium,
-                    peak_premium: _dtOpenBook.peak_premium,
-                    contracts: _dtOpenBook.contracts,
-                    contracts_remaining: _dtOpenBook.contracts_remaining,
-                    size_label: _dtOpenBook.size_label,
-                    held_overnight: !!_dtOpenBook.held_overnight,
-                    profit_lock_armed: !!_dtOpenBook.profit_lock_armed,
-                    entry_ts: _dtOpenBook.entry_ts,
-                    pnl_pct: (Number(_dtOpenBook.entry_premium) > 0 && Number(_dtOpenBook.last_premium) > 0)
-                      ? Math.round(((Number(_dtOpenBook.last_premium) - Number(_dtOpenBook.entry_premium)) / Number(_dtOpenBook.entry_premium)) * 1000) / 10
-                      : null,
-                  } : null,
+                  position: _dtOpenBook ? (() => {
+                    const _dtBracket = _dtExecution?.plan?.bracket || {};
+                    const _dtMgmt = _dtPrimary?.option_management || _dtPlay?.option_management
+                      || _dtExecution?.management || null;
+                    const _dtTrimPx = Number(_dtOpenBook.trim_premium) > 0
+                      ? Number(_dtOpenBook.trim_premium)
+                      : (Number(_dtBracket.trim) > 0 ? Number(_dtBracket.trim) : Number(_dtExecution?.rr?.trim) || null);
+                    const _dtExitPx = Number(_dtOpenBook.exit_premium) > 0
+                      ? Number(_dtOpenBook.exit_premium)
+                      : (Number(_dtBracket.exit) > 0 ? Number(_dtBracket.exit) : Number(_dtExecution?.rr?.exit) || null);
+                    const _dtPosBook = {
+                      ..._dtOpenBook,
+                      trim_premium: _dtTrimPx,
+                      exit_premium: _dtExitPx,
+                    };
+                    return {
+                      signal_id: _dtOpenBook.signal_id || _dtSignalId,
+                      status: _dtOpenBook.status,
+                      flavor: _dtOpenBook.flavor,
+                      strike: _dtOpenBook.strike,
+                      expiration: _dtOpenBook.expiration,
+                      entry_premium: _dtOpenBook.entry_premium,
+                      last_premium: _dtOpenBook.last_premium,
+                      peak_premium: _dtOpenBook.peak_premium,
+                      contracts: _dtOpenBook.contracts,
+                      contracts_remaining: _dtOpenBook.contracts_remaining,
+                      size_label: _dtOpenBook.size_label,
+                      held_overnight: !!_dtOpenBook.held_overnight,
+                      profit_lock_armed: !!_dtOpenBook.profit_lock_armed,
+                      entry_ts: _dtOpenBook.entry_ts,
+                      trim_premium: _dtTrimPx,
+                      exit_premium: _dtExitPx,
+                      stop_premium: Number(_dtBracket.stop_premium) > 0
+                        ? Number(_dtBracket.stop_premium)
+                        : null,
+                      trail_stop_premium: Number(_dtOpenBook.trail_stop_premium) > 0
+                        ? Number(_dtOpenBook.trail_stop_premium)
+                        : null,
+                      stop_underlying: Number(_dtBracket.stop_underlying) > 0
+                        ? Number(_dtBracket.stop_underlying)
+                        : null,
+                      mgmt_line: _optDtPositionMgmtLine({
+                        book: _dtPosBook,
+                        ticker: _dtSym,
+                        execution: _dtExecution,
+                        gamePlan: _dtGp,
+                        management: _dtMgmt,
+                        bracket: _dtBracket,
+                      }),
+                      pnl_pct: (Number(_dtOpenBook.entry_premium) > 0 && Number(_dtOpenBook.last_premium) > 0)
+                        ? Math.round(((Number(_dtOpenBook.last_premium) - Number(_dtOpenBook.entry_premium)) / Number(_dtOpenBook.entry_premium)) * 1000) / 10
+                        : null,
+                    };
+                  })() : null,
                 });
                 // Stage 1+2 — record every tier we published so the
                 // scorecard grades each independently. Signal ids are

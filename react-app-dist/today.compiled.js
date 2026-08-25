@@ -948,17 +948,24 @@ function tickerIsModelEntry(t, play) {
   return seqs.some(s => String(s?.status || "").toLowerCase() === "entry_ready");
 }
 function planFactList(facts) {
-  const rows = (Array.isArray(facts) ? facts : []).filter(f => f && f.value);
-  if (!rows.length) return null;
-  return h("dl", {
-    className: "tt-plan-facts"
-  }, rows.map(f => h("div", {
-    key: f.label,
-    className: "tt-plan-facts__row"
-  }, h("dt", null, f.label), h("dd", {
-    className: f.tone ? `tt-plan-facts__v--${f.tone}` : null,
-    title: f.title || undefined
-  }, f.value))));
+  const VU = window.TimedVerdictUI;
+  if (VU?.stripFactsGrid) return VU.stripFactsGrid(facts);
+  const cells = (Array.isArray(facts) ? facts : []).filter(f => f && f.value).map(f => ({
+    k: String(f.label || "").slice(0, 6).toUpperCase(),
+    v: String(f.value),
+    tone: f.tone === "buy" || f.tone === "trim" ? "trim" : f.tone === "wait" || f.tone === "exit" ? "exit" : "",
+    title: f.title || ""
+  }));
+  return dayTradeFactsRow(cells);
+}
+function stripPlanFoot(punch, facts) {
+  const grid = planFactList(facts);
+  if (!punch && !grid) return null;
+  return h("div", {
+    className: "tt-dt-plan"
+  }, punch && h("p", {
+    className: "tt-dt-plan__punch"
+  }, punch), grid);
 }
 function stripZoneFacts(zm, extras, rrOpts) {
   const VU = window.TimedVerdictUI;
@@ -1117,6 +1124,24 @@ function dayTradePositionOpen(pos) {
   const st = String(pos?.status || "").toLowerCase();
   return !!pos && (st === "open" || st === "trimmed") && Number(pos?.strike) > 0;
 }
+function dayTradePositionMgmtLine(pos, opts = {}) {
+  const line = String(pos?.mgmt_line || "").trim();
+  if (line) return line;
+  const sym = String(opts.ticker || pos?.ticker || "").toUpperCase();
+  const held = !!pos?.held_overnight;
+  const trim = Number(pos?.trim_premium);
+  const exit = Number(pos?.exit_premium);
+  const bits = [];
+  if (trim > 0 && exit > 0) {
+    bits.push(`Trim at $${trim.toFixed(2)}; exit at $${exit.toFixed(2)}.`);
+  }
+  if (pos?.profit_lock_armed) bits.push("Profit lock armed — trailing the stop.");else if (Number(pos?.entry_premium) > 0) {
+    bits.push(`Hard stop $${(Number(pos.entry_premium) * 0.5).toFixed(2)} (-50%).`);
+  }
+  if (held) bits.push("Carried overnight — trim and exit at the next open.");else bits.push("Flat by 3:45 ET before the cash close.");
+  if (sym && bits.length) return bits.join(" ");
+  return bits.join(" ");
+}
 function optionsPlanFacts({
   action,
   flavor,
@@ -1188,6 +1213,109 @@ function optionsPlanFacts({
     value: payoff
   });
   return rows.filter(f => f && f.value);
+}
+function convexityOptionFactCells(p, flavor, expShort, dte) {
+  const cells = [];
+  const prem = formatLivePremium(Number(p.premium_mid));
+  if (prem) cells.push({
+    k: "LIVE",
+    v: prem,
+    tone: "live",
+    title: "Live premium — refreshes on each options poll"
+  });
+  if (Number.isFinite(Number(p.premium_mid))) {
+    cells.push({
+      k: "DEBIT",
+      v: `≤ $${Number(p.premium_mid).toFixed(2)}`,
+      title: "Max debit to enter"
+    });
+  }
+  if (Number.isFinite(Number(p.max_loss_usd))) {
+    cells.push({
+      k: "RISK",
+      v: `$${Number(p.max_loss_usd)}`,
+      title: "Sized max loss at entry"
+    });
+  }
+  if (Number.isFinite(Number(p.top_target_underlying))) {
+    cells.push({
+      k: "PAYOFF",
+      v: `3x+ $${Number(p.top_target_underlying).toFixed(2)}`,
+      tone: "trim",
+      title: "Underlying target for 3x+ payoff"
+    });
+  }
+  const k = Number(p.strike);
+  if (Number.isFinite(k) && k > 0) {
+    cells.push({
+      k: "STRK",
+      v: `${Math.round(k)}${flavor === "put" ? "P" : "C"}`
+    });
+  }
+  if (expShort) {
+    const d = Number(dte);
+    cells.push({
+      k: "EXP",
+      v: Number.isFinite(d) ? `${expShort} (${d} DTE)` : expShort
+    });
+  }
+  const priority = ["LIVE", "DEBIT", "STRK", "EXP", "RISK", "PAYOFF"];
+  const picked = [];
+  for (const key of priority) {
+    const hit = cells.find(c => c.k === key);
+    if (hit) picked.push(hit);
+  }
+  return picked;
+}
+function convexityOptionFactRows(p, flavor, expShort, dte) {
+  const cells = convexityOptionFactCells(p, flavor, expShort, dte);
+  const rows = [];
+  for (let i = 0; i < cells.length; i += 4) rows.push(cells.slice(i, i + 4));
+  return rows;
+}
+function convexityEarnPrimaryCells(earn) {
+  if (!earn) return [];
+  const cells = [];
+  const label = earn.report_date_label || earn.report_date || "";
+  const days = Number(earn.days_to_print);
+  cells.push({
+    k: "CAT",
+    v: `${earn.report_session ? `${earn.report_session} ` : ""}${label}${Number.isFinite(days) ? ` (${days}d)` : ""}`.trim(),
+    title: earn.covers_print === false ? "The contract expires before the print — trades the run-up." : "Report session + date from the earnings calendar."
+  });
+  const movePct = Number(earn.implied_move_pct);
+  const moveUsd = Number(earn.implied_move_usd);
+  if (Number.isFinite(movePct) && movePct > 0) {
+    cells.push({
+      k: "IMPL",
+      v: `±${movePct.toFixed(1)}%${Number.isFinite(moveUsd) && moveUsd > 0 ? ` ($${moveUsd.toFixed(2)})` : ""}`,
+      title: earn.implied_move_basis === "atm_straddle" ? "Priced off the at-the-money straddle through this expiration." : "Estimated from at-the-money implied volatility."
+    });
+  }
+  const al = earn.alignment || {};
+  if (al.verdict) {
+    cells.push({
+      k: "CONF",
+      v: `${al.verdict}${al.summary ? ` · ${al.summary}` : ""}`.trim(),
+      tone: al.verdict === "CONFLUENT" ? "trim" : al.verdict === "THIN" ? "" : "exit",
+      title: (Array.isArray(al.pillars) ? al.pillars : []).map(pillar => `${pillar.label}: ${pillar.note}`).join(" — ")
+    });
+  }
+  const tgt = Number(earn.target?.underlying);
+  if (earn.target?.basis === "implied_move" && Number.isFinite(tgt) && tgt > 0) {
+    cells.push({
+      k: "TGT",
+      v: `$${tgt.toFixed(2)}`,
+      tone: "trim",
+      title: earn.target.note || "Implied-move target"
+    });
+  }
+  return cells.slice(0, 4);
+}
+function convexityEarnMgmtFacts(earn) {
+  if (!earn) return [];
+  const labels = ["Crush", "Needs", "Exit by"];
+  return earningsPlayFacts(earn).filter(f => labels.includes(f.label));
 }
 function stripHoldFact(trade, invPos, liveT) {
   const VU = window.TimedVerdictUI;
@@ -1729,10 +1857,7 @@ function SetupFamiliesStrip({
       lastPx,
       nextPx
     });
-    const footEls = [h("div", {
-      key: "plan",
-      className: "tt-dt-plan"
-    }, planFactList(copy.facts))];
+    const footEls = [stripPlanFoot(copy.punch, copy.facts)].filter(Boolean);
     if (LaneCard?.create) {
       return h("div", {
         key: "desk-" + sym,
@@ -1825,10 +1950,7 @@ function SetupFamiliesStrip({
       planLabel: zm.lane === "investor" ? "Long Term plan" : "Short Term plan",
       trackTitle: zm.lane === "investor" ? "Long Term lane — invalidation floor, add-on-pullback zone, and target." : "Short Term plan — stop, add zone, and first target."
     }) : null;
-    const footEls = [h("div", {
-      key: "plan",
-      className: "tt-dt-plan"
-    }, planFactList(familyCopy.facts))];
+    const footEls = [stripPlanFoot(familyCopy.punch, familyCopy.facts)].filter(Boolean);
     const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
     if (LaneCard?.create) {
       return h("div", {
@@ -2228,29 +2350,24 @@ function ConvexityPlaysStrip({
       planLabel: "Convexity plan",
       trackTitle: flavor === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
     }) : null;
-    const optionFacts = optionsPlanFacts({
-      action,
-      flavor,
-      strike,
-      expShort,
-      dte: Number(exp?.dte),
-      livePremium: Number(p.premium_mid),
-      debit: Number.isFinite(Number(p.premium_mid)) ? `≤ $${Number(p.premium_mid).toFixed(2)}` : null,
-      risk: Number.isFinite(Number(p.max_loss_usd)) ? `$${Number(p.max_loss_usd)}` : null,
-      payoff: Number.isFinite(Number(p.top_target_underlying)) ? `3x+ @ $${Number(p.top_target_underlying).toFixed(2)}` : null,
-      why: earn?.catalyst ? null : convexityShotReason(p)
-    });
-    const rrOpts = {
-      zone: zm,
-      ticker: liveT,
-      side: convSide,
-      price: trackPrice
-    };
-    const footFacts = (VU?.factsWithLiveRr ? VU.factsWithLiveRr(optionFacts, rrOpts) : optionFacts).concat(earningsPlayFacts(earn));
+    const whyLine = earn?.catalyst ? null : convexityShotReason(p);
+    const optRows = convexityOptionFactRows(p, flavor, expShort, Number(exp?.dte));
+    const earnCells = convexityEarnPrimaryCells(earn);
+    const earnMgmt = convexityEarnMgmtFacts(earn);
+    const footPlanChildren = [h("p", {
+      key: "punch",
+      className: "tt-dt-plan__punch"
+    }, copy.punch), whyLine && h("p", {
+      key: "why",
+      className: "tt-dt-plan__why",
+      title: whyLine
+    }, whyLine), ...optRows.map((row, i) => dayTradeFactsRow(row) || h("span", {
+      key: "opt-" + i
+    })), earnCells.length ? dayTradeFactsRow(earnCells) : null, earnMgmt.length ? planFactList(earnMgmt) : null].filter(Boolean);
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
-    }, planFactList(footFacts))];
+    }, footPlanChildren)];
     if (earn?.crush_note) {
       footEls.push(h("div", {
         key: "crush",
@@ -2297,7 +2414,7 @@ function ConvexityPlaysStrip({
       onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS")
     }, h("div", {
       className: "tt-dt-plan"
-    }, planFactList(footFacts)));
+    }, footPlanChildren));
   }))));
 }
 function IndexDayTradeStrip({
@@ -2522,12 +2639,18 @@ function IndexDayTradeStrip({
       trim: liveTrim,
       exit: liveExit
     });
+    const posMgmt = pos ? dayTradePositionMgmtLine(pos, {
+      ticker: sym
+    }) : null;
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
     }, h("p", {
       className: "tt-dt-plan__punch"
-    }, copy.punch), dayTradeFactsRow(factCells))];
+    }, copy.punch), dayTradeFactsRow(factCells), holdingThis && posMgmt ? h("p", {
+      key: "mgmt",
+      className: "tt-dt-plan__mgmt"
+    }, posMgmt) : null)];
     const signalCard = LaneCard?.create ? h("div", {
       key: sym + ":sig",
       className: "tt-strip-card",
@@ -2606,7 +2729,9 @@ function IndexDayTradeStrip({
         v: `${pPnl >= 0 ? "+" : ""}${pPnl.toFixed(0)}%`,
         tone: pPnl >= 0 ? "trim" : "exit"
       } : null].filter(Boolean);
-      const posMgmt = pos.profit_lock_armed ? "Profit lock armed — trailing the stop; flat by 3:45 ET." : "Managing to the model stop; flat by 3:45 ET.";
+      const posMgmtLine = dayTradePositionMgmtLine(pos, {
+        ticker: sym
+      });
       posCard = h("div", {
         key: sym + ":pos",
         className: "tt-strip-card tt-strip-card--position",
@@ -2639,9 +2764,9 @@ function IndexDayTradeStrip({
         className: "tt-dt-plan"
       }, h("p", {
         className: "tt-dt-plan__punch"
-      }, posPunch), dayTradeFactsRow(posFacts), h("p", {
+      }, posPunch), dayTradeFactsRow(posFacts), posMgmtLine ? h("p", {
         className: "tt-dt-plan__mgmt"
-      }, posMgmt))));
+      }, posMgmtLine) : null)));
     }
     return [posCard, signalCard].filter(Boolean);
   }))));
@@ -4801,10 +4926,7 @@ function GrowthIdeasStrip({
       trackTitle: "Long Term lane — invalidation floor, add-on-pullback zone, and target."
     }) : null;
     const hold = stripHoldFact(tradeByTicker && tradeByTicker.get ? tradeByTicker.get(sym) : null, investorByTicker && investorByTicker.get ? investorByTicker.get(sym) : null, liveT);
-    const footEls = [h("div", {
-      key: "levels",
-      className: "tt-dt-plan"
-    }, planFactList(stripZoneFacts(zm, hold, rrOpts)))].filter(Boolean);
+    const footEls = [stripPlanFoot(`${action} on ${sym}`, stripZoneFacts(zm, hold, rrOpts))].filter(Boolean);
     if (LaneCard?.create) {
       return h("div", {
         key: sym,
@@ -5041,10 +5163,7 @@ function ValueBottomsStrip({
       side: "LONG",
       price: trackPrice
     };
-    const footEls = [h("div", {
-      key: "levels",
-      className: "tt-dt-plan"
-    }, planFactList(valueBottomFootFacts(row, zm, hold, rrOpts)))];
+    const footEls = [stripPlanFoot(`${action} on ${sym}`, valueBottomFootFacts(row, zm, hold, rrOpts))].filter(Boolean);
     if (LaneCard?.create) {
       return h("div", {
         key: sym,
@@ -8917,6 +9036,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787681930679:808449670
+// cache-bust:1787684525401:906352549
 
-// cache-bust:1787681930679:808449670
+// cache-bust:1787684525401:906352549
