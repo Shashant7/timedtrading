@@ -126,6 +126,10 @@ export function isConvexityPlayActionable({
   const px = Number(spot ?? contract?.price);
   if (!(px > 0) || !(strike > 0)) return false;
 
+  // Convexity lotto/moonshot is a swing/event debit. 0 DTE belongs on
+  // the Index Day-Trade strip (SPY/QQQ/IWM/DIA), not this row.
+  if (Number.isFinite(dte) && dte < 1) return false;
+
   if (Number.isFinite(dte) && dte <= 1) {
     const gate = validateDayTradePlay({
       spot: px,
@@ -151,6 +155,93 @@ export function isConvexityPlayActionable({
   if (!(maxLoss > 0)) return false;
 
   return true;
+}
+
+const SHOT_REASON_MAX = 140;
+
+function firstThemeName(themes) {
+  if (!Array.isArray(themes) || !themes.length) return null;
+  const t = themes[0];
+  if (typeof t === "string" && t.trim()) return t.trim();
+  if (t && typeof t === "object") {
+    const name = t.name || t.label || t.theme;
+    if (name) return String(name).trim();
+  }
+  return null;
+}
+
+function clipShotReason(s) {
+  const t = String(s || "").replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  if (t.length <= SHOT_REASON_MAX) return t;
+  return `${t.slice(0, SHOT_REASON_MAX - 1).replace(/\s+\S*$/, "")}…`;
+}
+
+/**
+ * One-line hook for why a lotto/moonshot is on the board — earnings,
+ * floor + compression, SuperTrend hold, theme. Never "you/your".
+ */
+export function buildConvexityShotReason({
+  play,
+  play_class: playClassIn,
+  confluence,
+  contract,
+  spot,
+  themes,
+  earnings_play: earningsPlay,
+} = {}) {
+  if (earningsPlay?.catalyst) return clipShotReason(earningsPlay.catalyst);
+
+  const playClass = playClassIn || playClassFromArchetype(play?.archetype);
+  if (play?._earnings_prep) {
+    const d = Number(
+      play.earnings_dte
+      ?? contract?.earnings_dte
+      ?? contract?.days_to_earnings
+      ?? earningsPlay?.days_to_print,
+    );
+    return Number.isFinite(d)
+      ? `Earnings in ${d}d — cheap OTM into the print, not a share entry.`
+      : "Earnings-prep — cheap OTM into the print, not a share entry.";
+  }
+
+  const dir = resolvePlayDirection(play, contract?.direction || confluence?.side);
+  const sideWord = dir === "SHORT" ? "short" : dir === "LONG" ? "long" : "";
+  const mode = String(confluence?.mode || "").toUpperCase();
+  const timing = confluence?.timing || {};
+  const floor = floorHeld({
+    spot: spot ?? contract?.price,
+    sl: contract?.sl,
+    direction: dir,
+  });
+  const hooks = [];
+
+  if (mode === "RIDE") hooks.push(`Tape is in motion (${mode}${sideWord ? ` ${sideWord}` : ""})`);
+  else if (mode === "READY") hooks.push(`Setup is READY${sideWord ? ` ${sideWord}` : ""}`);
+  else if (mode === "DRIFT") hooks.push("Late drift — SuperTrend still sloped");
+
+  if (floor) hooks.push("floor held");
+  if (dir === "LONG" && timing.call_opportunity) hooks.push("call compression");
+  else if (dir === "SHORT" && timing.put_opportunity) hooks.push("put extension");
+
+  const hold = confluence?.st_hold;
+  if (hold?.held) {
+    hooks.push(hold.tf ? `${hold.tf} SuperTrend held` : "SuperTrend held");
+  }
+
+  const layers = Number(confluence?.layers_agreeing);
+  if (Number.isFinite(layers) && layers > 0) hooks.push(`${layers}/8 layers`);
+
+  const themeName = firstThemeName(themes);
+  if (themeName) hooks.push(themeName);
+
+  if (hooks.length === 0) {
+    return playClass === "moonshot"
+      ? "Gamma window — direction and momentum lined up."
+      : "Direction, floor, and timing aligned — cheap OTM if the move fires.";
+  }
+  if (hooks.length === 1) return clipShotReason(`${hooks[0]}.`);
+  return clipShotReason(`${hooks[0]} — ${hooks.slice(1).join(", ")}.`);
 }
 
 const EXP_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -213,6 +304,8 @@ export function toConvexityCard({
   spot,
   chain_status: chainStatus,
   as_of_ms: asOfMs,
+  themes,
+  earnings_play: earningsPlay,
 } = {}) {
   if (!play) return null;
   const playClass = playClassIn || playClassFromArchetype(play.archetype);
@@ -250,6 +343,15 @@ export function toConvexityCard({
       : playClass === "lotto"
         ? "Short-dated OTM — sized for total premium loss; 3×+ if the move fires."
         : "Gamma window — multi-bagger target if momentum continues.",
+    shot_reason: buildConvexityShotReason({
+      play,
+      play_class: playClass,
+      confluence,
+      contract,
+      spot,
+      themes,
+      earnings_play: earningsPlay,
+    }),
   };
   const copy = convexityPlanCopy(card);
   card.headline = copy.punch;

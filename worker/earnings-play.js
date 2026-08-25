@@ -738,7 +738,10 @@ export async function enrichEarningsPlayCards(env, cards, opts = {}) {
         cal: opts.cal || null,
         now: opts.now || Date.now(),
       });
-      if (block) card.earnings_play = block;
+      if (block) {
+        card.earnings_play = block;
+        if (block.catalyst) card.shot_reason = block.catalyst;
+      }
     } catch (e) {
       console.warn(`[EARNINGS PLAY] ${sym} enrich failed:`, String(e?.message || e).slice(0, 120));
     }

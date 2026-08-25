@@ -94779,6 +94779,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 spot: _cxSpot,
                 chain_status: chainStatus,
                 as_of_ms: _cxAsOf,
+                themes,
               }),
               as_of_ms: _cxAsOf,
             };
@@ -94970,6 +94971,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 spot,
                 chain_status: "not_attempted",
                 as_of_ms: asOf,
+                themes,
               });
             } catch (e) {
               return note("exception", { message: String(e?.message || e).slice(0, 120) });
