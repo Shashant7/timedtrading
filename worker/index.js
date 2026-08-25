@@ -2449,6 +2449,9 @@ const ROUTES = [
   ["POST", "/timed/admin/cro/upticks/sync",              "POST /timed/admin/cro/upticks/sync"],
   ["GET",  "/timed/admin/cro/gics-sectors",              "GET /timed/admin/cro/gics-sectors"],
   ["POST", "/timed/admin/cro/gics-sectors/sync",         "POST /timed/admin/cro/gics-sectors/sync"],
+  ["GET",  "/timed/admin/cro/sector-outlook",            "GET /timed/admin/cro/sector-outlook"],
+  ["PUT",  "/timed/admin/cro/sector-outlook",            "PUT /timed/admin/cro/sector-outlook"],
+  ["POST", "/timed/admin/cro/sector-outlook/sync",       "POST /timed/admin/cro/sector-outlook/sync"],
   ["POST", "/timed/admin/cro/backfill-cashtags",         "POST /timed/admin/cro/backfill-cashtags"],
   ["POST", "/timed/admin/cto/universe/refresh",          "POST /timed/admin/cto/universe/refresh"],
   ["POST", "/timed/admin/cto/feed/refresh",              "POST /timed/admin/cto/feed/refresh"],
@@ -86304,6 +86307,59 @@ export default {
         try {
           const { syncFsdGicsSectorMap } = await import("./cro/fsd-gics-sectors.js");
           const r = await syncFsdGicsSectorMap(env);
+          return sendJSON(r, r.ok ? 200 : 502, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/cro/sector-outlook — ETF Outlook table + freshness meta
+      if (routeKey === "GET /timed/admin/cro/sector-outlook") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const {
+            getFsdSectorOutlook,
+            assessSectorOutlookFreshness,
+            FSD_SECTOR_OUTLOOK_META_KV_KEY,
+          } = await import("./cro/fsd-sector-outlook.js");
+          const outlook = await getFsdSectorOutlook(env);
+          const meta = await kvGetJSON(KV, FSD_SECTOR_OUTLOOK_META_KV_KEY).catch(() => null);
+          const freshness = assessSectorOutlookFreshness(outlook);
+          return sendJSON({ ok: true, outlook, meta, freshness }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // PUT /timed/admin/cro/sector-outlook — operator paste of ETF Outlook table
+      if (routeKey === "PUT /timed/admin/cro/sector-outlook") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const {
+            parseFsdSectorOutlookTable,
+            syncFsdSectorOutlook,
+            FSD_SECTOR_OUTLOOK_AUG_2026,
+          } = await import("./cro/fsd-sector-outlook.js");
+          const outlook = body?.outlook
+            || (body?.table ? parseFsdSectorOutlookTable(body.table) : null)
+            || FSD_SECTOR_OUTLOOK_AUG_2026;
+          const r = await syncFsdSectorOutlook(env, outlook);
+          return sendJSON(r, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/cro/sector-outlook/sync — authenticated FSD page pull
+      if (routeKey === "POST /timed/admin/cro/sector-outlook/sync") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { syncFsdSectorOutlookFromFsd } = await import("./cro/fsd-sector-outlook.js");
+          const r = await syncFsdSectorOutlookFromFsd(env, { notify: true });
           return sendJSON(r, r.ok ? 200 : 502, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));

@@ -973,6 +973,32 @@ export async function runFSDIngestion(env, { limit = 20, force = false } = {}) {
     await buildPublicFSDFeed(env, { limit: 50, lookbackHours: 7 * 24 });
   } catch (_) { /* KV sync is best-effort */ }
 
+  // ETF Outlook sector table (Lee/Newton OW/N/UW + model weights) — keep
+  // timed:admin:sector_ratings from going stale between monthly deck PDFs.
+  let sectorOutlookSync = null;
+  try {
+    const { syncFsdSectorOutlookFromFsd } = await import("./fsd-sector-outlook.js");
+    sectorOutlookSync = await syncFsdSectorOutlookFromFsd(env, { notify: true });
+  } catch (e) {
+    sectorOutlookSync = { ok: false, error_kind: "exception", hint: String(e?.message || e).slice(0, 120) };
+  }
+
+  // GICS S&P membership lists (public page) — weekly freshness is enough;
+  // run here best-effort; failures are non-fatal.
+  let gicsSectorSync = null;
+  try {
+    const metaKv = env?.KV_TIMED || env?.KV;
+    const meta = metaKv ? JSON.parse(await metaKv.get("timed:fsd:gics-sector-meta") || "null") : null;
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    const due = !meta?.last_sync_at || (Date.now() - Number(meta.last_sync_at) > weekMs);
+    if (due) {
+      const { syncFsdGicsSectorMap } = await import("./fsd-gics-sectors.js");
+      gicsSectorSync = await syncFsdGicsSectorMap(env);
+    }
+  } catch (e) {
+    gicsSectorSync = { ok: false, error_kind: "exception", hint: String(e?.message || e).slice(0, 120) };
+  }
+
   return {
     ok: true,
     listed: listed.publications.length,
@@ -980,6 +1006,8 @@ export async function runFSDIngestion(env, { limit = 20, force = false } = {}) {
     skipped: results.filter((r) => r.skipped).length,
     errors: results.filter((r) => !r.ok).length,
     results: results.slice(0, 50),
+    sector_outlook_sync: sectorOutlookSync,
+    gics_sector_sync: gicsSectorSync,
     elapsed_ms: Date.now() - startedAt,
   };
 }

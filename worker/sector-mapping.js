@@ -314,8 +314,10 @@ const SECTOR_MAP = {
 
 };
 
-// Sector Ratings — synced to July 2026 sector allocation (7/7/2026 deck).
-// Delta = model weight vs scaled benchmark index weight (%).
+// Sector Ratings — synced to FSD ETF Outlook (Aug 2026). Runtime source of
+// truth is KV `timed:fsd:sector-allocation-outlook` + `timed:admin:sector_ratings`,
+// refreshed daily via FSD cron (authenticated etf-outlook scrape) and on monthly
+// Sector Allocation deck ingest. Static values here are cold-start fallback only.
 const SECTOR_RATINGS = {
   'Industrials':              { rating: 'overweight',  boost: 5,  delta: 2.6  },
   'Financials':               { rating: 'overweight',  boost: 5,  delta: 2.1  },
