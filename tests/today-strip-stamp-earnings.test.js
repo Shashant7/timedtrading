@@ -45,7 +45,25 @@ const EARNINGS_PLAY = {
       { key: "research", label: "Research desk", state: "aligned", points: 15, note: "2 mentions today" },
     ],
   },
-  crush_note: "IV crush lands the moment the print clears: premium can fall on a correct direction. Size for total premium loss.",
+  crush: {
+    severity: "ELEVATED",
+    recommendation: "TIGHT_HOLD",
+    iv_front_pct: 118,
+    iv_post_pct: 54,
+    iv_post_basis: "term_structure",
+    rv_proxy_pct: 63.5,
+    iv_rv_ratio: 1.86,
+    crush_pct: 54,
+    premium_flat: 0.18,
+    premium_flat_pct: -57,
+    breakeven_price: 104.2,
+    breakeven_move_pct: 4.2,
+    covered_by_implied_move: true,
+    cushion_ratio: 0.65,
+    exit_by: { date: "2026-08-27", label: "the close on Thu Aug 27" },
+    note: "Thin cushion: breakeven 4.2% against an implied 6.5% means the print has to land in the upper half of the cone and on the right side.",
+  },
+  crush_note: "Thin cushion: breakeven 4.2% against an implied 6.5% means the print has to land in the upper half of the cone and on the right side.",
 };
 
 const CONVEXITY_PLAY = {
@@ -194,6 +212,13 @@ describe("Today strips — published stamp + lotto earnings play", () => {
     expect(text).toContain("±6.5% ($6.50)");
     expect(text).toContain("CONFLUENT · 4/4 aligned");
     expect(text).toContain("$106.50");
-    expect(text).toMatch(/IV crush lands the moment the print clears/);
+  });
+
+  it("flags the IV crush with the post-print breakeven and the exit session", () => {
+    const text = document.body.textContent || "";
+    expect(text).toContain("ELEVATED · -57% at flat");
+    expect(text).toContain("4.2% post-print");
+    expect(text).toContain("close Thu Aug 27");
+    expect(text).toMatch(/Thin cushion: breakeven 4\.2% against an implied 6\.5%/);
   });
 });

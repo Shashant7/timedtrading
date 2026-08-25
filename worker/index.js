@@ -94896,6 +94896,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const _skipReasons = [];
           const _cxConfluenceBySym = {};
           const _cxSpotBySym = {};
+          const _cxAtrPctBySym = {};
           const _cxOne = async (t) => {
             const sym = String(t?.ticker || "").toUpperCase();
             const note = (reason, detail) => {
@@ -94940,6 +94941,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const asOf = Date.now();
               _cxConfluenceBySym[sym] = confluence;
               _cxSpotBySym[sym] = spot;
+              _cxAtrPctBySym[sym] = Number(ladderInput?.atr_pct ?? ladderInput?.atrPct
+                ?? t?.atr_pct ?? t?.atrPct) || null;
               if (!_isConvexityPlayActionable({
                 play: extracted.play,
                 play_class: extracted.play_class,
@@ -94988,7 +94991,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               eventBySym: _cxEarnEventBySym,
               confluenceBySym: _cxConfluenceBySym,
               spotBySym: _cxSpotBySym,
+              atrPctBySym: _cxAtrPctBySym,
               fetchChain: _alpacaFetchOptionsChain,
+              fetchExpirations: _alpacaFetchOptionsExpirations,
             });
           } catch (e) {
             console.warn("[CONVEXITY] earnings-play enrich failed:", String(e?.message || e).slice(0, 160));

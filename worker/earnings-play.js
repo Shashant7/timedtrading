@@ -13,6 +13,9 @@
 // Every input is data the system already stores. Nothing is invented: when
 // the chain is missing the implied move is null and the card says so.
 
+import { blackScholes } from "./options-plays.js";
+import { getStaticCalendar, previousTradingDay } from "./market-calendar.js";
+
 export const EARNINGS_PLAY_MAX_CARDS = 3;
 
 // Expected move ≈ 0.85 × ATM straddle. The straddle itself prices the move
@@ -28,6 +31,7 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function num(v) {
+  if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
@@ -138,6 +142,41 @@ export function ivImpliedMove({ ivPct, spot, days } = {}) {
   };
 }
 
+/** At-the-money IV (percent) from a chain — the term-structure reference. */
+export function atmIvFromChain({ chain, spot } = {}) {
+  const px = num(spot);
+  if (!(px > 0)) return null;
+  const legs = [...(chain?.calls || []), ...(chain?.puts || [])];
+  let best = null;
+  for (const leg of legs) {
+    const k = num(leg?.strike);
+    const iv = num(leg?.implied_volatility);
+    if (!(k > 0) || !(iv > 0)) continue;
+    const drift = Math.abs(k - px) / px;
+    if (drift > ATM_MAX_DRIFT_PCT) continue;
+    if (!best || drift < best.drift) best = { drift, iv };
+  }
+  return best ? round(best.iv * 100, 1) : null;
+}
+
+/**
+ * Expiration to read post-print volatility from: the first one at least a
+ * week past the contract in hand, so the event week's inflation is out of
+ * it. Falls back to the last listed expiry after the contract.
+ */
+export function pickBackExpiration(expirations, frontIso) {
+  const front = String(frontIso || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(front)) return null;
+  const later = (Array.isArray(expirations) ? expirations : [])
+    .map((e) => String(e || "").slice(0, 10))
+    .filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e) && e > front)
+    .sort();
+  if (later.length === 0) return null;
+  const cutoff = new Date(Date.parse(`${front}T12:00:00Z`) + 7 * 86400000)
+    .toISOString().slice(0, 10);
+  return later.find((e) => e >= cutoff) || later[later.length - 1];
+}
+
 export function resolveImpliedMove({ chain, spot, days } = {}) {
   const straddle = atmStraddleImpliedMove({ calls: chain?.calls, puts: chain?.puts, spot });
   if (straddle) return straddle;
@@ -154,6 +193,203 @@ export function resolveImpliedMove({ chain, spot, days } = {}) {
   }
   if (!nearest) return null;
   return ivImpliedMove({ ivPct: nearest.iv * 100, spot, days });
+}
+
+/* ── IV crush ────────────────────────────────────────────────────────── */
+
+// Same convention the options ladder already uses for its no-chain IV
+// proxy: daily ATR% × √252 is the annualized realized move.
+export function realizedVolProxyPct(atrPct) {
+  const a = num(atrPct);
+  if (!(a > 0)) return null;
+  const raw = a * Math.sqrt(252) * 100;
+  return round(Math.max(15, Math.min(200, raw)), 1);
+}
+
+/**
+ * Smallest underlying move that keeps the contract worth what it cost once
+ * the event premium is gone. This is the number that decides whether
+ * holding through a print can pay at all: if it sits beyond the move the
+ * market implies, a correct direction still loses.
+ */
+export function postCrushBreakeven({
+  spot,
+  strike,
+  type,
+  entryPremium,
+  daysAfterPrint,
+  postCrushIvPct,
+} = {}) {
+  const S0 = num(spot);
+  const K = num(strike);
+  const P = num(entryPremium);
+  const sigma = num(postCrushIvPct);
+  const days = num(daysAfterPrint);
+  if (!(S0 > 0) || !(K > 0) || !(P > 0) || !(sigma > 0) || !(days > 0)) return null;
+  const T = days / 365;
+  const right = String(type || "").toUpperCase() === "P" ? "P" : "C";
+  const valueAt = (S) => {
+    const r = blackScholes({ S, K, T, sigma: sigma / 100, type: right });
+    return r ? r.price : 0;
+  };
+  const flat = valueAt(S0);
+  if (flat >= P) {
+    return {
+      breakeven_price: round(S0, 2),
+      breakeven_move_pct: 0,
+      premium_flat: round(flat, 2),
+    };
+  }
+  // Bisect from "no move" toward the direction that helps the contract.
+  let lo = S0;
+  let hi = right === "C" ? S0 * 3 : S0 * 0.05;
+  if (valueAt(hi) < P) {
+    return { breakeven_price: null, breakeven_move_pct: null, premium_flat: round(flat, 2) };
+  }
+  for (let i = 0; i < 64; i++) {
+    const mid = (lo + hi) / 2;
+    if (valueAt(mid) >= P) hi = mid; else lo = mid;
+  }
+  const be = hi;
+  return {
+    breakeven_price: round(be, 2),
+    breakeven_move_pct: round(Math.abs((be - S0) / S0) * 100, 2),
+    premium_flat: round(flat, 2),
+  };
+}
+
+/** Last session a position can be closed while the event premium is intact. */
+export function crushExitBy({ reportDate, session, cal = null }) {
+  const rep = String(reportDate || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(rep)) return null;
+  const sess = normalizeReportSession(session);
+  // After the close: the report date's own session is still safe.
+  // Before the open or intraday: the prior session is the last safe close.
+  if (sess === "AMC") return { date: rep, label: `the close on ${formatReportDate(rep)}` };
+  const calendar = cal || getStaticCalendar();
+  const prev = previousTradingDay(calendar, rep);
+  return { date: prev, label: `the close on ${formatReportDate(prev)}` };
+}
+
+function crushSeverity({ crushPct, ivRvRatio }) {
+  const c = num(crushPct);
+  const r = num(ivRvRatio);
+  if (c == null && r == null) return "UNKNOWN";
+  if ((c != null && c >= 45) || (r != null && r >= 2)) return "EXTREME";
+  if ((c != null && c >= 25) || (r != null && r >= 1.4)) return "ELEVATED";
+  return "NORMAL";
+}
+
+/**
+ * What the print does to the premium, and what to do about it.
+ *
+ * Post-crush volatility comes from the next expiration's at-the-money IV
+ * when the chain has one (the term-structure gap IS the event premium);
+ * otherwise from the realized-vol proxy. With neither, the block reports
+ * UNKNOWN rather than inventing a haircut.
+ */
+export function buildCrushBlock({
+  side,
+  spot,
+  strike,
+  entryPremium,
+  dte,
+  daysToPrint,
+  ivFrontPct,
+  ivBackPct,
+  atrPct,
+  impliedMovePct,
+  coversPrint,
+  reportDate,
+  session,
+  cal = null,
+} = {}) {
+  const ivFront = num(ivFrontPct);
+  const rv = realizedVolProxyPct(atrPct);
+  const ivBack = num(ivBackPct);
+  let ivPost = null;
+  let basis = null;
+  if (ivBack > 0 && (!(ivFront > 0) || ivBack < ivFront)) {
+    ivPost = ivBack;
+    basis = "term_structure";
+  } else if (rv > 0 && (!(ivFront > 0) || rv < ivFront)) {
+    ivPost = rv;
+    basis = "realized_vol";
+  }
+  const ivRvRatio = (ivFront > 0 && rv > 0) ? round(ivFront / rv, 2) : null;
+  const crushPct = (ivFront > 0 && ivPost > 0) ? round((1 - ivPost / ivFront) * 100, 0) : null;
+
+  const daysAfterPrint = (num(dte) != null && num(daysToPrint) != null)
+    ? Math.max(0.5, num(dte) - num(daysToPrint))
+    : null;
+  const be = (coversPrint !== false)
+    ? postCrushBreakeven({
+        spot,
+        strike,
+        type: String(side || "").toUpperCase() === "SHORT" ? "P" : "C",
+        entryPremium,
+        daysAfterPrint,
+        postCrushIvPct: ivPost,
+      })
+    : null;
+
+  const premiumFlat = num(be?.premium_flat);
+  const entry = num(entryPremium);
+  const premiumFlatPct = (premiumFlat != null && entry > 0)
+    ? round(((premiumFlat - entry) / entry) * 100, 0)
+    : null;
+  const beMove = num(be?.breakeven_move_pct);
+  const implied = num(impliedMovePct);
+  const coveredByImplied = (beMove != null && implied > 0) ? beMove <= implied : null;
+  // The implied move is roughly a one-standard-deviation figure, so a
+  // breakeven that only just fits inside it is not a cushion — the print
+  // has to land in the upper half of the cone AND on the right side.
+  const cushionRatio = (beMove != null && implied > 0) ? round(beMove / implied, 2) : null;
+
+  const severity = crushSeverity({ crushPct, ivRvRatio });
+  const exitBy = crushExitBy({ reportDate, session, cal });
+
+  let recommendation = "UNKNOWN";
+  if (coversPrint === false) recommendation = "RUN_UP_ONLY";
+  else if (coveredByImplied === false) recommendation = "EXIT_BEFORE_PRINT";
+  else if (coveredByImplied === true) {
+    recommendation = (cushionRatio != null && cushionRatio > 0.6) ? "TIGHT_HOLD" : "CAN_HOLD_THROUGH";
+  }
+
+  const flatBit = premiumFlat != null
+    ? ` At an unchanged price the premium is worth about $${premiumFlat}${premiumFlatPct != null ? ` (${premiumFlatPct}%)` : ""}.`
+    : "";
+  let note;
+  if (recommendation === "RUN_UP_ONLY") {
+    note = "Contract expires before the print — crush is not the risk here; the run-up is the whole trade.";
+  } else if (recommendation === "EXIT_BEFORE_PRINT") {
+    note = `Crush math fails: the contract needs ${beMove}% to break even after the print, more than the ${round(implied, 1)}% the market implies. Plan the exit by ${exitBy?.label || "the last session before the print"}.`;
+  } else if (recommendation === "TIGHT_HOLD") {
+    note = `Thin cushion: breakeven ${beMove}% against an implied ${round(implied, 1)}% means the print has to land in the upper half of the cone and on the right side. Exiting by ${exitBy?.label || "the last session before the print"} keeps the event premium.${flatBit}`;
+  } else if (recommendation === "CAN_HOLD_THROUGH") {
+    note = `Holding through the print needs ${beMove}% against an implied ${round(implied, 1)}%.${flatBit}`;
+  } else {
+    note = "No post-print volatility reference — IV crush magnitude is unmeasured on this contract. Size for total premium loss.";
+  }
+
+  return {
+    severity,
+    recommendation,
+    iv_front_pct: ivFront > 0 ? round(ivFront, 1) : null,
+    iv_post_pct: ivPost != null ? round(ivPost, 1) : null,
+    iv_post_basis: basis,
+    rv_proxy_pct: rv,
+    iv_rv_ratio: ivRvRatio,
+    crush_pct: crushPct,
+    premium_flat: premiumFlat,
+    premium_flat_pct: premiumFlatPct,
+    breakeven_price: num(be?.breakeven_price),
+    breakeven_move_pct: beMove,
+    covered_by_implied_move: coveredByImplied,
+    cushion_ratio: cushionRatio,
+    exit_by: exitBy,
+    note,
+  };
 }
 
 /* ── Confluence pillars ──────────────────────────────────────────────── */
@@ -314,6 +550,11 @@ export function buildEarningsPlay({
   social,
   fsd,
   multiBaggerTargets,
+  strike,
+  entryPremium,
+  ivBackPct,
+  atrPct,
+  cal = null,
   now = Date.now(),
 } = {}) {
   const sym = String(ticker || "").toUpperCase();
@@ -363,9 +604,22 @@ export function buildEarningsPlay({
     movePct > 0 ? `implied move ±${round(movePct, 1)}%` : "implied move unavailable",
   ].filter(Boolean);
 
-  const crushNote = covers === false
-    ? "Contract expires before the print — this trades the run-up, not the event."
-    : "IV crush lands the moment the print clears: premium can fall on a correct direction. Size for total premium loss.";
+  const crush = buildCrushBlock({
+    side: dir,
+    spot: px,
+    strike,
+    entryPremium,
+    dte: num(expiration?.dte),
+    daysToPrint,
+    ivFrontPct: num(impliedMove?.iv_atm_pct),
+    ivBackPct,
+    atrPct,
+    impliedMovePct: movePct,
+    coversPrint: covers,
+    reportDate,
+    session: event?.hour,
+    cal,
+  });
 
   return {
     ticker: sym,
@@ -383,7 +637,8 @@ export function buildEarningsPlay({
     target,
     catalyst: catalystBits.join(" · "),
     alignment,
-    crush_note: crushNote,
+    crush,
+    crush_note: crush.note,
     as_of_ms: now,
   };
 }
@@ -446,6 +701,24 @@ export async function enrichEarningsPlayCards(env, cards, opts = {}) {
       const impliedMove = chain?.ok
         ? resolveImpliedMove({ chain, spot, days: num(card.expiration?.dte) })
         : null;
+      // Term structure: the next expiration's ATM IV is what the front
+      // month collapses toward once the print is out. Only worth two more
+      // vendor calls when the front expiry actually quoted an IV.
+      let ivBackPct = null;
+      if (chain?.ok && num(impliedMove?.iv_atm_pct) > 0
+          && typeof opts.fetchExpirations === "function") {
+        try {
+          const expRes = await opts.fetchExpirations(env, sym);
+          const backIso = pickBackExpiration(expRes?.expirations, expIso);
+          if (backIso && typeof opts.fetchChain === "function") {
+            const backChain = await opts.fetchChain(env, sym, backIso, {
+              strikeRangePct: 0.05,
+              skipOI: true,
+            });
+            if (backChain?.ok) ivBackPct = atmIvFromChain({ chain: backChain, spot });
+          }
+        } catch (_) { /* term structure is a bonus, not a gate */ }
+      }
       const block = buildEarningsPlay({
         ticker: sym,
         side: card.direction,
@@ -458,6 +731,11 @@ export async function enrichEarningsPlayCards(env, cards, opts = {}) {
         social: socialBySym[sym] || null,
         fsd,
         multiBaggerTargets: card.multi_bagger_targets,
+        strike: card.strike,
+        entryPremium: card.premium_mid,
+        ivBackPct,
+        atrPct: opts.atrPctBySym?.[sym],
+        cal: opts.cal || null,
         now: opts.now || Date.now(),
       });
       if (block) card.earnings_play = block;

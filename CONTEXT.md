@@ -554,8 +554,19 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   IV × √t, else null — never guessed), a four-pillar alignment read
   (technical confluence, `timed:fundamentals_v7`, `ticker_social`,
   research-desk/FSD mentions), implied-move target, `covers_print`, and
-  the IV-crush note. Bounded to 3 cards per scan (one chain fetch each,
-  cache-miss path only).
+  a measured IV-crush block. Bounded to 3 cards per scan (chain fetches
+  on the cache-miss path only).
+  **IV crush (2026-08-25):** `buildCrushBlock()` measures the crush
+  instead of warning about it. Post-print vol = next expiration's ATM IV
+  (term structure) else the ATR×√252 realized proxy; `crush_pct`,
+  `premium_flat` (premium at an unchanged price), and a Black-Scholes
+  `breakeven_move_pct` (move needed after the crush to hold the entry
+  premium). Recommendation: `RUN_UP_ONLY` (expires before the print),
+  `EXIT_BEFORE_PRINT` (breakeven beyond the implied move),
+  `TIGHT_HOLD` (breakeven > 60% of the implied move), `CAN_HOLD_THROUGH`,
+  or `UNKNOWN` — never a guessed haircut. `exit_by` names the last
+  session carrying event premium (AMC = report date close, BMO = prior
+  trading day via `previousTradingDay`).
   KV book `timed:opt-dt-book:{signal_id}`; speculator/Today only.
   Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day) → Investor
   (long haul); keep each lane's horizon honest.

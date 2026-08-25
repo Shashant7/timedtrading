@@ -1,12 +1,18 @@
 import { describe, it, expect } from "vitest";
 import {
+  atmIvFromChain,
   atmStraddleImpliedMove,
+  buildCrushBlock,
   buildEarningsPlay,
   contractCoversPrint,
+  crushExitBy,
   enrichEarningsPlayCards,
   formatReportDate,
   ivImpliedMove,
   normalizeReportSession,
+  pickBackExpiration,
+  postCrushBreakeven,
+  realizedVolProxyPct,
   resolveImpliedMove,
   scoreEarningsConfluence,
   STRADDLE_EXPECTED_MOVE_FACTOR,
@@ -108,6 +114,196 @@ describe("implied move", () => {
   });
 });
 
+describe("IV crush", () => {
+  it("reads post-print volatility off the next expiration when the chain has one", () => {
+    const block = buildCrushBlock({
+      side: "LONG",
+      spot: 100,
+      strike: 105,
+      entryPremium: 0.42,
+      dte: 3,
+      daysToPrint: 2,
+      ivFrontPct: 120,
+      ivBackPct: 55,
+      atrPct: 0.04,
+      impliedMovePct: 6.5,
+      coversPrint: true,
+      reportDate: "2026-08-27",
+      session: "amc",
+    });
+    expect(block.iv_post_basis).toBe("term_structure");
+    expect(block.crush_pct).toBe(54);
+    expect(block.severity).toBe("EXTREME");
+    expect(block.breakeven_move_pct).toBeGreaterThan(0);
+    expect(block.exit_by.date).toBe("2026-08-27");
+  });
+
+  it("falls back to the realized-vol proxy with no back month", () => {
+    const block = buildCrushBlock({
+      side: "LONG",
+      spot: 100,
+      strike: 105,
+      entryPremium: 0.42,
+      dte: 3,
+      daysToPrint: 2,
+      ivFrontPct: 120,
+      atrPct: 0.03,
+      impliedMovePct: 6.5,
+      coversPrint: true,
+      reportDate: "2026-08-27",
+      session: "amc",
+    });
+    expect(block.iv_post_basis).toBe("realized_vol");
+    expect(block.rv_proxy_pct).toBe(realizedVolProxyPct(0.03));
+    expect(block.iv_rv_ratio).toBeGreaterThan(1.4);
+    expect(block.severity).not.toBe("NORMAL");
+  });
+
+  it("says exit before the print when the implied move cannot cover the crush", () => {
+    const block = buildCrushBlock({
+      side: "LONG",
+      spot: 100,
+      strike: 108,
+      entryPremium: 1.4,
+      dte: 3,
+      daysToPrint: 2,
+      ivFrontPct: 140,
+      ivBackPct: 45,
+      impliedMovePct: 2,
+      coversPrint: true,
+      reportDate: "2026-08-27",
+      session: "amc",
+    });
+    expect(block.covered_by_implied_move).toBe(false);
+    expect(block.recommendation).toBe("EXIT_BEFORE_PRINT");
+    expect(block.note).toMatch(/Plan the exit by the close on Thu Aug 27/);
+  });
+
+  it("allows holding through when the breakeven sits inside the implied move", () => {
+    const block = buildCrushBlock({
+      side: "LONG",
+      spot: 100,
+      strike: 102,
+      entryPremium: 0.3,
+      dte: 4,
+      daysToPrint: 1,
+      ivFrontPct: 110,
+      ivBackPct: 50,
+      impliedMovePct: 9,
+      coversPrint: true,
+      reportDate: "2026-08-27",
+      session: "amc",
+    });
+    expect(block.covered_by_implied_move).toBe(true);
+    expect(block.recommendation).toBe("CAN_HOLD_THROUGH");
+    expect(block.cushion_ratio).toBeLessThanOrEqual(0.6);
+    expect(block.premium_flat).toBeGreaterThan(0);
+  });
+
+  it("calls a breakeven that only just fits inside the implied move a tight hold", () => {
+    const block = buildCrushBlock({
+      side: "LONG",
+      spot: 100,
+      strike: 106,
+      entryPremium: 0.9,
+      dte: 4,
+      daysToPrint: 2,
+      ivFrontPct: 120,
+      ivBackPct: 50,
+      impliedMovePct: 7,
+      coversPrint: true,
+      reportDate: "2026-08-27",
+      session: "amc",
+    });
+    expect(block.recommendation).toBe("TIGHT_HOLD");
+    expect(block.cushion_ratio).toBeGreaterThan(0.6);
+    expect(block.cushion_ratio).toBeLessThanOrEqual(1);
+    expect(block.note).toMatch(/upper half of the cone/);
+  });
+
+  it("calls a contract that expires first a run-up trade", () => {
+    const block = buildCrushBlock({
+      side: "LONG",
+      spot: 100,
+      strike: 105,
+      entryPremium: 0.42,
+      dte: 2,
+      daysToPrint: 2,
+      ivFrontPct: 120,
+      ivBackPct: 55,
+      impliedMovePct: 6.5,
+      coversPrint: false,
+      reportDate: "2026-08-27",
+      session: "amc",
+    });
+    expect(block.recommendation).toBe("RUN_UP_ONLY");
+    expect(block.breakeven_move_pct).toBeNull();
+    expect(block.note).toMatch(/run-up is the whole trade/);
+  });
+
+  it("reports UNKNOWN instead of inventing a haircut with no volatility reference", () => {
+    const block = buildCrushBlock({
+      side: "LONG",
+      spot: 100,
+      strike: 105,
+      entryPremium: 0.42,
+      dte: 3,
+      daysToPrint: 2,
+      coversPrint: true,
+      reportDate: "2026-08-27",
+      session: "amc",
+    });
+    expect(block.severity).toBe("UNKNOWN");
+    expect(block.recommendation).toBe("UNKNOWN");
+    expect(block.crush_pct).toBeNull();
+    expect(block.note).toMatch(/unmeasured/);
+  });
+
+  it("solves the post-crush breakeven and the flat-price premium", () => {
+    const be = postCrushBreakeven({
+      spot: 100,
+      strike: 105,
+      type: "C",
+      entryPremium: 2.5,
+      daysAfterPrint: 1,
+      postCrushIvPct: 45,
+    });
+    expect(be.premium_flat).toBeLessThan(2.5);
+    expect(be.breakeven_price).toBeGreaterThan(100);
+    expect(be.breakeven_move_pct).toBeGreaterThan(0);
+  });
+
+  it("returns a zero-move breakeven when the premium survives the crush", () => {
+    const be = postCrushBreakeven({
+      spot: 100,
+      strike: 100,
+      type: "C",
+      entryPremium: 0.05,
+      daysAfterPrint: 3,
+      postCrushIvPct: 45,
+    });
+    expect(be.breakeven_move_pct).toBe(0);
+  });
+
+  it("names the last session before the print", () => {
+    expect(crushExitBy({ reportDate: "2026-08-27", session: "amc" }).date).toBe("2026-08-27");
+    // Monday before the open — the previous trading day is the Friday.
+    expect(crushExitBy({ reportDate: "2026-08-31", session: "bmo" }).date).toBe("2026-08-28");
+  });
+
+  it("picks a back expiration at least a week out", () => {
+    const exps = ["2026-08-28", "2026-08-31", "2026-09-04", "2026-09-18"];
+    expect(pickBackExpiration(exps, "2026-08-28")).toBe("2026-09-04");
+    expect(pickBackExpiration(["2026-08-31"], "2026-08-28")).toBe("2026-08-31");
+    expect(pickBackExpiration([], "2026-08-28")).toBeNull();
+  });
+
+  it("reads ATM IV off a chain", () => {
+    expect(atmIvFromChain({ chain: chainAround(100), spot: 100 })).toBe(60);
+    expect(atmIvFromChain({ chain: { calls: [], puts: [] }, spot: 100 })).toBeNull();
+  });
+});
+
 describe("scoreEarningsConfluence", () => {
   const strongLong = {
     side: "LONG",
@@ -165,7 +361,24 @@ describe("buildEarningsPlay", () => {
     expect(block.expected_range).toEqual({ low: 93.5, high: 106.5 });
     expect(block.target.underlying).toBe(106.5);
     expect(block.target.basis).toBe("implied_move");
-    expect(block.crush_note).toMatch(/IV crush/);
+    expect(block.crush.severity).toBe("UNKNOWN");
+    expect(block.crush_note).toBe(block.crush.note);
+  });
+
+  it("carries the crush read when the strike, premium and back month are known", () => {
+    const block = buildEarningsPlay({
+      ...base,
+      strike: 105,
+      entryPremium: 0.42,
+      ivBackPct: 55,
+      atrPct: 0.04,
+      impliedMove: { ...base.impliedMove, iv_atm_pct: 120 },
+    });
+    expect(block.crush.iv_post_basis).toBe("term_structure");
+    expect(block.crush.crush_pct).toBe(54);
+    expect(block.crush.severity).toBe("EXTREME");
+    expect(["EXIT_BEFORE_PRINT", "CAN_HOLD_THROUGH"]).toContain(block.crush.recommendation);
+    expect(block.crush.exit_by.label).toBe("the close on Thu Aug 27");
   });
 
   it("flips the target below spot for a put", () => {
