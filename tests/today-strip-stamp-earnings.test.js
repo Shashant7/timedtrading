@@ -127,6 +127,43 @@ const DAY_TRADE_PLAY = {
   },
 };
 
+// QQQ: model is still holding an older 500C position while the fresh signal
+// is a 502C — the strip must show the held position as its OWN card.
+const DAY_TRADE_PLAY_HELD = {
+  ticker: "QQQ",
+  direction: "LONG",
+  price: 500,
+  strike: 502,
+  day_trade: true,
+  day_trade_dte: 1,
+  confluence_mode: "WAIT",
+  day_lean: "LONG",
+  primary: { _day_trade_flavor: "call", strikes: { primary: 502 }, expiration: { iso: "2026-08-26", dte: 1 } },
+  execution: {
+    action: "WAIT",
+    display_action: "WAIT",
+    premium_band: { premium: 0.9, display_buy_ceil: 1.0 },
+    contract: { flavor: "call", strike: 502, exp_bit: "Aug 26" },
+    rr: { trim: 1.4, exit: 1.8 },
+  },
+  position: {
+    signal_id: "dt:QQQ:2026-08-25:2026-08-26:C:500",
+    status: "open",
+    flavor: "call",
+    strike: 500,
+    expiration: { iso: "2026-08-26", dte: 1, label: "Aug 26 (1DTE)" },
+    entry_premium: 0.74,
+    last_premium: 0.9,
+    peak_premium: 1.1,
+    contracts: 3,
+    contracts_remaining: 3,
+    size_label: "heavy",
+    held_overnight: false,
+    profit_lock_armed: false,
+    pnl_pct: 21.6,
+  },
+};
+
 function loadScript(relPath) {
   const src = readFileSync(join(ROOT, relPath), "utf8");
   // eslint-disable-next-line no-eval
@@ -148,9 +185,9 @@ function mockFetch() {
         json: async () => ({
           ok: true,
           plays: [],
-          day_trade_plays: [DAY_TRADE_PLAY],
+          day_trade_plays: [DAY_TRADE_PLAY, DAY_TRADE_PLAY_HELD],
           day_trade_suppressed: [],
-          day_trade_count: 1,
+          day_trade_count: 2,
           day_trade_generated_at: PUBLISHED_AT,
           generated_at: PUBLISHED_AT,
         }),
@@ -165,6 +202,7 @@ function mockFetch() {
             AEHR: { ticker: "AEHR", price: 100, prev_close: 98, rank: 4, score: 71 },
             CVX: { ticker: "CVX", price: 203.09, prev_close: 205.26, rank: 8, score: 64 },
             SPY: { ticker: "SPY", price: 640, prev_close: 638, rank: 1, score: 60 },
+            QQQ: { ticker: "QQQ", price: 500, prev_close: 498, rank: 2, score: 55 },
           },
         }),
       };
@@ -244,12 +282,26 @@ describe("Today strips — published stamp + lotto earnings play", () => {
     expect(text).toMatch(/Thin cushion: breakeven 4\.2% against an implied 6\.5%/);
   });
 
-  it("shows model status and readable punch on the index day-trade card", () => {
+  it("shows model status and a clear action chip on the index day-trade card", () => {
     const text = document.body.textContent || "";
     expect(text).toMatch(/BUY on SPY 641C Aug 25 \(0DTE\) — day-trade call/);
+    // Confluence mode chip (model status).
     expect(text).toContain("RIDE");
-    expect(text).toContain("LONG");
-    expect(text).toMatch(/Live \$1\.20/);
+    // One authoritative action chip — no confusing BUY/LONG/WAIT triple.
+    expect(text).toContain("BUY CALL");
+    // Structured, non-wrapping fact grid carries the live premium.
+    expect(text).toContain("$1.20");
+    expect(document.querySelector(".tt-dt-plan__facts")).toBeTruthy();
+  });
+
+  it("renders the open position as its own card when the held strike differs", () => {
+    const text = document.body.textContent || "";
+    // Separate held-position card (500C) distinct from the fresh 502C signal.
+    const posCard = document.querySelector(".tt-strip-card--position");
+    expect(posCard).toBeTruthy();
+    expect(posCard.textContent).toContain("HOLDING QQQ 500C");
+    // Live P&L badge on the held position (entry 0.74 → 0.90 ≈ +22%).
+    expect(text).toContain("HELD +22%");
   });
 
   it("shows a brief why on a non-earnings lotto and never labels it 0 DTE", () => {
