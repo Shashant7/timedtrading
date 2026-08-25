@@ -2064,7 +2064,10 @@
         flex-shrink: 0;
         font-size: 9px;
       }
-      .tt-universe-panel .tt-strip-card .tt-lane-card__ext { display: none; }
+      /* EXT (extended-hours) line now shows on every strip card, matching
+         the viewport / active-trader cards. Kept compact within the quote
+         column. */
+      .tt-universe-panel .tt-strip-card .tt-lane-card__ext { display: flex; }
       .tt-universe-panel .tt-strip-card__foot {
         overflow: visible;
         flex: 0 0 auto;
@@ -4929,7 +4932,7 @@
                           dayPct,
                           dayChg,
                           dir: quoteDir,
-                          extLine: null,
+                          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null,
                         },
                         sparkSvg,
                         midBody,
@@ -5051,7 +5054,7 @@
                       dayPct,
                       dayChg,
                       dir: quoteDir,
-                      extLine: null,
+                      extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null,
                     },
                     sparkSvg,
                     midBody,
@@ -5530,7 +5533,7 @@
                       dayPct,
                       dayChg,
                       dir: quoteDir,
-                      extLine: null,
+                      extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null,
                     },
                     sparkSvg,
                     midBody,
@@ -5779,7 +5782,7 @@
                       },
                       chipRow,
                       mtfBelow: true,
-                      quote: { price: livePrice, dayPct, dayChg, dir: quoteDir, extLine: null },
+                      quote: { price: livePrice, dayPct, dayChg, dir: quoteDir, extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null },
                       sparkSvg,
                       midBody,
                       metrics: [],
@@ -5863,7 +5866,7 @@
                     },
                     chipRow: [heldChip, sizeChip].filter(Boolean),
                     mtfBelow: true,
-                    quote: { price: livePrice, dayPct, dayChg, dir: quoteDir, extLine: null },
+                    quote: { price: livePrice, dayPct, dayChg, dir: quoteDir, extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null },
                     sparkSvg,
                     midBody: posMidBody,
                     metrics: [],
@@ -7584,7 +7587,7 @@
                       dayPct: liveDayPct,
                       dayChg,
                       dir,
-                      extLine: null,
+                      extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null,
                     },
                     sparkSvg,
                     midBody,
@@ -7821,7 +7824,7 @@
                       dayPct: liveDayPct,
                       dayChg,
                       dir,
-                      extLine: null,
+                      extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null,
                     },
                     sparkSvg,
                     midBody,

@@ -1693,7 +1693,9 @@
                     dayPct: dayPct,
                     dayChg: dayChg,
                     dir: dir,
-                    extLine: null,
+                    extLine: (window.TTLaneCard && window.TTLaneCard.extLineFromTicker)
+                      ? window.TTLaneCard.extLineFromTicker(tRow)
+                      : null,
                   },
                   sparkSvg: sparkSvg,
                   midBody: midBody,

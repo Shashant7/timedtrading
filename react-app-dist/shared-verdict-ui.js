@@ -1693,7 +1693,9 @@
                     dayPct: dayPct,
                     dayChg: dayChg,
                     dir: dir,
-                    extLine: null,
+                    extLine: (window.TTLaneCard && window.TTLaneCard.extLineFromTicker)
+                      ? window.TTLaneCard.extLineFromTicker(tRow)
+                      : null,
                   },
                   sparkSvg: sparkSvg,
                   midBody: midBody,
@@ -1860,4 +1862,4 @@
   };
 })();
 
-// cache-bust:1787694965024:547186183
+// cache-bust:1787696386906:408416701

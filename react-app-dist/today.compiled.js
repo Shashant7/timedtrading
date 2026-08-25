@@ -1908,7 +1908,7 @@ function SetupFamiliesStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -2003,7 +2003,7 @@ function SetupFamiliesStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -2433,7 +2433,7 @@ function ConvexityPlaysStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -2689,7 +2689,7 @@ function IndexDayTradeStrip({
         dayPct,
         dayChg,
         dir: quoteDir,
-        extLine: null
+        extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
       },
       sparkSvg,
       midBody,
@@ -2806,7 +2806,7 @@ function IndexDayTradeStrip({
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody: posMidBody,
@@ -5003,7 +5003,7 @@ function GrowthIdeasStrip({
           dayPct: liveDayPct,
           dayChg,
           dir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -5241,7 +5241,7 @@ function ValueBottomsStrip({
           dayPct: liveDayPct,
           dayChg,
           dir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -9093,6 +9093,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787694965024:547186183
+// cache-bust:1787696386906:408416701
 
-// cache-bust:1787694965024:547186183
+// cache-bust:1787696386906:408416701
