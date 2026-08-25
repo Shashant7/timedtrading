@@ -1735,6 +1735,51 @@ function SetupFamiliesStrip({
     }, h("div", null, sym), planFactList(familyCopy.facts));
   })) : null));
 }
+function formatStampClockEt(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  try {
+    return new Date(n).toLocaleTimeString("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true
+    }) + " ET";
+  } catch (_) {
+    return null;
+  }
+}
+function formatStampAge(ageMin) {
+  if (!Number.isFinite(ageMin) || ageMin < 0) return null;
+  if (ageMin < 1) return "just now";
+  if (ageMin < 60) return `${Math.round(ageMin)}m ago`;
+  const hrs = ageMin / 60;
+  if (hrs < 24) return `${Math.round(hrs)}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+function StripPublishedStamp({
+  ms,
+  cadenceNote,
+  staleAfterMin
+}) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const iv = setInterval(() => setTick(n => n + 1), 60 * 1000);
+    return () => clearInterval(iv);
+  }, []);
+  const clock = formatStampClockEt(ms);
+  if (!clock) return null;
+  const ageMin = (Date.now() - Number(ms)) / 60000;
+  const age = formatStampAge(ageMin);
+  const stale = Number.isFinite(Number(staleAfterMin)) && ageMin > Number(staleAfterMin);
+  const full = window.TimedCTORead?.formatBarAsOf?.(ms) || clock;
+  return h("p", {
+    className: `tt-strip-stamp${stale ? " tt-strip-stamp--stale" : ""}`,
+    title: `Compiled ${full}${cadenceNote ? ` — ${cadenceNote}` : ""}`
+  }, h("span", {
+    className: "tt-strip-stamp__dot"
+  }), `Published ${clock}${age ? ` · ${age}` : ""}${stale ? " · refresh pending" : ""}`);
+}
 function tickerHeadlinePrice(liveT, fallback) {
   try {
     const hp = window.TimedPriceUtils?.getHeadlinePrice?.(liveT);
@@ -1795,6 +1840,86 @@ function convexityPlanCopy(card) {
     contractBit
   };
 }
+function earningsPlayChip(earn) {
+  if (!earn) return null;
+  const label = String(earn.report_date_label || earn.report_date || "").trim();
+  const dateBit = label.includes(" ") ? label.split(" ").slice(1).join(" ") : label;
+  const verdict = String(earn.alignment?.verdict || "").toUpperCase();
+  const cls = verdict === "CONFLUENT" ? "ds-chip ds-chip--sm ds-chip--up" : verdict === "THIN" ? "ds-chip ds-chip--sm ds-chip--solid" : "ds-chip ds-chip--sm ds-chip--accent";
+  return h("span", {
+    key: "earn",
+    className: cls,
+    title: earn.catalyst || "Earnings play",
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, `EARN ${dateBit}${earn.report_session ? ` ${earn.report_session}` : ""}`);
+}
+function earningsPlayFacts(earn) {
+  if (!earn) return [];
+  const rows = [];
+  const label = earn.report_date_label || earn.report_date;
+  const days = Number(earn.days_to_print);
+  rows.push({
+    label: "Catalyst",
+    value: `${earn.report_session ? `${earn.report_session} ` : ""}${label}${Number.isFinite(days) ? ` (${days}d)` : ""}`,
+    title: earn.covers_print === false ? "The contract expires before the print — this trades the run-up, not the event." : "Report date and session from the earnings calendar."
+  });
+  const movePct = Number(earn.implied_move_pct);
+  const moveUsd = Number(earn.implied_move_usd);
+  rows.push({
+    label: "Implied move",
+    value: Number.isFinite(movePct) && movePct > 0 ? `±${movePct.toFixed(1)}%${Number.isFinite(moveUsd) && moveUsd > 0 ? ` ($${moveUsd.toFixed(2)})` : ""}` : "No chain quote",
+    title: earn.implied_move_basis === "atm_straddle" ? "Priced off the at-the-money straddle through this expiration." : earn.implied_move_basis === "iv_sqrt_t" ? "Estimated from at-the-money implied volatility (IV x root-t)." : "The options chain had no quote for this expiration."
+  });
+  const al = earn.alignment || {};
+  if (al.verdict) {
+    rows.push({
+      label: "Confluence",
+      value: `${al.verdict} · ${al.summary || ""}`.trim(),
+      tone: al.verdict === "CONFLUENT" ? "buy" : al.verdict === "THIN" ? "behind" : "wait",
+      title: (Array.isArray(al.pillars) ? al.pillars : []).map(p => `${p.label}: ${p.note}`).join(" — ")
+    });
+  }
+  const tgt = Number(earn.target?.underlying);
+  if (earn.target?.basis === "implied_move" && Number.isFinite(tgt) && tgt > 0) {
+    rows.push({
+      label: "Target",
+      value: `$${tgt.toFixed(2)}`,
+      title: earn.target.note || "Implied-move target"
+    });
+  }
+  const crush = earn.crush || null;
+  if (crush && crush.severity && crush.severity !== "UNKNOWN") {
+    const flatPct = Number(crush.premium_flat_pct);
+    const ivFront = Number(crush.iv_front_pct);
+    const ivPost = Number(crush.iv_post_pct);
+    rows.push({
+      label: "Crush",
+      value: [crush.severity, Number.isFinite(flatPct) ? `${flatPct}% at flat` : null].filter(Boolean).join(" · "),
+      tone: crush.severity === "EXTREME" ? "trim" : crush.severity === "ELEVATED" ? "wait" : null,
+      title: [Number.isFinite(ivFront) && Number.isFinite(ivPost) ? `IV ${ivFront}% into the print, ${ivPost}% after (${crush.iv_post_basis === "term_structure" ? "next expiration" : "realized volatility"})` : null, Number.isFinite(Number(crush.premium_flat)) ? `Premium at an unchanged price: $${Number(crush.premium_flat).toFixed(2)}` : null].filter(Boolean).join(" — ")
+    });
+  }
+  const beMove = Number(crush?.breakeven_move_pct);
+  if (Number.isFinite(beMove)) {
+    rows.push({
+      label: "Needs",
+      value: `${beMove.toFixed(1)}% post-print`,
+      tone: crush.recommendation === "EXIT_BEFORE_PRINT" ? "trim" : crush.recommendation === "TIGHT_HOLD" ? "wait" : null,
+      title: `Move required after the print just to hold the entry premium${Number.isFinite(Number(crush.breakeven_price)) ? ` (through $${Number(crush.breakeven_price).toFixed(2)})` : ""}.`
+    });
+  }
+  if (crush?.exit_by?.label && (crush.recommendation === "EXIT_BEFORE_PRINT" || crush.recommendation === "TIGHT_HOLD")) {
+    rows.push({
+      label: "Exit by",
+      value: crush.exit_by.label.replace(/^the close on /, "close "),
+      tone: "wait",
+      title: "Last session that still carries the event premium."
+    });
+  }
+  return rows;
+}
 function ConvexityPlaysStrip({
   onSelectTicker,
   embedded,
@@ -1803,6 +1928,7 @@ function ConvexityPlaysStrip({
   ensureSpark
 }) {
   const [plays, setPlays] = useState(null);
+  const [publishedAt, setPublishedAt] = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let alive = true;
@@ -1830,6 +1956,7 @@ function ConvexityPlaysStrip({
         if (!alive) return;
         if (j?.ok && Array.isArray(j.plays)) {
           setPlays(j.plays);
+          setPublishedAt(Number(j.generated_at) || null);
           try {
             window.TTFetchCache?.put?.(url, j);
           } catch (_) {}
@@ -1843,6 +1970,9 @@ function ConvexityPlaysStrip({
       }
     };
     load();
+    const iv = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 5 * 60 * 1000);
     const onAuth = e => {
       if (e?.detail?.isPro) load();else if (alive) {
         setPlays([]);
@@ -1852,6 +1982,7 @@ function ConvexityPlaysStrip({
     window.addEventListener("tt-auth-bootstrap-updated", onAuth);
     return () => {
       alive = false;
+      clearInterval(iv);
       window.removeEventListener("tt-auth-bootstrap-updated", onAuth);
     };
   }, []);
@@ -1873,7 +2004,11 @@ function ConvexityPlaysStrip({
     className: "tt-ready__title"
   }, "Options lotto & moonshots"), h("p", {
     className: "tt-ready__sub"
-  }, "Short-dated OTM when direction, floor, and timing align. Premium risk — not share entries."));
+  }, "Short-dated OTM when direction, floor, and timing align. Premium risk — not share entries."), h(StripPublishedStamp, {
+    ms: publishedAt,
+    staleAfterMin: 12,
+    cadenceNote: "convexity scan rebuilds every 10 minutes; this tab re-checks every 5 minutes while visible"
+  }));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
@@ -1925,7 +2060,10 @@ function ConvexityPlaysStrip({
     const strike = Number(p.strike);
     const exp = p.expiration || {};
     const expShort = copy.expShort || formatExpShort(exp);
+    const earn = p.earnings_play || null;
     const chipRow = optionsPlayChipRow(action, flavor, copy.punch);
+    const earnChip = earningsPlayChip(earn);
+    if (earnChip) chipRow.push(earnChip);
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const zm = VU?.buildTraderZoneModel?.(liveT, trackPrice) || VU?.buildInvestorZoneModel?.(liveT, trackPrice) || null;
     const convSide = flavor === "put" ? "SHORT" : "LONG";
@@ -1951,11 +2089,20 @@ function ConvexityPlaysStrip({
       side: convSide,
       price: trackPrice
     };
-    const footFacts = VU?.factsWithLiveRr ? VU.factsWithLiveRr(optionFacts, rrOpts) : optionFacts;
+    const footFacts = (VU?.factsWithLiveRr ? VU.factsWithLiveRr(optionFacts, rrOpts) : optionFacts).concat(earningsPlayFacts(earn));
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
     }, planFactList(footFacts))];
+    if (earn?.crush_note) {
+      footEls.push(h("div", {
+        key: "crush",
+        className: "tt-dt-plan__tier",
+        style: {
+          marginTop: 4
+        }
+      }, earn.crush_note));
+    }
     if (LaneCard?.create) {
       return h("div", {
         key: sym + (p.play_class || ""),
@@ -2080,7 +2227,11 @@ function IndexDayTradeStrip({
     className: "tt-ready__title"
   }, "SPY · QQQ · IWM · DIA"), h("p", {
     className: "tt-ready__sub"
-  }, "Index options lean — 21 EMA and SuperTrend. Separate from the Cloud Desk 10-minute call above. New buys wait for the 09:30 ET cash open."));
+  }, "Index options lean — 21 EMA and SuperTrend. Separate from the Cloud Desk 10-minute call above. New buys wait for the 09:30 ET cash open."), h(StripPublishedStamp, {
+    ms: Number(payload?.day_trade_generated_at) || Number(payload?.generated_at) || null,
+    staleAfterMin: 8,
+    cadenceNote: "day-trade cards are rebuilt on every request; this tab re-checks every 5 minutes while visible"
+  }));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
@@ -8493,6 +8644,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787660583015:674224754
+// cache-bust:1787661897167:346044716
 
-// cache-bust:1787660583015:674224754
+// cache-bust:1787661897167:346044716

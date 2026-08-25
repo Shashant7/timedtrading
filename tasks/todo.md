@@ -21,6 +21,45 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Strip published stamp + lotto earnings play (2026-08-25).** Two
+      operator asks on the Today strips.
+      1. **Published stamp.** Index Day-Trade and Lotto cards refresh on
+         their own cadence but never said when the copy was built, so a
+         stale tab looked live. Server stamps `day_trade_generated_at`
+         (rebuilt on every `/timed/options/all` hit, cache or not) and
+         `generated_at` (convexity). Frontend renders
+         `Published 11:42 AM ET · 3m ago` in the strip head, ticking
+         every 60s and going amber past the refresh budget. Lotto also
+         gains the 5-min visible-tab poll Index DT already had —
+         without it the stamp only proves the tab is old.
+      2. **Earnings play inside the lotto strip.** The earnings-prep
+         lotto already existed (`shouldActivateEarningsPrepLotto`,
+         1–5d window) but shipped no catalyst, no implied move, and no
+         target — the operator could not tell a confluent print from a
+         coin flip. New `worker/earnings-play.js` composes what the
+         system already stores: implied move from the Alpaca ATM
+         straddle (falls back to IV × √t, then null — never guessed),
+         plus a four-pillar read (technical confluence, fundamentals
+         from `timed:fundamentals_v7`, social from `ticker_social`, and
+         research-desk/FSD mentions). Emits catalyst line, alignment
+         verdict (CONFLUENT / MIXED / THIN), underlying target, and the
+         IV-crush + `covers_print` honesty checks. Bounded to the top 3
+         earnings-prep cards per scan (one chain fetch each, inside the
+         10-min cache miss path). Verified by a jsdom render of the
+         compiled Today page (`tests/today-strip-stamp-earnings.test.js`)
+         — both stamps and the full earnings block land in the DOM. Not
+         yet checked against a live earnings-prep card.
+      3. **IV crush, measured (operator follow-up).** Warning copy is not
+         a defence. `buildCrushBlock()` now prices the crush: post-print
+         vol from the next expiration's ATM IV (term structure) or the
+         ATR×√252 realized proxy, then a Black-Scholes solve for the
+         underlying move needed AFTER the crush to hold the entry
+         premium. Compared against the implied move that gives
+         EXIT_BEFORE_PRINT / TIGHT_HOLD / CAN_HOLD_THROUGH, plus
+         `exit_by` (the last session carrying event premium) and
+         `premium_flat` (what the contract is worth if the stock does not
+         move). No volatility reference → UNKNOWN, never a guessed
+         haircut. Branch: `cursor/strip-stamp-earnings-lotto-dbdd`.
 - [x] **ST share broker follow-through cutoff 7pm ET (2026-08-25).** Post-RTH (earnings) stays; 8pm Discord TSLA/DPZ cannot fill — official AH ends 8pm and overnight is select names. Live ST equity exit/trim + trader mirror stop at 19:00 ET; 16:00–19:00 uses LIMIT+ALL+GTC. Replay unchanged. Branch: `cursor/st-ah-broker-cutoff-dbdd`.
 - [x] **Health watchdog 11m lockstep false page (2026-08-24).** Run 32768985744: 59 symbols all 11m (BK/BNY/CRDO…), feed/chain/scoring green. Align `/timed/health` with feed 20m page window; watchdog fails only if max age ≥20m. Branch: `cursor/watchdog-stale-grace-dbdd`.
 - [x] **ST test-and-hold scan + TSLA miss (2026-08-21).** All-four TF holds: 10 names, losing cut. TSLA this week = Friday daily ST flip through $357, not a hold. Writeup: `tasks/2026-08-21-st-hold-scan.md`.

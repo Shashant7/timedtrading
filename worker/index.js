@@ -1187,6 +1187,7 @@ import {
   toConvexityCard as _toConvexityCard,
   rankConvexityCards as _rankConvexityCards,
 } from "./options-convexity.js";
+import { enrichEarningsPlayCards as _enrichEarningsPlayCards } from "./earnings-play.js";
 import {
   tdFetchOptionsExpirations as _tdFetchOptionsExpirations,
   tdFetchOptionsChain as _tdFetchOptionsChain,
@@ -94840,6 +94841,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // candidates (AEHR-class pullback-into-print) are not starved by
           // the plain entry_quality top-30 cut.
           let _cxEarnBySym = {};
+          // Full event (date + session) is kept alongside the day count so
+          // the earnings-play block can name the catalyst, not just the
+          // window. Same KV read either way.
+          const _cxEarnEventBySym = {};
           try {
             const _up = await kvGetJSON(env.KV_TIMED, "timed:earnings:upcoming");
             const _todayEt = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -94849,7 +94854,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const d = String(e?.date || "").slice(0, 10);
               if (!sym || !d) continue;
               const days = Math.round((Date.parse(`${d}T12:00:00Z`) - _todayMs) / 86400000);
-              if (days >= 0 && days <= 5) _cxEarnBySym[sym] = days;
+              if (days >= 0 && days <= 5 && !Number.isFinite(_cxEarnBySym[sym])) {
+                _cxEarnBySym[sym] = days;
+                _cxEarnEventBySym[sym] = { date: d, hour: e?.hour || null, days_to_print: days };
+              }
             }
           } catch (_) { /* best-effort */ }
           const stampEarn = (t) => {
@@ -94886,6 +94894,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const _lottoMax = Number(env?.CONVEXITY_LOTTO_MAX_LOSS_USD) || 50;
           const _diag = String(url.searchParams.get("diag") || "0") === "1";
           const _skipReasons = [];
+          const _cxConfluenceBySym = {};
+          const _cxSpotBySym = {};
+          const _cxAtrPctBySym = {};
           const _cxOne = async (t) => {
             const sym = String(t?.ticker || "").toUpperCase();
             const note = (reason, detail) => {
@@ -94928,6 +94939,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
               const spot = Number(ladderInput.price);
               const asOf = Date.now();
+              _cxConfluenceBySym[sym] = confluence;
+              _cxSpotBySym[sym] = spot;
+              _cxAtrPctBySym[sym] = Number(ladderInput?.atr_pct ?? ladderInput?.atrPct
+                ?? t?.atr_pct ?? t?.atrPct) || null;
               if (!_isConvexityPlayActionable({
                 play: extracted.play,
                 play_class: extracted.play_class,
@@ -94968,6 +94983,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             for (const c of settled) if (c) cards.push(c);
           }
           const plays = _rankConvexityCards(cards).slice(0, limit);
+          // Earnings-prep lottos get the catalyst / implied move / four-pillar
+          // read. Bounded to the top few so the scan never turns into a chain
+          // fetch per universe name; runs only on the cache-miss path.
+          try {
+            await _enrichEarningsPlayCards(env, plays, {
+              eventBySym: _cxEarnEventBySym,
+              confluenceBySym: _cxConfluenceBySym,
+              spotBySym: _cxSpotBySym,
+              atrPctBySym: _cxAtrPctBySym,
+              fetchChain: _alpacaFetchOptionsChain,
+              fetchExpirations: _alpacaFetchOptionsExpirations,
+            });
+          } catch (e) {
+            console.warn("[CONVEXITY] earnings-play enrich failed:", String(e?.message || e).slice(0, 160));
+          }
           const payload = {
             ok: true,
             count: plays.length,
@@ -95414,6 +95444,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               day_trade_suppressed: _dtSuppressed,
               day_trade_expiration: _dtExpiration,
               day_trade_count: _dtPlays.length,
+              // Day-trade cards are rebuilt on every request (cache hit
+              // included), so they carry their own stamp — the strip head
+              // must not inherit the swing payload's cache age.
+              day_trade_generated_at: Date.now(),
             };
           };
           if (!_bypassCache) {
