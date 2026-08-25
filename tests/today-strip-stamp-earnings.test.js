@@ -86,6 +86,26 @@ const CONVEXITY_PLAY = {
   action: "BUY",
 };
 
+const GENERIC_LOTTO = {
+  ticker: "CVX",
+  play_class: "lotto",
+  direction: "LONG",
+  archetype: "lotto_call",
+  strike: 205,
+  expiration: { iso: "2026-08-28", dte: 3, label: "Aug 28 (3 DTE)" },
+  premium_mid: 0.91,
+  max_loss_usd: 91,
+  multi_bagger_targets: { "3x_underlying_at": 206.82 },
+  top_target_underlying: 206.82,
+  confluence_mode: "READY",
+  confluence_score: 64,
+  earnings_prep: false,
+  shot_reason: "Setup is READY long — floor held, call compression, 5/8 layers, Energy.",
+  headline: "BUY on CVX 205C Aug 28 (3DTE) — lotto call, premium may go to zero",
+  scan_line: "Risk $91 · 3x+ @ $206.82 · Pay ≤ $0.91",
+  action: "BUY",
+};
+
 const DAY_TRADE_PLAY = {
   ticker: "SPY",
   direction: "LONG",
@@ -118,7 +138,7 @@ function mockFetch() {
     if (u.includes("/timed/options/convexity")) {
       return {
         ok: true,
-        json: async () => ({ ok: true, count: 1, plays: [CONVEXITY_PLAY], generated_at: PUBLISHED_AT }),
+        json: async () => ({ ok: true, count: 2, plays: [CONVEXITY_PLAY, GENERIC_LOTTO], generated_at: PUBLISHED_AT }),
       };
     }
     if (u.includes("/timed/options/all")) {
@@ -142,13 +162,14 @@ function mockFetch() {
           ok: true,
           data: {
             AEHR: { ticker: "AEHR", price: 100, prev_close: 98, rank: 4, score: 71 },
+            CVX: { ticker: "CVX", price: 203.09, prev_close: 205.26, rank: 8, score: 64 },
             SPY: { ticker: "SPY", price: 640, prev_close: 638, rank: 1, score: 60 },
           },
         }),
       };
     }
     if (u.includes("/timed/tickers")) {
-      return { ok: true, json: async () => ({ tickers: ["AEHR", "SPY"] }) };
+      return { ok: true, json: async () => ({ tickers: ["AEHR", "CVX", "SPY"] }) };
     }
     return { ok: true, json: async () => ({ ok: true }) };
   };
@@ -220,5 +241,12 @@ describe("Today strips — published stamp + lotto earnings play", () => {
     expect(text).toContain("4.2% post-print");
     expect(text).toContain("close Thu Aug 27");
     expect(text).toMatch(/Thin cushion: breakeven 4\.2% against an implied 6\.5%/);
+  });
+
+  it("shows a brief why on a non-earnings lotto and never labels it 0 DTE", () => {
+    const text = document.body.textContent || "";
+    expect(text).toContain("Setup is READY long — floor held, call compression, 5/8 layers, Energy.");
+    expect(text).toContain("Aug 28 (3 DTE)");
+    expect(text).not.toMatch(/CVX[\s\S]{0,240}0 DTE/);
   });
 });

@@ -21,6 +21,14 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Lotto: no 0 DTE + brief why (2026-08-25).** Live CVX card was
+      `205C Exp Aug 25 (0 DTE)` with no reason. Convexity lotto is a
+      swing/event debit, not the index day-trade product. Single-name
+      `pickLottoExpiration` snaps to the next Friday weekly (≥1 DTE);
+      `isConvexityPlayActionable` drops DTE < 1. Every card gets
+      `shot_reason` (earnings catalyst, or floor / compression / ST hold
+      / theme). Index 0/1 DTE stays on Index Day-Trade. Branch:
+      `cursor/strip-stamp-earnings-lotto-dbdd`.
 - [x] **Strip published stamp + lotto earnings play (2026-08-25).** Two
       operator asks on the Today strips.
       1. **Published stamp.** Index Day-Trade and Lotto cards refresh on

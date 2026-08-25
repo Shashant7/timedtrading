@@ -9,6 +9,7 @@ import {
   convexityFreshTtlMs,
   convexityPlanCopy,
   formatConvexityExpShort,
+  buildConvexityShotReason,
 } from "./options-convexity.js";
 import {
   shouldActivateLotto,
@@ -188,6 +189,17 @@ describe("isConvexityPlayActionable", () => {
       as_of_ms: Date.now(),
     })).toBe(true);
   });
+
+  it("rejects 0 DTE on the convexity strip", () => {
+    expect(isConvexityPlayActionable({
+      play: { ...basePlay, expiration: { dte: 0, iso: "2026-08-25" } },
+      play_class: "lotto",
+      confluence: { mode: "RIDE", side: "LONG", timing: { call_opportunity: true } },
+      contract: { direction: "LONG", sl: 98, atr_pct: 0.02 },
+      spot: 100,
+      as_of_ms: Date.now(),
+    })).toBe(false);
+  });
 });
 
 describe("rankConvexityCards", () => {
@@ -212,6 +224,59 @@ describe("pickLottoExpiration", () => {
   it("uses day trade picker for SPY", () => {
     const exp = pickLottoExpiration("SPY");
     expect(exp.dte === 0 || exp.dte === 1).toBe(true);
+  });
+
+  it("snaps single-name lotto to the next Friday, never 0 DTE", () => {
+    const tue = Date.parse("2026-08-25T13:17:00-04:00");
+    const exp = pickLottoExpiration("CVX", tue);
+    expect(exp.dte).toBeGreaterThanOrEqual(1);
+    expect(exp.iso).toBe("2026-08-28");
+    expect(exp.dte).toBe(3);
+  });
+
+  it("rolls Friday same-day to the next weekly", () => {
+    const fri = Date.parse("2026-08-28T10:00:00-04:00");
+    const exp = pickLottoExpiration("CVX", fri);
+    expect(exp.iso).toBe("2026-09-04");
+    expect(exp.dte).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("buildConvexityShotReason", () => {
+  it("prefers the earnings catalyst", () => {
+    expect(buildConvexityShotReason({
+      play: { archetype: "lotto_call", _earnings_prep: true },
+      earnings_play: { catalyst: "Earnings AMC Thu Aug 27 · 2d out" },
+    })).toBe("Earnings AMC Thu Aug 27 · 2d out");
+  });
+
+  it("names floor + call compression on a READY long", () => {
+    const why = buildConvexityShotReason({
+      play: { archetype: "lotto_call" },
+      play_class: "lotto",
+      confluence: {
+        mode: "READY",
+        side: "LONG",
+        timing: { call_opportunity: true },
+        layers_agreeing: 5,
+        st_hold: { held: true, tf: "1H" },
+      },
+      contract: { direction: "LONG", sl: 198 },
+      spot: 203,
+      themes: ["Energy"],
+    });
+    expect(why).toMatch(/READY/i);
+    expect(why).toMatch(/floor held/i);
+    expect(why).toMatch(/call compression/i);
+    expect(why).toMatch(/1H SuperTrend held/);
+    expect(why).toMatch(/Energy/);
+  });
+
+  it("falls back when confluence is thin", () => {
+    expect(buildConvexityShotReason({
+      play: { archetype: "lotto_call" },
+      play_class: "lotto",
+    })).toMatch(/Direction, floor, and timing aligned/);
   });
 });
 
@@ -308,5 +373,33 @@ describe("toConvexityCard", () => {
     });
     expect(card.earnings_prep).toBe(true);
     expect(card.rationale_short).toMatch(/Earnings-prep/i);
+    expect(card.shot_reason).toMatch(/Earnings-prep|Earnings in/i);
+  });
+
+  it("stamps a shot_reason on a generic lotto", () => {
+    const card = toConvexityCard({
+      ticker: "CVX",
+      play: {
+        archetype: "lotto_call",
+        strikes: { primary: 205 },
+        expiration: { dte: 3, iso: "2026-08-28" },
+        max_loss_usd: 91,
+        multi_bagger_targets: { "3x_underlying_at": 206.82 },
+      },
+      play_class: "lotto",
+      confluence: {
+        mode: "READY",
+        side: "LONG",
+        score: 64,
+        timing: { call_opportunity: true },
+        layers_agreeing: 5,
+      },
+      contract: { sl: 198, direction: "LONG" },
+      spot: 203,
+      themes: ["Energy"],
+      as_of_ms: Date.now(),
+    });
+    expect(card.shot_reason).toMatch(/READY/i);
+    expect(card.shot_reason).toMatch(/floor held/i);
   });
 });

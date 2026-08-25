@@ -543,7 +543,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   the same chip / punch / scan grammar as Index Day-Trade (compact, no
   sparkline). Convexity lotto/moonshot cards (first live: AXON) use
   `TTLaneCard` + `tt-dt-plan` — `convexityPlanCopy()` in
-  `worker/options-convexity.js`.
+  `worker/options-convexity.js`. Single-name lotto snaps to the next
+  Friday weekly (never 0 DTE — that is Index Day-Trade only). Every
+  card carries `shot_reason` (earnings catalyst, or floor / compression
+  / SuperTrend hold / theme) rendered as a Why row.
   **Strip published stamp (2026-08-25):** Index Day-Trade and Lotto heads
   render `Published <clock> ET · <age>` from `day_trade_generated_at` /
   `generated_at`; it ticks every 60s and turns amber past the refresh

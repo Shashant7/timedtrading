@@ -246,18 +246,17 @@ export function pickMoonshotExpiration(now = Date.now()) {
 }
 
 /**
- * Lotto expiration — 0–3 DTE. Indices use daily 0/1DTE picker; singles use
- * the nearest weekday within three sessions (Mon–Fri listed weeklies).
+ * Single-name lotto weekly — next Friday with at least `minDte` sessions
+ * left. Same-day expiry is the index day-trade product, not convexity:
+ * single-name weeklies list Friday, and 0 DTE has no room for the 3×+
+ * thesis before theta/IV crush.
  */
-export function pickLottoExpiration(ticker, now = Date.now()) {
-  const sym = String(ticker || "").toUpperCase();
-  if (isDayTradeTicker(sym)) {
-    return pickDayTradeExpiration(now);
-  }
-  const _isWeekendUtc = (d) => { const dow = d.getUTCDay(); return dow === 0 || dow === 6; };
-  for (let d = 0; d <= 3; d++) {
+export function pickLottoWeeklyExpiration(now = Date.now(), { minDte = 1 } = {}) {
+  const floor = Math.max(1, Number(minDte) || 1);
+  for (let d = floor; d <= 14; d++) {
     const day = new Date(now + d * 86400000);
-    if (_isWeekendUtc(day)) continue;
+    const dow = day.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "short" });
+    if (dow !== "Fri") continue;
     const iso = day.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     const labelDate = day.toLocaleDateString("en-US", {
       timeZone: "America/New_York",
@@ -267,10 +266,22 @@ export function pickLottoExpiration(ticker, now = Date.now()) {
     return {
       iso,
       dte: d,
-      label: d === 0 ? `Today ${labelDate} (${d}DTE)` : `${labelDate} (${d}DTE)`,
+      label: `${labelDate} (${d}DTE)`,
     };
   }
-  return pickDayTradeExpiration(now, { forceTomorrow: true });
+  return pickMoonshotExpiration(now);
+}
+
+/**
+ * Lotto expiration. Indices keep the daily 0/1 DTE picker (Index Day-Trade
+ * strip). Single names snap to the next Friday weekly, never 0 DTE.
+ */
+export function pickLottoExpiration(ticker, now = Date.now()) {
+  const sym = String(ticker || "").toUpperCase();
+  if (isDayTradeTicker(sym)) {
+    return pickDayTradeExpiration(now);
+  }
+  return pickLottoWeeklyExpiration(now, { minDte: 1 });
 }
 
 /**

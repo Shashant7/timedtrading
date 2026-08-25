@@ -1001,9 +1001,17 @@ function optionsPlanFacts({
   trim,
   exit,
   risk,
-  payoff
+  payoff,
+  why
 }) {
   const rows = [];
+  if (why) {
+    rows.push({
+      label: "Why",
+      value: why,
+      title: "Why this play is on the board — catalyst, floor, or timing hook."
+    });
+  }
   const prem = formatLivePremium(livePremium);
   if (prem) {
     rows.push({
@@ -1840,6 +1848,16 @@ function convexityPlanCopy(card) {
     contractBit
   };
 }
+function convexityShotReason(card) {
+  if (card?.shot_reason) return card.shot_reason;
+  if (card?.earnings_play?.catalyst) return card.earnings_play.catalyst;
+  if (card?.earnings_prep) return "Earnings-prep — cheap OTM into the print, not a share entry.";
+  const mode = String(card?.confluence_mode || "").toUpperCase();
+  if (mode === "RIDE") return "Tape is in motion — cheap OTM if the move continues.";
+  if (mode === "READY") return "Setup is READY — floor and timing aligned.";
+  if (mode === "DRIFT") return "Late drift — SuperTrend still sloped.";
+  return "Direction, floor, and timing aligned — cheap OTM if the move fires.";
+}
 function earningsPlayChip(earn) {
   if (!earn) return null;
   const label = String(earn.report_date_label || earn.report_date || "").trim();
@@ -2081,7 +2099,8 @@ function ConvexityPlaysStrip({
       livePremium: Number(p.premium_mid),
       debit: Number.isFinite(Number(p.premium_mid)) ? `≤ $${Number(p.premium_mid).toFixed(2)}` : null,
       risk: Number.isFinite(Number(p.max_loss_usd)) ? `$${Number(p.max_loss_usd)}` : null,
-      payoff: Number.isFinite(Number(p.top_target_underlying)) ? `3x+ @ $${Number(p.top_target_underlying).toFixed(2)}` : null
+      payoff: Number.isFinite(Number(p.top_target_underlying)) ? `3x+ @ $${Number(p.top_target_underlying).toFixed(2)}` : null,
+      why: earn?.catalyst ? null : convexityShotReason(p)
     });
     const rrOpts = {
       zone: zm,
@@ -8644,6 +8663,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787661897167:346044716
+// cache-bust:1787664824204:439822741
 
-// cache-bust:1787661897167:346044716
+// cache-bust:1787664824204:439822741
