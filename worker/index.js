@@ -2453,6 +2453,7 @@ const ROUTES = [
   ["GET",  "/timed/admin/cro/sector-outlook",            "GET /timed/admin/cro/sector-outlook"],
   ["PUT",  "/timed/admin/cro/sector-outlook",            "PUT /timed/admin/cro/sector-outlook"],
   ["POST", "/timed/admin/cro/sector-outlook/sync",       "POST /timed/admin/cro/sector-outlook/sync"],
+  ["GET",  "/timed/admin/cro/sector-outlook/diag",       "GET /timed/admin/cro/sector-outlook/diag"],
   ["POST", "/timed/admin/cro/backfill-cashtags",         "POST /timed/admin/cro/backfill-cashtags"],
   ["POST", "/timed/admin/cto/universe/refresh",          "POST /timed/admin/cto/universe/refresh"],
   ["POST", "/timed/admin/cto/feed/refresh",              "POST /timed/admin/cto/feed/refresh"],
@@ -40349,6 +40350,15 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
     ring = ((await kvGetJSON(env.KV_TIMED, "bridge:client:recent")) || [])
       .filter((e) => Number(e?.ts) >= sinceMs);
   } catch (_) { ring = []; }
+  // 2b. Options day-trade mirror decisions (paper DT is not in the client
+  // ring; its BUY/EXIT skips record here). Explains a "NOT MIRRORED" option
+  // row — auto-mirror off, vehicle disabled, globally paused, or an exit
+  // with no mirrored entry.
+  let optDtMirrorLog = [];
+  try {
+    optDtMirrorLog = ((await kvGetJSON(env.KV_TIMED, "timed:opt-dt-mirror-log")) || [])
+      .filter((e) => Number(e?.ts) >= sinceMs);
+  } catch (_) { optDtMirrorLog = []; }
   // 3. Per-account outcomes from the bridge.
   const bridgeHours = Math.max(1, Math.ceil((Date.now() - sinceMs) / 3600000));
   let bridge = { accounts: [], ledger: [], audit: [] };
@@ -40446,6 +40456,17 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
     } else if (ringMatch && String(ringMatch.status) === "ok") {
       mirror = "forwarded";
     }
+    // Options day-trade rows carry a "dt:" signal id and are paper-first —
+    // when nothing mirrored, explain WHY from the opt-dt decision log so the
+    // operator sees "SKIPPED · <reason>" instead of a bare "NOT MIRRORED".
+    if (mirror === "not_mirrored" && String(m.position_id || "").toLowerCase().startsWith("dt:")) {
+      const logHit = optDtMirrorLog.find((e) =>
+        _normId(e.signal_id) === mid && near(e.ts) && _sideFamily(e.side) === fam);
+      if (logHit && logHit.decision === "skipped") {
+        mirror = "skipped";
+        mirrorReason = logHit.reason || null;
+      }
+    }
     return {
       ts: m.ts,
       mode: m.mode,
@@ -40457,6 +40478,7 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
       value: Math.abs(Number(m.cash_delta) || 0),
       realized_pnl: Number(m.realized_pnl) || 0,
       note: m.note || null,
+      instrument: m.instrument || null,
       mirror,
       mirror_reason: mirrorReason,
       fills,
@@ -43056,8 +43078,15 @@ function _optionsBriefSurfaceEnabled(env) {
   return _optOn(cfg.options_brief_surface ?? env?.OPTIONS_BRIEF_SURFACE ?? false);
 }
 function _optionsAutoMirrorIndicesEnabled(env) {
+  // Index day-trade auto-mirror is gated by the operator's per-vehicle
+  // auto-mirror prefs (long_call / long_put + master `enabled`), which the
+  // Broker Connections "options" account toggle already syncs. This flag is
+  // only a GLOBAL kill switch and defaults to ALLOW so enabling options on
+  // the account actually reaches the index DT product (its confirm copy
+  // promises exactly that). Set OPTIONS_AUTO_MIRROR_INDICES / the D1
+  // options_auto_mirror_indices key to "false" to pause the whole product.
   const cfg = env?._deepAuditConfig || {};
-  return _optOn(cfg.options_auto_mirror_indices ?? env?.OPTIONS_AUTO_MIRROR_INDICES ?? false);
+  return _optOn(cfg.options_auto_mirror_indices ?? env?.OPTIONS_AUTO_MIRROR_INDICES ?? true);
 }
 function _optionsIndexSwingEnabled(env) {
   const cfg = env?._deepAuditConfig || {};
@@ -86376,6 +86405,19 @@ export default {
         }
       }
 
+      // GET /timed/admin/cro/sector-outlook/diag — fetch + parse diagnostics (no KV write)
+      if (routeKey === "GET /timed/admin/cro/sector-outlook/diag") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { diagFsdEtfOutlookPage } = await import("./cro/fsd-sector-outlook.js");
+          const r = await diagFsdEtfOutlookPage(env);
+          return sendJSON(r, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/cro/backfill-cashtags — re-parse existing pubs
       if (routeKey === "POST /timed/admin/cro/backfill-cashtags") {
         const authFail = await requireKeyOrAdmin(req, env);
@@ -95452,7 +95494,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         engine: "options_day_trade",
                         exec_state: ev.event,
                       }).catch(() => {});
-                      if (_optionsAutoMirrorIndicesEnabled(env)) {
+                      {
+                        // Always invoke the mirror path (even when globally
+                        // paused or the account's option vehicles are off) so
+                        // the decision — and the reason it did NOT place an
+                        // order — is recorded for the Broker Connections
+                        // timeline instead of a mystery "NOT MIRRORED".
                         try {
                           const { maybeAutoMirrorIndexDayTradeEvent } = await import("./options-auto-mirror.js");
                           const _mirrorSid = _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId;
@@ -95479,7 +95526,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                             strike: _dtExecution.contract?.strike ?? _strike,
                             expiration: _dtExecution.contract?.expiration || _dtPrimary?.expiration || _dtPlay.expiration,
                             flavor: _dtExecution.contract?.flavor || _dtPlay._day_trade_flavor,
-                            indicesFlagOn: true,
+                            indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
                           }));
                         } catch (_) { /* never block on options mirror */ }
                       }

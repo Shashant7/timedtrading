@@ -2,6 +2,8 @@ import { describe, it, expect, afterEach } from "vitest";
 import {
   fireAutoMirror,
   maybeAutoMirrorIndexDayTradeEvent,
+  recordIndexDtMirrorDecision,
+  OPT_DT_MIRROR_LOG_KEY,
   buildIndexDayTradeClosePlay,
   computeIndexDayTradeCloseQty,
   marketableCloseLimit,
@@ -144,6 +146,45 @@ function bridgeEnv(kv, captured) {
     },
   };
 }
+
+describe("recordIndexDtMirrorDecision (timeline reason log)", () => {
+  it("records a skipped BUY with its reason so NOT MIRRORED can explain itself", async () => {
+    const kv = kvMock();
+    await maybeAutoMirrorIndexDayTradeEvent(
+      { ADMIN_EMAIL: "op@x.com", KV_TIMED: kv },
+      {
+        event: "BUY",
+        ticker: "QQQ",
+        signal_id: "dt:QQQ:2026-08-25:2026-08-26:C:711",
+        play: { archetype: "day_trade_call", premium: { mid: 1.25 }, contracts: 1, max_loss_usd: 125 },
+        indicesFlagOn: false,
+      },
+    );
+    const log = JSON.parse(kv.store.get(OPT_DT_MIRROR_LOG_KEY) || "[]");
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({
+      signal_id: "dt:QQQ:2026-08-25:2026-08-26:C:711",
+      event: "BUY", side: "buy", decision: "skipped", reason: "flag_off",
+    });
+  });
+
+  it("keeps one entry per (signal, event) — the latest decision wins", async () => {
+    const kv = kvMock();
+    await recordIndexDtMirrorDecision({ KV_TIMED: kv }, { event: "BUY", ticker: "QQQ", signal_id: "dt:QQQ:x" }, { skipped: true, reason: "disabled" });
+    await recordIndexDtMirrorDecision({ KV_TIMED: kv }, { event: "BUY", ticker: "QQQ", signal_id: "dt:QQQ:x" }, { skipped: false });
+    const log = JSON.parse(kv.store.get(OPT_DT_MIRROR_LOG_KEY) || "[]");
+    expect(log).toHaveLength(1);
+    expect(log[0].decision).toBe("mirrored");
+    expect(log[0].reason).toBe(null);
+  });
+
+  it("does not log without a signal id or for PROTECT", async () => {
+    const kv = kvMock();
+    await recordIndexDtMirrorDecision({ KV_TIMED: kv }, { event: "BUY", ticker: "QQQ" }, { skipped: true, reason: "flag_off" });
+    await recordIndexDtMirrorDecision({ KV_TIMED: kv }, { event: "PROTECT", ticker: "QQQ", signal_id: "dt:QQQ:y" }, { skipped: true });
+    expect(kv.store.get(OPT_DT_MIRROR_LOG_KEY)).toBeUndefined();
+  });
+});
 
 const SID = "dt:QQQ:2026-08-24:2026-08-25:C:710";
 const PREFS = JSON.stringify({

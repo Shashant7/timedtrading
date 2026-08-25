@@ -17,6 +17,11 @@ export const CONVEXITY_LOTTO_MAX_LOSS_DEFAULT_USD = 50;
 export const CONVEXITY_FRESH_TTL_MS_01_DTE = 5 * 60 * 1000;
 export const CONVEXITY_FRESH_TTL_MS_SWING = 15 * 60 * 1000;
 export const CONVEXITY_SWING_MAX_DRIFT_PCT = 0.05;
+// Earnings-prep lottos buy a ~0.15-delta strike into a binary print. On
+// higher-priced or higher-IV names that lands further OTM than a regular
+// swing lotto (e.g. INTU 3-DTE 0.15-delta put ≈ 6.5% OTM into an AMC print),
+// so the swing drift ceiling would silently filter a valid earnings play.
+export const CONVEXITY_EARNINGS_MAX_DRIFT_PCT = 0.15;
 
 const MOONSHOT_ARCH = new Set(["moonshot_call", "moonshot_put"]);
 const LOTTO_ARCH = new Set(["lotto_call", "lotto_put"]);
@@ -88,10 +93,16 @@ export function isConvexityPlayActionable({
   if (!play || typeof play !== "object") return false;
   const playClass = playClassIn || playClassFromArchetype(play.archetype);
   if (!playClass) return false;
+  // Earnings-prep lottos are a distinct product: a deliberately cheap OTM
+  // gamma bet into a binary print. They (a) legitimately oppose the base
+  // contract direction when the read is a FADE (a put on a name whose base
+  // contract is LONG), and (b) sit further OTM than a regular swing lotto.
+  // Both are relaxed below, gated on this flag, so the same-day / 1-5d
+  // earnings-prep card is not silently filtered by swing-lotto constraints.
+  const earnPrep = playClass === "lotto" && !!play._earnings_prep;
 
   const mode = String(confluence?.mode || "").toUpperCase();
   if (playClass === "lotto") {
-    const earnPrep = !!play._earnings_prep;
     const lottoModes = earnPrep
       ? ["READY", "RIDE", "DRIFT", "WAIT", "FADE"]
       : ["READY", "RIDE", "DRIFT"];
@@ -113,8 +124,16 @@ export function isConvexityPlayActionable({
     }
   }
 
-  const contractDir = resolveContractDirection(contract?.direction, contract?.effective_direction)
-    || String(confluence?.side || "").toUpperCase();
+  // For an earnings-prep FADE, the play intentionally trades the fade side
+  // (a put on a bullish base contract). Anchor the alignment check to the
+  // confluence side in that case so the fade is not rejected as "opposed" —
+  // the play direction is still required to match the confluence + timing
+  // lean below, so a genuinely mis-built play is still caught.
+  const contractDir = (earnPrep && confluence?.side
+    && String(confluence.side).toUpperCase() !== "NEUTRAL")
+    ? String(confluence.side).toUpperCase()
+    : (resolveContractDirection(contract?.direction, contract?.effective_direction)
+      || String(confluence?.side || "").toUpperCase());
   const playDir = resolvePlayDirection(play, contractDir);
   if (playDir && contractDir && playDir !== contractDir) return false;
 
@@ -141,7 +160,8 @@ export function isConvexityPlayActionable({
     if (!gate.valid) return false;
   } else {
     const drift = Math.abs(strike - px) / px;
-    if (drift > CONVEXITY_SWING_MAX_DRIFT_PCT) return false;
+    const maxDrift = earnPrep ? CONVEXITY_EARNINGS_MAX_DRIFT_PCT : CONVEXITY_SWING_MAX_DRIFT_PCT;
+    if (drift > maxDrift) return false;
   }
 
   const ts = Number(asOfMs ?? now);

@@ -3,6 +3,7 @@ import {
   FSD_SECTOR_OUTLOOK_AUG_2026,
   parseFsdSectorOutlookTable,
   parseFsdEtfOutlookHtml,
+  parseFsdEtfOutlookHtmlRows,
   buildSectorRatingsPatchFromOutlook,
   getAnalystSectorRating,
   compositeRatingFromOutlook,
@@ -73,6 +74,12 @@ describe("fsd-sector-outlook", () => {
     const out = parseFsdEtfOutlookHtml(SAMPLE_HTML);
     expect(out.sectors["Health Care"].newton).toBe("overweight");
     expect(out.sectors.Financials.lee).toBe("overweight");
+  });
+
+  it("parses HTML tr rows with td cells", () => {
+    const out = parseFsdEtfOutlookHtmlRows(SAMPLE_HTML);
+    expect(out.sectors["Health Care"].etf).toBe("XLV");
+    expect(out.sectors["Health Care"].newton).toBe("overweight");
   });
 
   it("detects paywall shell without sector rows", () => {

@@ -55,6 +55,16 @@ function firstMirrorOnTs(acct) {
 function humanizeReason(raw) {
   const r = String(raw || "").toLowerCase();
   if (!r) return null;
+  if (/^disabled$|options_auto_mirror_off/.test(r)) {
+    return "Options auto-mirror is off — enable options on the account to mirror index day-trades";
+  }
+  if (/vehicle_long_call_disabled/.test(r)) return "Index-call mirroring is off — enable options on the account";
+  if (/vehicle_long_put_disabled/.test(r)) return "Index-put mirroring is off — enable options on the account";
+  if (/flag_off|indices_paused/.test(r)) return "Index options auto-mirror is globally paused";
+  if (/no_mirrored_entry|entry_fill_rejected|entry_fill_pending/.test(r)) return "The entry never mirrored, so this exit was skipped";
+  if (/entry_already_mirrored/.test(r)) return "Already mirrored";
+  if (/ticker_not_index|archetype_not_directional_day_trade|index_gate_blocked/.test(r)) return "Not an eligible index day-trade for mirroring";
+  if (/mirror_position_already_flat|mirror_single_lot_no_trim/.test(r)) return "Broker position already flat — nothing to close";
   if (/match within tolerance|within.*tolerance/.test(r)) return "In sync — broker shares match the model";
   if (/duplicate_client_order_id/.test(r)) return "Duplicate order blocked (safety guard)";
   if (/parameter error|invalid client order id|client.?order.?id.*length|length should be between/.test(r)) {
@@ -611,6 +621,8 @@ function ActionRow({
   const fillHint = fills[0];
   const rejectHint = rejects[0];
   const pnl = Number(a.realized_pnl) || 0;
+  const isOpt = a.instrument === "option";
+  const unit = n => isOpt ? Math.abs(Number(n)) === 1 ? "contract" : "contracts" : "sh";
   return React.createElement("div", null, showDay && React.createElement("div", {
     className: "dim",
     style: {
@@ -655,7 +667,7 @@ function ActionRow({
     style: {
       fontSize: 12
     }
-  }, fmtQty(a.qty), " sh @ ", fmtUsd(a.price)), (a.event === "TRIM" || a.event === "EXIT") && pnl !== 0 && React.createElement("span", {
+  }, fmtQty(a.qty), " ", unit(a.qty), " @ ", fmtUsd(a.price)), (a.event === "TRIM" || a.event === "EXIT") && pnl !== 0 && React.createElement("span", {
     className: `mono ${pnl >= 0 ? "up" : "dn"}`,
     style: {
       fontSize: 12,
@@ -671,7 +683,7 @@ function ActionRow({
     className: "dot"
   }), mc.label, fills.length > 1 ? ` ×${fills.length}` : "")), hasDetail && React.createElement("div", {
     className: "tl-compact"
-  }, fillHint && React.createElement("span", null, fillHint.account || "Account", " \xB7 ", fmtQty(fillHint.qty), " sh", React.createElement("span", {
+  }, fillHint && React.createElement("span", null, fillHint.account || "Account", " \xB7 ", fmtQty(fillHint.qty), " ", unit(fillHint.qty), React.createElement("span", {
     className: "bc-pill p-ok",
     style: {
       marginLeft: 6
@@ -696,7 +708,7 @@ function ActionRow({
     }
   }, f.account || "Account"), React.createElement("span", {
     className: "mono"
-  }, fmtQty(f.qty), " sh @ ", fmtUsd(f.price), " ", React.createElement("span", {
+  }, fmtQty(f.qty), " ", unit(f.qty), " @ ", fmtUsd(f.price), " ", React.createElement("span", {
     className: "dim"
   }, "\xB7"), " ", fmtUsd(f.value)), React.createElement("span", {
     className: "bc-pill p-ok"
@@ -3235,6 +3247,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787679754501:509097150
+// cache-bust:1787681930679:808449670
 
-// cache-bust:1787679754501:509097150
+// cache-bust:1787681930679:808449670

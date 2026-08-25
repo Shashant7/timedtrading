@@ -315,6 +315,54 @@ describe("isConvexityPlayActionable", () => {
     })).toBe(true);
   });
 
+  it("surfaces a same-day AMC earnings-prep FADE put opposing a bullish base contract (INTU)", () => {
+    // Real 2026-08-25 shape: base trader contract is LONG (HTF_BULL_LTF_PULLBACK,
+    // tp above spot) but the read is FADE/SHORT into an AMC print; the 0.15Δ put
+    // lands ~6.5% OTM. Before the earnings-prep relaxations this was dropped by
+    // BOTH the direction-oppose gate and the 5% swing drift ceiling.
+    expect(isConvexityPlayActionable({
+      play: {
+        archetype: "lotto_put",
+        _earnings_prep: true,
+        _h4_close_pending: true,
+        expiration: { dte: 3 },
+        strikes: { primary: 335 },
+        max_loss_usd: 129,
+        premium: { mid: 1.29 },
+      },
+      play_class: "lotto",
+      confluence: {
+        mode: "FADE",
+        side: "SHORT",
+        timing: { put_opportunity: true, call_opportunity: false },
+      },
+      contract: { direction: "LONG", sl: 344.23, atr_pct: 0.041 },
+      spot: 358.46,
+      chain_status: "not_attempted",
+      as_of_ms: Date.now(),
+    })).toBe(true);
+  });
+
+  it("keeps the tight 5% drift ceiling for non-earnings swing lottos", () => {
+    // Guard: the wider OTM band is earnings-prep only — a plain swing lotto
+    // 7% OTM must still be rejected as too far to be a real convexity leg.
+    expect(isConvexityPlayActionable({
+      play: {
+        archetype: "lotto_call",
+        expiration: { dte: 3 },
+        strikes: { primary: 107 },
+        max_loss_usd: 50,
+        premium: { mid: 0.5 },
+      },
+      play_class: "lotto",
+      confluence: { mode: "RIDE", side: "LONG", timing: { call_opportunity: true } },
+      contract: { direction: "LONG", sl: 98, atr_pct: 0.02 },
+      spot: 100,
+      chain_status: "not_attempted",
+      as_of_ms: Date.now(),
+    })).toBe(false);
+  });
+
   it("rejects 0 DTE on the convexity strip", () => {
     expect(isConvexityPlayActionable({
       play: { ...basePlay, expiration: { dte: 0, iso: "2026-08-25" } },
