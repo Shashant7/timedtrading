@@ -95199,6 +95199,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
           const _opaCacheKey = `timed:options:plays-of-day:${profile}:${limit}`;
           const _bypassCache = String(url.searchParams.get("_nocache") || "0") === "1";
+          // dt_only=1 (internal only) runs JUST the index day-trade section so
+          // the */1 cron can advance the paper book + fire trim/exit/stop
+          // signals near-real-time without re-running the 20-ticker swing scan.
+          const _dtOnly = String(url.searchParams.get("dt_only") || "0") === "1";
+          // Paper-book mutation + Discord/broker dispatch is a SIDE EFFECT that
+          // must be driven only by the internal */5 cron self-dispatch (which
+          // carries the API key), never by an organic page load. Otherwise a
+          // user's GET could open/close a paper position out-of-band from the
+          // alert feed — the card would flip to HELD (or vanish as "closed")
+          // with no trade signal ever fired. Organic loads still LOAD and
+          // DISPLAY the book read-only; only the cron advances it.
+          const _dtDispatchAllowed = (() => {
+            try {
+              const k = req.headers.get("X-API-Key") || req.headers.get("x-api-key") || "";
+              return !!env.TIMED_API_KEY && k === env.TIMED_API_KEY;
+            } catch (_) { return false; }
+          })();
           const _optionsPlaysMod = await import("./options-plays.js");
           const _flattenOptionsTickers = (all) => {
             if (Array.isArray(all?.tickers)) return all.tickers;
@@ -95222,7 +95239,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               return _optionsPlaysMod.validateDayTradePlay({ spot, strike, expirationDte: dte }).valid;
             });
           };
-          const _buildDayTradeSection = async (tickers, pricesMap, marketOpen) => {
+          const _buildDayTradeSection = async (tickers, pricesMap, marketOpen, _dtSectionOpts = {}) => {
+            // dispatchOnly (the */1 lean lane) advances the paper book + fires
+            // signals but SKIPS the D1 mark-recording so mark cadence stays on
+            // the */5 tick — the minute lane is about signal latency, not marks.
+            const _dtDispatchOnly = !!_dtSectionOpts.dispatchOnly;
             const _dtTickers = Array.from(_optionsPlaysMod.DAY_TRADE_TICKERS);
             const _pickDtExp = _optionsPlaysMod.pickDayTradeExpiration;
             const _dtExpiration = _pickDtExp(Date.now(), {
@@ -95474,7 +95495,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       plan: _assembled.plan,
                       size: _assembled.size,
                     };
-                    _optDtNotifyPaper(env, {
+                    if (_dtDispatchAllowed) _optDtNotifyPaper(env, {
                       profile,
                       signal_id: _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId,
                       ticker: _dtSym,
@@ -95634,7 +95655,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 // never collide.
                 try {
                   await loadTradeReviewConfig(env).catch(() => {});
-                  if (_optionMarksEnabled(env)) {
+                  if (!_dtDispatchOnly && _optionMarksEnabled(env)) {
                     const _recordTargets = _dtTiers?.tiers?.length
                       ? _dtTiers.tiers.map((t) => ({ play: t, tier: t._tier || "gamma" }))
                       : [{ play: _dtPlay, tier: "gamma" }];
@@ -95672,6 +95693,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               day_trade_generated_at: Date.now(),
             };
           };
+          if (_dtOnly) {
+            // Lean */1 dispatch lane — internal cron only. Advance the paper
+            // book + fire trim/exit/stop signals for the 4 index tickers
+            // without the 20-ticker swing scan. Reuses the internal-only gate
+            // the dispatch itself checks, so a stray public GET can't drive it.
+            if (!_dtDispatchAllowed) {
+              return sendJSON({ ok: false, error_kind: "internal_only" }, 403, corsHeaders(env, req));
+            }
+            let allDt = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
+            if (!allDt) allDt = await kvGetJSON(env.KV_TIMED, "timed:all");
+            const tickersDt = _flattenOptionsTickers(allDt);
+            const _dtPricesRawX = await KV.get("timed:prices").catch(() => null);
+            const _dtPricesMapX = _dtPricesRawX ? (JSON.parse(_dtPricesRawX)?.prices || {}) : {};
+            const _dtMarketOpenX = (typeof isNyRegularMarketOpen === "function") ? isNyRegularMarketOpen() : true;
+            const dtSection = await _buildDayTradeSection(tickersDt, _dtPricesMapX, _dtMarketOpenX, { dispatchOnly: true });
+            return sendJSON({ ok: true, dt_only: true, ...dtSection, generated_at: Date.now() }, 200, corsHeaders(env, req));
+          }
           if (!_bypassCache) {
             const cached = await kvGetJSON(env.KV_TIMED, _opaCacheKey).catch(() => null);
             if (cached && (Date.now() - (Number(cached._cached_at) || 0)) < 5 * 60 * 1000) {
@@ -103633,6 +103671,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.error("[SANITY_SWEEP fast cron] threw:", String(e?.message || e).slice(0, 200));
         }));
       }
+    }
+
+    // 2026-08-25 — 1-minute index day-trade dispatch. The paper book +
+    // Discord/mirror advance ONLY on the internal self-dispatch; the */5
+    // prewarm below covers minutes divisible by 5, so this */1 lane fills
+    // the gaps for near-real-time trim / exit / stop signals (a 5-min lag
+    // can round-trip a 0DTE winner). Monolith-only (engine/research already
+    // returned above); skip %5 minutes so the */5 full builder owns those
+    // ticks and we never double-process the same minute. Lean dt_only path
+    // (4 index tickers, no swing scan, no mark writes). Only inside the
+    // options session so we don't spin the builder overnight.
+    if (_isEveryMin && !_isDedicatedEngine && (_utcM % 5 !== 0)
+        && (typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false)) {
+      ctx.waitUntil((async () => {
+        try {
+          await _selfDispatch("/timed/options/all?dt_only=1&_nocache=1").catch(() => {});
+        } catch (_) { /* never block the per-minute tick on the day-trade lane */ }
+      })());
     }
 
     // 2026-05-30 — Options Plays of the Day cache pre-warm. Fires on
