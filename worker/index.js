@@ -2447,6 +2447,8 @@ const ROUTES = [
   ["POST", "/timed/admin/cro/rewrite-pending",           "POST /timed/admin/cro/rewrite-pending"],
   ["POST", "/timed/admin/cro/rewrite",                   "POST /timed/admin/cro/rewrite"],
   ["POST", "/timed/admin/cro/upticks/sync",              "POST /timed/admin/cro/upticks/sync"],
+  ["GET",  "/timed/admin/cro/gics-sectors",              "GET /timed/admin/cro/gics-sectors"],
+  ["POST", "/timed/admin/cro/gics-sectors/sync",         "POST /timed/admin/cro/gics-sectors/sync"],
   ["POST", "/timed/admin/cro/backfill-cashtags",         "POST /timed/admin/cro/backfill-cashtags"],
   ["POST", "/timed/admin/cto/universe/refresh",          "POST /timed/admin/cto/universe/refresh"],
   ["POST", "/timed/admin/cto/feed/refresh",              "POST /timed/admin/cto/feed/refresh"],
@@ -86276,6 +86278,33 @@ export default {
           const { syncUpticksFromPublication } = await import("./cro/upticks-sync.js");
           const r = await syncUpticksFromPublication(env, pubId, { force: !!body.force, ctx });
           return sendJSON(r, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/cro/gics-sectors — cached FSD GICS S&P sector map
+      if (routeKey === "GET /timed/admin/cro/gics-sectors") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { getFsdGicsSectorMap, FSD_GICS_SECTOR_META_KV_KEY } = await import("./cro/fsd-gics-sectors.js");
+          const map = await getFsdGicsSectorMap(env);
+          const meta = await kvGetJSON(KV, FSD_GICS_SECTOR_META_KV_KEY).catch(() => null);
+          return sendJSON({ ok: true, map, meta }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/cro/gics-sectors/sync — fetch FSD ETF-sectors page + KV
+      if (routeKey === "POST /timed/admin/cro/gics-sectors/sync") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { syncFsdGicsSectorMap } = await import("./cro/fsd-gics-sectors.js");
+          const r = await syncFsdGicsSectorMap(env);
+          return sendJSON(r, r.ok ? 200 : 502, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
