@@ -1098,21 +1098,7 @@ function dayTradePlanFacts({
   return cells;
 }
 function dayTradeFactsRow(cells) {
-  if (!cells || !cells.length) return null;
-  return h("div", {
-    className: "tt-dt-plan__facts",
-    style: {
-      "--tt-dt-fact-n": cells.length
-    }
-  }, cells.map((c, i) => h("div", {
-    key: c.k + i,
-    className: `tt-dt-plan__fact${c.tone ? ` tt-dt-plan__fact--${c.tone}` : ""}`,
-    title: c.title || undefined
-  }, h("span", {
-    className: "tt-dt-plan__fk"
-  }, c.k), h("span", {
-    className: "tt-dt-plan__fv"
-  }, c.v))));
+  return stripFactStack(cells);
 }
 function stripFactStack(items, opts = {}) {
   if (!items || !items.length) return null;
@@ -2731,6 +2717,11 @@ function IndexDayTradeStrip({
       const pFlav = pos.flavor === "put" ? "put" : "call";
       const pExpShort = formatExpShort(pos.expiration);
       const pContracts = Number(pos.contracts_remaining || pos.contracts) || 1;
+      const posMidBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
+        compact: true,
+        planLabel: "Position plan",
+        trackTitle: pFlav === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
+      }) : null;
       const heldChip = h("span", {
         key: "held",
         className: "ds-chip ds-chip--sm " + (pPnl != null && pPnl < 0 ? "ds-chip--dn" : "ds-chip--up"),
@@ -2748,6 +2739,12 @@ function IndexDayTradeStrip({
         }
       }, String(pos.size_label).toUpperCase()) : null;
       const posPunch = `HOLDING ${sym} ${Math.round(Number(pos.strike))}${pFlav === "put" ? "P" : "C"}${pExpShort ? ` ${pExpShort}` : ""} — ${pContracts} contract${pContracts === 1 ? "" : "s"}`;
+      const posTrimmed = String(pos.status || "").toLowerCase() === "trimmed";
+      const pStop = Number(pos.stop_premium);
+      const pTrim = Number(pos.trim_premium);
+      const pExit = Number(pos.exit_premium);
+      const pTrail = Number(pos.trail_stop_premium);
+      const pStopUl = Number(pos.stop_underlying);
       const posFacts = [Number(pos.entry_premium) > 0 ? {
         k: "ENTRY",
         v: `$${Number(pos.entry_premium).toFixed(2)}`,
@@ -2764,6 +2761,31 @@ function IndexDayTradeStrip({
         k: "P&L",
         v: `${pPnl >= 0 ? "+" : ""}${pPnl.toFixed(0)}%`,
         tone: pPnl >= 0 ? "trim" : "exit"
+      } : null, posTrimmed ? pTrail > 0 ? {
+        k: "TRAIL",
+        v: `$${pTrail.toFixed(2)}`,
+        tone: "trim",
+        title: "Breakeven / trail stop on the runner"
+      } : null : pTrim > 0 ? {
+        k: "TRIM",
+        v: `$${pTrim.toFixed(2)}`,
+        tone: "trim",
+        title: "Trim half here (1R)"
+      } : null, pExit > 0 ? {
+        k: "EXIT",
+        v: `$${pExit.toFixed(2)}`,
+        tone: "trim",
+        title: "Runner exit target (2R)"
+      } : null, pStop > 0 ? {
+        k: "STOP",
+        v: `$${pStop.toFixed(2)}`,
+        tone: "exit",
+        title: "Premium hard stop (-50%)"
+      } : null, pStopUl > 0 ? {
+        k: "STOP U/L",
+        v: `$${pStopUl.toFixed(2)}`,
+        tone: "exit",
+        title: `${sym} ${pFlav === "put" ? "reclaims" : "loses"} this level — thesis break`
       } : null].filter(Boolean);
       const posMgmtLine = dayTradePositionMgmtLine(pos, {
         ticker: sym
@@ -2792,7 +2814,7 @@ function IndexDayTradeStrip({
           extLine: null
         },
         sparkSvg,
-        midBody: null,
+        midBody: posMidBody,
         metrics: []
       }), h("div", {
         className: "tt-strip-card__foot"
@@ -9076,6 +9098,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787687256433:724759712
+// cache-bust:1787689800865:369612819
 
-// cache-bust:1787687256433:724759712
+// cache-bust:1787689800865:369612819

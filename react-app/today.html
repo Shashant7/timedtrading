@@ -4138,17 +4138,10 @@
         return cells;
       }
       function dayTradeFactsRow(cells) {
-        if (!cells || !cells.length) return null;
-        return h("div", { className: "tt-dt-plan__facts", style: { "--tt-dt-fact-n": cells.length } },
-          cells.map((c, i) => h("div", {
-            key: c.k + i,
-            className: `tt-dt-plan__fact${c.tone ? ` tt-dt-plan__fact--${c.tone}` : ""}`,
-            title: c.title || undefined,
-          },
-            h("span", { className: "tt-dt-plan__fk" }, c.k),
-            h("span", { className: "tt-dt-plan__fv" }, c.v),
-          )),
-        );
+        // Unified with the options-lotto strip: render the day-trade facts
+        // through the same 2-col label/value stack (stripFactStack) so every
+        // strip shares one grid instead of the old single-row layout.
+        return stripFactStack(cells);
       }
 
       function stripFactStack(items, opts = {}) {
@@ -5809,6 +5802,18 @@
                 const pFlav = pos.flavor === "put" ? "put" : "call";
                 const pExpShort = formatExpShort(pos.expiration);
                 const pContracts = Number(pos.contracts_remaining || pos.contracts) || 1;
+                // Same zone/progress track the signal cards show — an open
+                // position was previously blank (midBody null), so the held
+                // QQQ/SPY card lost its invalidation↔target bar.
+                const posMidBody = zm && LaneCard?.zoneBarTrack
+                  ? LaneCard.zoneBarTrack(zm, {
+                      compact: true,
+                      planLabel: "Position plan",
+                      trackTitle: pFlav === "put"
+                        ? "Put path — invalidation above, first target below."
+                        : "Call path — invalidation below, first target above.",
+                    })
+                  : null;
                 const heldChip = h("span", {
                   key: "held",
                   className: "ds-chip ds-chip--sm " + (pPnl != null && pPnl < 0 ? "ds-chip--dn" : "ds-chip--up"),
@@ -5820,11 +5825,25 @@
                   style: { fontFamily: "var(--tt-font-mono)" },
                 }, String(pos.size_label).toUpperCase()) : null;
                 const posPunch = `HOLDING ${sym} ${Math.round(Number(pos.strike))}${pFlav === "put" ? "P" : "C"}${pExpShort ? ` ${pExpShort}` : ""} — ${pContracts} contract${pContracts === 1 ? "" : "s"}`;
+                const posTrimmed = String(pos.status || "").toLowerCase() === "trimmed";
+                const pStop = Number(pos.stop_premium);
+                const pTrim = Number(pos.trim_premium);
+                const pExit = Number(pos.exit_premium);
+                const pTrail = Number(pos.trail_stop_premium);
+                const pStopUl = Number(pos.stop_underlying);
+                // Mirror the Discord bracket: entry/live/peak, then the exit
+                // doctrine (TRIM / EXIT / STOP) the trader manages against.
                 const posFacts = [
                   Number(pos.entry_premium) > 0 ? { k: "ENTRY", v: `$${Number(pos.entry_premium).toFixed(2)}`, tone: "" } : null,
                   Number(pos.last_premium) > 0 ? { k: "LIVE", v: `$${Number(pos.last_premium).toFixed(2)}`, tone: "live" } : null,
                   Number(pos.peak_premium) > 0 ? { k: "PEAK", v: `$${Number(pos.peak_premium).toFixed(2)}`, tone: "trim" } : null,
                   pPnl != null ? { k: "P&L", v: `${pPnl >= 0 ? "+" : ""}${pPnl.toFixed(0)}%`, tone: pPnl >= 0 ? "trim" : "exit" } : null,
+                  posTrimmed
+                    ? (pTrail > 0 ? { k: "TRAIL", v: `$${pTrail.toFixed(2)}`, tone: "trim", title: "Breakeven / trail stop on the runner" } : null)
+                    : (pTrim > 0 ? { k: "TRIM", v: `$${pTrim.toFixed(2)}`, tone: "trim", title: "Trim half here (1R)" } : null),
+                  pExit > 0 ? { k: "EXIT", v: `$${pExit.toFixed(2)}`, tone: "trim", title: "Runner exit target (2R)" } : null,
+                  pStop > 0 ? { k: "STOP", v: `$${pStop.toFixed(2)}`, tone: "exit", title: "Premium hard stop (-50%)" } : null,
+                  pStopUl > 0 ? { k: "STOP U/L", v: `$${pStopUl.toFixed(2)}`, tone: "exit", title: `${sym} ${pFlav === "put" ? "reclaims" : "loses"} this level — thesis break` } : null,
                 ].filter(Boolean);
                 const posMgmtLine = dayTradePositionMgmtLine(pos, { ticker: sym });
                 posCard = h("div", { key: sym + ":pos", className: "tt-strip-card tt-strip-card--position", role: "listitem" },
@@ -5840,7 +5859,7 @@
                     mtfBelow: true,
                     quote: { price: livePrice, dayPct, dayChg, dir: quoteDir, extLine: null },
                     sparkSvg,
-                    midBody: null,
+                    midBody: posMidBody,
                     metrics: [],
                   }),
                   h("div", { className: "tt-strip-card__foot" },
