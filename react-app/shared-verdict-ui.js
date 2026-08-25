@@ -1073,6 +1073,30 @@
       return h(React.Fragment, null, rows);
     }
 
+    // 2-col label/value stack — mirrors today.html's stripFactStack so the
+    // Capital-shortlist cards share ONE fact layout with the options-lotto
+    // and growth/family/value strips. Long-form values (Hold) span the row.
+    function stripFactsStack(facts) {
+      var list = (facts || []).filter(function (f) { return f && f.value; });
+      if (!list.length) return null;
+      var kids = list.map(function (f, i) {
+        var label = String(f.label || "");
+        var full = /^(catalyst|implied|crush|needs|exit|hold|own)/i.test(label);
+        var tone = stripFactToneToCell(f.tone);
+        return h("div", {
+          key: stripFactKey(label) + i,
+          className: "tt-strip-fact-stack__item" + (full ? " tt-strip-fact-stack__item--full" : ""),
+          title: f.title || undefined,
+        },
+          h("span", { className: "tt-strip-fact-stack__k" }, stripFactKey(label)),
+          h("span", {
+            className: "tt-strip-fact-stack__v" + (tone ? " tt-strip-fact-stack__v--" + tone : ""),
+          }, String(f.value)),
+        );
+      });
+      return h("div", { className: "tt-strip-fact-stack" }, kids);
+    }
+
     function LaneBadge(props) {
       var lane = String(props.lane || "trader").toLowerCase();
       var isInvestor = lane === "investor";
@@ -1561,7 +1585,7 @@
       var investorByTicker = props.investorByTicker || null;
       var LaneCard = window.TTLaneCard;
       var planFacts = function (facts) {
-        return stripFactsGrid(facts);
+        return stripFactsStack(facts);
       };
       return wrap(h(React.Fragment, null,
         headCopy,
