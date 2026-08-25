@@ -1,0 +1,21 @@
+### Health Care
+
+###### ETF: XLV
+
+Health care consists of medical supply companies.
+
+| Company Name | Ticker |
+| --- | --- |
+| Eli Lilly and Company | LLY |
+| Merck & Co., Inc. | MRK |
+
+### Energy
+
+###### ETF: XLE
+
+The energy sector consists of oil and gas companies.
+
+| Company Name | Ticker |
+| --- | --- |
+| Exxon Mobil Corporation | XOM |
+| Chevron Corporation | CVX |

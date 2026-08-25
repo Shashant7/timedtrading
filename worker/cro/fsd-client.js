@@ -778,6 +778,41 @@ export async function fetchFSDPublication(env, sourceUrlOrId, opts = {}) {
   }
 }
 
+/** GET a members-area HTML page using the cached FSD login session. */
+export async function fetchAuthenticatedFsdPage(env, pathOrUrl, { cfg: cfgIn } = {}) {
+  const cfg = cfgIn || await getConfig(env);
+  const auth = await loginFSD(env);
+  if (!auth.ok) {
+    return { ok: false, error_kind: auth.error_kind || "login_failed", hint: auth.hint, login_probe: auth.probe_summary || null };
+  }
+  const url = urlJoin(cfg.base_url, pathOrUrl);
+  try {
+    const { signal, done: req } = withTimeout(
+      fetch(url, {
+        method: "GET",
+        headers: {
+          "User-Agent": cfg.user_agent,
+          "Accept": "text/html,application/xhtml+xml",
+          "Cookie": serializeCookieHeader(auth.cookies),
+        },
+      }),
+      FETCH_TIMEOUT_MS,
+    );
+    const resp = await Object.assign(req, { signal });
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        try { await env.KV?.delete(SESSION_KV_KEY); } catch (_) {}
+        return { ok: false, error_kind: "page_unauthorized", hint: "session expired; retry after re-login", status: resp.status, url };
+      }
+      return { ok: false, error_kind: "page_http_error", status: resp.status, url };
+    }
+    const html = await resp.text().catch(() => "");
+    return { ok: true, html, url, fetched_at: Date.now(), auth_from_cache: !!auth.from_cache };
+  } catch (e) {
+    return { ok: false, error_kind: "page_exception", hint: String(e?.message || e).slice(0, 200), url };
+  }
+}
+
 export function describeDefaultConfig() {
   return {
     description: "Operator-tunable config for the FSD scraper. Override via KV cro:fsd:config (partial merge). Default wp_rest uses login cookies when FSD_USERNAME/FSD_PASSWORD are set. Never scrape /fsi-alert HTML (paywalled shell).",
