@@ -21,7 +21,7 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-- [ ] **Strip published stamp + lotto earnings play (2026-08-25).** Two
+- [x] **Strip published stamp + lotto earnings play (2026-08-25).** Two
       operator asks on the Today strips.
       1. **Published stamp.** Index Day-Trade and Lotto cards refresh on
          their own cadence but never said when the copy was built, so a
@@ -45,7 +45,10 @@
          verdict (CONFLUENT / MIXED / THIN), underlying target, and the
          IV-crush + `covers_print` honesty checks. Bounded to the top 3
          earnings-prep cards per scan (one chain fetch each, inside the
-         10-min cache miss path). Branch:
+         10-min cache miss path). Verified by a jsdom render of the
+         compiled Today page (`tests/today-strip-stamp-earnings.test.js`)
+         — both stamps and the full earnings block land in the DOM. Not
+         yet checked against a live earnings-prep card. Branch:
          `cursor/strip-stamp-earnings-lotto-dbdd`.
 - [x] **ST share broker follow-through cutoff 7pm ET (2026-08-25).** Post-RTH (earnings) stays; 8pm Discord TSLA/DPZ cannot fill — official AH ends 8pm and overnight is select names. Live ST equity exit/trim + trader mirror stop at 19:00 ET; 16:00–19:00 uses LIMIT+ALL+GTC. Replay unchanged. Branch: `cursor/st-ah-broker-cutoff-dbdd`.
 - [x] **Health watchdog 11m lockstep false page (2026-08-24).** Run 32768985744: 59 symbols all 11m (BK/BNY/CRDO…), feed/chain/scoring green. Align `/timed/health` with feed 20m page window; watchdog fails only if max age ≥20m. Branch: `cursor/watchdog-stale-grace-dbdd`.
