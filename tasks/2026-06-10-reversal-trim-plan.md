@@ -114,6 +114,35 @@ demotion is the only self-acting path):
 Earlier follow-ups (CIO `timing_overlay` context + S4 shadow advisory)
 shipped in PR #556.
 
+## Phase 4 — leadership soft-skip (2026-08-25)
+
+Scorecard at enforcement flip: evaluated=23, helped=16, hurt=5–6,
+avg weighted saved=+0.3%, verdict `ENFORCEMENT_SUPPORTED`. Proposal #19
+applied (`reversal_trim_advisor_enforce=true`).
+
+**What drove the hurt cases higher (not "sector was ripping"):**
+
+| Ticker | Cohort | Advisory pnl | What kept it running |
+|---|---|---|---|
+| LLY, HALO | Health Care `growth_elite` compounders | ~1.0–1.3% | Idiosyncratic leadership (weight-loss / specialty growth) — sector rating was *underweight*, so sector beta alone does not explain continuation |
+| USO, XLRE, CIBR | commodity / sector / thematic ETFs | ~1.0–1.2% | Proxy grind on theme/regime; stock-style exhaustion + macro FSD is a poor trim trigger |
+| RTX | Industrials `growth_strong`, already +7.7% with extension_58 | 7.67% | Legitimate lock-gains case that still ran ~2pts — keep advising |
+
+Industrials were actually the *helped* sector (overweight, but names gave back after advisory). So "sector going well" is not the filter — **leadership archetype** is.
+
+**Gate (counterfactual on scorecard: skip 5/6 hurts, 0 helped):**
+- Soft-skip when `pnl < 3%` AND `extension_score < 55` AND
+  (`_ticker_type` ∈ {sector,commodity,thematic,broad}_etf OR
+   `_compounder.tier === growth_elite`).
+- Soften strength (cap at 25%) for those cohorts once they clear the
+  early bar without hard extension.
+- Soften early non-leader advisories that were upgraded to "strong"
+  solely by `fsd_risk_off` without extension / index watch.
+- Same gate on the Phase-3 enforcement path in `classifyKanbanStage`.
+
+Helpers: `resolveReversalTrimLeadershipGate` +
+`evaluateReversalTrimAdvisory` in `worker/timing-signals.js`.
+
 ## Related defaults worth revisiting at enforcement time
 
 `deep_audit_ripster_5_12_trim_min_pnl_pct` (1.5%),

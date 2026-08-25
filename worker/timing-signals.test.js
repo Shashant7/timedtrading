@@ -8,6 +8,7 @@ import {
   evaluateBroadIndexExtensionWatch,
   evaluateBroadIndexCompressionWatch,
   evaluateReversalTrimAdvisory,
+  resolveReversalTrimLeadershipGate,
   bearishTdPrepCount,
   bullishTdPrepCount,
 } from "./timing-signals.js";
@@ -401,5 +402,95 @@ describe("evaluateReversalTrimAdvisory — shadow reversal-trim advisor", () => 
     expect(out.active).toBe(true);
     expect(out.advisories[0].direction).toBe("SHORT");
     expect(out.advisories[0].pnl_pct).toBeCloseTo(12, 1);
+  });
+
+  it("soft-skips early growth_elite winners without hard extension (LLY/HALO pattern)", () => {
+    const eliteSnap = {
+      ticker: "LLY",
+      price: 101.3,
+      _ticker_type: "large_cap",
+      _compounder: { tier: "growth_elite" },
+      timing_overlay: {
+        trim_winners: true,
+        extension_score: 30,
+        warnings: ["markov_dwell_exhausted_6sigma", "fsd_macro_risk_off", "daily_td9_at_8"],
+        compressions: [],
+      },
+    };
+    const out = evaluateReversalTrimAdvisory({
+      openTrades: [{ ticker: "LLY", status: "OPEN", direction: "LONG", entry_price: 100, trimmed_pct: 0 }],
+      getSnapshot: () => eliteSnap,
+      indexWatch: { active: false, breadth: 0 },
+    });
+    expect(out.active).toBe(false);
+    expect(resolveReversalTrimLeadershipGate({
+      snap: eliteSnap, pnlPct: 1.3, overlay: eliteSnap.timing_overlay,
+    }).skip).toBe(true);
+  });
+
+  it("soft-skips early proxy ETFs without hard extension (USO/XLRE/CIBR pattern)", () => {
+    const etfSnap = {
+      ticker: "USO",
+      price: 101,
+      _ticker_type: "commodity_etf",
+      timing_overlay: {
+        trim_winners: true,
+        extension_score: 28,
+        warnings: ["markov_dwell_exhausted_10sigma", "fsd_macro_risk_off"],
+        compressions: [],
+      },
+    };
+    const out = evaluateReversalTrimAdvisory({
+      openTrades: [{ ticker: "USO", status: "OPEN", direction: "LONG", entry_price: 100, trimmed_pct: 0 }],
+      getSnapshot: () => etfSnap,
+      indexWatch: { active: false, breadth: 0 },
+    });
+    expect(out.active).toBe(false);
+  });
+
+  it("still advises growth_elite once pnl clears the early bar (PWR pattern)", () => {
+    const eliteSnap = {
+      ticker: "PWR",
+      price: 103.6,
+      _ticker_type: "large_cap",
+      _compounder: { tier: "growth_elite" },
+      timing_overlay: {
+        trim_winners: true,
+        extension_score: 40,
+        warnings: ["daily_td9_at_8", "weekly_td9_at_9", "fsd_macro_risk_off"],
+        compressions: [],
+      },
+    };
+    const out = evaluateReversalTrimAdvisory({
+      openTrades: [{ ticker: "PWR", status: "OPEN", direction: "LONG", entry_price: 100, trimmed_pct: 0 }],
+      getSnapshot: () => eliteSnap,
+      indexWatch: { active: false, breadth: 0 },
+    });
+    expect(out.active).toBe(true);
+    expect(out.advisories[0].strength).toBe("standard"); // softened — no hard extension
+    expect(out.advisories[0].suggested_trim_pct).toBe(0.25);
+    expect(out.advisories[0].reasons).toContain("leader_soften_growth_elite");
+  });
+
+  it("still advises when growth_elite has hard extension even at early pnl", () => {
+    const eliteSnap = {
+      ticker: "HALO",
+      price: 101.5,
+      _ticker_type: "large_cap",
+      _compounder: { tier: "growth_elite" },
+      timing_overlay: {
+        trim_winners: true,
+        extension_score: 62,
+        warnings: ["daily_td9_at_8", "fsd_macro_risk_off"],
+        compressions: [],
+      },
+    };
+    const out = evaluateReversalTrimAdvisory({
+      openTrades: [{ ticker: "HALO", status: "OPEN", direction: "LONG", entry_price: 100, trimmed_pct: 0 }],
+      getSnapshot: () => eliteSnap,
+      indexWatch: { active: false, breadth: 0 },
+    });
+    expect(out.active).toBe(true);
+    expect(out.advisories[0].reasons).toContain("extension_62");
   });
 });

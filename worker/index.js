@@ -995,6 +995,7 @@ import {
   evaluateBroadIndexExtensionWatch,
   evaluateBroadIndexCompressionWatch,
   evaluateReversalTrimAdvisory,
+  resolveReversalTrimLeadershipGate,
   formatIndexWatchFlashSection,
   humanizeExhaustionWarning as _humanizeExhaustionWarning,
 } from "./timing-signals.js";
@@ -13274,9 +13275,18 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // It also overrides the favorable-zone structure shield below: locking
     // gains near the high on stacked reversal signals is the entire point.
     const _rtaEnfCfg = tickerData?._env?._deepAuditConfig || {};
+    // Phase 4 leadership soft-skip — same gate as evaluateReversalTrimAdvisory
+    // so enforcement does not trim early growth_elite / proxy-ETF winners that
+    // the scorecard showed tend to keep running after FSD risk-off alone.
+    const _rtaLeadership = resolveReversalTrimLeadershipGate({
+      snap: tickerData,
+      pnlPct,
+      overlay: _timingOverlay,
+    });
     const reversalAdvisorTrim = String(_rtaEnfCfg?.reversal_trim_advisor_enforce ?? "false") === "true"
       && direction === "LONG"
       && pnlPct >= 1
+      && !_rtaLeadership.skip
       && _timingOverlay?.trim_winners === true
       && (Number(_timingOverlay?.extension_score) >= 55
           || (Array.isArray(_timingOverlay?.warnings) && _timingOverlay.warnings.length >= 2));

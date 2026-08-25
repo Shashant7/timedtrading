@@ -721,8 +721,64 @@ export function evaluateBroadIndexCompressionWatch(snapshots = {}) {
 // persists it to KV + Discord. Enforcement (auto-trim) is a separate,
 // operator-gated phase once the advisory's hit rate is proven.
 //
+// Phase 4 (2026-08-25) — leadership soft-skip: scorecard hurt cases were
+// dominated by early (~1% pnl) advisories on growth_elite compounders
+// (LLY/HALO) and proxy ETFs (USO/XLRE/CIBR) that kept grinding higher.
+// Macro `fsd_risk_off` alone was upgrading them to "strong" 33% trims.
+// Soft-skip early winners in those cohorts unless extension_score ≥ 55
+// (real stretch). Counterfactual on n=22: removes 5/6 hurts, 0 helped.
+//
 // Pure function — no KV/D1/env. Unit-tested in timing-signals.test.js.
 // ─────────────────────────────────────────────────────────────────────────────
+
+const REVERSAL_TRIM_PROXY_ETF_TYPES = new Set([
+  "sector_etf",
+  "commodity_etf",
+  "thematic_etf",
+  "broad_etf",
+]);
+
+/** Early pnl threshold (pct) below which leadership soft-skip applies. */
+export const REVERSAL_TRIM_LEADER_EARLY_PNL_PCT = 3;
+
+/**
+ * Soft-skip / soften gate for names that tend to keep running after an
+ * early FSD-risk-off advisory (compounder elites + sector/commodity ETFs).
+ *
+ * @returns {{ skip: boolean, soften: boolean, reasons: string[], ticker_type: string, compounder_tier: string }}
+ */
+export function resolveReversalTrimLeadershipGate({ snap = null, pnlPct = 0, overlay = null } = {}) {
+  const tickerType = String(snap?._ticker_type || snap?._tickerProfile?.type || "").toLowerCase();
+  const compounderTier = String(
+    snap?._compounder?.tier
+    || snap?._business_character?.compounder_tier
+    || "",
+  ).toLowerCase();
+  const extensionScore = Number(overlay?.extension_score ?? snap?.timing_overlay?.extension_score) || 0;
+  const early = Number(pnlPct) < REVERSAL_TRIM_LEADER_EARLY_PNL_PCT;
+  const hardExtension = extensionScore >= 55;
+  const isProxyEtf = REVERSAL_TRIM_PROXY_ETF_TYPES.has(tickerType);
+  const isGrowthElite = compounderTier === "growth_elite";
+  const reasons = [];
+  let skip = false;
+  let soften = false;
+
+  if (early && !hardExtension && isProxyEtf) {
+    skip = true;
+    reasons.push("leader_skip_proxy_etf_early");
+  } else if (early && !hardExtension && isGrowthElite) {
+    skip = true;
+    reasons.push("leader_skip_growth_elite_early");
+  } else if ((isProxyEtf || isGrowthElite) && !hardExtension) {
+    // Passed the skip bar (pnl ≥ 3) but still prefer a lighter trim —
+    // don't let macro FSD alone mark these "strong".
+    soften = true;
+    reasons.push(isProxyEtf ? "leader_soften_proxy_etf" : "leader_soften_growth_elite");
+  }
+
+  return { skip, soften, reasons, ticker_type: tickerType, compounder_tier: compounderTier };
+}
+
 export function evaluateReversalTrimAdvisory({ openTrades = [], getSnapshot, indexWatch = null, now = Date.now() } = {}) {
   const advisories = [];
   const marketStretch = !!(indexWatch && indexWatch.active);
@@ -775,7 +831,21 @@ export function evaluateReversalTrimAdvisory({ openTrades = [], getSnapshot, ind
     // or strong pnl; 2+ ticker reasons = advisory on its own.
     if (tickerReasons.length === 1 && !marketStretch && pnlPct < 3) continue;
 
-    const strong = tickerReasons.length >= 2 && (marketStretch || warnings.includes("fsd_macro_risk_off"));
+    // Leadership soft-skip (Phase 4) — early winners in growth_elite /
+    // proxy-ETF cohorts without hard extension tend to keep running;
+    // macro FSD risk-off alone is not enough to trim them.
+    const leadership = resolveReversalTrimLeadershipGate({ snap, pnlPct, overlay });
+    if (leadership.skip) continue;
+    if (leadership.reasons.length) reasons.push(...leadership.reasons);
+
+    let strong = tickerReasons.length >= 2 && (marketStretch || warnings.includes("fsd_macro_risk_off"));
+    if (strong && leadership.soften) strong = false;
+    // Early winners without hard extension: don't upgrade to "strong" on
+    // fsd_risk_off alone — still advise at 25% when other gates pass.
+    if (strong && pnlPct < REVERSAL_TRIM_LEADER_EARLY_PNL_PCT && Number(overlay?.extension_score) < 55 && !marketStretch) {
+      strong = false;
+      reasons.push("early_fsd_softened");
+    }
     const suggested = strong ? 0.33 : 0.25;
 
     advisories.push({
