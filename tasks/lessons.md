@@ -6,6 +6,28 @@
 
 ---
 
+## Health watchdog false-paged 59 names at 11m [2026-08-24]
+
+**Symptom:** GitHub Health watchdog red at 19:35 UTC
+(`main` `ba08415`, run 32768985744, 33s). Email:
+`59 symbols display-stale — BK:11m,BNY:11m,CRDO:11m,DKS:11m,MOD:11m,
+NBIX:11m,NTRA:11m,P:11m,RKT:11m,RMBS:11m`.
+
+**Not a feed outage.** Same probe: `ok=true`, `pricesAgeSec=8`,
+`cronTickAgeMin=0.3`, `minutesSinceScoring=1`, tt-feed `prices_age_sec=29`,
+chain-smoke `feed=ok candles=ok scoring=ok overlay=ok`. Self-heal skipped
+(prices already fresh). Live `/timed/health` 12 min later:
+`valueStaleCount=0`.
+
+**Cause:** `/timed/health` counted overlay-stale at **10m with no grace**.
+Feed Discord `price_value_freshness` already uses 10m + **10m grace**
+(page at 20m). Quiet names (same BK/BNY/CRDO cluster as 2026-07-28/29)
+crossed 10m in lockstep. Watchdog fails at `valueStaleCount >= 40`.
+
+**Fix:** Health uses `VALUE_STALE_PAGE_GRACE_MS`. Watchdog fails ≥40
+only when `valueStaleMaxAgeMin >= 20` (or `:never`). 11–19m lockstep
+is a notice.
+
 ## QQQ options SELL leaked as an equity reject [2026-08-24]
 
 **Symptom:** Broker Connections showed `MIRROR SELL QQQ 1 sh @ $1.75

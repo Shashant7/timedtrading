@@ -123,13 +123,29 @@ jobs:
               # SPY/QQQ chain smoke stays green (MU/WDC incident doctrine).
               VALUE_STALE=$(echo "$HEALTH" | jq -r '.valueStaleCount // "null"')
               VALUE_LIST=$(echo "$HEALTH" | jq -r '(.valueStaleSymbols // []) | join(",")')
+              VALUE_MAX=$(echo "$HEALTH" | jq -r '.valueStaleMaxAgeMin // "null"')
               STALESYMS=$(echo "$HEALTH" | jq -r '.staleSymbolCount // "null"')
               STALELIST=$(echo "$HEALTH" | jq -r '(.staleSymbols // []) | join(",")')
+              # Fail only on widespread display-staleness (≥40) that has
+              # aged past the 20m page window (10m freshness + 10m grace).
+              # 2026-08-24: 59 names all 11m, feed/chain green — Health used
+              # the 10m overlay gate with no grace, so lockstep quiet tape
+              # (BK/BNY/CRDO/…) red-ran the watchdog. Sample ages still
+              # apply if an older worker has not shipped valueStaleMaxAgeMin.
+              if [ "$VALUE_MAX" = "null" ] && [ -n "$VALUE_LIST" ]; then
+                VALUE_MAX=$(echo "$VALUE_LIST" | grep -oE '[0-9]+m' | tr -d 'm' | sort -n | tail -1)
+                [ -z "$VALUE_MAX" ] && VALUE_MAX="null"
+              fi
+              VALUE_NEVER=$(echo "$VALUE_LIST" | grep -c ':never' || true)
               # Fail only on widespread display-staleness (≥40). 15–39 stays a
               # notice — quiet names often age past 10m without a wedged feed
               # (watchdog 2026-07-14 AEHR-day false page at 51 with green chain smoke).
               if [ "$VALUE_STALE" != "null" ] && [ "$VALUE_STALE" -ge 40 ]; then
-                FAILED="yes"; DETAIL="$DETAIL $BASE: ${VALUE_STALE} symbols display-stale (vendor quote aged) — ${VALUE_LIST}."
+                if [ "$VALUE_NEVER" -gt 0 ] || { [ "$VALUE_MAX" != "null" ] && [ "$VALUE_MAX" -ge 20 ]; }; then
+                  FAILED="yes"; DETAIL="$DETAIL $BASE: ${VALUE_STALE} symbols display-stale (vendor quote aged, max ${VALUE_MAX}m) — ${VALUE_LIST}."
+                else
+                  echo "::notice::$BASE: ${VALUE_STALE} symbols display-stale under 20m (lockstep quiet tape, max ${VALUE_MAX}m) — ${VALUE_LIST}."
+                fi
               elif [ "$VALUE_STALE" != "null" ] && [ "$VALUE_STALE" -ge 15 ]; then
                 echo "::notice::$BASE: ${VALUE_STALE} symbols display-stale (vendor quote aged) — ${VALUE_LIST}."
               elif [ "$STALESYMS" != "null" ] && [ "$STALESYMS" -gt 50 ]; then

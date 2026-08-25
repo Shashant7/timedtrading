@@ -347,6 +347,8 @@ describe("summarizeValueStaleSymbols", () => {
     expect(res.count).toBe(2);
     // Never-stamped rows sort first (worst), then oldest ages.
     expect(res.symbols).toEqual(["LEGACY:never", "MU:33m"]);
+    expect(res.max_age_min).toBe(33);
+    expect(res.never_stamped).toBe(true);
   });
 
   it("applies grace so quiet-tape lag does not page", () => {
@@ -358,6 +360,17 @@ describe("summarizeValueStaleSymbols", () => {
     const res = summarizeValueStaleSymbols(prices, now, true, 10, { graceMs: 10 * 60_000 });
     expect(res.count).toBe(1);
     expect(res.symbols[0]).toBe("DEAD:45m");
+    expect(res.max_age_min).toBe(45);
+  });
+
+  it("does not count the 11m lockstep cluster that false-paged the Health watchdog", () => {
+    const now = Date.now();
+    const prices = {};
+    for (const sym of ["BK", "BNY", "CRDO", "DKS", "MOD", "NBIX", "NTRA", "P", "RKT", "RMBS"]) {
+      prices[sym] = { p: 10, q_ts: now - 11 * 60_000, p_ts: now - 11 * 60_000 };
+    }
+    const res = summarizeValueStaleSymbols(prices, now, true, 10, { graceMs: 10 * 60_000 });
+    expect(res.count).toBe(0);
   });
 
   it("excludes junk TEST rows from display-staleness accounting", () => {

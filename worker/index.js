@@ -61216,6 +61216,7 @@ export default {
         // was serving prior-day prices. This signal is writer-independent.
         let valueStaleCount = null;
         let valueStaleSymbols = null;
+        let valueStaleMaxAgeMin = null;
         try {
           const pricesRaw = await kvGetJSON(KV, "timed:prices");
           if (pricesRaw?.updated_at) pricesAgeSec = Math.round((Date.now() - Number(pricesRaw.updated_at)) / 1000);
@@ -61226,10 +61227,15 @@ export default {
             staleSymbols = (pricesRaw.stale_symbols || []).slice(0, 10);
           }
           if (pricesRaw?.prices) {
-            const { summarizeValueStaleSymbols } = await import("./feed/feed-outputs.js");
-            const _vs = summarizeValueStaleSymbols(pricesRaw.prices, Date.now(), true, 10);
+            const { summarizeValueStaleSymbols, VALUE_STALE_PAGE_GRACE_MS } = await import("./feed/feed-outputs.js");
+            // Same 10m+10m grace as price_value_freshness Discord — 11m
+            // lockstep quiet names must not red the Health watchdog.
+            const _vs = summarizeValueStaleSymbols(pricesRaw.prices, Date.now(), true, 10, {
+              graceMs: VALUE_STALE_PAGE_GRACE_MS,
+            });
             valueStaleCount = _vs.count;
             valueStaleSymbols = _vs.symbols;
+            valueStaleMaxAgeMin = _vs.max_age_min;
           }
         } catch (_) { /* best-effort */ }
         // Calendar-aware session flags — load Alpaca/KV calendar so holidays
@@ -61254,6 +61260,7 @@ export default {
           staleSymbolCountRaw = null;
           valueStaleCount = valueStaleCount != null ? 0 : null;
           valueStaleSymbols = valueStaleSymbols != null ? [] : null;
+          valueStaleMaxAgeMin = valueStaleCount != null ? 0 : null;
         }
         try {
           const tickRaw = await KV.get("cron:last_5min_tick");
@@ -61433,6 +61440,7 @@ export default {
             staleSymbols,
             valueStaleCount,
             valueStaleSymbols,
+            valueStaleMaxAgeMin,
             nyRthOpen,
             operatingHours,
             engineExternal: String(env.ENGINE_EXTERNAL || "false").toLowerCase() === "true",
