@@ -275,7 +275,13 @@
           stack: true,
         })
       : [];
-    const allChips = chips.concat(mtfChips).concat(listPresetChips);
+    // Opt-in: render the MTF / list-preset chips as a full-width row at the
+    // BOTTOM of the card instead of cramming them into the header next to the
+    // symbol (where a fixed-height header clips them). The header then keeps
+    // only the caller's action/mode chips. Off by default — other strips
+    // (Active Trader, Investor kanban, Today Viewport) are unaffected.
+    const belowChips = p.mtfBelow ? mtfChips.concat(listPresetChips) : [];
+    const allChips = p.mtfBelow ? chips : chips.concat(mtfChips).concat(listPresetChips);
     const metrics = Array.isArray(p.metrics) ? p.metrics.filter(Boolean) : [];
     const hasMid = !!p.midBody;
     const extraClass = p.button?.className ? ` ${p.button.className}` : "";
@@ -316,6 +322,7 @@
         metrics.length > 0 && h("div", { className: "tt-lane-card__metrics" }, ...metrics),
         saveButton({ sym, isSaved: p.isSaved, onToggleSaved: p.onToggleSaved }),
       ),
+      belowChips.length > 0 && h("div", { className: "tt-lane-card__chiprow" }, ...belowChips),
     );
   }
 
@@ -337,4 +344,4 @@
   boot();
 })();
 
-// cache-bust:1787671910527:64030816
+// cache-bust:1787679754501:509097150
