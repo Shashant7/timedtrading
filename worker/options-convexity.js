@@ -414,6 +414,18 @@ function num(v) {
 }
 
 /**
+ * Alpaca chain fetch must include the play strike. A fixed ±8% band around
+ * spot misses deep OTM earnings lottos (INTU 300P when spot is 357).
+ */
+export function chainStrikeRangeForPlay(spot, strike, minPct = 0.08) {
+  const px = num(spot);
+  const k = num(strike);
+  if (!(px > 0) || !(k > 0)) return minPct;
+  const wing = Math.abs(k - px) / px;
+  return Math.min(0.35, Math.max(minPct, wing + 0.02));
+}
+
+/**
  * Overlay a live chain mid on a convexity card — replaces Black-Scholes
  * estimates that understate earnings IV (e.g. INTU 345P ~$9 vs ~$0.9 BS).
  */
@@ -424,6 +436,7 @@ export function overlayConvexityCardPremium(card, chain, ctx = {}) {
   const dir = String(card.direction || "").toUpperCase();
   const side = dir === "SHORT" ? "P" : "C";
   const leg = bindChainLegForStrike(chain, side, strike);
+  if (!leg) return card;
   const spot = num(ctx.spot) ?? num(chain.underlying_price);
   const dte = num(card.expiration?.dte);
   const atrPct = num(ctx.atrPct);
@@ -435,6 +448,7 @@ export function overlayConvexityCardPremium(card, chain, ctx = {}) {
     type: side,
     chainLeg: leg,
   });
+  if (est?.source !== "live_chain") return card;
   const mid = num(est?.mid);
   if (!(mid > 0)) return card;
   card.premium_mid = mid;
@@ -444,6 +458,7 @@ export function overlayConvexityCardPremium(card, chain, ctx = {}) {
     card.max_loss_usd = Math.round(mid * 100);
   }
   card.chain_status = "live";
+  card.premium_source = "live_chain";
   const copy = convexityPlanCopy(card);
   card.headline = copy.punch;
   card.scan_line = copy.scan;
@@ -460,13 +475,15 @@ export async function enrichConvexityChainPremiums(env, cards, opts = {}) {
   if (!fetchChain) return list;
   await Promise.all(list.map(async (card) => {
     if (!card?.ticker || !card?.expiration?.iso) return;
-    if (card.chain_status === "live") return;
+    if (card.premium_source === "live_chain") return;
     const sym = String(card.ticker).toUpperCase();
     const expIso = String(card.expiration.iso).slice(0, 10);
+    const spot = num(opts.spotBySym?.[sym]);
+    const strikeRangePct = chainStrikeRangeForPlay(spot, card.strike, 0.08);
     try {
-      const chain = await fetchChain(env, sym, expIso, { strikeRangePct: 0.08, skipOI: true });
+      const chain = await fetchChain(env, sym, expIso, { strikeRangePct, skipOI: true });
       overlayConvexityCardPremium(card, chain, {
-        spot: opts.spotBySym?.[sym],
+        spot,
         atrPct: opts.atrPctBySym?.[sym],
         lottoMaxLossUsd: opts.lottoMaxLossUsd,
       });

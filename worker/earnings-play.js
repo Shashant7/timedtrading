@@ -15,7 +15,7 @@
 // the chain is missing the implied move is null and the card says so.
 
 import { blackScholes } from "./options-plays.js";
-import { overlayConvexityCardPremium } from "./options-convexity.js";
+import { overlayConvexityCardPremium, chainStrikeRangeForPlay } from "./options-convexity.js";
 import { getStaticCalendar, previousTradingDay } from "./market-calendar.js";
 
 export const EARNINGS_PLAY_MAX_CARDS = 3;
@@ -692,13 +692,15 @@ export async function enrichEarningsPlayCards(env, cards, opts = {}) {
     if (!event?.date) return;
     try {
       const expIso = String(card.expiration?.iso || "").slice(0, 10);
+      const spotPre = num(opts.spotBySym?.[sym]);
+      const strikeRangePct = chainStrikeRangeForPlay(spotPre, card.strike, 0.08);
       const [fundamentals, fsd, chain] = await Promise.all([
         loadFundamentalsSnapshot(env, sym),
         FSD?.loadFSDIntelForTicker
           ? FSD.loadFSDIntelForTicker(env, sym, { limit: 4, lookbackDays: 14, includeText: false }).catch(() => null)
           : Promise.resolve(null),
         (typeof opts.fetchChain === "function" && expIso)
-          ? opts.fetchChain(env, sym, expIso, { strikeRangePct: 0.08, skipOI: true }).catch(() => null)
+          ? opts.fetchChain(env, sym, expIso, { strikeRangePct, skipOI: true }).catch(() => null)
           : Promise.resolve(null),
       ]);
       const spot = num(opts.spotBySym?.[sym]) ?? num(chain?.underlying_price);
