@@ -4747,6 +4747,73 @@
         return { action, flavor, punch, scan, expShort, contractBit };
       }
 
+      // Earnings play block on an earnings-prep lotto card. Server side is
+      // worker/earnings-play.js: catalyst, implied move from the ATM
+      // straddle, and the four-pillar read (technical, fundamentals,
+      // social tape, research desk).
+      function earningsPlayChip(earn) {
+        if (!earn) return null;
+        const label = String(earn.report_date_label || earn.report_date || "").trim();
+        const dateBit = label.includes(" ") ? label.split(" ").slice(1).join(" ") : label;
+        const verdict = String(earn.alignment?.verdict || "").toUpperCase();
+        const cls = verdict === "CONFLUENT"
+          ? "ds-chip ds-chip--sm ds-chip--up"
+          : verdict === "THIN"
+            ? "ds-chip ds-chip--sm ds-chip--solid"
+            : "ds-chip ds-chip--sm ds-chip--accent";
+        return h("span", {
+          key: "earn",
+          className: cls,
+          title: earn.catalyst || "Earnings play",
+          style: { fontFamily: "var(--tt-font-mono)" },
+        }, `EARN ${dateBit}${earn.report_session ? ` ${earn.report_session}` : ""}`);
+      }
+      function earningsPlayFacts(earn) {
+        if (!earn) return [];
+        const rows = [];
+        const label = earn.report_date_label || earn.report_date;
+        const days = Number(earn.days_to_print);
+        rows.push({
+          label: "Catalyst",
+          value: `${earn.report_session ? `${earn.report_session} ` : ""}${label}${Number.isFinite(days) ? ` (${days}d)` : ""}`,
+          title: earn.covers_print === false
+            ? "The contract expires before the print — this trades the run-up, not the event."
+            : "Report date and session from the earnings calendar.",
+        });
+        const movePct = Number(earn.implied_move_pct);
+        const moveUsd = Number(earn.implied_move_usd);
+        rows.push({
+          label: "Implied move",
+          value: Number.isFinite(movePct) && movePct > 0
+            ? `±${movePct.toFixed(1)}%${Number.isFinite(moveUsd) && moveUsd > 0 ? ` ($${moveUsd.toFixed(2)})` : ""}`
+            : "No chain quote",
+          title: earn.implied_move_basis === "atm_straddle"
+            ? "Priced off the at-the-money straddle through this expiration."
+            : earn.implied_move_basis === "iv_sqrt_t"
+              ? "Estimated from at-the-money implied volatility (IV x root-t)."
+              : "The options chain had no quote for this expiration.",
+        });
+        const al = earn.alignment || {};
+        if (al.verdict) {
+          rows.push({
+            label: "Confluence",
+            value: `${al.verdict} · ${al.summary || ""}`.trim(),
+            tone: al.verdict === "CONFLUENT" ? "buy" : al.verdict === "THIN" ? "behind" : "wait",
+            title: (Array.isArray(al.pillars) ? al.pillars : [])
+              .map((p) => `${p.label}: ${p.note}`).join(" — "),
+          });
+        }
+        const tgt = Number(earn.target?.underlying);
+        if (earn.target?.basis === "implied_move" && Number.isFinite(tgt) && tgt > 0) {
+          rows.push({
+            label: "Target",
+            value: `$${tgt.toFixed(2)}`,
+            title: earn.target.note || "Implied-move target",
+          });
+        }
+        return rows;
+      }
+
       // ─────────────────────────────────────────────────────────────
       // ConvexityPlaysStrip — lotto + moonshot row (2026-06-15)
       // GET /timed/options/convexity — Pro-gated; empty when none align.
@@ -4878,7 +4945,10 @@
               const exp = p.expiration || {};
               const expShort = copy.expShort || formatExpShort(exp);
 
+              const earn = p.earnings_play || null;
               const chipRow = optionsPlayChipRow(action, flavor, copy.punch);
+              const earnChip = earningsPlayChip(earn);
+              if (earnChip) chipRow.push(earnChip);
 
               const sparkSvg = LaneCard?.sparkSvgFromCache
                 ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark)
@@ -4912,14 +4982,21 @@
                   : null,
               });
               const rrOpts = { zone: zm, ticker: liveT, side: convSide, price: trackPrice };
-              const footFacts = VU?.factsWithLiveRr
+              const footFacts = (VU?.factsWithLiveRr
                 ? VU.factsWithLiveRr(optionFacts, rrOpts)
-                : optionFacts;
+                : optionFacts).concat(earningsPlayFacts(earn));
               const footEls = [
                 h("div", { key: "plan", className: "tt-dt-plan" },
                   planFactList(footFacts),
                 ),
               ];
+              if (earn?.crush_note) {
+                footEls.push(h("div", {
+                  key: "crush",
+                  className: "tt-dt-plan__tier",
+                  style: { marginTop: 4 },
+                }, earn.crush_note));
+              }
 
               if (LaneCard?.create) {
                 return h("div", { key: sym + (p.play_class || ""), className: "tt-strip-card", role: "listitem" },

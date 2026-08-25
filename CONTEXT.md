@@ -544,6 +544,18 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   sparkline). Convexity lotto/moonshot cards (first live: AXON) use
   `TTLaneCard` + `tt-dt-plan` — `convexityPlanCopy()` in
   `worker/options-convexity.js`.
+  **Strip published stamp (2026-08-25):** Index Day-Trade and Lotto heads
+  render `Published <clock> ET · <age>` from `day_trade_generated_at` /
+  `generated_at`; it ticks every 60s and turns amber past the refresh
+  budget. Lotto polls every 5 min while visible, same as Index DT.
+  **Earnings play (2026-08-25):** earnings-prep lotto cards carry
+  `earnings_play` from `worker/earnings-play.js` — catalyst (date +
+  session), implied move (ATM straddle minus intrinsic × 0.85, else
+  IV × √t, else null — never guessed), a four-pillar alignment read
+  (technical confluence, `timed:fundamentals_v7`, `ticker_social`,
+  research-desk/FSD mentions), implied-move target, `covers_print`, and
+  the IV-crush note. Bounded to 3 cards per scan (one chain fetch each,
+  cache-miss path only).
   KV book `timed:opt-dt-book:{signal_id}`; speculator/Today only.
   Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day) → Investor
   (long haul); keep each lane's horizon honest.
