@@ -37,6 +37,7 @@ The ledger closes that loop for EVERY published call type.
 | Investor LEAP play | `optplay:inv:{position_id}:{ts}` | expiry, else 30d |
 | Investor accumulate (entry) | `invaction:entry:{position_id}:{ts}` | 60d LONG |
 | Investor trim/close | `invaction:{type}:{ticker}:{ts}` | 30d SHORT (good trim = price lower after) |
+| Value Bottoms strip | `valuebottom:{YYYY-MM-DD}:{TICKER}` | 60d LONG (FV target / thesis stop) |
 
 ## Grading semantics (pinned in tests — change deliberately)
 

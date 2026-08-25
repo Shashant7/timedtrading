@@ -6539,6 +6539,7 @@
       // Same feed as /timed/investor/holdbook — surfaced on Today as ideas
       // the model tracks for dip-buy entry (not a core-hold ledger).
       const HOLDBOOK_CACHE_URL = `${API_BASE}/timed/investor/holdbook`;
+      const VALUE_BOTTOMS_URL = `${API_BASE}/timed/investor/value-bottoms`;
       const CTO_FEED_URL = `${API_BASE}/timed/cto/feed?limit=120`;
 
       // Progress bar & meta take a resolved `price` and prefer the live tick over
@@ -6828,6 +6829,241 @@
               },
                 h("div", null, sym),
                 planFactList(stripZoneFacts(zm, hold, rrOpts)),
+              );
+            }),
+          ),
+        ));
+      }
+
+      function valueBottomAction(row, zm, liveT, price) {
+        const VU = window.TimedVerdictUI;
+        const px = Number(price);
+        if (VU?.isInvestorLiveBuyZone?.(liveT || row, px)) return "BUY";
+        if (VU?.priceInPbBand?.(zm, px) || row?.dip_buy) return "SCALE IN";
+        if (zm || row?.timing_primary === "BOTTOM") return "ACCUMULATE";
+        return "WAIT";
+      }
+
+      function valueBottomFootFacts(row, zm, hold, rrOpts) {
+        const base = stripZoneFacts(zm, hold, rrOpts) || [];
+        const extras = [];
+        if (Number.isFinite(Number(row?.fv_premium_pct))) {
+          const d = Number(row.fv_premium_pct);
+          extras.push({
+            label: "FV",
+            value: `${d.toFixed(0)}% vs $${Number(row.fair_value || 0).toFixed(0)}`,
+            tone: d <= -10 ? "buy" : null,
+            title: "Live premium to model fair value (negative = discount)",
+          });
+        }
+        if (Number.isFinite(Number(row?.bottoming_value_score))) {
+          extras.push({
+            label: "Score",
+            value: String(Math.round(Number(row.bottoming_value_score))),
+            title: "Composite value + bottom + bias score",
+          });
+        }
+        return base.concat(extras);
+      }
+
+      function ValueBottomsStrip({ onSelectTicker, user, embedded, data, sparkCache, ensureSpark, tradeByTicker, investorByTicker }) {
+        const [rows, setRows] = useState(() => {
+          const cached = CACHE?.peek(VALUE_BOTTOMS_URL);
+          const list = Array.isArray(cached?.holdings) ? cached.holdings : [];
+          return list.length ? list.slice(0, 16) : null;
+        });
+        const [loadErr, setLoadErr] = useState(null);
+
+        useEffect(() => {
+          let cancelled = false;
+          let attempt = 0;
+          const maxAttempts = 4;
+
+          const apply = (j) => {
+            const list = Array.isArray(j?.holdings) ? j.holdings : [];
+            setLoadErr(null);
+            setRows(list.slice(0, 16));
+            if (CACHE && j?.ok) CACHE.put(VALUE_BOTTOMS_URL, j);
+          };
+
+          const load = () => {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 20000);
+            return fetch(`${VALUE_BOTTOMS_URL}?_t=${Date.now()}`, {
+              credentials: "include",
+              cache: "no-store",
+              signal: ctrl.signal,
+            })
+              .then((r) => r.json())
+              .then(async (j) => {
+                if (cancelled) return;
+                if (j.error_kind === "tier_required" && attempt < maxAttempts - 1) {
+                  attempt += 1;
+                  await new Promise((res) => setTimeout(res, 600 * attempt));
+                  if (!cancelled) return load();
+                  return;
+                }
+                if (j.error_kind === "tier_required") {
+                  setLoadErr("Value bottoms requires a Pro or Admin subscription.");
+                  setRows([]);
+                  return;
+                }
+                if (!j.ok && j.error) { setLoadErr(j.error); setRows([]); return; }
+                apply(j);
+              })
+              .catch((e) => {
+                if (!cancelled) {
+                  if (CACHE?.peek(VALUE_BOTTOMS_URL)?.holdings?.length) return;
+                  setLoadErr(e?.name === "AbortError" ? "Value bottoms request timed out." : String(e.message || e));
+                  setRows([]);
+                }
+              })
+              .finally(() => { clearTimeout(t); });
+          };
+
+          load();
+          return () => { cancelled = true; };
+        }, [
+          user?.email,
+          user?.role,
+          user?.tier,
+          user?.subscription_status,
+          user?.expires_at,
+        ]);
+
+        const wrap = (children) => {
+          if (embedded) return h("div", { className: "tt-universe-panel__growth", id: "value-bottoms" }, children);
+          return h("section", { id: "value-bottoms", className: "tt-row" }, children);
+        };
+
+        const head = h("div", { className: "tt-ready__head" },
+          h("div", { className: "tt-sec-title" }, "VALUE BOTTOMS"),
+          h("h2", { className: "tt-ready__title" }, "Below fair value · bottoming"),
+          h("p", { className: "tt-ready__sub" },
+            "Price discount to fair value with technical bottom evidence. Graded in the signal outcome ledger for model calibration.",
+          ),
+        );
+
+        if (rows === null) {
+          return wrap(h(React.Fragment, null, head, h(StripSectionSkeleton, { count: 4 })));
+        }
+        if (!rows.length) {
+          return wrap(h(React.Fragment, null,
+            head,
+            h("div", { className: "tt-ready__empty", style: { marginTop: 8 } },
+              loadErr || "No names clear the value + bottoming filters right now.",
+            ),
+          ));
+        }
+
+        return wrap(h(React.Fragment, null,
+          head,
+          loadErr && h("div", { style: { fontSize: 11, color: "var(--tt-text-dim)", marginBottom: 6 } }, loadErr),
+          h("div", { className: "tt-opp-scroll" },
+            rows.map((row) => {
+              const sym = String(row.ticker || "").toUpperCase();
+              const liveT = data && data[sym] ? data[sym] : null;
+              let livePrice = null;
+              let trackPrice = null;
+              try {
+                if (liveT && window.TimedPriceUtils?.getHeadlinePrice) {
+                  const p = window.TimedPriceUtils.getHeadlinePrice(liveT);
+                  if (Number.isFinite(Number(p)) && Number(p) > 0) livePrice = Number(p);
+                }
+              } catch (_) {}
+              try {
+                const tp = window.TimedPriceUtils?.getTrackPrice?.(liveT);
+                if (Number.isFinite(Number(tp)) && Number(tp) > 0) trackPrice = Number(tp);
+              } catch (_) {}
+              if (livePrice == null && Number.isFinite(Number(liveT?._live_price))) livePrice = Number(liveT._live_price);
+              if (livePrice == null && Number.isFinite(Number(row?.price))) livePrice = Number(row.price);
+              if (trackPrice == null) trackPrice = livePrice;
+
+              let liveDayPct = null;
+              let dayChg = null;
+              try {
+                if (liveT && typeof getDailyChange === "function") {
+                  const dc = getDailyChange(liveT);
+                  if (Number.isFinite(Number(dc?.dayPct))) liveDayPct = Number(dc.dayPct);
+                  if (Number.isFinite(Number(dc?.dayChg))) dayChg = Number(dc.dayChg);
+                }
+              } catch (_) {}
+              const dir = liveDayPct == null || Math.abs(liveDayPct) < 0.05
+                ? "flat"
+                : liveDayPct > 0 ? "up" : "dn";
+
+              const LaneCard = window.TTLaneCard;
+              const sparkSvg = LaneCard?.sparkSvgFromCache
+                ? LaneCard.sparkSvgFromCache(sym, livePrice, dir, sparkCache, ensureSpark)
+                : "";
+              const zoneRow = {
+                ...row,
+                fair_value_price: row.fair_value,
+                _fair_value: row.fair_value != null ? { fair_value: row.fair_value } : null,
+                primary_invalidation_price: row.stop_price || row.primary_invalidation,
+                thesisInvalidationPrice: row.stop_price || row.primary_invalidation,
+              };
+              const zm = buildGrowthZoneModel(zoneRow, null, trackPrice, liveT);
+              const action = valueBottomAction(row, zm, liveT, trackPrice);
+              const chipRow = stripCallChips({
+                action,
+                horizon: "LONG TERM",
+                side: "LONG",
+                actionTitle: row.thesis || `${sym} value bottom`,
+              });
+              const midBody = zm && LaneCard?.zoneBarTrack
+                ? LaneCard.zoneBarTrack(zm, {
+                    compact: true,
+                    planLabel: "Value bottom plan",
+                    trackTitle: "Fair-value discount with invalidation floor and add zone.",
+                  })
+                : null;
+              const hold = stripHoldFact(
+                tradeByTicker && tradeByTicker.get ? tradeByTicker.get(sym) : null,
+                investorByTicker && investorByTicker.get ? investorByTicker.get(sym) : null,
+                liveT,
+              );
+              const rrOpts = { zone: zm, ticker: liveT, side: "LONG", price: trackPrice };
+              const footEls = [
+                h("div", { key: "levels", className: "tt-dt-plan" },
+                  planFactList(valueBottomFootFacts(row, zm, hold, rrOpts)),
+                ),
+              ];
+
+              if (LaneCard?.create) {
+                return h("div", { key: sym, className: "tt-strip-card", role: "listitem" },
+                  LaneCard.create({
+                    sym,
+                    ticker: liveT,
+                    button: {
+                      onClick: () => onSelectTicker && onSelectTicker(sym, "FUNDAMENTALS"),
+                      title: `${sym} — open Fundamentals`,
+                      style: { textAlign: "left" },
+                    },
+                    chipRow,
+                    quote: {
+                      price: livePrice,
+                      dayPct: liveDayPct,
+                      dayChg,
+                      dir,
+                      extLine: null,
+                    },
+                    sparkSvg,
+                    midBody,
+                    metrics: [],
+                  }),
+                  h("div", { className: "tt-strip-card__foot" }, footEls),
+                );
+              }
+
+              return h("button", {
+                key: sym,
+                type: "button",
+                className: "tt-opp-card",
+                onClick: () => onSelectTicker && onSelectTicker(sym, "FUNDAMENTALS"),
+              },
+                h("div", null, sym),
+                planFactList(valueBottomFootFacts(row, zm, hold, rrOpts)),
               );
             }),
           ),
@@ -9748,11 +9984,12 @@
                   : h(React.Fragment, null,
                 // 2026-08-19 — Strip order (operator, review § 8):
                 //   1. Compounders (best-performing lane, lead)
-                //   2. Capital Shortlist (Ready Setups)
-                //   3. Structured Families (setup-tagged watchlist)
-                //   4. Index Day-Trade cards (SPY/QQQ/IWM/DIA)
-                //   5. Options Lotto / Moonshots
-                //   6. Universe viewport
+                //   2. Value Bottoms (FV discount + technical bottom)
+                //   3. Capital Shortlist (Ready Setups)
+                //   4. Structured Families (setup-tagged watchlist)
+                //   5. Index Day-Trade cards (SPY/QQQ/IWM/DIA)
+                //   6. Options Lotto / Moonshots
+                //   7. Universe viewport
                 h(GrowthIdeasStrip, {
                   onSelectTicker,
                   user,
@@ -9760,6 +9997,17 @@
                   data,
                   savedSet,
                   onToggleSaved: toggleSaved,
+                  sparkCache,
+                  ensureSpark,
+                  tradeByTicker,
+                  investorByTicker,
+                }),
+                h("div", { className: "tt-universe-panel__divider" }),
+                h(ValueBottomsStrip, {
+                  onSelectTicker,
+                  user,
+                  embedded: true,
+                  data,
                   sparkCache,
                   ensureSpark,
                   tradeByTicker,

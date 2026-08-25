@@ -40,6 +40,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | Stale scores / quarantined tickers / Data Age Contract (`_freshness`) | [freshness-doctrine.md](freshness-doctrine.md) |
 | **"Various ticker lists" / unscored symbols clustering at (0,0) / add-remove a ticker / registry source of truth** | [ticker-registry.md](ticker-registry.md) |
 | Add/grade a published signal (options plays, desk calls, investor actions) | [signal-outcome-ledger.md](signal-outcome-ledger.md) |
+| Value Bottoms strip (FV discount + technical bottom + ledger) | [value-bottoms.md](value-bottoms.md) |
 | Operator hands you a new Fundstrat Direct (or equivalent) publication and says "update the playbook" | [update-strategy-playbook.md](update-strategy-playbook.md) |
 | **Tom Lee Macro Minute night take / FSD+Vimeo ingest / freshness guard** | [macro-minute-ingest.md](macro-minute-ingest.md) |
 | **Newton Upticks monthly adds/deletes / fast-track conviction** | [upticks-monthly.md](upticks-monthly.md) |
