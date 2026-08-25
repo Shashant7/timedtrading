@@ -2453,6 +2453,7 @@ const ROUTES = [
   ["GET",  "/timed/admin/cro/sector-outlook",            "GET /timed/admin/cro/sector-outlook"],
   ["PUT",  "/timed/admin/cro/sector-outlook",            "PUT /timed/admin/cro/sector-outlook"],
   ["POST", "/timed/admin/cro/sector-outlook/sync",       "POST /timed/admin/cro/sector-outlook/sync"],
+  ["GET",  "/timed/admin/cro/sector-outlook/diag",       "GET /timed/admin/cro/sector-outlook/diag"],
   ["POST", "/timed/admin/cro/backfill-cashtags",         "POST /timed/admin/cro/backfill-cashtags"],
   ["POST", "/timed/admin/cto/universe/refresh",          "POST /timed/admin/cto/universe/refresh"],
   ["POST", "/timed/admin/cto/feed/refresh",              "POST /timed/admin/cto/feed/refresh"],
@@ -86371,6 +86372,19 @@ export default {
           const { syncFsdSectorOutlookFromFsd } = await import("./cro/fsd-sector-outlook.js");
           const r = await syncFsdSectorOutlookFromFsd(env, { notify: true });
           return sendJSON(r, r.ok ? 200 : 502, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/cro/sector-outlook/diag — fetch + parse diagnostics (no KV write)
+      if (routeKey === "GET /timed/admin/cro/sector-outlook/diag") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { diagFsdEtfOutlookPage } = await import("./cro/fsd-sector-outlook.js");
+          const r = await diagFsdEtfOutlookPage(env);
+          return sendJSON(r, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }

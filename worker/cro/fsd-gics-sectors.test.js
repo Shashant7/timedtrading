@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   parseFsdGicsSectorPage,
+  parseFsdGicsSectorHtml,
   diffSectorMaps,
   normalizeFsdSectorName,
   FSD_TO_TT_SECTOR,
@@ -11,6 +12,10 @@ import {
 
 const FIXTURE = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "fixtures/fsd-gics-sector-snippet.txt"),
+  "utf8",
+);
+const HTML_FIXTURE = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "fixtures/fsd-gics-sector-html-snippet.html"),
   "utf8",
 );
 
@@ -23,6 +28,13 @@ describe("parseFsdGicsSectorPage", () => {
     expect(out.sectors["Health Care"].tickers).toEqual(expect.arrayContaining(["LLY", "MRK"]));
     expect(out.tickerToSector.LLY).toBe("Health Care");
     expect(out.tickerToEtf.XOM).toBe("XLE");
+  });
+
+  it("parses live FSD HTML anchor blocks with Yahoo quote tickers", () => {
+    const out = parseFsdGicsSectorHtml(HTML_FIXTURE);
+    expect(out.sectors["Health Care"].etf).toBe("XLV");
+    expect(out.sectors["Health Care"].tickers).toEqual(expect.arrayContaining(["LLY", "MRK"]));
+    expect(out.sectors.Energy.tickers).toContain("XOM");
   });
 
   it("maps Materials → Basic Materials for TT taxonomy", () => {
