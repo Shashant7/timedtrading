@@ -905,6 +905,10 @@ import {
   FUT_EARLY as _FUT_EARLY,
   isNyRegularMarketOpen as _calIsNyRegularMarketOpen,
   isNyRegularMarketOpenStatic as _calIsNyRegularMarketOpenStatic,
+  isEquityBrokerFollowThrough as _calIsEquityBrokerFollowThrough,
+  isEquityBrokerFollowThroughStatic as _calIsEquityBrokerFollowThroughStatic,
+  isCrypto as _calIsCrypto,
+  isFutures as _calIsFutures,
   getSessionType as _calGetSessionType,
   getETMinutes as _calGetETMinutes,
 } from "./market-calendar.js";
@@ -21663,6 +21667,14 @@ async function processTradeSimulation(
     // During replay, use the simulation time to check RTH.
     const entryTimeRef = isReplay && Number.isFinite(asOfMs) ? new Date(asOfMs) : new Date();
     const outsideRTH = !isNyRegularMarketOpen(entryTimeRef);
+    // Live ST shares: post-RTH (earnings) is allowed through 7:00 PM ET.
+    // 8:00 PM official AH close + overnight ATS cannot follow through.
+    // Replay keeps the old window so evening historical closes stay intact.
+    const _shareBrokerLive = _calIsCrypto(sym) || _calIsFutures(sym)
+      || (_cronCalendar
+        ? _calIsEquityBrokerFollowThrough(_cronCalendar, entryTimeRef)
+        : _calIsEquityBrokerFollowThroughStatic(entryTimeRef));
+    const afterHoursTooLate = !isReplay && outsideRTH && !_shareBrokerLive;
     // Parity lane guard: optionally defer early opening-minute Confirmed EMA entries
     // so ripster_momentum can take precedence in historical-emulation replays.
     const _parityDeferConfirmedOpenMinsCfg = Number(env?._deepAuditConfig?.deep_audit_parity_defer_confirmed_opening_minutes);
@@ -24377,7 +24389,7 @@ async function processTradeSimulation(
       _exitPullbackShield = false;
       if (exitReasonRaw !== "sl_breached") exitReasonRaw = "sl_breached";
     }
-    if (_exitGateForClose && _shouldExecuteExit && !_sameIntervalAsTrade && !weekendNow && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && _exitMinAgeOkForGate && !fuseExitFired && !_exitPullbackShield && !_paritySkipSl && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
+    if (_exitGateForClose && _shouldExecuteExit && !_sameIntervalAsTrade && !weekendNow && !afterHoursTooLate && (!outsideRTH || exitAllowedOutsideRTH) && exitCooldownOk && _exitMinAgeOkForGate && !fuseExitFired && !_exitPullbackShield && !_paritySkipSl && openTrade && isOpenTradeStatus(openTrade.status) && clamp(Number(openTrade.trimmedPct || 0), 0, 1) < 0.9999) {
       if (flatPriceExit && !isSLExit) {
         // Price hasn't moved — keep holding instead of closing at $0 P&L
         console.log(`[TRADE SIM] ${sym} exit skipped: flat price (entry=$${Number(openTrade.entryPrice).toFixed(2)} exit=$${pxNow.toFixed(2)}), holding`);
@@ -24550,11 +24562,11 @@ async function processTradeSimulation(
           }
         }
       }
-    } else if (isExit && openTrade && outsideRTH && !exitAllowedOutsideRTH && !fuseExitFired) {
-      console.log(`[TRADE SIM] ${sym} exit blocked: outside RTH (reason=${exitReasonRaw}), only SL/max-loss exits allowed pre/post-market`);
+    } else if (isExit && openTrade && ((outsideRTH && !exitAllowedOutsideRTH) || afterHoursTooLate) && !fuseExitFired) {
+      console.log(`[TRADE SIM] ${sym} exit blocked: ${afterHoursTooLate ? "after-hours too late for broker follow-through" : "outside RTH"} (reason=${exitReasonRaw}), only SL/max-loss exits allowed pre/post-market through 7:00 PM ET`);
       if (!isReplay && env?.DB) {
         const session = _cronCalendar ? _calGetSessionType(_calGetETMinutes()) : "CLOSED";
-        d1QueueAction(env, { ticker: sym, action: "exit", direction: openTrade.direction, session, snapshot: { price: pxNow, exit_reason: exitReasonRaw }, reason: weekendNow ? "weekend" : "outside_RTH" });
+        d1QueueAction(env, { ticker: sym, action: "exit", direction: openTrade.direction, session, snapshot: { price: pxNow, exit_reason: exitReasonRaw }, reason: weekendNow ? "weekend" : (afterHoursTooLate ? "ah_too_late" : "outside_RTH") });
       }
     } else if (isExit && openTrade && !exitMinAgeOk && !_exitIsHardClass && !fuseExitFired) {
       // P1 part 8: hard exits bypass the minimum-age gate above. Only log
@@ -25020,12 +25032,14 @@ async function processTradeSimulation(
         }
       }
       
-      // Outside RTH: only allow price-driven trims (TP actually hit). Signal/completion-based trims wait for RTH.
-      if (target > 0 && outsideRTH && !trimIsPriceDriven) {
-        console.log(`[TRADE SIM] ${sym} trim blocked: outside RTH, non-price-driven trim (completion/signal-based), waiting for market open`);
+      // Outside RTH: only allow price-driven trims (TP actually hit) while
+      // the broker can still follow through (through 7:00 PM ET). After that,
+      // wait for the next live window — Discord must not claim a 8pm fill.
+      if (target > 0 && ((outsideRTH && !trimIsPriceDriven) || afterHoursTooLate)) {
+        console.log(`[TRADE SIM] ${sym} trim blocked: ${afterHoursTooLate ? "after-hours too late for broker follow-through" : "outside RTH, non-price-driven trim (completion/signal-based)"}, waiting for next live session`);
         if (!isReplay && env?.DB) {
           const session = _cronCalendar ? _calGetSessionType(_calGetETMinutes()) : "CLOSED";
-          d1QueueAction(env, { ticker: sym, action: "trim", direction: openTrade?.direction, session, snapshot: { price: pxNow, target_pct: target }, reason: weekendNow ? "weekend" : "outside_RTH" });
+          d1QueueAction(env, { ticker: sym, action: "trim", direction: openTrade?.direction, session, snapshot: { price: pxNow, target_pct: target }, reason: weekendNow ? "weekend" : (afterHoursTooLate ? "ah_too_late" : "outside_RTH") });
         }
         target = 0;
       }

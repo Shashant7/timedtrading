@@ -15,6 +15,8 @@
  * pulling the whole calendar module — Webull rejects market orders in
  * pre/post so we only need to know "am I inside the RTH window?".
  */
+import { isEquityBrokerFollowThroughStatic } from "./market-calendar.js";
+
 function isNyRthOpen(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
@@ -32,6 +34,40 @@ function isNyRthOpen(now = new Date()) {
   if (!Number.isFinite(hh) || !Number.isFinite(mm)) return false;
   const mins = hh * 60 + mm;
   return mins >= 9 * 60 + 30 && mins < 16 * 60;
+}
+
+function isCryptoOrFuturesTicker(ticker) {
+  const t = String(ticker || "").toUpperCase();
+  return t.endsWith("USD") || t.endsWith("USDT") || t.endsWith("1!");
+}
+
+/**
+ * Short Term equity mirror outside RTH: Webull only takes LIMIT + ALL + GTC,
+ * and only while the broker can still follow through (through 7:00 PM ET).
+ * After that, skip — overnight ATS is select names; Discord must not claim
+ * a live fill the account cannot take.
+ */
+export function resolveTraderEquityEthMirror(order, now = new Date()) {
+  if (isCryptoOrFuturesTicker(order?.ticker)) return { skip: false, fields: {} };
+  if (isNyRthOpen(now)) return { skip: false, fields: {} };
+  if (!isEquityBrokerFollowThroughStatic(now)) {
+    return { skip: true, reason: "equity_ah_too_late_for_broker" };
+  }
+  const px = Number(order?.entry) || Number(order?.limit_price) || Number(order?.price) || 0;
+  if (!(px > 0)) return { skip: false, fields: {} };
+  const side = String(order?.side || "").toLowerCase();
+  const isReducer = side === "trim" || side === "exit" || side === "sell" || side === "close";
+  const slack = isReducer ? 0.03 : 0.015;
+  const limit = Math.round(px * (isReducer ? (1 - slack) : (1 + slack)) * 100) / 100;
+  return {
+    skip: false,
+    fields: {
+      order_kind: "limit",
+      limit_price: limit,
+      tif: "GTC",
+      support_trading_session: "ALL",
+    },
+  };
 }
 
 async function hmacSign(key, payload) {
@@ -387,7 +423,26 @@ export async function forwardOrderToBridge(env, order) {
   if (!hasSvc && !bridgeUrl) return { ok: false, skip: "no_bridge_url" };
   if (!hmacKey) return { ok: false, skip: "no_hmac_key" };
 
-  const body = JSON.stringify(order);
+  let liveOrder = order;
+  if (String(order?.mode || "") === "trader") {
+    const eth = resolveTraderEquityEthMirror(order);
+    if (eth.skip) {
+      await recordBridgeMirrorSkip(env, {
+        ticker: order.ticker,
+        side: order.side || "exit",
+        reason: eth.reason,
+        trade_id: order.trade_id || null,
+        qty: order.qty,
+        meta: { mode: "trader" },
+      });
+      return { ok: false, skip: eth.reason };
+    }
+    if (eth.fields && Object.keys(eth.fields).length) {
+      liveOrder = { ...order, ...eth.fields };
+    }
+  }
+
+  const body = JSON.stringify(liveOrder);
   const sig = await hmacSign(hmacKey, body).catch(() => null);
   if (!sig) return { ok: false, skip: "sign_failed" };
 

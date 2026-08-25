@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import {
   forwardOrderToBridge,
   readClientRing,
@@ -6,6 +6,7 @@ import {
   shouldForwardTraderMirrorAsEquity,
   recordBridgeMirrorSkip,
   parseBridgeOrderIds,
+  resolveTraderEquityEthMirror,
 } from "./broker-bridge-client.js";
 import { readSilentFailures, SILENT_FAILURE_RING_KEY } from "./silent-failure-log.js";
 
@@ -196,5 +197,60 @@ describe("forwardOrderToBridge — transport (CF 1042 / 404 fix)", () => {
   it("skips cleanly when the HMAC key is missing", async () => {
     const r = await forwardOrderToBridge({ BROKER_BRIDGE: { fetch: async () => new Response("{}") }, KV_TIMED: makeKv() }, ORDER);
     expect(r.skip).toBe("no_hmac_key");
+  });
+});
+
+describe("resolveTraderEquityEthMirror", () => {
+  it("coerces LIMIT+ALL+GTC in the 5pm ET earnings window", () => {
+    const r = resolveTraderEquityEthMirror(
+      { ticker: "TSLA", side: "exit", entry: 348.95, mode: "trader" },
+      new Date("2026-08-24T17:00:00-04:00"),
+    );
+    expect(r.skip).toBe(false);
+    expect(r.fields.order_kind).toBe("limit");
+    expect(r.fields.support_trading_session).toBe("ALL");
+    expect(r.fields.tif).toBe("GTC");
+    expect(r.fields.limit_price).toBeLessThan(348.95);
+  });
+
+  it("skips at 8:01 PM ET — broker cannot follow through", () => {
+    const r = resolveTraderEquityEthMirror(
+      { ticker: "TSLA", side: "exit", entry: 348.95, mode: "trader" },
+      new Date("2026-08-24T20:01:00-04:00"),
+    );
+    expect(r.skip).toBe(true);
+    expect(r.reason).toBe("equity_ah_too_late_for_broker");
+  });
+
+  it("does not gate crypto at 8pm", () => {
+    const r = resolveTraderEquityEthMirror(
+      { ticker: "BTCUSD", side: "exit", entry: 70000, mode: "trader" },
+      new Date("2026-08-24T20:01:00-04:00"),
+    );
+    expect(r.skip).toBe(false);
+    expect(r.fields).toEqual({});
+  });
+});
+
+describe("forwardOrderToBridge — 8pm ST equity skip", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("does not POST a trader share exit after the 7pm follow-through cutoff", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-24T20:01:00-04:00"));
+    let posted = false;
+    const env = {
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      BROKER_BRIDGE_URL: "https://tt-broker-bridge.example.workers.dev",
+      KV_TIMED: makeKv(),
+      BROKER_BRIDGE: { fetch: async () => { posted = true; return new Response("{}", { status: 200 }); } },
+    };
+    const r = await forwardOrderToBridge(env, {
+      ...ORDER, ticker: "DPZ", side: "trim", mode: "trader", vehicle: "equity_long", entry: 349.01,
+    });
+    expect(r.skip).toBe("equity_ah_too_late_for_broker");
+    expect(posted).toBe(false);
+    const ring = await readClientRing(env);
+    expect(ring[0].status).toBe("skipped");
   });
 });
