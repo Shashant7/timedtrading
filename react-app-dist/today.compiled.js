@@ -1889,6 +1889,35 @@ function earningsPlayFacts(earn) {
       title: earn.target.note || "Implied-move target"
     });
   }
+  const crush = earn.crush || null;
+  if (crush && crush.severity && crush.severity !== "UNKNOWN") {
+    const flatPct = Number(crush.premium_flat_pct);
+    const ivFront = Number(crush.iv_front_pct);
+    const ivPost = Number(crush.iv_post_pct);
+    rows.push({
+      label: "Crush",
+      value: [crush.severity, Number.isFinite(flatPct) ? `${flatPct}% at flat` : null].filter(Boolean).join(" · "),
+      tone: crush.severity === "EXTREME" ? "trim" : crush.severity === "ELEVATED" ? "wait" : null,
+      title: [Number.isFinite(ivFront) && Number.isFinite(ivPost) ? `IV ${ivFront}% into the print, ${ivPost}% after (${crush.iv_post_basis === "term_structure" ? "next expiration" : "realized volatility"})` : null, Number.isFinite(Number(crush.premium_flat)) ? `Premium at an unchanged price: $${Number(crush.premium_flat).toFixed(2)}` : null].filter(Boolean).join(" — ")
+    });
+  }
+  const beMove = Number(crush?.breakeven_move_pct);
+  if (Number.isFinite(beMove)) {
+    rows.push({
+      label: "Needs",
+      value: `${beMove.toFixed(1)}% post-print`,
+      tone: crush.recommendation === "EXIT_BEFORE_PRINT" ? "trim" : crush.recommendation === "TIGHT_HOLD" ? "wait" : null,
+      title: `Move required after the print just to hold the entry premium${Number.isFinite(Number(crush.breakeven_price)) ? ` (through $${Number(crush.breakeven_price).toFixed(2)})` : ""}.`
+    });
+  }
+  if (crush?.exit_by?.label && (crush.recommendation === "EXIT_BEFORE_PRINT" || crush.recommendation === "TIGHT_HOLD")) {
+    rows.push({
+      label: "Exit by",
+      value: crush.exit_by.label.replace(/^the close on /, "close "),
+      tone: "wait",
+      title: "Last session that still carries the event premium."
+    });
+  }
   return rows;
 }
 function ConvexityPlaysStrip({
@@ -8615,6 +8644,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787661353107:517003022
+// cache-bust:1787661897167:346044716
 
-// cache-bust:1787661353107:517003022
+// cache-bust:1787661897167:346044716
