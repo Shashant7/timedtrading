@@ -12,9 +12,9 @@
   let _data = null;
 
   const READS = [
-    { id: "1h_34_50", label: "1H EMA", title: "1H 34/50 EMA cloud", tfKeys: ["1H", "60"], cloud: "c34_50" },
-    { id: "d_20_21", label: "D 21 EMA", title: "Daily 20/21 EMA cloud", tfKeys: ["D"], cloud: "c20_21", fallbackCloud: "c34_50" },
-    { id: "d_50_55", label: "D 55 EMA", title: "Daily 50/55 EMA cloud", tfKeys: ["D"], cloud: "c50_55", fallbackCloud: "c72_89" },
+    { id: "1h_34_50", label: "1H EMA", title: "1-hour 34/50 EMA cloud (Ripster) — ↑ above, ↓ below, · inside", tfKeys: ["1H", "60"], cloud: "c34_50" },
+    { id: "d_20_21", label: "D 21 EMA", title: "Daily 20/21 EMA cloud — ↑ above, ↓ below, · inside", tfKeys: ["D"], cloud: "c20_21", fallbackCloud: "c34_50" },
+    { id: "d_50_55", label: "D 55 EMA", title: "Daily 50/55 EMA cloud — ↑ above, ↓ below, · inside", tfKeys: ["D"], cloud: "c50_55", fallbackCloud: "c72_89" },
   ];
 
   function setData(map) {
@@ -105,30 +105,40 @@
     if (up >= 2 && up > dn) {
       return {
         id: "mtf_stack",
-        label: `MTF ${up} ${arrowFor("up")}`,
+        label: `MTF ${up}/${reads.length} ${arrowFor("up")}`,
         dir: "up",
-        title: `${up} of ${reads.length} MTF EMA clouds above — stack lean long`,
+        title: `${up} of ${reads.length} timeframe EMA clouds above price — stack leans long`,
       };
     }
     if (dn >= 2 && dn > up) {
       return {
         id: "mtf_stack",
-        label: `MTF ${dn} ${arrowFor("dn")}`,
+        label: `MTF ${dn}/${reads.length} ${arrowFor("dn")}`,
         dir: "dn",
-        title: `${dn} of ${reads.length} MTF EMA clouds below — stack lean short`,
+        title: `${dn} of ${reads.length} timeframe EMA clouds below price — stack leans short`,
       };
     }
     if (up === reads.length && up >= 2) {
-      return { id: "mtf_stack", label: `MTF ${up} ${arrowFor("up")}`, dir: "up", title: "All MTF EMA clouds above" };
+      return {
+        id: "mtf_stack",
+        label: `MTF ${up}/${reads.length} ${arrowFor("up")}`,
+        dir: "up",
+        title: "All tracked EMA clouds are above price",
+      };
     }
     if (dn === reads.length && dn >= 2) {
-      return { id: "mtf_stack", label: `MTF ${dn} ${arrowFor("dn")}`, dir: "dn", title: "All MTF EMA clouds below" };
+      return {
+        id: "mtf_stack",
+        label: `MTF ${dn}/${reads.length} ${arrowFor("dn")}`,
+        dir: "dn",
+        title: "All tracked EMA clouds are below price",
+      };
     }
     return {
       id: "mtf_stack",
       label: `MTF mix ${arrowFor("flat")}`,
       dir: "flat",
-      title: `MTF mixed — ${up} above, ${dn} below`,
+      title: `Mixed stack — ${up} clouds above, ${dn} below (${reads.length} tracked)`,
     };
   }
 
@@ -169,4 +179,4 @@
   };
 })();
 
-// cache-bust:1787685795091:9272963
+// cache-bust:1787687256433:724759712

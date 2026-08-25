@@ -1983,6 +1983,8 @@
         max-height: 300px;
         overflow: hidden;
         box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
       }
       /* Day-trade + lotto cards carry punchline, fact grid, and MTF row. */
       #index-day-trade-plays .tt-strip-card {
@@ -1990,8 +1992,55 @@
         max-height: 312px;
       }
       #convexity-plays .tt-strip-card {
-        height: 368px;
-        max-height: 368px;
+        height: auto;
+        min-height: 320px;
+        max-height: none;
+        overflow: visible;
+      }
+      .tt-universe-panel .tt-strip-card > .ds-tickercard,
+      .tt-universe-panel .tt-strip-card > .ds-tickercard.tt-lane-card {
+        flex: 0 0 auto;
+      }
+      .tt-strip-fact-stack {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5px 10px;
+        margin-top: 4px;
+      }
+      .tt-strip-fact-stack__item {
+        display: grid;
+        grid-template-columns: 46px minmax(0, 1fr);
+        gap: 4px 6px;
+        align-items: baseline;
+        min-width: 0;
+      }
+      .tt-strip-fact-stack__item--full {
+        grid-column: 1 / -1;
+        grid-template-columns: 46px minmax(0, 1fr);
+      }
+      .tt-strip-fact-stack__k {
+        font-size: 8px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        color: var(--ds-text-muted, var(--tt-text-muted));
+        white-space: nowrap;
+      }
+      .tt-strip-fact-stack__v {
+        font-family: var(--tt-font-mono);
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.25;
+        color: var(--ds-text, var(--tt-text));
+        word-break: break-word;
+      }
+      .tt-strip-fact-stack__v--live { color: var(--tt-info, #67e8f9); }
+      .tt-strip-fact-stack__v--trim { color: var(--tt-success); }
+      .tt-strip-fact-stack__v--exit { color: var(--tt-warning); }
+      .tt-strip-fact-stack__divider {
+        grid-column: 1 / -1;
+        height: 1px;
+        margin: 2px 0;
+        background: var(--tt-border, rgba(255, 255, 255, 0.06));
       }
       .tt-universe-panel .tt-strip-card .ds-tickercard.tt-lane-card {
         padding: 10px 12px 8px !important;
@@ -4102,6 +4151,40 @@
         );
       }
 
+      function stripFactStack(items, opts = {}) {
+        if (!items || !items.length) return null;
+        const kids = [];
+        if (opts.dividerBefore) kids.push(h("div", { key: "div", className: "tt-strip-fact-stack__divider" }));
+        for (let i = 0; i < items.length; i++) {
+          const it = items[i];
+          if (!it || !it.v) continue;
+          kids.push(h("div", {
+            key: it.k + i,
+            className: "tt-strip-fact-stack__item" + (it.full ? " tt-strip-fact-stack__item--full" : ""),
+            title: it.title || undefined,
+          },
+            h("span", { className: "tt-strip-fact-stack__k" }, it.k),
+            h("span", {
+              className: "tt-strip-fact-stack__v" + (it.tone ? ` tt-strip-fact-stack__v--${it.tone}` : ""),
+            }, it.v),
+          ));
+        }
+        if (!kids.length) return null;
+        return h("div", { className: "tt-strip-fact-stack" }, kids);
+      }
+
+      function factsToStackItems(facts) {
+        return (Array.isArray(facts) ? facts : [])
+          .filter((f) => f && f.value)
+          .map((f) => ({
+            k: String(f.label || "").slice(0, 8).toUpperCase(),
+            v: String(f.value),
+            tone: f.tone === "buy" || f.tone === "trim" ? "trim" : f.tone === "wait" || f.tone === "exit" ? "exit" : "",
+            title: f.title || "",
+            full: /^(catalyst|implied|crush|needs|exit)/i.test(String(f.label || "")),
+          }));
+      }
+
       // Live P&L % for an open paper position (the book tracks the option's
       // own premium path, so gain = premium up regardless of call/put).
       function dayTradePositionPnl(pos) {
@@ -4231,11 +4314,24 @@
         return picked;
       }
 
-      function convexityOptionFactRows(p, flavor, expShort, dte) {
-        const cells = convexityOptionFactCells(p, flavor, expShort, dte);
-        const rows = [];
-        for (let i = 0; i < cells.length; i += 4) rows.push(cells.slice(i, i + 4));
-        return rows;
+      function convexityOptionStackItems(p, flavor, expShort, dte) {
+        return convexityOptionFactCells(p, flavor, expShort, dte).map((c) => ({
+          k: c.k,
+          v: c.v,
+          tone: c.tone,
+          title: c.title,
+          full: c.k === "RISK" || c.k === "PAYOFF",
+        }));
+      }
+
+      function earnCellsToStack(cells) {
+        return (Array.isArray(cells) ? cells : []).map((c) => ({
+          k: c.k,
+          v: c.v,
+          tone: c.tone,
+          title: c.title,
+          full: c.k === "CAT" || c.k === "IMPL" || c.k === "CONF",
+        }));
       }
 
       function convexityEarnPrimaryCells(earn) {
@@ -5391,15 +5487,21 @@
                 : null;
 
               const whyLine = earn?.catalyst ? null : convexityShotReason(p);
-              const optRows = convexityOptionFactRows(p, flavor, expShort, Number(exp?.dte));
               const earnCells = convexityEarnPrimaryCells(earn);
               const earnMgmt = convexityEarnMgmtFacts(earn);
+              const optStack = stripFactStack(convexityOptionStackItems(p, flavor, expShort, Number(exp?.dte)));
+              const earnStack = earnCells.length
+                ? stripFactStack(earnCellsToStack(earnCells), { dividerBefore: true })
+                : null;
+              const earnMgmtStack = earnMgmt.length
+                ? stripFactStack(factsToStackItems(earnMgmt), { dividerBefore: !earnStack })
+                : null;
               const footPlanChildren = [
                 h("p", { key: "punch", className: "tt-dt-plan__punch" }, copy.punch),
                 whyLine && h("p", { key: "why", className: "tt-dt-plan__why", title: whyLine }, whyLine),
-                ...optRows.map((row, i) => dayTradeFactsRow(row) || h("span", { key: "opt-" + i })),
-                earnCells.length ? dayTradeFactsRow(earnCells) : null,
-                earnMgmt.length ? planFactList(earnMgmt) : null,
+                optStack,
+                earnStack,
+                earnMgmtStack,
               ].filter(Boolean);
               const footEls = [
                 h("div", { key: "plan", className: "tt-dt-plan" }, footPlanChildren),
@@ -5630,15 +5732,6 @@
               const chipRow = [dayTradeActionChip(action, flavor, copy.punch)];
               const modeChip = confluenceModeChip(mode, p.confluence_summary || "Model confluence");
               if (modeChip) chipRow.push(modeChip);
-              if (holdingThis) {
-                const hPnl = dayTradePositionPnl(pos);
-                chipRow.push(h("span", {
-                  key: "held",
-                  className: "ds-chip ds-chip--sm " + (hPnl != null && hPnl < 0 ? "ds-chip--dn" : "ds-chip--up"),
-                  title: `Model holds ${pos.contracts || 1} × ${pos.strike}${flavor === "put" ? "P" : "C"} from $${Number(pos.entry_premium).toFixed(2)}`,
-                  style: { fontFamily: "var(--tt-font-mono)", fontWeight: 800 },
-                }, hPnl != null ? `HELD ${hPnl >= 0 ? "+" : ""}${hPnl.toFixed(0)}%` : "HELD"));
-              }
 
               const sparkSvg = LaneCard?.sparkSvgFromCache
                 ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark)
@@ -5668,14 +5761,10 @@
               const liveTrim = (liveRr.find((f) => f.label === "Trim") || {}).value || trim;
               const liveExit = (liveRr.find((f) => f.label === "Exit") || {}).value || exit;
               const factCells = dayTradePlanFacts({ livePremium: band?.premium, debit, trim: liveTrim, exit: liveExit });
-              const posMgmt = pos ? dayTradePositionMgmtLine(pos, { ticker: sym }) : null;
               const footEls = [
                 h("div", { key: "plan", className: "tt-dt-plan" },
                   h("p", { className: "tt-dt-plan__punch" }, copy.punch),
                   dayTradeFactsRow(factCells),
-                  holdingThis && posMgmt
-                    ? h("p", { key: "mgmt", className: "tt-dt-plan__mgmt" }, posMgmt)
-                    : null,
                 ),
               ];
 
@@ -5715,7 +5804,7 @@
               // render the open position as its OWN card so the strike no
               // longer silently mutates on a single card.
               let posCard = null;
-              if (pos && !holdingThis && LaneCard?.create) {
+              if (pos && LaneCard?.create) {
                 const pPnl = dayTradePositionPnl(pos);
                 const pFlav = pos.flavor === "put" ? "put" : "call";
                 const pExpShort = formatExpShort(pos.expiration);
@@ -5766,7 +5855,9 @@
                 );
               }
 
-              return [posCard, signalCard].filter(Boolean);
+              const suppressSignal = pos && holdingThis
+                && (action === "WAIT" || action === "DRIFT");
+              return [posCard, suppressSignal ? null : signalCard].filter(Boolean);
             }),
           ),
         ));

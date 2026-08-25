@@ -1114,6 +1114,40 @@ function dayTradeFactsRow(cells) {
     className: "tt-dt-plan__fv"
   }, c.v))));
 }
+function stripFactStack(items, opts = {}) {
+  if (!items || !items.length) return null;
+  const kids = [];
+  if (opts.dividerBefore) kids.push(h("div", {
+    key: "div",
+    className: "tt-strip-fact-stack__divider"
+  }));
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (!it || !it.v) continue;
+    kids.push(h("div", {
+      key: it.k + i,
+      className: "tt-strip-fact-stack__item" + (it.full ? " tt-strip-fact-stack__item--full" : ""),
+      title: it.title || undefined
+    }, h("span", {
+      className: "tt-strip-fact-stack__k"
+    }, it.k), h("span", {
+      className: "tt-strip-fact-stack__v" + (it.tone ? ` tt-strip-fact-stack__v--${it.tone}` : "")
+    }, it.v)));
+  }
+  if (!kids.length) return null;
+  return h("div", {
+    className: "tt-strip-fact-stack"
+  }, kids);
+}
+function factsToStackItems(facts) {
+  return (Array.isArray(facts) ? facts : []).filter(f => f && f.value).map(f => ({
+    k: String(f.label || "").slice(0, 8).toUpperCase(),
+    v: String(f.value),
+    tone: f.tone === "buy" || f.tone === "trim" ? "trim" : f.tone === "wait" || f.tone === "exit" ? "exit" : "",
+    title: f.title || "",
+    full: /^(catalyst|implied|crush|needs|exit)/i.test(String(f.label || ""))
+  }));
+}
 function dayTradePositionPnl(pos) {
   const entry = Number(pos?.entry_premium);
   const last = Number(pos?.last_premium);
@@ -1268,11 +1302,23 @@ function convexityOptionFactCells(p, flavor, expShort, dte) {
   }
   return picked;
 }
-function convexityOptionFactRows(p, flavor, expShort, dte) {
-  const cells = convexityOptionFactCells(p, flavor, expShort, dte);
-  const rows = [];
-  for (let i = 0; i < cells.length; i += 4) rows.push(cells.slice(i, i + 4));
-  return rows;
+function convexityOptionStackItems(p, flavor, expShort, dte) {
+  return convexityOptionFactCells(p, flavor, expShort, dte).map(c => ({
+    k: c.k,
+    v: c.v,
+    tone: c.tone,
+    title: c.title,
+    full: c.k === "RISK" || c.k === "PAYOFF"
+  }));
+}
+function earnCellsToStack(cells) {
+  return (Array.isArray(cells) ? cells : []).map(c => ({
+    k: c.k,
+    v: c.v,
+    tone: c.tone,
+    title: c.title,
+    full: c.k === "CAT" || c.k === "IMPL" || c.k === "CONF"
+  }));
 }
 function convexityEarnPrimaryCells(earn) {
   if (!earn) return [];
@@ -2354,9 +2400,15 @@ function ConvexityPlaysStrip({
       trackTitle: flavor === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
     }) : null;
     const whyLine = earn?.catalyst ? null : convexityShotReason(p);
-    const optRows = convexityOptionFactRows(p, flavor, expShort, Number(exp?.dte));
     const earnCells = convexityEarnPrimaryCells(earn);
     const earnMgmt = convexityEarnMgmtFacts(earn);
+    const optStack = stripFactStack(convexityOptionStackItems(p, flavor, expShort, Number(exp?.dte)));
+    const earnStack = earnCells.length ? stripFactStack(earnCellsToStack(earnCells), {
+      dividerBefore: true
+    }) : null;
+    const earnMgmtStack = earnMgmt.length ? stripFactStack(factsToStackItems(earnMgmt), {
+      dividerBefore: !earnStack
+    }) : null;
     const footPlanChildren = [h("p", {
       key: "punch",
       className: "tt-dt-plan__punch"
@@ -2364,9 +2416,7 @@ function ConvexityPlaysStrip({
       key: "why",
       className: "tt-dt-plan__why",
       title: whyLine
-    }, whyLine), ...optRows.map((row, i) => dayTradeFactsRow(row) || h("span", {
-      key: "opt-" + i
-    })), earnCells.length ? dayTradeFactsRow(earnCells) : null, earnMgmt.length ? planFactList(earnMgmt) : null].filter(Boolean);
+    }, whyLine), optStack, earnStack, earnMgmtStack].filter(Boolean);
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
@@ -2602,18 +2652,6 @@ function IndexDayTradeStrip({
     const chipRow = [dayTradeActionChip(action, flavor, copy.punch)];
     const modeChip = confluenceModeChip(mode, p.confluence_summary || "Model confluence");
     if (modeChip) chipRow.push(modeChip);
-    if (holdingThis) {
-      const hPnl = dayTradePositionPnl(pos);
-      chipRow.push(h("span", {
-        key: "held",
-        className: "ds-chip ds-chip--sm " + (hPnl != null && hPnl < 0 ? "ds-chip--dn" : "ds-chip--up"),
-        title: `Model holds ${pos.contracts || 1} × ${pos.strike}${flavor === "put" ? "P" : "C"} from $${Number(pos.entry_premium).toFixed(2)}`,
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontWeight: 800
-        }
-      }, hPnl != null ? `HELD ${hPnl >= 0 ? "+" : ""}${hPnl.toFixed(0)}%` : "HELD"));
-    }
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const zm = reviveZone(p.zone || exec.zone, trackPrice);
     const dtSide = flavor === "put" || lean === "SHORT" ? "SHORT" : flavor === "call" || lean === "LONG" ? "LONG" : "";
@@ -2643,18 +2681,12 @@ function IndexDayTradeStrip({
       trim: liveTrim,
       exit: liveExit
     });
-    const posMgmt = pos ? dayTradePositionMgmtLine(pos, {
-      ticker: sym
-    }) : null;
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
     }, h("p", {
       className: "tt-dt-plan__punch"
-    }, copy.punch), dayTradeFactsRow(factCells), holdingThis && posMgmt ? h("p", {
-      key: "mgmt",
-      className: "tt-dt-plan__mgmt"
-    }, posMgmt) : null)];
+    }, copy.punch), dayTradeFactsRow(factCells))];
     const signalCard = LaneCard?.create ? h("div", {
       key: sym + ":sig",
       className: "tt-strip-card",
@@ -2694,7 +2726,7 @@ function IndexDayTradeStrip({
       className: "tt-dt-plan__punch"
     }, copy.punch), dayTradeFactsRow(factCells)));
     let posCard = null;
-    if (pos && !holdingThis && LaneCard?.create) {
+    if (pos && LaneCard?.create) {
       const pPnl = dayTradePositionPnl(pos);
       const pFlav = pos.flavor === "put" ? "put" : "call";
       const pExpShort = formatExpShort(pos.expiration);
@@ -2772,7 +2804,8 @@ function IndexDayTradeStrip({
         className: "tt-dt-plan__mgmt"
       }, posMgmtLine) : null)));
     }
-    return [posCard, signalCard].filter(Boolean);
+    const suppressSignal = pos && holdingThis && (action === "WAIT" || action === "DRIFT");
+    return [posCard, suppressSignal ? null : signalCard].filter(Boolean);
   }))));
 }
 function computeOpenPositionPnlPct(tr, livePx) {
@@ -9043,6 +9076,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787685795091:9272963
+// cache-bust:1787687256433:724759712
 
-// cache-bust:1787685795091:9272963
+// cache-bust:1787687256433:724759712
