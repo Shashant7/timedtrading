@@ -628,6 +628,10 @@
         const fillHint = fills[0];
         const rejectHint = rejects[0];
         const pnl = Number(a.realized_pnl) || 0;
+        // Options day-trades are quoted in CONTRACTS, not shares — label the
+        // unit so a "BUY SPY 3 sh @ $0.74" options row reads "3 contracts".
+        const isOpt = a.instrument === "option";
+        const unit = (n) => (isOpt ? (Math.abs(Number(n)) === 1 ? "contract" : "contracts") : "sh");
         return (
           <div>
             {showDay && (
@@ -647,7 +651,7 @@
                   <span style={{ fontWeight: 800, fontSize: 13, color: ev.color }}>{ev.label}</span>
                   <span style={{ fontWeight: 800, fontSize: 13 }}>{a.ticker}</span>
                   <span className="mono dim" style={{ fontSize: 12 }}>
-                    {fmtQty(a.qty)} sh @ {fmtUsd(a.price)}
+                    {fmtQty(a.qty)} {unit(a.qty)} @ {fmtUsd(a.price)}
                   </span>
                   {(a.event === "TRIM" || a.event === "EXIT") && pnl !== 0 && (
                     <span className={`mono ${pnl >= 0 ? "up" : "dn"}`} style={{ fontSize: 12, fontWeight: 700 }}>{fmtSigned(pnl)}</span>
@@ -661,7 +665,7 @@
                   <div className="tl-compact">
                     {fillHint && (
                       <span>
-                        {fillHint.account || "Account"} · {fmtQty(fillHint.qty)} sh
+                        {fillHint.account || "Account"} · {fmtQty(fillHint.qty)} {unit(fillHint.qty)}
                         <span className="bc-pill p-ok" style={{ marginLeft: 6 }}>FILLED</span>
                       </span>
                     )}
@@ -684,7 +688,7 @@
                     {fills.map((f, i) => (
                       <div key={"f" + i} className="tl-acct-row">
                         <span style={{ fontWeight: 600 }}>{f.account || "Account"}</span>
-                        <span className="mono">{fmtQty(f.qty)} sh @ {fmtUsd(f.price)} <span className="dim">·</span> {fmtUsd(f.value)}</span>
+                        <span className="mono">{fmtQty(f.qty)} {unit(f.qty)} @ {fmtUsd(f.price)} <span className="dim">·</span> {fmtUsd(f.value)}</span>
                         <span className="bc-pill p-ok">FILLED</span>
                       </div>
                     ))}

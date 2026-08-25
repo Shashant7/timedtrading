@@ -40477,6 +40477,7 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
       value: Math.abs(Number(m.cash_delta) || 0),
       realized_pnl: Number(m.realized_pnl) || 0,
       note: m.note || null,
+      instrument: m.instrument || null,
       mirror,
       mirror_reason: mirrorReason,
       fills,

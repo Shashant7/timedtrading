@@ -49,6 +49,10 @@ export function modelRowFromDayTradeAction(a) {
     price: Number(a?.premium) || 0,
     cash_delta: 0,
     realized_pnl: 0,
+    // Paper day-trades are options — the qty is CONTRACTS, not shares. The
+    // timeline reads this to label the unit correctly ("3 contracts", not
+    // "3 sh") and to render the per-contract premium.
+    instrument: "option",
     note: a?.reason || `options_day_trade:${ev}`,
   };
 }
