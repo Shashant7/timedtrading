@@ -990,6 +990,48 @@ function optionsPlayChipRow(action, flavor, title) {
     }
   }, optionsPlayLabel(action, flavor))];
 }
+function confluenceModeChip(mode, title) {
+  const m = String(mode || "").toUpperCase();
+  if (!m || m === "UNKNOWN") return null;
+  const cls = m === "READY" || m === "RIDE" ? "ds-chip ds-chip--sm ds-chip--up" : m === "FADE" || m === "WAIT" ? "ds-chip ds-chip--sm ds-chip--solid" : "ds-chip ds-chip--sm ds-chip--accent";
+  return h("span", {
+    key: "mode",
+    className: cls,
+    title: title || "Model confluence",
+    style: {
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, m);
+}
+function dayTradePlanCopy({
+  ticker,
+  action,
+  flavor,
+  strike,
+  expShort,
+  dte,
+  mode,
+  livePremium,
+  debit,
+  trim,
+  exit
+} = {}) {
+  const sym = String(ticker || "").toUpperCase();
+  const flav = flavor === "put" ? "put" : "call";
+  const act = String(action || "WAIT").toUpperCase();
+  const k = Number(strike);
+  const contractBit = Number.isFinite(k) && k > 0 ? `${Math.round(k)}${flav === "put" ? "P" : "C"}` : "";
+  const dteN = Number(dte);
+  const dteBit = Number.isFinite(dteN) ? `${dteN}DTE` : "";
+  const punch = [act, "on", sym, contractBit, expShort, dteBit ? `(${dteBit})` : "", "—", "day-trade", flav].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  const scan = [formatLivePremium(livePremium) ? `Live ${formatLivePremium(livePremium)}` : null, debit ? `Debit ${debit}` : null, trim ? `Trim ${trim}` : null, exit ? `Exit ${exit}` : null, mode && String(mode).toUpperCase() !== "UNKNOWN" ? String(mode).toUpperCase() : null].filter(Boolean).join(" · ");
+  return {
+    punch,
+    scan,
+    action: act,
+    flavor: flav
+  };
+}
 function optionsPlanFacts({
   action,
   flavor,
@@ -2326,10 +2368,34 @@ function IndexDayTradeStrip({
     const exp = primary?.expiration || p.expiration || {};
     const exec = p.execution || {};
     const action = String(exec.display_action || exec.action || "WAIT").toUpperCase();
-    const lean = String(p.day_lean || exec.contract?.flavor || flavor).toUpperCase();
-    const chipRow = optionsPlayChipRow(action, flavor === "put" ? "put" : "call", exec.why || exec.headline || "Day-trade execution clock");
+    const lean = String(p.day_lean || "").toUpperCase();
+    const mode = String(p.confluence_mode || "").toUpperCase();
     const expShort = exec.contract?.exp_bit || formatExpShort(exp);
     const band = exec.premium_band || null;
+    const debit = band && Number.isFinite(Number(band.display_buy_ceil ?? band.buy_ceil)) ? `≤ $${Number(band.display_buy_ceil ?? band.buy_ceil).toFixed(2)}` : null;
+    const trim = exec.rr?.trim != null ? `$${Number(exec.rr.trim).toFixed(2)}` : null;
+    const exit = exec.rr?.exit != null ? `$${Number(exec.rr.exit).toFixed(2)}` : null;
+    const copy = dayTradePlanCopy({
+      ticker: sym,
+      action,
+      flavor: flavor === "put" ? "put" : "call",
+      strike: Number(strike),
+      expShort,
+      dte: Number(exp?.dte),
+      mode,
+      livePremium: band?.premium,
+      debit,
+      trim,
+      exit
+    });
+    const modelSide = lean === "LONG" || lean === "SHORT" ? lean : flavor === "put" ? "SHORT" : flavor === "call" ? "LONG" : "";
+    const chipRow = stripCallChips({
+      action,
+      side: modelSide,
+      actionTitle: copy.punch
+    });
+    const modeChip = confluenceModeChip(mode, p.confluence_summary || "Model confluence");
+    if (modeChip) chipRow.push(modeChip);
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const zm = reviveZone(p.zone || exec.zone, trackPrice);
     const dtSide = flavor === "put" || lean === "SHORT" ? "SHORT" : flavor === "call" || lean === "LONG" ? "LONG" : "";
@@ -2338,28 +2404,28 @@ function IndexDayTradeStrip({
       planLabel: "Day-trade plan",
       trackTitle: flavor === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
     }) : null;
-    const optionFacts = optionsPlanFacts({
-      action,
-      flavor: flavor === "put" ? "put" : "call",
-      strike: Number(strike),
-      expShort,
-      dte: Number(exp?.dte),
-      livePremium: band?.premium,
-      debit: band && Number.isFinite(Number(band.display_buy_ceil ?? band.buy_ceil)) ? `≤ $${Number(band.display_buy_ceil ?? band.buy_ceil).toFixed(2)}` : null,
-      trim: exec.rr?.trim != null ? `$${Number(exec.rr.trim).toFixed(2)}` : null,
-      exit: exec.rr?.exit != null ? `$${Number(exec.rr.exit).toFixed(2)}` : null
-    });
     const rrOpts = {
       zone: zm,
       ticker: liveT,
       side: dtSide,
       price: trackPrice
     };
-    const footFacts = VU?.factsWithLiveRr ? VU.factsWithLiveRr(optionFacts, rrOpts) : optionFacts;
+    const liveRr = VU?.factsWithLiveRr ? VU.factsWithLiveRr([trim ? {
+      label: "Trim",
+      value: trim
+    } : null, exit ? {
+      label: "Exit",
+      value: exit
+    } : null].filter(Boolean), rrOpts) : [];
+    const scan = copy.scan || liveRr.map(f => `${f.label} ${f.value}`).join(" · ");
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
-    }, planFactList(footFacts))];
+    }, h("p", {
+      className: "tt-dt-plan__punch"
+    }, copy.punch), scan ? h("p", {
+      className: "tt-dt-plan__scan"
+    }, scan) : null)];
     if (LaneCard?.create) {
       return h("div", {
         key: sym,
@@ -2397,7 +2463,11 @@ function IndexDayTradeStrip({
       onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS")
     }, h("div", {
       className: "tt-dt-plan"
-    }, planFactList(footFacts)));
+    }, h("p", {
+      className: "tt-dt-plan__punch"
+    }, copy.punch), scan ? h("p", {
+      className: "tt-dt-plan__scan"
+    }, scan) : null));
   }))));
 }
 function computeOpenPositionPnlPct(tr, livePx) {
@@ -8671,6 +8741,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787671138972:965603465
+// cache-bust:1787671910527:64030816
 
-// cache-bust:1787671138972:965603465
+// cache-bust:1787671910527:64030816

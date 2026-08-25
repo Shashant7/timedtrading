@@ -44,6 +44,8 @@ describe("Today Cloud Desk plan copy", () => {
     expect(src).toContain("optionsPlanFacts");
     expect(src).toContain("optionsPlayLabel");
     expect(src).toContain("optionsPlayChipRow");
+    expect(src).toContain("dayTradePlanCopy");
+    expect(src).toContain("confluenceModeChip");
     expect(src).not.toMatch(/label:\s*"Leg"/);
     expect(src).not.toContain("appendLiveRrChip(chips");
     expect(src).toContain("factsWithLiveRr");
