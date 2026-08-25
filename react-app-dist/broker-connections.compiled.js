@@ -64,6 +64,18 @@ function humanizeReason(raw) {
     return "Legacy daily order limit (removed — mirror on/off is the only account control)";
   }
   if (/notional_.*exceeds_cap|max_per_order|exceeds_cap|vehicle_.*notional/.test(r)) return "Order size above a vehicle dollar limit";
+  if (/account_too_small_for_one_share|too_small_to_mirror/.test(r)) {
+    return "Account too small for a whole share — enable Webull Fractional Shares";
+  }
+  if (/fractional_agreement|trade_fract/.test(r)) {
+    return "Webull Fractional Shares agreement not signed — enable it in the Webull App";
+  }
+  if (/insufficient_cash_for_one_unit/.test(r)) {
+    return "Cash on hand is below one share";
+  }
+  if (/account_equity_unknown/.test(r)) {
+    return "Account equity not synced — a futures or unsynced sleeve cannot take stock orders";
+  }
   if (/below_min_share_price/.test(r)) return "Order too small for one share at the limit";
   if (/mirror_suppressed/.test(r)) return "Mirroring suppressed after repeated drift — needs review";
   if (/no_manifest_for_trade/.test(r)) return "No tracked entry for this trade on the account";
@@ -72,7 +84,7 @@ function humanizeReason(raw) {
   if (/nothing_to_reduce|reducer_qty_rounded_to_zero/.test(r)) return "Nothing to sell on this account";
   if (/qty_zero|rounded_to_zero/.test(r)) return "Order size rounded to zero for this account";
   if (/insufficient|buying_power/.test(r)) return "Insufficient buying power";
-  if (/outside.*market|market.*closed|requires regular market|fractional/.test(r)) return "Requires regular market hours";
+  if (/outside.*market|market.*closed|requires regular market|fractional_outside|outside_rth/.test(r)) return "Requires regular market hours";
   if (/investor_mirror_disabled/.test(r)) return "Long-term mirroring is off globally";
   if (/broker_integration_disabled|mirror_off|not_enabled/.test(r)) return "Mirroring is off for this account";
   if (/zone_exhausted|stage_|score_below/.test(r)) return "Model thesis gate declined the catch-up";
@@ -1723,6 +1735,36 @@ function AccountCard({
     }
   }, msg.text));
 }
+function FractionalSharesTip({
+  compact
+}) {
+  return React.createElement("div", {
+    className: "bc-fract-tip",
+    style: {
+      fontSize: 12,
+      lineHeight: 1.55,
+      margin: compact ? "10px 0 0" : "10px 0 12px",
+      padding: "10px 12px",
+      borderLeft: "3px solid var(--tt-warning, #f59e0b)",
+      background: "rgba(245,158,11,0.07)",
+      color: "var(--tt-text-2, #a3b5ad)"
+    }
+  }, React.createElement("div", {
+    style: {
+      fontWeight: 800,
+      color: "var(--tt-text, #e8f0ec)",
+      marginBottom: 4
+    }
+  }, "Enable Webull Fractional Shares"), React.createElement("p", {
+    style: {
+      margin: "0 0 6px"
+    }
+  }, "A smaller book cannot take a whole high-priced share after model sizing (AMD-class names). Without Fractional Shares those entries are skipped."), React.createElement("p", {
+    style: {
+      margin: 0
+    }
+  }, "In the Webull App: ", React.createElement("b", null, "Menu"), " (bottom right) \u2192 ", React.createElement("b", null, "Settings"), " \u2192 ", React.createElement("b", null, "Manage Brokerage Account"), " \u2192 ", React.createElement("b", null, "US Fractional Shares Trade"), " \u2192 Apply. Accept the Fractional Shares agreement if Webull prompts. Fractionals fill only during regular hours (9:30 a.m.\u20134:00 p.m. ET)."));
+}
 function ConnectForm({
   onConnected,
   compact
@@ -1797,7 +1839,9 @@ function ConnectForm({
       borderLeft: "3px solid var(--vf-primary, #38F2A1)",
       background: "rgba(56,242,161,0.06)"
     }
-  }, "If connect fails with an access-token message, the key was created with 2FA on \u2014 that is not a bad secret. Fastest fix: generate a new key with 2FA off and connect again. Or keep the same key, open the Webull App \u2192 ", React.createElement("b", null, "Menu \u2192 Messages \u2192 OpenAPI Notifications"), ", enter the SMS code within 5 minutes, then tap Connect again.")), React.createElement("form", {
+  }, "If connect fails with an access-token message, the key was created with 2FA on \u2014 that is not a bad secret. Fastest fix: generate a new key with 2FA off and connect again. Or keep the same key, open the Webull App \u2192 ", React.createElement("b", null, "Menu \u2192 Messages \u2192 OpenAPI Notifications"), ", enter the SMS code within 5 minutes, then tap Connect again."), React.createElement(FractionalSharesTip, {
+    compact: true
+  })), React.createElement("form", {
     onSubmit: submit,
     autoComplete: "off"
   }, React.createElement("div", {
@@ -3035,7 +3079,7 @@ function BrokerConnectionsApp({
       marginTop: 4,
       maxWidth: 620
     }
-  }, "Equity mirror and options strategies are separate. Size follows each account's equity \u2014 there is no daily order cap.")), anyEnabled && React.createElement("button", {
+  }, "Equity mirror and options strategies are separate. Size follows each account's equity \u2014 there is no daily order cap."), React.createElement(FractionalSharesTip, null)), anyEnabled && React.createElement("button", {
     className: "bc-btn bc-btn-sm",
     disabled: busy,
     style: {
@@ -3191,6 +3235,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787664824204:439822741
+// cache-bust:1787669764275:986414567
 
-// cache-bust:1787664824204:439822741
+// cache-bust:1787669764275:986414567
