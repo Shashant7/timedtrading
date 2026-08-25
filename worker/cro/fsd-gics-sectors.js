@@ -48,6 +48,12 @@ const GICS_SECTOR_ETFS = {
 const TICKER_ROW_RE = /^\|\s*[^|]+\|\s*([A-Z][A-Z0-9.-]{0,5})\s*\|/gm;
 const SECTOR_HEADER_RE = /^###\s+(.+?)\s*$/gm;
 const ETF_LINE_RE = /^######\s+ETF:\s*([A-Z]+)\s*$/m;
+const HTML_SECTOR_ANCHOR_RE = /<a\s+name="sector_([^"]+)"/gi;
+const HTML_YAHOO_TICKER_RE = /finance\.yahoo\.com\/quote\/([A-Z][A-Z0-9.-]{0,5})/gi;
+const HTML_ETF_TAG_RE = /ETF:\s*(X[A-Z]{2,4})/i;
+
+/** Minimum tickers before we trust a GICS parse (guards empty HTML writes). */
+export const GICS_PARSE_MIN_TICKERS = 100;
 
 export function normalizeFsdSectorName(name) {
   const raw = String(name || "").trim();
@@ -60,53 +66,103 @@ export function normalizeGicsTicker(sym) {
   return t;
 }
 
+function ingestGicsSectorBlock({
+  sectors,
+  tickerToSector,
+  tickerToEtf,
+  gicsName,
+  block,
+  etfOverride = null,
+}) {
+  if (!GICS_SECTOR_ETFS[gicsName]) return;
+  const etfMatch = block.match(ETF_LINE_RE) || block.match(HTML_ETF_TAG_RE);
+  const etf = etfOverride || etfMatch?.[1] || GICS_SECTOR_ETFS[gicsName];
+  const ttSector = normalizeFsdSectorName(gicsName);
+  const tickers = new Set(sectors[gicsName]?.tickers || []);
+
+  for (const row of block.matchAll(TICKER_ROW_RE)) {
+    const sym = normalizeGicsTicker(row[1]);
+    if (!sym || sym === "TICKER") continue;
+    tickers.add(sym);
+    tickerToSector[sym] = ttSector;
+    tickerToEtf[sym] = etf;
+  }
+  for (const row of block.matchAll(HTML_YAHOO_TICKER_RE)) {
+    const sym = normalizeGicsTicker(row[1]);
+    if (!sym) continue;
+    tickers.add(sym);
+    tickerToSector[sym] = ttSector;
+    tickerToEtf[sym] = etf;
+  }
+
+  sectors[gicsName] = {
+    gics: gicsName,
+    tt_sector: ttSector,
+    etf,
+    tickers: [...tickers].sort(),
+  };
+}
+
+/** Parse legacy markdown-exported GICS page (### headers + pipe tables). */
+export function parseFsdGicsSectorMarkdown(text = "") {
+  const sectors = {};
+  const tickerToSector = {};
+  const tickerToEtf = {};
+  const src = String(text || "");
+  const headerMatches = [...src.matchAll(SECTOR_HEADER_RE)];
+  for (let i = 0; i < headerMatches.length; i++) {
+    const gicsName = headerMatches[i][1].trim();
+    const start = headerMatches[i].index;
+    const end = i + 1 < headerMatches.length ? headerMatches[i + 1].index : src.length;
+    ingestGicsSectorBlock({
+      sectors,
+      tickerToSector,
+      tickerToEtf,
+      gicsName,
+      block: src.slice(start, end),
+    });
+  }
+  return { sectors, tickerToSector, tickerToEtf };
+}
+
+/** Parse live FSD HTML (anchor sectors + Yahoo quote links in tables). */
+export function parseFsdGicsSectorHtml(html = "") {
+  const sectors = {};
+  const tickerToSector = {};
+  const tickerToEtf = {};
+  const src = String(html || "");
+  const anchors = [...src.matchAll(HTML_SECTOR_ANCHOR_RE)];
+  for (let i = 0; i < anchors.length; i++) {
+    const gicsName = anchors[i][1].trim();
+    const start = anchors[i].index;
+    const end = i + 1 < anchors.length ? anchors[i + 1].index : src.length;
+    ingestGicsSectorBlock({
+      sectors,
+      tickerToSector,
+      tickerToEtf,
+      gicsName,
+      block: src.slice(start, end),
+    });
+  }
+  return { sectors, tickerToSector, tickerToEtf };
+}
+
 /**
  * Parse the FSD "In Depth Sectors" HTML or markdown-converted page.
  * Returns { sectors, tickerToSector, tickerToEtf, stats }.
  */
 export function parseFsdGicsSectorPage(html = "") {
   const text = String(html || "");
-  const sectors = {};
-  const tickerToSector = {};
-  const tickerToEtf = {};
-
-  // Walk sector blocks: ### {GICS} … ###### ETF: {XL?} … markdown tables
-  const headerMatches = [...text.matchAll(SECTOR_HEADER_RE)];
-  for (let i = 0; i < headerMatches.length; i++) {
-    const gicsName = headerMatches[i][1].trim();
-    if (!GICS_SECTOR_ETFS[gicsName]) continue;
-
-    const start = headerMatches[i].index;
-    const end = i + 1 < headerMatches.length ? headerMatches[i + 1].index : text.length;
-    const block = text.slice(start, end);
-    const etfMatch = block.match(ETF_LINE_RE);
-    const etf = etfMatch?.[1] || GICS_SECTOR_ETFS[gicsName];
-    const ttSector = normalizeFsdSectorName(gicsName);
-    const tickers = new Set();
-
-    for (const row of block.matchAll(TICKER_ROW_RE)) {
-      const sym = normalizeGicsTicker(row[1]);
-      if (!sym || sym === "TICKER") continue;
-      tickers.add(sym);
-      tickerToSector[sym] = ttSector;
-      tickerToEtf[sym] = etf;
-    }
-
-    sectors[gicsName] = {
-      gics: gicsName,
-      tt_sector: ttSector,
-      etf,
-      tickers: [...tickers].sort(),
-    };
-  }
+  const htmlParsed = parseFsdGicsSectorHtml(text);
+  const mdParsed = parseFsdGicsSectorMarkdown(text);
+  const useHtml = Object.keys(htmlParsed.tickerToSector).length >= Object.keys(mdParsed.tickerToSector).length;
+  const picked = useHtml ? htmlParsed : mdParsed;
 
   return {
-    sectors,
-    tickerToSector,
-    tickerToEtf,
+    ...picked,
     stats: {
-      sector_count: Object.keys(sectors).length,
-      ticker_count: Object.keys(tickerToSector).length,
+      sector_count: Object.keys(picked.sectors).length,
+      ticker_count: Object.keys(picked.tickerToSector).length,
     },
   };
 }
@@ -167,6 +223,25 @@ export async function syncFsdGicsSectorMap(env, { config } = {}) {
   if (!fetched.ok) return { ok: false, ...fetched };
 
   const parsed = parseFsdGicsSectorPage(fetched.html);
+  const tickerCount = parsed.stats?.ticker_count || 0;
+  if (tickerCount < GICS_PARSE_MIN_TICKERS) {
+    const meta = {
+      last_sync_at: Date.now(),
+      last_sync_ok: false,
+      last_error: "parse_incomplete",
+      sectors_parsed: parsed.stats?.sector_count || 0,
+      tickers_parsed: tickerCount,
+    };
+    const kv = env?.KV_TIMED || env?.KV;
+    if (kv) await kvPutJSON(kv, FSD_GICS_SECTOR_META_KV_KEY, meta);
+    return {
+      ok: false,
+      error_kind: "parse_incomplete",
+      tickers_parsed: tickerCount,
+      sectors_parsed: parsed.stats?.sector_count || 0,
+      source_url: fetched.url,
+    };
+  }
   const { SECTOR_MAP } = await import("../sector-mapping.js");
   const diff = diffSectorMaps(parsed.tickerToSector, SECTOR_MAP);
   const payload = {
