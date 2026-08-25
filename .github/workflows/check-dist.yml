@@ -83,7 +83,20 @@ jobs:
           # any attributes on either side of src/href; the volatile part
           # is always the `?v=<digits>` stamp.
           IGNORE_PATTERN='^(// |<!-- )cache-bust:[0-9]+:[0-9]+( -->)?$|^[[:space:]]*<script[^>]* src="[^"]+\.js\?v=[0-9]+"[^>]*></script>[[:space:]]*$|^[[:space:]]*<link[^>]* href="[^"]+\.css\?v=[0-9]+"[^>]*/?>[[:space:]]*$'
-          if ! git diff --quiet --exit-code -I "$IGNORE_PATTERN" -- react-app-dist/; then
+          # 2026-08-25 — Exclude tailwind.generated.css. It is the MINIFIED
+          # output of the Tailwind CLI, whose exact bytes depend on the native
+          # minifier (lightningcss/oxide) binary variant resolved at install
+          # time. With no committed lockfile (`npm install`, not `npm ci`), a
+          # contributor's machine and CI's clean install resolve DIFFERENT
+          # native binaries (CI installed 248 vs 256 packages here) and emit
+          # byte-different minified CSS + a floating version banner
+          # (`/*! tailwindcss v4.3.x */`) — a false "you forgot to rebuild"
+          # failure on PRs that never touched the CSS. It is not author-editable
+          # source and Pages/deploy regenerate it fresh at build time anyway.
+          # Every compiled JSX / HTML asset (the real rebuild signal) is still
+          # compared.
+          DIST_PATHS=(-- react-app-dist/ ':(exclude)react-app-dist/tailwind.generated.css')
+          if ! git diff --quiet --exit-code -I "$IGNORE_PATTERN" "${DIST_PATHS[@]}"; then
             echo "::error::react-app-dist/ is OUT OF DATE relative to react-app/."
             echo "::error::Cloudflare Pages serves the committed react-app-dist/, so"
             echo "::error::source-only edits won't reach users until the dist is rebuilt."
@@ -93,8 +106,8 @@ jobs:
             echo "  git add react-app-dist/"
             echo "  git commit -m 'build: rebuild react-app-dist'"
             echo ""
-            echo "Diff (truncated, cache-bust markers excluded):"
-            git --no-pager diff --stat -I "$IGNORE_PATTERN" -- react-app-dist/ | head -40
+            echo "Diff (truncated, cache-bust markers + tailwind.generated.css excluded):"
+            git --no-pager diff --stat -I "$IGNORE_PATTERN" "${DIST_PATHS[@]}" | head -40
             exit 1
           fi
           echo "✓ react-app-dist/ matches a fresh build (cache-bust markers ignored)."
