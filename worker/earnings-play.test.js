@@ -365,6 +365,19 @@ describe("buildEarningsPlay", () => {
     expect(block.crush_note).toBe(block.crush.note);
   });
 
+  it("says today instead of 0d out on same-day AMC", () => {
+    const block = buildEarningsPlay({
+      ...base,
+      ticker: "INTU",
+      side: "SHORT",
+      event: { date: "2026-08-25", hour: "amc", days_to_print: 0 },
+      expiration: { iso: "2026-08-28", dte: 3 },
+    });
+    expect(block.catalyst).toMatch(/Earnings AMC Tue Aug 25 · today/);
+    expect(block.days_to_print).toBe(0);
+    expect(block.covers_print).toBe(true);
+  });
+
   it("carries the crush read when the strike, premium and back month are known", () => {
     const block = buildEarningsPlay({
       ...base,
@@ -445,6 +458,23 @@ describe("enrichEarningsPlayCards", () => {
     const cards = [{ ticker: "AAA", earnings_prep: true, direction: "LONG", expiration: { iso: "2026-08-28", dte: 3 } }];
     await enrichEarningsPlayCards(env, cards, { eventBySym: {}, fetchChain: async () => chainAround(100) });
     expect(cards[0].earnings_play).toBeUndefined();
+  });
+
+  it("keeps the 4H wait why on a same-day AMC card", async () => {
+    const cards = [{
+      ticker: "INTU",
+      earnings_prep: true,
+      h4_close_pending: true,
+      direction: "SHORT",
+      expiration: { iso: "2026-08-28", dte: 3 },
+    }];
+    await enrichEarningsPlayCards(env, cards, {
+      eventBySym: { INTU: { date: "2026-08-25", hour: "amc", days_to_print: 0 } },
+      spotBySym: { INTU: 670 },
+      fetchChain: async () => chainAround(670),
+    });
+    expect(cards[0].earnings_play?.days_to_print).toBe(0);
+    expect(cards[0].shot_reason).toMatch(/4H still open/);
   });
 
   it("still builds the block when the chain fetch fails", async () => {

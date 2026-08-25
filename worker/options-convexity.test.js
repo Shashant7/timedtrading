@@ -14,6 +14,7 @@ import {
 import {
   shouldActivateLotto,
   shouldActivateEarningsPrepLotto,
+  isFirstRth4hForming,
   detectMomentumInMotion,
   pickLottoExpiration,
   lookupLETF,
@@ -95,6 +96,73 @@ describe("shouldActivateEarningsPrepLotto", () => {
     });
     expect(r.activate).toBe(false);
   });
+
+  it("allows same-day AMC FADE as a put, WAIT while the first 4H is open", () => {
+    const beforeClose = Date.parse("2026-08-25T11:00:00-04:00");
+    const r = shouldActivateEarningsPrepLotto({
+      profile: "speculator",
+      confluence: {
+        mode: "FADE",
+        side: "SHORT",
+        timing: { put_opportunity: true },
+      },
+      contract: {
+        price: 670,
+        sl: 685,
+        direction: "SHORT",
+        earnings_dte: 0,
+        earnings_hour: "amc",
+      },
+      tickerData: { state: "HTF_BULL_LTF_PULLBACK", earnings_hour: "amc" },
+      now: beforeClose,
+    });
+    expect(r.activate).toBe(true);
+    expect(r.side).toBe("SHORT");
+    expect(r.earnings_session).toBe("AMC");
+    expect(r.h4_close_pending).toBe(true);
+  });
+
+  it("rejects same-day BMO — the print already landed", () => {
+    const r = shouldActivateEarningsPrepLotto({
+      profile: "speculator",
+      confluence: { mode: "READY", side: "LONG", timing: { call_opportunity: true } },
+      contract: { price: 100, sl: 95, direction: "LONG", earnings_dte: 0, earnings_hour: "bmo" },
+      now: Date.parse("2026-08-25T11:00:00-04:00"),
+    });
+    expect(r.activate).toBe(false);
+    expect(r.reason).toBe("earnings_dte_out_of_window");
+  });
+
+  it("clears the 4H pending flag after the 1:30 PM ET close", () => {
+    const afterClose = Date.parse("2026-08-25T13:45:00-04:00");
+    const r = shouldActivateEarningsPrepLotto({
+      profile: "speculator",
+      confluence: {
+        mode: "FADE",
+        side: "SHORT",
+        timing: { put_opportunity: true },
+      },
+      contract: {
+        price: 670,
+        sl: 685,
+        direction: "SHORT",
+        earnings_dte: 0,
+        earnings_hour: "amc",
+      },
+      now: afterClose,
+    });
+    expect(r.activate).toBe(true);
+    expect(r.h4_close_pending).toBe(false);
+  });
+});
+
+describe("isFirstRth4hForming", () => {
+  it("is true before the 13:30 ET close and false after", () => {
+    expect(isFirstRth4hForming(Date.parse("2026-08-25T11:00:00-04:00"))).toBe(true);
+    expect(isFirstRth4hForming(Date.parse("2026-08-25T13:29:00-04:00"))).toBe(true);
+    expect(isFirstRth4hForming(Date.parse("2026-08-25T13:30:00-04:00"))).toBe(false);
+    expect(isFirstRth4hForming(Date.parse("2026-08-25T15:00:00-04:00"))).toBe(false);
+  });
 });
 
 describe("detectMomentumInMotion — reclaim override", () => {
@@ -125,6 +193,42 @@ describe("lookupLETF AEHR", () => {
 });
 
 describe("buildOptionsLadder — earnings prep lotto under WAIT", () => {
+  it("surfaces a same-day AMC FADE put and waits on the open 4H", () => {
+    const now = Date.parse("2026-08-25T11:00:00-04:00");
+    const ladder = buildOptionsLadder({
+      ticker: "INTU",
+      price: 670,
+      direction: "SHORT",
+      sl: 685,
+      tp1: 640,
+      atr_pct: 0.03,
+      mode: "trader",
+      stage: "swing",
+      earnings_dte: 0,
+      earnings_hour: "amc",
+    }, {
+      profile: "speculator",
+      now,
+      confluence: {
+        mode: "FADE",
+        side: "SHORT",
+        timing: { put_opportunity: true },
+      },
+      tickerData: {
+        ticker: "INTU",
+        earnings_dte: 0,
+        earnings_hour: "amc",
+        state: "HTF_BULL_LTF_PULLBACK",
+      },
+    });
+    const lotto = (ladder.ladder || []).find((p) => p._lotto_active);
+    expect(lotto).toBeTruthy();
+    expect(lotto._earnings_prep).toBe(true);
+    expect(lotto._h4_close_pending).toBe(true);
+    expect(lotto.archetype).toBe("lotto_put");
+    expect(lotto.expiration?.dte).toBeGreaterThanOrEqual(1);
+  });
+
   it("surfaces advisory lotto when earnings are near and floor held", () => {
     const ladder = buildOptionsLadder({
       ticker: "AEHR",
@@ -186,6 +290,27 @@ describe("isConvexityPlayActionable", () => {
       confluence: { mode: "WAIT", side: "LONG" },
       contract: { direction: "LONG", sl: 98, atr_pct: 0.03 },
       spot: 100,
+      as_of_ms: Date.now(),
+    })).toBe(true);
+  });
+
+  it("allows FADE earnings-prep put when timing leans short", () => {
+    expect(isConvexityPlayActionable({
+      play: {
+        ...basePlay,
+        archetype: "lotto_put",
+        _earnings_prep: true,
+        _h4_close_pending: true,
+        strikes: { primary: 660 },
+      },
+      play_class: "lotto",
+      confluence: {
+        mode: "FADE",
+        side: "SHORT",
+        timing: { put_opportunity: true },
+      },
+      contract: { direction: "SHORT", sl: 685, atr_pct: 0.03 },
+      spot: 670,
       as_of_ms: Date.now(),
     })).toBe(true);
   });
@@ -272,6 +397,13 @@ describe("buildConvexityShotReason", () => {
     expect(why).toMatch(/Energy/);
   });
 
+  it("names the 4H wait on same-day AMC", () => {
+    expect(buildConvexityShotReason({
+      play: { archetype: "lotto_put", _earnings_prep: true, _h4_close_pending: true },
+      earnings_play: { catalyst: "Earnings AMC Tue Aug 25 · today" },
+    })).toMatch(/4H still open/);
+  });
+
   it("falls back when confluence is thin", () => {
     expect(buildConvexityShotReason({
       play: { archetype: "lotto_call" },
@@ -305,6 +437,36 @@ describe("convexityPlanCopy", () => {
     expect(copy.scan).toContain("Risk $126");
     expect(copy.scan).toContain("3x+ @ $642.52");
     expect(copy.scan).toContain("Pay ≤ $1.26");
+  });
+
+  it("maps same-day AMC FADE to WAIT while the 4H is open, BUY after", () => {
+    const pending = convexityPlanCopy({
+      ticker: "INTU",
+      play_class: "lotto",
+      direction: "SHORT",
+      strike: 660,
+      expiration: { dte: 3, iso: "2026-08-28" },
+      confluence_mode: "FADE",
+      earnings_prep: true,
+      h4_close_pending: true,
+    });
+    expect(pending.action).toBe("WAIT");
+    expect(pending.flavor).toBe("put");
+    expect(pending.punch).toContain("WAIT on INTU 660P");
+    expect(pending.punch).toContain("earnings-prep lotto put");
+
+    const after = convexityPlanCopy({
+      ticker: "INTU",
+      play_class: "lotto",
+      direction: "SHORT",
+      strike: 660,
+      expiration: { dte: 3, iso: "2026-08-28" },
+      confluence_mode: "FADE",
+      earnings_prep: true,
+      h4_close_pending: false,
+    });
+    expect(after.action).toBe("BUY");
+    expect(after.punch).toContain("BUY on INTU 660P");
   });
 
   it("maps READY to BUY and moonshot put flavor", () => {
@@ -352,6 +514,33 @@ describe("toConvexityCard", () => {
     expect(card.action).toBe("BUY");
     expect(card.headline).toContain("BUY on AMD 170C");
     expect(card.scan_line).toContain("Risk $200");
+  });
+
+  it("stamps h4_close_pending and WAIT on a same-day AMC fade", () => {
+    const card = toConvexityCard({
+      ticker: "INTU",
+      play: {
+        archetype: "lotto_put",
+        _earnings_prep: true,
+        _h4_close_pending: true,
+        _earnings_session: "AMC",
+        earnings_dte: 0,
+        strikes: { primary: 660 },
+        expiration: { dte: 3, iso: "2026-08-28" },
+        max_loss_usd: 50,
+      },
+      play_class: "lotto",
+      confluence: { mode: "FADE", side: "SHORT", score: 25 },
+      contract: { sl: 685, direction: "SHORT" },
+      spot: 670,
+      as_of_ms: Date.now(),
+    });
+    expect(card.earnings_prep).toBe(true);
+    expect(card.h4_close_pending).toBe(true);
+    expect(card.action).toBe("WAIT");
+    expect(card.direction).toBe("SHORT");
+    expect(card.shot_reason).toMatch(/4H still open/);
+    expect(card.rationale_short).toMatch(/1:30 PM ET/);
   });
 
   it("flags earnings_prep on cards", () => {

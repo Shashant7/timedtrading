@@ -93,10 +93,10 @@ export function isConvexityPlayActionable({
   if (playClass === "lotto") {
     const earnPrep = !!play._earnings_prep;
     const lottoModes = earnPrep
-      ? ["READY", "RIDE", "DRIFT", "WAIT"]
+      ? ["READY", "RIDE", "DRIFT", "WAIT", "FADE"]
       : ["READY", "RIDE", "DRIFT"];
     if (!lottoModes.includes(mode)) return false;
-    if (mode === "READY" || (earnPrep && mode === "WAIT")) {
+    if (mode === "READY" || mode === "FADE" || (earnPrep && mode === "WAIT")) {
       const side = String(confluence?.side || contract?.direction || "").toUpperCase();
       const timing = timingLean(confluence);
       const floor = floorHeld({
@@ -104,8 +104,8 @@ export function isConvexityPlayActionable({
         sl: contract?.sl,
         direction: side,
       });
-      if (mode === "WAIT" && !floor) return false;
-      if (mode === "READY" && !floor && timing !== side) return false;
+      if (mode === "WAIT" && !floor && !play._h4_close_pending) return false;
+      if ((mode === "READY" || mode === "FADE") && !floor && timing !== side) return false;
     }
   } else if (playClass === "moonshot") {
     if (!["RIDE", "DRIFT"].includes(mode) && !(play._moonshot_active && mode === "RIDE")) {
@@ -190,6 +190,12 @@ export function buildConvexityShotReason({
   themes,
   earnings_play: earningsPlay,
 } = {}) {
+  const h4Pending = !!(play?._h4_close_pending || contract?.h4_close_pending);
+  if (h4Pending) {
+    return clipShotReason(
+      "4H still open — SuperTrend flip or hold confirms after the 1:30 PM ET close.",
+    );
+  }
   if (earningsPlay?.catalyst) return clipShotReason(earningsPlay.catalyst);
 
   const playClass = playClassIn || playClassFromArchetype(play?.archetype);
@@ -200,6 +206,18 @@ export function buildConvexityShotReason({
       ?? contract?.days_to_earnings
       ?? earningsPlay?.days_to_print,
     );
+    const sess = String(
+      play._earnings_session
+      ?? contract?.earnings_hour
+      ?? contract?.earnings_session
+      ?? earningsPlay?.report_session
+      ?? "",
+    ).toUpperCase();
+    if (d === 0) {
+      return clipShotReason(
+        `Earnings today${sess === "AMC" ? " AMC" : ""} — cheap OTM into the print, not a share entry.`,
+      );
+    }
     return Number.isFinite(d)
       ? `Earnings in ${d}d — cheap OTM into the print, not a share entry.`
       : "Earnings-prep — cheap OTM into the print, not a share entry.";
@@ -262,7 +280,8 @@ export function formatConvexityExpShort(exp) {
 
 /**
  * Day-trade strip grammar for a convexity card (chips / punch / scan).
- * READY or RIDE → BUY; everything else (DRIFT, WAIT) stays WAIT.
+ * READY or RIDE → BUY. Earnings-prep FADE → BUY (put at a local top)
+ * unless the first RTH 4H is still open (same-day AMC confirm).
  */
 export function convexityPlanCopy(card = {}) {
   const ticker = String(card.ticker || "").toUpperCase();
@@ -272,7 +291,10 @@ export function convexityPlanCopy(card = {}) {
   const strike = Number(card.strike);
   const dte = Number(card.expiration?.dte);
   const mode = String(card.confluence_mode || "").toUpperCase();
-  const action = (mode === "READY" || mode === "RIDE") ? "BUY" : "WAIT";
+  const fadeBuy = !!card.earnings_prep && mode === "FADE";
+  const action = card.h4_close_pending
+    ? "WAIT"
+    : ((mode === "READY" || mode === "RIDE" || fadeBuy) ? "BUY" : "WAIT");
   const expShort = formatConvexityExpShort(card.expiration);
   const contractBit = Number.isFinite(strike) && strike > 0
     ? `${Math.round(strike)}${flavor === "put" ? "P" : "C"}`
@@ -338,8 +360,12 @@ export function toConvexityCard({
     as_of_ms: Number(asOfMs) || Date.now(),
     label: play.label || null,
     earnings_prep: !!play._earnings_prep,
+    h4_close_pending: !!play._h4_close_pending,
+    earnings_session: play._earnings_session || contract?.earnings_hour || null,
     rationale_short: play._earnings_prep
-      ? "Earnings-prep lotto — cheap OTM into the print; IV crush risk; not a share entry."
+      ? (play._h4_close_pending
+        ? "Earnings today AMC — wait for the 1:30 PM ET 4H close before the lotto."
+        : "Earnings-prep lotto — cheap OTM into the print; IV crush risk; not a share entry.")
       : playClass === "lotto"
         ? "Short-dated OTM — sized for total premium loss; 3×+ if the move fires."
         : "Gamma window — multi-bagger target if momentum continues.",

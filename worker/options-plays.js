@@ -337,13 +337,58 @@ export function resolveEarningsDte(contract = {}, tickerData = {}) {
   return null;
 }
 
+/** Vendor hour (bmo / amc / dmh) → BMO | AMC | DMH. Kept local to avoid a cycle with earnings-play.js. */
+export function resolveEarningsSession(contract = {}, tickerData = {}) {
+  const raw = contract?.earnings_hour
+    ?? contract?.earningsHour
+    ?? contract?.earnings_session
+    ?? tickerData?.earnings_hour
+    ?? tickerData?.earningsHour
+    ?? tickerData?.earnings_session
+    ?? tickerData?.hour;
+  const h = String(raw || "").trim().toLowerCase();
+  if (h === "bmo" || h.includes("before")) return "BMO";
+  if (h === "amc" || h.includes("after")) return "AMC";
+  if (h === "dmh" || h.includes("during")) return "DMH";
+  return null;
+}
+
+/**
+ * First RTH 4H (09:30–13:30 ET) is still open. Canonical 4H closes at
+ * 1:30 PM ET, not 2:00. After 13:30 the first bar has printed — do not
+ * keep WAIT through the 16:00 second 4H; same-day AMC prints after the close.
+ */
+export function isFirstRth4hForming(now = Date.now()) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+    }).formatToParts(new Date(now));
+    const map = {};
+    for (const p of parts) map[p.type] = p.value;
+    const wd = String(map.weekday || "").slice(0, 3).toLowerCase();
+    if (wd === "sat" || wd === "sun") return false;
+    let hour = Number(map.hour);
+    if (hour === 24) hour = 0;
+    const mins = hour * 60 + Number(map.minute || 0);
+    return mins < 13 * 60 + 30;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Advisory earnings-prep lotto — surface cheap OTM convexity into a print
  * WITHOUT loosening Active Trader share entry / flatten risk-off.
  *
- * Window: earnings in 1–5 calendar days. Allows READY/RIDE/DRIFT and WAIT
- * (WAIT only when the directional floor is held — pre-catalyst hesitation
- * is common). Requires floor, compression timing, or a reclaim/pullback
+ * Window: earnings in 1–5 calendar days, plus same-day AMC (lotto into
+ * tonight's print). Same-day BMO is excluded — the print already landed.
+ * Allows READY/RIDE/DRIFT/WAIT and FADE (FADE SHORT is the put at a local
+ * top). WAIT needs the floor unless same-day AMC is still waiting on the
+ * first 4H close. Requires floor, compression timing, or a reclaim/pullback
  * structure flag.
  */
 export function shouldActivateEarningsPrepLotto({
@@ -353,6 +398,7 @@ export function shouldActivateEarningsPrepLotto({
   direction,
   tickerData,
   earningsDte,
+  now = Date.now(),
 } = {}) {
   if (profile !== "speculator" && profile !== "aggressive") {
     return { activate: false, reason: "profile_not_speculator_or_aggressive" };
@@ -361,12 +407,14 @@ export function shouldActivateEarningsPrepLotto({
     { ...(contract || {}), earnings_dte: earningsDte ?? contract?.earnings_dte },
     tickerData || {},
   );
-  if (!Number.isFinite(dte) || dte < 1 || dte > 5) {
+  const session = resolveEarningsSession(contract, tickerData);
+  const sameDayAmc = dte === 0 && session === "AMC";
+  if (!Number.isFinite(dte) || dte > 5 || (dte < 1 && !sameDayAmc)) {
     return { activate: false, reason: "earnings_dte_out_of_window" };
   }
   if (!confluence) return { activate: false, reason: "no_confluence" };
   const mode = String(confluence.mode || "").toUpperCase();
-  if (!["READY", "RIDE", "DRIFT", "WAIT"].includes(mode)) {
+  if (!["READY", "RIDE", "DRIFT", "WAIT", "FADE"].includes(mode)) {
     return { activate: false, reason: `mode_${mode}_not_earnings_prep` };
   }
   const side = String(confluence.side || direction || contract?.direction || "").toUpperCase();
@@ -389,10 +437,18 @@ export function shouldActivateEarningsPrepLotto({
   if (!floorOk && !timingOk && !reclaimOk) {
     return { activate: false, reason: "no_floor_timing_or_reclaim" };
   }
-  if (mode === "WAIT" && !floorOk) {
+  const h4Pending = sameDayAmc && isFirstRth4hForming(now);
+  if (mode === "WAIT" && !floorOk && !h4Pending) {
     return { activate: false, reason: "wait_requires_floor" };
   }
-  return { activate: true, side, earnings_dte: dte, earnings_prep: true };
+  return {
+    activate: true,
+    side,
+    earnings_dte: dte,
+    earnings_prep: true,
+    earnings_session: session,
+    h4_close_pending: h4Pending,
+  };
 }
 
 /**
@@ -695,6 +751,7 @@ export function contractToLadderInput(contract, data = {}, opts = {}) {
     stage: isInvestorMode ? "investor" : (contract?.stage || data?.kanban_stage || "swing"),
     atr_pct: atrPct,
     earnings_dte: contract?.earnings_dte ?? data?.earnings_dte ?? null,
+    earnings_hour: contract?.earnings_hour ?? data?.earnings_hour ?? null,
     mode: isInvestorMode ? "investor" : "trader",
     levels,
     invalidation: Array.isArray(contract?.invalidation) ? contract.invalidation.filter(Boolean) : [],
@@ -3529,6 +3586,7 @@ export function buildOptionsLadder(contract, opts = {}) {
     direction: activeDir,
     tickerData: opts.tickerData || contract,
     earningsDte: resolveEarningsDte(contract, opts.tickerData || {}),
+    now: opts.now,
   });
 
   const exitForFade = pickExitTargetPrice(ctx) ?? tp1;
@@ -3598,11 +3656,17 @@ export function buildOptionsLadder(contract, opts = {}) {
       if (activateEarningsPrepLotto) {
         const ed = earningsPrepDecision.earnings_dte;
         lotto._earnings_prep = true;
+        lotto.earnings_dte = ed;
+        lotto._earnings_session = earningsPrepDecision.earnings_session || null;
+        lotto._h4_close_pending = !!earningsPrepDecision.h4_close_pending;
         lotto.label = `⚡ Earnings Prep Lotto ${String(activeDir || playDirection).toUpperCase() === "SHORT" ? "Put" : "Call"} (${lotto.expiration?.dte ?? "?"}DTE)`;
-        lotto.rationale = `⚡ Earnings in ${ed}d — advisory OTM gamma into the print (IV crush risk; not a share entry signal). `
+        const when = ed === 0 ? "today" : `in ${ed}d`;
+        lotto.rationale = `⚡ Earnings ${when} — advisory OTM gamma into the print (IV crush risk; not a share entry signal). `
           + (lotto.rationale || "");
         lotto.trade_mgmt = [
-          `⚠ Print in ~${ed}d — size for total premium loss; prefer exit before report unless the thesis is explicitly event-driven`,
+          ed === 0
+            ? "⚠ Print today AMC — size for total premium loss; 4H SuperTrend confirm after the 1:30 PM ET close"
+            : `⚠ Print in ~${ed}d — size for total premium loss; prefer exit before report unless the thesis is explicitly event-driven`,
           ...(Array.isArray(lotto.trade_mgmt) ? lotto.trade_mgmt : []),
         ];
       }
