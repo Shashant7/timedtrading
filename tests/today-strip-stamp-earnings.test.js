@@ -160,6 +160,9 @@ const DAY_TRADE_PLAY_HELD = {
     size_label: "heavy",
     held_overnight: false,
     profit_lock_armed: false,
+    trim_premium: 1.4,
+    exit_premium: 1.8,
+    mgmt_line: "Trim half at $1.40 (1R); exit runner at $1.80 (2R). Watching: hard premium stop $0.37 (-50%); QQQ loses $498.00. Flat by 15:45 ET before the cash close unless the thesis breaks first.",
     pnl_pct: 21.6,
   },
 };
@@ -302,6 +305,11 @@ describe("Today strips — published stamp + lotto earnings play", () => {
     expect(posCard.textContent).toContain("HOLDING QQQ 500C");
     // Live P&L badge on the held position (entry 0.74 → 0.90 ≈ +22%).
     expect(text).toContain("HELD +22%");
+    // Management line names trim, exit, stop, and session flat — not generic model-stop copy.
+    expect(posCard.textContent).toContain("Trim half at $1.40");
+    expect(posCard.textContent).toContain("$1.80");
+    expect(posCard.textContent).toContain("15:45");
+    expect(posCard.textContent).not.toContain("Managing to the model stop");
   });
 
   it("shows a brief why on a non-earnings lotto and never labels it 0 DTE", () => {

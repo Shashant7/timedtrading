@@ -1124,6 +1124,24 @@ function dayTradePositionOpen(pos) {
   const st = String(pos?.status || "").toLowerCase();
   return !!pos && (st === "open" || st === "trimmed") && Number(pos?.strike) > 0;
 }
+function dayTradePositionMgmtLine(pos, opts = {}) {
+  const line = String(pos?.mgmt_line || "").trim();
+  if (line) return line;
+  const sym = String(opts.ticker || pos?.ticker || "").toUpperCase();
+  const held = !!pos?.held_overnight;
+  const trim = Number(pos?.trim_premium);
+  const exit = Number(pos?.exit_premium);
+  const bits = [];
+  if (trim > 0 && exit > 0) {
+    bits.push(`Trim at $${trim.toFixed(2)}; exit at $${exit.toFixed(2)}.`);
+  }
+  if (pos?.profit_lock_armed) bits.push("Profit lock armed — trailing the stop.");else if (Number(pos?.entry_premium) > 0) {
+    bits.push(`Hard stop $${(Number(pos.entry_premium) * 0.5).toFixed(2)} (-50%).`);
+  }
+  if (held) bits.push("Carried overnight — trim and exit at the next open.");else bits.push("Flat by 3:45 ET before the cash close.");
+  if (sym && bits.length) return bits.join(" ");
+  return bits.join(" ");
+}
 function optionsPlanFacts({
   action,
   flavor,
@@ -2621,12 +2639,18 @@ function IndexDayTradeStrip({
       trim: liveTrim,
       exit: liveExit
     });
+    const posMgmt = pos ? dayTradePositionMgmtLine(pos, {
+      ticker: sym
+    }) : null;
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
     }, h("p", {
       className: "tt-dt-plan__punch"
-    }, copy.punch), dayTradeFactsRow(factCells))];
+    }, copy.punch), dayTradeFactsRow(factCells), holdingThis && posMgmt ? h("p", {
+      key: "mgmt",
+      className: "tt-dt-plan__mgmt"
+    }, posMgmt) : null)];
     const signalCard = LaneCard?.create ? h("div", {
       key: sym + ":sig",
       className: "tt-strip-card",
@@ -2705,7 +2729,9 @@ function IndexDayTradeStrip({
         v: `${pPnl >= 0 ? "+" : ""}${pPnl.toFixed(0)}%`,
         tone: pPnl >= 0 ? "trim" : "exit"
       } : null].filter(Boolean);
-      const posMgmt = pos.profit_lock_armed ? "Profit lock armed — trailing the stop; flat by 3:45 ET." : "Managing to the model stop; flat by 3:45 ET.";
+      const posMgmtLine = dayTradePositionMgmtLine(pos, {
+        ticker: sym
+      });
       posCard = h("div", {
         key: sym + ":pos",
         className: "tt-strip-card tt-strip-card--position",
@@ -2738,9 +2764,9 @@ function IndexDayTradeStrip({
         className: "tt-dt-plan"
       }, h("p", {
         className: "tt-dt-plan__punch"
-      }, posPunch), dayTradeFactsRow(posFacts), h("p", {
+      }, posPunch), dayTradeFactsRow(posFacts), posMgmtLine ? h("p", {
         className: "tt-dt-plan__mgmt"
-      }, posMgmt))));
+      }, posMgmtLine) : null)));
     }
     return [posCard, signalCard].filter(Boolean);
   }))));
@@ -9010,6 +9036,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787683824237:181215482
+// cache-bust:1787684525401:906352549
 
-// cache-bust:1787683824237:181215482
+// cache-bust:1787684525401:906352549

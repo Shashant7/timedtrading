@@ -4090,6 +4090,27 @@
         return !!pos && (st === "open" || st === "trimmed") && Number(pos?.strike) > 0;
       }
 
+      function dayTradePositionMgmtLine(pos, opts = {}) {
+        const line = String(pos?.mgmt_line || "").trim();
+        if (line) return line;
+        const sym = String(opts.ticker || pos?.ticker || "").toUpperCase();
+        const held = !!pos?.held_overnight;
+        const trim = Number(pos?.trim_premium);
+        const exit = Number(pos?.exit_premium);
+        const bits = [];
+        if (trim > 0 && exit > 0) {
+          bits.push(`Trim at $${trim.toFixed(2)}; exit at $${exit.toFixed(2)}.`);
+        }
+        if (pos?.profit_lock_armed) bits.push("Profit lock armed — trailing the stop.");
+        else if (Number(pos?.entry_premium) > 0) {
+          bits.push(`Hard stop $${(Number(pos.entry_premium) * 0.5).toFixed(2)} (-50%).`);
+        }
+        if (held) bits.push("Carried overnight — trim and exit at the next open.");
+        else bits.push("Flat by 3:45 ET before the cash close.");
+        if (sym && bits.length) return bits.join(" ");
+        return bits.join(" ");
+      }
+
       function optionsPlanFacts({
         action, flavor, strike, expShort, dte,
         livePremium, debit, trim, exit, risk, payoff, why,
@@ -5616,10 +5637,14 @@
               const liveTrim = (liveRr.find((f) => f.label === "Trim") || {}).value || trim;
               const liveExit = (liveRr.find((f) => f.label === "Exit") || {}).value || exit;
               const factCells = dayTradePlanFacts({ livePremium: band?.premium, debit, trim: liveTrim, exit: liveExit });
+              const posMgmt = pos ? dayTradePositionMgmtLine(pos, { ticker: sym }) : null;
               const footEls = [
                 h("div", { key: "plan", className: "tt-dt-plan" },
                   h("p", { className: "tt-dt-plan__punch" }, copy.punch),
                   dayTradeFactsRow(factCells),
+                  holdingThis && posMgmt
+                    ? h("p", { key: "mgmt", className: "tt-dt-plan__mgmt" }, posMgmt)
+                    : null,
                 ),
               ];
 
@@ -5681,9 +5706,7 @@
                   Number(pos.peak_premium) > 0 ? { k: "PEAK", v: `$${Number(pos.peak_premium).toFixed(2)}`, tone: "trim" } : null,
                   pPnl != null ? { k: "P&L", v: `${pPnl >= 0 ? "+" : ""}${pPnl.toFixed(0)}%`, tone: pPnl >= 0 ? "trim" : "exit" } : null,
                 ].filter(Boolean);
-                const posMgmt = pos.profit_lock_armed
-                  ? "Profit lock armed — trailing the stop; flat by 3:45 ET."
-                  : "Managing to the model stop; flat by 3:45 ET.";
+                const posMgmtLine = dayTradePositionMgmtLine(pos, { ticker: sym });
                 posCard = h("div", { key: sym + ":pos", className: "tt-strip-card tt-strip-card--position", role: "listitem" },
                   LaneCard.create({
                     sym,
@@ -5704,7 +5727,9 @@
                     h("div", { className: "tt-dt-plan" },
                       h("p", { className: "tt-dt-plan__punch" }, posPunch),
                       dayTradeFactsRow(posFacts),
-                      h("p", { className: "tt-dt-plan__mgmt" }, posMgmt),
+                      posMgmtLine
+                        ? h("p", { className: "tt-dt-plan__mgmt" }, posMgmtLine)
+                        : null,
                     ),
                   ),
                 );

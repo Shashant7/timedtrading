@@ -225,6 +225,102 @@ export function isOvernightCarry(book, now = Date.now()) {
 }
 
 /**
+ * One-line management copy for an open paper position on the Today strip.
+ * Names trim / exit / stop premiums and underlying invalidation; only
+ * mentions the 3:45 flat when the book is not an overnight carry.
+ */
+export function buildDayTradePositionMgmtLine({
+  book,
+  ticker,
+  execution,
+  gamePlan,
+  management,
+  bracket,
+  now = Date.now(),
+} = {}) {
+  const pos = book || {};
+  const sym = String(ticker || pos.ticker || "").toUpperCase();
+  const flav = String(pos.flavor || execution?.contract?.flavor || "").toLowerCase() === "put" ? "put" : "call";
+  const isPut = flav === "put";
+  const status = String(pos.status || "open");
+  const trimmed = status === "trimmed";
+  const entry = num(pos.entry_premium);
+  const trimPx = num(pos.trim_premium) ?? num(bracket?.trim) ?? num(execution?.rr?.trim);
+  const exitPx = num(pos.exit_premium) ?? num(bracket?.exit) ?? num(execution?.rr?.exit);
+  const peak = num(pos.peak_premium);
+  const trailStop = num(pos.trail_stop_premium);
+  const profitLock = !!pos.profit_lock_armed;
+  const heldOvernight = !!pos.held_overnight || isOvernightCarry(pos, now);
+  const contracts = bookContracts(pos, null);
+  const remaining = num(pos.contracts_remaining) ?? contracts;
+  const canTrim = canTrimContracts(contracts);
+
+  const gp = gamePlan || {};
+  const mgmt = management || execution?.management || {};
+  const inv = isPut
+    ? num(mgmt.invalidation?.underlying_above) ?? num(bracket?.stop_underlying) ?? num(gp.bull_trigger)
+    : num(mgmt.invalidation?.underlying_below) ?? num(bracket?.stop_underlying) ?? num(gp.bear_trigger);
+
+  const hardStop = num(bracket?.stop_premium) ?? hardStopPremium(entry);
+  const trailFloor = profitLock ? trailFloorFromPeak(peak) : null;
+  const premStopLevels = [];
+  if (profitLock) {
+    if (entry != null) premStopLevels.push(entry);
+    if (trailStop != null) premStopLevels.push(trailStop);
+    if (trailFloor != null) premStopLevels.push(trailFloor);
+  }
+  const activePremStop = premStopLevels.length ? Math.max(...premStopLevels) : null;
+
+  const parts = [];
+
+  if (trimmed) {
+    parts.push(
+      `Trimmed — ${remaining} contract${remaining === 1 ? "" : "s"} left on breakeven trail` +
+      (peak != null ? ` (${Math.round(TRAIL_GIVEBACK_PCT * 100)}% giveback from ${money(peak)} peak)` : "") +
+      ".",
+    );
+    if (exitPx != null) parts.push(`Exit remainder at ${money(exitPx)} (${EXIT_R}R).`);
+  } else if (canTrim) {
+    const trimBit = trimPx != null ? `Trim half at ${money(trimPx)} (${TRIM_R}R)` : null;
+    const exitBit = exitPx != null ? `exit runner at ${money(exitPx)} (${EXIT_R}R)` : null;
+    if (trimBit && exitBit) parts.push(`${trimBit}; ${exitBit}.`);
+    else if (trimBit) parts.push(`${trimBit}.`);
+    else if (exitBit) parts.push(`Exit at ${money(exitPx)} (${EXIT_R}R).`);
+  } else {
+    const trimBit = trimPx != null ? `At ${money(trimPx)} (${TRIM_R}R) raise stop to breakeven` : null;
+    const exitBit = exitPx != null ? `full exit at ${money(exitPx)} (${EXIT_R}R)` : null;
+    if (trimBit && exitBit) parts.push(`${trimBit}; ${exitBit}.`);
+    else if (exitBit) parts.push(`Exit at ${money(exitPx)} (${EXIT_R}R).`);
+  }
+
+  const watchBits = [];
+  if (profitLock) {
+    watchBits.push("Profit lock armed");
+    if (activePremStop != null) {
+      watchBits.push(
+        `trail stop ${money(activePremStop)}` +
+        (peak != null ? ` (${Math.round(TRAIL_GIVEBACK_PCT * 100)}% giveback from ${money(peak)} peak)` : ""),
+      );
+    }
+    if (entry != null) watchBits.push(`breakeven floor ${money(entry)}`);
+  } else if (hardStop != null) {
+    watchBits.push(`hard premium stop ${money(hardStop)} (${HARD_STOP_PCT}%)`);
+  }
+  if (inv != null && sym) {
+    watchBits.push(`${sym} ${isPut ? "reclaims" : "loses"} ${money(inv)}`);
+  }
+  if (watchBits.length) parts.push(`Watching: ${watchBits.join("; ")}.`);
+
+  if (heldOvernight) {
+    parts.push("Carried overnight — trim and exit stay live at the next open; no 3:45 flat.");
+  } else {
+    parts.push(`Flat by ${SESSION_FLAT_ET} ET before the cash close unless the thesis breaks first.`);
+  }
+
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+/**
  * Model size for the index day-trade sleeve.
  * Heavy = high-conviction lean, SuperTrend with the play, premium not rich.
  * Light = veto, low conviction, rich premium, or SuperTrend against.
