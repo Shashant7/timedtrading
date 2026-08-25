@@ -71,7 +71,7 @@ describe("TimedMtfChips", () => {
     };
     MTF.buildChipElements("NVDA", h, { ticker, max: 4, stack: true });
     const labels = chips.map((c) => c.children[0]);
-    expect(labels).toContain("MTF 3 ↑");
+    expect(labels).toContain("MTF 3/3 ↑");
     expect(labels.some((l) => String(l).startsWith("1H EMA"))).toBe(true);
   });
 

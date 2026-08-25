@@ -10,6 +10,7 @@ import {
   convexityPlanCopy,
   formatConvexityExpShort,
   buildConvexityShotReason,
+  overlayConvexityCardPremium,
 } from "./options-convexity.js";
 import {
   shouldActivateLotto,
@@ -638,5 +639,28 @@ describe("toConvexityCard", () => {
     });
     expect(card.shot_reason).toMatch(/READY/i);
     expect(card.shot_reason).toMatch(/floor held/i);
+  });
+});
+
+describe("overlayConvexityCardPremium", () => {
+  it("replaces BS estimate with live chain mid", () => {
+    const card = {
+      ticker: "INTU",
+      direction: "SHORT",
+      strike: 345,
+      expiration: { dte: 3, iso: "2026-08-28" },
+      premium_mid: 0.91,
+      max_loss_usd: 50,
+      chain_status: "estimated",
+    };
+    const chain = {
+      ok: true,
+      underlying_price: 359,
+      puts: [{ strike: 345, bid: 8.8, ask: 9.2, implied_volatility: 0.55 }],
+    };
+    overlayConvexityCardPremium(card, chain, { spot: 359, atrPct: 0.02 });
+    expect(card.premium_mid).toBeGreaterThan(8);
+    expect(card.chain_status).toBe("live");
+    expect(card.headline).toMatch(/INTU/);
   });
 });
