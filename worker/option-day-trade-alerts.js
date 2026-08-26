@@ -213,6 +213,7 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     premium: payload.premium,
     spot: payload.spot,
     reason: decision.reason,
+    book: book,
     now: payload.now || Date.now(),
   });
 
