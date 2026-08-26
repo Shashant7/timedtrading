@@ -674,6 +674,7 @@ function ActionRow({
       fontWeight: 700
     }
   }, fmtSigned(pnl)), React.createElement("span", {
+    className: "tl-spacer",
     style: {
       flex: 1
     }
@@ -3092,7 +3093,7 @@ function BrokerConnectionsApp({
       maxWidth: 620
     }
   }, "Equity mirror and options strategies are separate. Size follows each account's equity \u2014 there is no daily order cap."), React.createElement(FractionalSharesTip, null)), anyEnabled && React.createElement("button", {
-    className: "bc-btn bc-btn-sm",
+    className: "bc-btn bc-btn-sm bc-pause-all",
     disabled: busy,
     style: {
       borderColor: "rgba(245,158,11,0.4)",
@@ -3247,6 +3248,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787700096813:207866799
+// cache-bust:1787705689348:37687339
 
-// cache-bust:1787700096813:207866799
+// cache-bust:1787705689348:37687339
