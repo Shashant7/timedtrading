@@ -63,6 +63,14 @@ function humanizeReason(raw) {
   if (/flag_off|indices_paused/.test(r)) return "Index options auto-mirror is globally paused";
   if (/no_mirrored_entry|entry_fill_rejected|entry_fill_pending/.test(r)) return "The entry never mirrored, so this exit was skipped";
   if (/entry_already_mirrored/.test(r)) return "Already mirrored";
+  {
+    const mNot = r.match(/index_dt_one_lot_notional_(\d+)_over_max_per_order_(\d+)/);
+    if (mNot) return `One contract costs $${mNot[1]}, above the $${mNot[2]} Max/order limit — raise it to mirror this index day-trade`;
+    const mLoss = r.match(/index_dt_one_lot_max_loss_(\d+)_over_cap_(\d+)/);
+    if (mLoss) return `One contract risks $${mLoss[1]}, above the $${mLoss[2]} max-loss cap — raise the max-loss to mirror this index day-trade`;
+  }
+  if (/^order_working$/.test(r)) return "Order working at the broker — not yet filled";
+  if (/^mirror_error/.test(r)) return "Mirror hit an error reaching the broker — retries on the next signal";
   if (/ticker_not_index|archetype_not_directional_day_trade|index_gate_blocked/.test(r)) return "Not an eligible index day-trade for mirroring";
   if (/mirror_position_already_flat|mirror_single_lot_no_trim/.test(r)) return "Broker position already flat — nothing to close";
   if (/match within tolerance|within.*tolerance/.test(r)) return "In sync — broker shares match the model";
@@ -571,6 +579,10 @@ const MIRROR_CHIP = {
     cls: "p-info",
     label: "SENT TO BROKER"
   },
+  pending: {
+    cls: "p-info",
+    label: "WORKING"
+  },
   rejected: {
     cls: "p-err",
     label: "REJECTED"
@@ -616,7 +628,7 @@ function ActionRow({
   const reason = humanizeReason(a.mirror_reason);
   const fills = a.fills || [];
   const rejects = a.rejects || [];
-  const hasDetail = fills.length || rejects.length || reason || a.note;
+  const hasDetail = fills.length || rejects.length || reason || a.note || a.mirror_note;
   const extraDetail = fills.length > 1 || rejects.length > 1 || !!a.note;
   const fillHint = fills[0];
   const rejectHint = rejects[0];
@@ -698,7 +710,14 @@ function ActionRow({
     style: {
       marginLeft: 6
     }
-  }, "REJECTED")), !fills.length && !rejects.length && reason && React.createElement("span", null, reason), extraDetail && React.createElement("button", {
+  }, "REJECTED")), !fills.length && !rejects.length && reason && React.createElement("span", null, reason), a.mirror_note && React.createElement("span", {
+    className: "dim",
+    style: {
+      display: "block",
+      marginTop: 2,
+      fontSize: 11
+    }
+  }, a.mirror_note), extraDetail && React.createElement("button", {
     type: "button",
     className: "tl-more",
     onClick: () => setOpen(v => !v)
@@ -3252,6 +3271,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787747704173:223114920
+// cache-bust:1787762490167:864930302
 
-// cache-bust:1787747704173:223114920
+// cache-bust:1787762490167:864930302
