@@ -452,11 +452,27 @@ export function overlayConvexityCardPremium(card, chain, ctx = {}) {
   const mid = num(est?.mid);
   if (!(mid > 0)) return card;
   card.premium_mid = mid;
-  if (num(ctx.lottoMaxLossUsd) > 0) {
-    card.max_loss_usd = Math.round(ctx.lottoMaxLossUsd);
-  } else if (mid > 0) {
-    card.max_loss_usd = Math.round(mid * 100);
-  }
+  // Risk = the ACTUAL premium at risk for the sized position, NOT the sizing
+  // budget. A $50 lotto budget can't buy even one $7.60 contract, so the real
+  // risk of the minimum 1 contract is $760 — clamping the DISPLAY to $50 was
+  // wrong (and made the payoff basis inconsistent). Size contracts against the
+  // budget (min 1) and set risk to premium × 100 × contracts.
+  const perContract = mid * 100;
+  const budget = num(ctx.lottoMaxLossUsd) > 0 ? num(ctx.lottoMaxLossUsd) : perContract;
+  const contracts = Math.max(1, Math.floor(budget / perContract));
+  card.contracts = contracts;
+  card.max_loss_usd = Math.round(perContract * contracts);
+  // Recompute the multi-bagger underlying targets off the LIVE premium so the
+  // payoff line matches the shown debit (they were built from the BS estimate,
+  // so after the overlay the "3x+" underlying was stale/off).
+  const px2x = side === "P" ? Math.max(0, strike - mid) : strike + mid;
+  const px3x = side === "P" ? Math.max(0, strike - mid * 2) : strike + mid * 2;
+  card.multi_bagger_targets = {
+    ...(card.multi_bagger_targets || {}),
+    "2x_underlying_at": Math.round(px2x * 100) / 100,
+    "3x_underlying_at": Math.round(px3x * 100) / 100,
+  };
+  card.top_target_underlying = Math.round(px3x * 100) / 100;
   card.chain_status = "live";
   card.premium_source = "live_chain";
   const copy = convexityPlanCopy(card);

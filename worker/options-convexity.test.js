@@ -685,6 +685,43 @@ describe("overlayConvexityCardPremium", () => {
     expect(card.chain_status).toBe("estimated");
     expect(card.premium_source).toBeUndefined();
   });
+
+  it("risk = real premium (not the budget), and payoff recomputed off live mid", () => {
+    // AXON 630C @ $7.60: a $50 lotto budget can't buy even one contract, so the
+    // real risk of the minimum 1 contract is $760 — not the clamped $50. And the
+    // 3x underlying target must be recomputed off the live mid, not left stale.
+    const card = {
+      ticker: "AXON",
+      direction: "LONG",
+      strike: 630,
+      expiration: { dte: 2 },
+      premium_mid: 1.8,
+      max_loss_usd: 50,
+      multi_bagger_targets: { "3x_underlying_at": 633.62 },
+      top_target_underlying: 633.62,
+      chain_status: "estimated",
+    };
+    const chain = {
+      ok: true,
+      underlying_price: 613,
+      calls: [{ strike: 630, bid: 7.5, ask: 7.7, implied_volatility: 0.6 }],
+    };
+    overlayConvexityCardPremium(card, chain, { spot: 613, atrPct: 0.03, lottoMaxLossUsd: 50 });
+    expect(card.premium_mid).toBeCloseTo(7.6, 1);
+    expect(card.contracts).toBe(1);
+    expect(card.max_loss_usd).toBe(760);
+    expect(card.top_target_underlying).toBeCloseTo(645.2, 1);
+    expect(card.chain_status).toBe("live");
+  });
+
+  it("sizes multiple cheap contracts within the budget", () => {
+    const card = { ticker: "F", direction: "LONG", strike: 12, expiration: { dte: 2 }, premium_mid: 0.05 };
+    const chain = { ok: true, underlying_price: 11.5, calls: [{ strike: 12, bid: 0.09, ask: 0.11 }] };
+    overlayConvexityCardPremium(card, chain, { spot: 11.5, atrPct: 0.03, lottoMaxLossUsd: 50 });
+    expect(card.premium_mid).toBeCloseTo(0.10, 2);
+    expect(card.contracts).toBe(5); // floor(50 / (0.10*100)) = 5
+    expect(card.max_loss_usd).toBe(50);
+  });
 });
 
 describe("chainStrikeRangeForPlay", () => {
