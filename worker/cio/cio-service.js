@@ -37,6 +37,12 @@ export function resolveCioModel(env, lane = "entry", useVision = false, modelOve
   if (modelOverride && typeof modelOverride === "string" && modelOverride.trim()) {
     return modelOverride.trim();
   }
+  // Lifecycle text decisions stay on gpt-4o-mini for cost — high volume per tick.
+  // Vision lifecycle still uses gpt-4o below. model_config ai_cio_lifecycle_model
+  // is intentionally ignored for text (use modelOverride to probe other models).
+  if (lane === "lifecycle" && !useVision) {
+    return AI_CIO_MODEL;
+  }
   // 2. model_config (operator override, no-redeploy). Merge env._deepAuditConfig
   //    with the per-isolate _cioModelCache so HTTP-path callers (like the
   //    probe endpoint and any future direct CIO invocation) see model_config
@@ -883,6 +889,14 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null, 
 
     const json = await resp.json();
     const raw = json.choices?.[0]?.message?.content || "";
+    try {
+      const { recordOpenAiSpend } = await import("../openai-spend.js");
+      recordOpenAiSpend(env, useVision ? "cio_entry_vision" : "cio_entry", {
+        model: entryModel,
+        prompt_tokens: json.usage?.prompt_tokens,
+        completion_tokens: json.usage?.completion_tokens,
+      }).catch(() => {});
+    } catch (_) { /* spend tracking optional */ }
 
     let parsed;
     try {
