@@ -40459,6 +40459,7 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
       _normId(e.trade_id) === mid && near(e.ts) && _sideFamily(e.side) === fam);
     let mirror = "not_mirrored";
     let mirrorReason = null;
+    let mirrorNote = null;
     if (fills.length) mirror = "mirrored";
     else if (rejects.length) { mirror = "rejected"; mirrorReason = rejects[0].reject_reason || null; }
     else if (ringMatch && String(ringMatch.status) === "skipped") {
@@ -40467,14 +40468,25 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
       mirror = "forwarded";
     }
     // Options day-trade rows carry a "dt:" signal id and are paper-first —
-    // when nothing mirrored, explain WHY from the opt-dt decision log so the
-    // operator sees "SKIPPED · <reason>" instead of a bare "NOT MIRRORED".
+    // when the bridge side shows nothing, explain the real outcome from the
+    // opt-dt decision log: skipped/rejected/pending/error each get a reason,
+    // and adaptive-sizing notes (downsized, single-lot-over-cap) ride along,
+    // instead of a bare "NOT MIRRORED".
     if (mirror === "not_mirrored" && String(m.position_id || "").toLowerCase().startsWith("dt:")) {
       const logHit = optDtMirrorLog.find((e) =>
         _normId(e.signal_id) === mid && near(e.ts) && _sideFamily(e.side) === fam);
-      if (logHit && logHit.decision === "skipped") {
-        mirror = "skipped";
-        mirrorReason = logHit.reason || null;
+      if (logHit && logHit.decision) {
+        const _dtMirrorMap = {
+          mirrored: "mirrored",
+          placed: "forwarded",
+          pending: "pending",
+          rejected: "rejected",
+          error: "rejected",
+          skipped: "skipped",
+        };
+        mirror = _dtMirrorMap[logHit.decision] || "skipped";
+        mirrorReason = logHit.decision === "mirrored" ? null : (logHit.reason || null);
+        mirrorNote = logHit.note || null;
       }
     }
     return {
@@ -40491,6 +40503,7 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
       instrument: m.instrument || null,
       mirror,
       mirror_reason: mirrorReason,
+      mirror_note: mirrorNote,
       fills,
       rejects,
     };
@@ -95519,7 +95532,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       plan: _assembled.plan,
                       size: _assembled.size,
                     };
-                    if (_dtDispatchAllowed) _optDtNotifyPaper(env, {
+                    // Tie the whole notify + mirror chain to waitUntil so the
+                    // background decision (incl. the opt-dt-mirror-log write that
+                    // explains a NOT MIRRORED row) is never cut off when the
+                    // cron self-fetch returns before it settles.
+                    if (_dtDispatchAllowed) queueBackground(_optDtNotifyPaper(env, {
                       profile,
                       signal_id: _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId,
                       ticker: _dtSym,
@@ -95586,7 +95603,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       }
                     }).catch((err) => {
                       console.warn(`[OPTIONS-DT-ALERT] ${_dtSym}:`, String(err?.message || err).slice(0, 120));
-                    });
+                    }));
                   } catch (_planErr) {
                     console.warn(`[OPTIONS-DT-PLAN] ${_dtSym}:`, String(_planErr?.message || _planErr).slice(0, 120));
                   }

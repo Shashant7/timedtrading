@@ -63,10 +63,16 @@ const DAILY_VEHICLE_COUNTER_KEY = (userEmail, vehicle, date) =>
 // straddle on the short side, short combos) are NOT listed and CANNOT
 // be enabled here. See `NAKED_SHORT_ARCHETYPES` below — the engine
 // short-circuits before this prefs map is even consulted.
+// long_call / long_put also cover the SPY/QQQ/IWM index day-trade product.
+// A single ATM 0-1 DTE index contract routinely costs $1.00-$2.50 = $100-$250,
+// so a $75 max-loss cap (calibrated for cheap multi-lot equity options) silently
+// blocks essentially every index day-trade at the single-contract floor. Size
+// the directional-option defaults for one index contract; the sizer downsizes
+// multi-lot paper plays to fit and never exceeds max_per_order_usd.
 const VEHICLE_DEFAULTS = {
   equity_long:     { enabled: true,  daily_cap: 3, max_per_order_usd: 300 },
-  long_call:       { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
-  long_put:        { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
+  long_call:       { enabled: false, daily_cap: 2, max_per_order_usd: 300, max_loss_per_order_usd: 250 },
+  long_put:        { enabled: false, daily_cap: 2, max_per_order_usd: 300, max_loss_per_order_usd: 250 },
   vertical_spread: { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
   leaps:           { enabled: false, daily_cap: 1, max_per_order_usd: 500, max_loss_per_order_usd: 500 },
   straddle:        { enabled: false, daily_cap: 1, max_per_order_usd: 300, max_loss_per_order_usd: 200 },
@@ -122,6 +128,14 @@ const DEFAULT_PREFS = {
   // book's light/medium/heavy size (1 / 2 / 3), still capped by the
   // vehicle notional.
   index_dt_follow_paper_size: false,
+  // Single-lot floor for index day-trades. A contract is the minimum
+  // tradeable unit and its debit is the fully-defined max loss. When the
+  // sizer cannot fit even one contract inside the (small-account) max-loss
+  // throttle, still place ONE lot as long as it stays within the hard
+  // max_per_order_usd notional ceiling — otherwise the mirror silently
+  // misses every index play whose single ATM contract costs more than the
+  // throttle. Set false to require the max-loss cap to be met exactly.
+  index_dt_min_one_lot: true,
 };
 
 /**
@@ -629,6 +643,97 @@ export function resolveIndexDtEntryContracts({ prefs, play, book, size, vehicleR
   return q;
 }
 
+/**
+ * Adaptive index day-trade entry sizing.
+ *
+ * A long single-leg option's debit IS its max loss, so the effective
+ * per-order dollar budget is the tighter of the notional cap
+ * (max_per_order_usd) and the risk cap (max_loss_per_order_usd). Downsize
+ * the desired lot count (1, or the paper book's 1-3 when follow_paper_size
+ * is on) to the largest qty that fits that budget.
+ *
+ * When even one contract exceeds the (small-account) max-loss throttle, a
+ * single lot is still placed as long as its debit stays within the hard
+ * max_per_order_usd ceiling (index_dt_min_one_lot, default on) — this is
+ * the resilience floor that stops the mirror from silently missing every
+ * index day-trade whose ATM contract costs more than the throttle. If a
+ * single lot cannot fit even the notional ceiling, the entry is skipped
+ * with a precise, actionable reason.
+ *
+ * Pure. Returns { contracts, cost_per_contract_usd, budget_usd, fits,
+ * over_max_loss, downsized, desired, reason }.
+ */
+export function planIndexDtEntrySizing({ prefs, vehicleRow, play, book, size, buyLimit } = {}) {
+  const follow = prefs?.index_dt_follow_paper_size === true
+    || vehicleRow?.follow_paper_size === true;
+  const desired = follow
+    ? Math.max(1, Math.min(3, Math.round(
+        Number(book?.contracts) || Number(size?.contracts) || Number(play?.contracts) || 1,
+      )))
+    : 1;
+
+  const mid = Number(buyLimit) > 0 ? Number(buyLimit) : (Number(play?.premium?.mid) || 0);
+  const costPer = mid > 0 ? Math.round(mid * 100) : 0;
+  const notionalCap = Number(vehicleRow?.max_per_order_usd) || 0;
+  const maxLossCap = Number(vehicleRow?.max_loss_per_order_usd) || 0;
+
+  // Missing premium — cannot reason about dollars; keep the desired size and
+  // let the downstream notional guard catch anything absurd.
+  if (!(costPer > 0)) {
+    return {
+      contracts: desired, cost_per_contract_usd: 0, budget_usd: null,
+      fits: true, over_max_loss: false, downsized: false, desired, reason: null,
+    };
+  }
+
+  const caps = [notionalCap, maxLossCap].filter((c) => c > 0);
+  const budget = caps.length ? Math.min(...caps) : Infinity;
+  let contracts = Math.min(desired, Math.max(0, Math.floor(budget / costPer)));
+  let overMaxLoss = false;
+
+  if (contracts < 1) {
+    const allowSingle = prefs?.index_dt_min_one_lot !== false;
+    const notionalOk = notionalCap <= 0 || costPer <= notionalCap;
+    if (allowSingle && notionalOk) {
+      contracts = 1;
+      overMaxLoss = maxLossCap > 0 && costPer > maxLossCap;
+    } else {
+      const reason = notionalCap > 0 && costPer > notionalCap
+        ? `index_dt_one_lot_notional_${costPer}_over_max_per_order_${notionalCap}`
+        : `index_dt_one_lot_max_loss_${costPer}_over_cap_${maxLossCap || Math.round(budget) || 0}`;
+      return {
+        contracts: 0, cost_per_contract_usd: costPer,
+        budget_usd: Number.isFinite(budget) ? budget : null,
+        fits: false, over_max_loss: true, downsized: false, desired, reason,
+      };
+    }
+  }
+
+  return {
+    contracts,
+    cost_per_contract_usd: costPer,
+    budget_usd: Number.isFinite(budget) ? budget : null,
+    fits: true,
+    over_max_loss: overMaxLoss,
+    downsized: contracts < desired,
+    desired,
+    reason: null,
+  };
+}
+
+/** Human-readable note describing an adaptive-sizing outcome, or null. */
+export function describeIndexDtSizingNote(sizing) {
+  if (!sizing) return null;
+  const bits = [];
+  if (sizing.downsized && sizing.desired > sizing.contracts) {
+    bits.push(`downsized ${sizing.desired}\u2192${sizing.contracts} lot to fit $${sizing.budget_usd} budget`);
+  }
+  if (sizing.over_max_loss && sizing.cost_per_contract_usd > 0) {
+    bits.push(`1 lot debit $${sizing.cost_per_contract_usd} above the max-loss cap, within the per-order limit`);
+  }
+  return bits.length ? bits.join(" \u00b7 ") : null;
+}
+
 export function scaleIndexDtEntryPlay(play, { contracts, limit } = {}) {
   if (!play) return play;
   const q = Math.max(1, Math.round(Number(contracts) || 1));
@@ -841,19 +946,64 @@ async function bumpMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicle
 export const OPT_DT_MIRROR_LOG_KEY = "timed:opt-dt-mirror-log";
 const OPT_DT_MIRROR_LOG_MAX = 120;
 
+/**
+ * Derive the operator-facing outcome from a mirror result. A skip is not the
+ * only "did not reach the broker" case: a fire can reject, stay working, or
+ * throw. Collapsing everything to mirrored/skipped left rejected/pending/error
+ * outcomes as a bare "NOT MIRRORED" with no reason on the timeline.
+ *
+ * Returns { decision, reason, note, contracts } where decision ∈
+ * { mirrored, placed, pending, rejected, skipped, error }.
+ */
+export function deriveMirrorDecision(result = {}) {
+  const sizingNote = describeIndexDtSizingNote(result?.sizing);
+  const contracts = Number.isFinite(Number(result?.contracts))
+    ? Number(result.contracts)
+    : (Number.isFinite(Number(result?.close_qty)) ? Number(result.close_qty) : null);
+
+  if (result?.error) {
+    return { decision: "error", reason: `mirror_error:${String(result.error).slice(0, 120)}`, note: sizingNote, contracts };
+  }
+  if (result?.skipped === true) {
+    return { decision: "skipped", reason: result?.reason || "skipped", note: sizingNote, contracts };
+  }
+
+  // skipped === false → an order was attempted. Read the real fill outcome.
+  const rec = result?.reconcile || {};
+  const fill = result?.fill || {};
+  const status = String(rec.status || fill.status || "").toLowerCase();
+  if (fill.mock || fill.assumed || status === "filled" || rec.persist === true) {
+    return { decision: "mirrored", reason: null, note: sizingNote, contracts };
+  }
+  if (rec.pending === true || status === "working" || status === "unknown") {
+    return { decision: "pending", reason: "order_working", note: sizingNote, contracts };
+  }
+  if (status === "rejected" || status === "cancelled" || rec.persist === false) {
+    return {
+      decision: "rejected",
+      reason: fill.reason || result?.reason || `order_${status || "rejected"}`,
+      note: sizingNote,
+      contracts,
+    };
+  }
+  return { decision: "placed", reason: null, note: sizingNote, contracts };
+}
+
 export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
   if (!env?.KV_TIMED) return;
   const signalId = String(ctx?.signal_id || "").trim();
   const event = String(ctx?.event || "BUY").toUpperCase();
   if (!signalId || event === "PROTECT") return;
-  const mirrored = result?.skipped === false;
+  const { decision, reason, note, contracts } = deriveMirrorDecision(result);
   const entry = {
     signal_id: signalId,
     ticker: String(ctx?.ticker || "").toUpperCase(),
     event,
     side: event === "BUY" ? "buy" : "sell",
-    decision: mirrored ? "mirrored" : "skipped",
-    reason: mirrored ? null : (result?.reason || "skipped"),
+    decision,
+    reason: decision === "mirrored" ? null : (reason || null),
+    note: note || null,
+    contracts: contracts != null ? contracts : null,
     ts: Date.now(),
   };
   try {
@@ -870,7 +1020,14 @@ export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
 }
 
 export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
-  const result = await runIndexDayTradeMirror(env, ctx);
+  let result;
+  try {
+    result = await runIndexDayTradeMirror(env, ctx);
+  } catch (err) {
+    // An exception in the gate / fire must still record a decision — otherwise
+    // the timeline shows a bare "NOT MIRRORED" with no reason. Surface it.
+    result = { skipped: true, error: String(err?.message || err).slice(0, 160), reason: "mirror_error" };
+  }
   try { await recordIndexDtMirrorDecision(env, ctx, result); } catch (_) { /* best-effort */ }
   return result;
 }
@@ -895,27 +1052,33 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
       }
     }
 
-    const entryContracts = resolveIndexDtEntryContracts({
-      prefs, play, book: ctx.book, size: ctx.size || ctx.book?.size || ctx.execution?.size, vehicleRow,
-    });
     const buyLimit = ctx.execution?.premium_band?.display_buy_ceil
       ?? ctx.execution?.premium_band?.buy_ceil
       ?? null;
-    const entryPlay = scaleIndexDtEntryPlay(play, { contracts: entryContracts, limit: buyLimit });
-    const notional = (Number(entryPlay.premium?.mid) || 0) * 100 * entryContracts;
-    if (notional > Number(vehicleRow.max_per_order_usd || 0)) {
-      return {
-        skipped: true,
-        reason: `notional_${Math.round(notional)}_exceeds_vehicle_cap_${vehicleRow.max_per_order_usd}`,
-        vehicle: vehicleKey,
-      };
+    // Adaptive sizing: downsize to fit both the notional and the max-loss
+    // budget; keep a single-lot floor bounded by the hard notional ceiling.
+    const sizing = planIndexDtEntrySizing({
+      prefs,
+      vehicleRow,
+      play,
+      book: ctx.book,
+      size: ctx.size || ctx.book?.size || ctx.execution?.size,
+      buyLimit,
+    });
+    if (!sizing.fits) {
+      return { skipped: true, reason: sizing.reason, vehicle: vehicleKey, sizing };
     }
-    const maxLossCap = Number(vehicleRow.max_loss_per_order_usd || 0);
-    if (maxLossCap > 0 && Number(entryPlay.max_loss_usd) > maxLossCap) {
+    const entryContracts = sizing.contracts;
+    const entryPlay = scaleIndexDtEntryPlay(play, { contracts: entryContracts, limit: buyLimit });
+    // Final hard guard — a single lot must never breach the notional ceiling.
+    const notional = (Number(entryPlay.premium?.mid) || 0) * 100 * entryContracts;
+    const notionalCap = Number(vehicleRow.max_per_order_usd || 0);
+    if (notionalCap > 0 && notional > notionalCap) {
       return {
         skipped: true,
-        reason: `max_loss_${entryPlay.max_loss_usd}_exceeds_vehicle_cap_${maxLossCap}`,
+        reason: `notional_${Math.round(notional)}_exceeds_vehicle_cap_${notionalCap}`,
         vehicle: vehicleKey,
+        sizing,
       };
     }
 
@@ -970,6 +1133,7 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     return {
       skipped: false, fired, fill, reconcile: rec,
       vehicle: vehicleKey, archetype, event, contracts: rec.filledQty || entryContracts,
+      sizing,
     };
   }
 
