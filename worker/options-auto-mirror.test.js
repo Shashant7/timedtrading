@@ -11,6 +11,9 @@ import {
   extractMirrorFill,
   reconcileIndexDtFill,
   resolveIndexDtEntryContracts,
+  planIndexDtEntrySizing,
+  describeIndexDtSizingNote,
+  deriveMirrorDecision,
   scaleIndexDtEntryPlay,
 } from "./options-auto-mirror.js";
 import { trimSellQty } from "./option-day-trade-plan.js";
@@ -171,7 +174,7 @@ describe("recordIndexDtMirrorDecision (timeline reason log)", () => {
   it("keeps one entry per (signal, event) — the latest decision wins", async () => {
     const kv = kvMock();
     await recordIndexDtMirrorDecision({ KV_TIMED: kv }, { event: "BUY", ticker: "QQQ", signal_id: "dt:QQQ:x" }, { skipped: true, reason: "disabled" });
-    await recordIndexDtMirrorDecision({ KV_TIMED: kv }, { event: "BUY", ticker: "QQQ", signal_id: "dt:QQQ:x" }, { skipped: false });
+    await recordIndexDtMirrorDecision({ KV_TIMED: kv }, { event: "BUY", ticker: "QQQ", signal_id: "dt:QQQ:x" }, { skipped: false, reconcile: { status: "filled", persist: true } });
     const log = JSON.parse(kv.store.get(OPT_DT_MIRROR_LOG_KEY) || "[]");
     expect(log).toHaveLength(1);
     expect(log[0].decision).toBe("mirrored");
@@ -281,6 +284,43 @@ describe("Stage 5b mirror safety invariants", () => {
     });
     expect(r.skipped).toBe(true);
     expect(r.reason).toBe("entry_already_mirrored");
+  });
+
+  it("mirrors one lot for an index put whose single contract exceeds the max-loss throttle (bounded by notional)", async () => {
+    const captured = [];
+    const prefs = JSON.stringify({
+      enabled: true,
+      daily_cap: 5,
+      // Small-account throttle: $75 max-loss, $500 per-order notional ceiling.
+      vehicles: { long_put: { enabled: true, daily_cap: 5, max_per_order_usd: 500, max_loss_per_order_usd: 75 } },
+    });
+    const kv = kvMock({ "timed:options:auto-mirror:op@x.com": prefs });
+    const putPlay = {
+      archetype: "day_trade_put",
+      _day_trade_flavor: "put",
+      strikes: { primary: 297 },
+      expiration: { iso: "2026-08-27", dte: 1 },
+      legs: [{ action: "BUY", optionType: "PUT", strike: 297, expiration: "2026-08-27", qty: 1 }],
+      premium: { mid: 1.75 },
+      contracts: 1,
+      max_loss_usd: 175,
+    };
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, captured), {
+      event: "BUY",
+      ticker: "IWM",
+      signal_id: "dt:IWM:2026-08-26:2026-08-27:P:297",
+      play: putPlay,
+      execution: { premium_band: { buy_ceil: 1.75 } },
+      indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(false);
+    expect(r.sizing.over_max_loss).toBe(true);
+    expect(captured[0].play.legs[0].action).toBe("BUY");
+    expect(captured[0].play.legs[0].qty).toBe(1);
+    // Timeline log explains the single-lot-over-cap decision.
+    const log = JSON.parse(kv.store.get(OPT_DT_MIRROR_LOG_KEY) || "[]");
+    expect(log[0].decision).toBe("mirrored");
+    expect(log[0].note).toMatch(/above the max-loss cap/);
   });
 
   it("does not consume the daily counter when the BUY is skipped on notional", async () => {
@@ -425,6 +465,105 @@ describe("resolveIndexDtEntryContracts / scaleIndexDtEntryPlay", () => {
     expect(scaled.legs[0].qty).toBe(2);
     expect(scaled.premium.mid).toBe(1.20);
     expect(scaled.max_loss_usd).toBe(240);
+  });
+});
+
+describe("planIndexDtEntrySizing (adaptive budget)", () => {
+  const putPlay = { _day_trade_flavor: "put", premium: { mid: 1.75 }, contracts: 3 };
+
+  it("downsizes the paper size to fit the tighter of notional + max-loss", () => {
+    const s = planIndexDtEntrySizing({
+      prefs: { index_dt_follow_paper_size: true },
+      vehicleRow: { max_per_order_usd: 300, max_loss_per_order_usd: 250 },
+      play: putPlay,
+      book: { contracts: 3 },
+      buyLimit: 1.75,
+    });
+    expect(s.contracts).toBe(1); // 250 budget / $175 per contract
+    expect(s.fits).toBe(true);
+    expect(s.downsized).toBe(true);
+    expect(s.over_max_loss).toBe(false);
+  });
+
+  it("places one lot when a single contract exceeds the max-loss throttle but fits the notional ceiling", () => {
+    const s = planIndexDtEntrySizing({
+      prefs: {},
+      vehicleRow: { max_per_order_usd: 500, max_loss_per_order_usd: 75 },
+      play: putPlay,
+      buyLimit: 1.75,
+    });
+    expect(s.contracts).toBe(1);
+    expect(s.fits).toBe(true);
+    expect(s.over_max_loss).toBe(true); // $175 > $75 cap, but <= $500 notional
+    expect(describeIndexDtSizingNote(s)).toMatch(/above the max-loss cap/);
+  });
+
+  it("hard-skips when even one contract breaches the notional ceiling", () => {
+    const s = planIndexDtEntrySizing({
+      prefs: {},
+      vehicleRow: { max_per_order_usd: 300, max_loss_per_order_usd: 250 },
+      play: { _day_trade_flavor: "put", premium: { mid: 6.0 } },
+      buyLimit: 6.0,
+    });
+    expect(s.fits).toBe(false);
+    expect(s.contracts).toBe(0);
+    expect(s.reason).toBe("index_dt_one_lot_notional_600_over_max_per_order_300");
+  });
+
+  it("respects index_dt_min_one_lot=false (no single-lot floor)", () => {
+    const s = planIndexDtEntrySizing({
+      prefs: { index_dt_min_one_lot: false },
+      vehicleRow: { max_per_order_usd: 500, max_loss_per_order_usd: 75 },
+      play: putPlay,
+      buyLimit: 1.75,
+    });
+    expect(s.fits).toBe(false);
+    expect(s.reason).toBe("index_dt_one_lot_max_loss_175_over_cap_75");
+  });
+
+  it("defaults to one lot when follow_paper_size is off", () => {
+    const s = planIndexDtEntrySizing({
+      prefs: {},
+      vehicleRow: { max_per_order_usd: 500, max_loss_per_order_usd: 500 },
+      play: putPlay,
+      book: { contracts: 3 },
+      buyLimit: 1.75,
+    });
+    expect(s.contracts).toBe(1);
+    expect(s.downsized).toBe(false);
+  });
+});
+
+describe("deriveMirrorDecision (timeline outcome)", () => {
+  it("maps a skip to skipped + reason", () => {
+    const d = deriveMirrorDecision({ skipped: true, reason: "vehicle_long_put_disabled" });
+    expect(d.decision).toBe("skipped");
+    expect(d.reason).toBe("vehicle_long_put_disabled");
+  });
+
+  it("maps a thrown mirror to error + reason", () => {
+    const d = deriveMirrorDecision({ skipped: true, error: "bridge unreachable", reason: "mirror_error" });
+    expect(d.decision).toBe("error");
+    expect(d.reason).toMatch(/mirror_error:bridge unreachable/);
+  });
+
+  it("maps a filled fire to mirrored", () => {
+    const d = deriveMirrorDecision({ skipped: false, reconcile: { status: "filled", persist: true }, contracts: 1 });
+    expect(d.decision).toBe("mirrored");
+    expect(d.reason).toBe(null);
+    expect(d.contracts).toBe(1);
+  });
+
+  it("maps a working fire to pending", () => {
+    const d = deriveMirrorDecision({ skipped: false, reconcile: { pending: true, status: "working" }, fill: {} });
+    expect(d.decision).toBe("pending");
+    expect(d.reason).toBe("order_working");
+  });
+
+  it("maps a rejected fire to rejected with the broker reason", () => {
+    const d = deriveMirrorDecision({ skipped: false, reconcile: { persist: false }, fill: { status: "rejected", reason: "insufficient_bp" } });
+    expect(d.decision).toBe("rejected");
+    expect(d.reason).toBe("insufficient_bp");
   });
 });
 
