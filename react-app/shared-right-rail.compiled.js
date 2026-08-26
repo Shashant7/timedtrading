@@ -716,13 +716,20 @@ const fundamentalsSortRef=useRef({key:"date",dir:"desc"});const[fundamentalsSort
 const railScrollRef=useRef(null);const railHeaderRef=useRef(null);useEffect(()=>{if(railScrollRef.current)railScrollRef.current.scrollTop=0;if(railHeaderRef.current)railHeaderRef.current.style.setProperty("--rail-header-progress","0");},[tickerSymbol]);useEffect(()=>{const el=railScrollRef.current;const hdr=railHeaderRef.current;if(!el||!hdr||layoutMode==="workspace")return undefined;// Binary snap (not continuous parallax): continuous padding/max-height
 // morph changed header layout during scroll and caused feedback-loop
 // jitter — especially on the Chart tab when scrolling to harmonic wave.
-let raf=0;let compact=false;const applyMorph=nextCompact=>{compact=nextCompact;const p=nextCompact?1:0;hdr.style.setProperty("--rail-header-progress",String(p));hdr.classList.toggle("tt-rail-header-compact",nextCompact);};const onScroll=()=>{if(raf)return;raf=requestAnimationFrame(()=>{raf=0;// Only the Chart tab collapses the header — its tall content +
-// harmonic wave need the room, and it stays compact so there is
-// no toggle. Other tabs keep a STABLE header: collapsing it mid-
-// scroll on a short tab (Now) removed ~120px of header, reflowed
-// the pane, and flip-flopped compact<->expanded every frame — the
-// "snap and gets stuck" bug. A stable header just scrolls.
-const onChartTab=String(railTab||"").toUpperCase()==="CHART";if(onChartTab&&!compact)applyMorph(true);});};applyMorph(String(railTab||"").toUpperCase()==="CHART");el.addEventListener("scroll",onScroll,{passive:true});return()=>{el.removeEventListener("scroll",onScroll);if(raf)cancelAnimationFrame(raf);};},[layoutMode,railTab,tickerSymbol]);// 2026-05-28 — Catalysts tab: bundled per-ticker payload combining
+let raf=0;let compact=false;// Learned header collapse height (px). The header is a flex sibling
+// ABOVE the scroll pane, so collapsing it grows the pane by this much
+// and shrinks max-scroll by the same. We measure it live (offsetHeight
+// before/after the class toggle) and fall back to a conservative
+// estimate until the first real toggle.
+let collapseDelta=0;const morphSpan=()=>collapseDelta>0?collapseDelta:200;const applyMorph=nextCompact=>{const beforeH=hdr.offsetHeight;compact=nextCompact;hdr.style.setProperty("--rail-header-progress",nextCompact?"1":"0");hdr.classList.toggle("tt-rail-header-compact",nextCompact);const afterH=hdr.offsetHeight;// reading offsetHeight flushes layout
+const d=Math.abs(beforeH-afterH);if(d>20)collapseDelta=Math.max(collapseDelta,d);};const onScroll=()=>{if(raf)return;raf=requestAnimationFrame(()=>{raf=0;const onChartTab=String(railTab||"").toUpperCase()==="CHART";// Chart tab stays compact (tall content + harmonic wave) — no toggle.
+if(onChartTab){if(!compact)applyMorph(true);return;}const st=el.scrollTop;if(!compact){// Collapse only when — AFTER removing the header — the pane would
+// STILL be comfortably scrollable. `overflow` here is measured in
+// the expanded state; requiring it to exceed the collapse span
+// guarantees max-scroll never drops under the expand threshold,
+// so scrollTop can't clamp back to the top and re-expand. That
+// clamp was the compact<->expand flip-flop (snap / stuck).
+const overflow=el.scrollHeight-el.clientHeight;if(st>=20&&overflow>morphSpan()+24)applyMorph(true);}else if(st<=8){applyMorph(false);}});};applyMorph(String(railTab||"").toUpperCase()==="CHART");el.addEventListener("scroll",onScroll,{passive:true});return()=>{el.removeEventListener("scroll",onScroll);if(raf)cancelAnimationFrame(raf);};},[layoutMode,railTab,tickerSymbol]);// 2026-05-28 — Catalysts tab: bundled per-ticker payload combining
 // news + insider + theme rotation + macro tilt + coverage-gap history.
 // Mirrors the Fundamentals fetch pattern (5min client cache, lazy on
 // tab open, worker caches 10min in KV).
