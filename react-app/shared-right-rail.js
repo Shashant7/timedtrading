@@ -747,9 +747,12 @@
       replay_dca: "DCA add",
     };
     function _humanizeLotReason(reason, opts) {
-      const raw = String(reason || "").trim();
-      if (!raw) return "";
-      if (LOT_REASON_LABELS[raw]) return LOT_REASON_LABELS[raw];
+      const raw0 = String(reason || "").trim();
+      if (!raw0) return "";
+      if (LOT_REASON_LABELS[raw0]) return LOT_REASON_LABELS[raw0];
+      // Round raw share floats embedded in ledger notes (e.g.
+      // "21.296928327645052sh" -> "21.30sh") so the receipt reads cleanly.
+      const raw = raw0.replace(/(\d+\.\d{3,})\s*sh\b/gi, (_m, n) => `${Number(n).toFixed(2)}sh`);
       const titled = raw
         .replace(/_/g, " ")
         .replace(/\s+/g, " ")
@@ -4964,20 +4967,42 @@
           // jitter — especially on the Chart tab when scrolling to harmonic wave.
           let raf = 0;
           let compact = false;
+          // Learned header collapse height (px). The header is a flex sibling
+          // ABOVE the scroll pane, so collapsing it grows the pane by this much
+          // and shrinks max-scroll by the same. We measure it live (offsetHeight
+          // before/after the class toggle) and fall back to a conservative
+          // estimate until the first real toggle.
+          let collapseDelta = 0;
+          const morphSpan = () => (collapseDelta > 0 ? collapseDelta : 200);
           const applyMorph = (nextCompact) => {
+            const beforeH = hdr.offsetHeight;
             compact = nextCompact;
-            const p = nextCompact ? 1 : 0;
-            hdr.style.setProperty("--rail-header-progress", String(p));
+            hdr.style.setProperty("--rail-header-progress", nextCompact ? "1" : "0");
             hdr.classList.toggle("tt-rail-header-compact", nextCompact);
+            const afterH = hdr.offsetHeight; // reading offsetHeight flushes layout
+            const d = Math.abs(beforeH - afterH);
+            if (d > 20) collapseDelta = Math.max(collapseDelta, d);
           };
           const onScroll = () => {
             if (raf) return;
             raf = requestAnimationFrame(() => {
               raf = 0;
-              const st = el.scrollTop;
               const onChartTab = String(railTab || "").toUpperCase() === "CHART";
-              if (!compact && (st >= 20 || onChartTab)) applyMorph(true);
-              else if (compact && st <= 8 && !onChartTab) applyMorph(false);
+              // Chart tab stays compact (tall content + harmonic wave) — no toggle.
+              if (onChartTab) { if (!compact) applyMorph(true); return; }
+              const st = el.scrollTop;
+              if (!compact) {
+                // Collapse only when — AFTER removing the header — the pane would
+                // STILL be comfortably scrollable. `overflow` here is measured in
+                // the expanded state; requiring it to exceed the collapse span
+                // guarantees max-scroll never drops under the expand threshold,
+                // so scrollTop can't clamp back to the top and re-expand. That
+                // clamp was the compact<->expand flip-flop (snap / stuck).
+                const overflow = el.scrollHeight - el.clientHeight;
+                if (st >= 20 && overflow > morphSpan() + 24) applyMorph(true);
+              } else if (st <= 8) {
+                applyMorph(false);
+              }
             });
           };
           applyMorph(String(railTab || "").toUpperCase() === "CHART");
@@ -5881,7 +5906,7 @@
                                     >
                                       <td className="px-3 py-2 text-[#8AA39A] whitespace-nowrap">{_fmtDateShort(r.ts)}</td>
                                       <td className="px-2 py-2"><span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeChipCls(r.type)}`}>{r.type}</span></td>
-                                      <td className="px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px]" title={reasonLabel || ""}>
+                                      <td className="px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px] break-words" title={reasonLabel || ""}>
                                         {reasonLabel || <span className="text-[#6E867D]">—</span>}
                                       </td>
                                       <td className="px-2 py-2 text-right text-white">{_fmtShares(r.shares)}</td>
@@ -12653,7 +12678,7 @@
                                       </span>
                                     )}
                                     {t.setup_name && !isInvestor && (
-                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10 }} title={`Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`}>
+                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`}>
                                         {/* 2026-05-30 (P5) — Use shared _formatPath helper which strips
                                             the "TT Tt" / "tt_" / "ripster_" / "saty_" engine prefixes
                                             and falls back to the friendly label map. The raw

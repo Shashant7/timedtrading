@@ -839,9 +839,10 @@
       replay_dca: "DCA add"
     };
     function _humanizeLotReason(reason, opts) {
-      const raw = String(reason || "").trim();
-      if (!raw) return "";
-      if (LOT_REASON_LABELS[raw]) return LOT_REASON_LABELS[raw];
+      const raw0 = String(reason || "").trim();
+      if (!raw0) return "";
+      if (LOT_REASON_LABELS[raw0]) return LOT_REASON_LABELS[raw0];
+      const raw = raw0.replace(/(\d+\.\d{3,})\s*sh\b/gi, (_m, n) => `${Number(n).toFixed(2)}sh`);
       const titled = raw.replace(/_/g, " ").replace(/\s+/g, " ").trim().replace(/\b\w/g, c => c.toUpperCase());
       const max = Number(opts?.max) || 0;
       if (max > 0 && titled.length > max) return titled.slice(0, max - 1) + "…";
@@ -6499,19 +6500,33 @@
         if (!el || !hdr || layoutMode === "workspace") return undefined;
         let raf = 0;
         let compact = false;
+        let collapseDelta = 0;
+        const morphSpan = () => collapseDelta > 0 ? collapseDelta : 200;
         const applyMorph = nextCompact => {
+          const beforeH = hdr.offsetHeight;
           compact = nextCompact;
-          const p = nextCompact ? 1 : 0;
-          hdr.style.setProperty("--rail-header-progress", String(p));
+          hdr.style.setProperty("--rail-header-progress", nextCompact ? "1" : "0");
           hdr.classList.toggle("tt-rail-header-compact", nextCompact);
+          const afterH = hdr.offsetHeight;
+          const d = Math.abs(beforeH - afterH);
+          if (d > 20) collapseDelta = Math.max(collapseDelta, d);
         };
         const onScroll = () => {
           if (raf) return;
           raf = requestAnimationFrame(() => {
             raf = 0;
-            const st = el.scrollTop;
             const onChartTab = String(railTab || "").toUpperCase() === "CHART";
-            if (!compact && (st >= 20 || onChartTab)) applyMorph(true);else if (compact && st <= 8 && !onChartTab) applyMorph(false);
+            if (onChartTab) {
+              if (!compact) applyMorph(true);
+              return;
+            }
+            const st = el.scrollTop;
+            if (!compact) {
+              const overflow = el.scrollHeight - el.clientHeight;
+              if (st >= 20 && overflow > morphSpan() + 24) applyMorph(true);
+            } else if (st <= 8) {
+              applyMorph(false);
+            }
           });
         };
         applyMorph(String(railTab || "").toUpperCase() === "CHART");
@@ -7192,7 +7207,7 @@
             }, React.createElement("span", {
               className: `inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeChipCls(r.type)}`
             }, r.type)), React.createElement("td", {
-              className: "px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px]",
+              className: "px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px] break-words",
               title: reasonLabel || ""
             }, reasonLabel || React.createElement("span", {
               className: "text-[#6E867D]"
@@ -15337,7 +15352,11 @@
             style: {
               color: "var(--ds-text-faint)",
               fontFamily: "var(--tt-font-mono)",
-              fontSize: 10
+              fontSize: 10,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap"
             },
             title: `Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`
           }, "\xB7 ", (_formatPath(t.setup_name) || String(t.setup_name)).slice(0, 24)), isBuy && Number.isFinite(heldAfter) && React.createElement("span", {
@@ -20001,4 +20020,4 @@
   };
 })();
 
-// cache-bust:1787707076509:575659844
+// cache-bust:1787743054940:626484621
