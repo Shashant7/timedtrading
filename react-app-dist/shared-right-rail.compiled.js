@@ -3668,16 +3668,177 @@
             isCredit: creditSum > debitSum
           };
         })();
-        const scenarios = (() => {
-          const fmt$ = n => Number.isFinite(n) ? `$${n.toFixed(2)}` : "—";
-          const fmtU = n => Number.isFinite(n) ? n >= 1000 ? `$${Math.round(n).toLocaleString()}` : `$${n.toFixed(0)}` : "—";
-          if (arch.includes("vertical")) {
-            const isBull = legs[0]?.optionType?.toUpperCase() === "CALL";
-            const dir = isBull ? "rises" : "falls";
-            const farStrike = isBull ? shortStrike : longStrike;
-            const closeStrike = isBull ? longStrike : shortStrike;
-            return [`📈 You pay ${fmt$(netPrem)} per spread × ${contracts} = ${fmtU(maxLoss)} upfront (your max loss).`, `🎯 You profit if ${sym} ${dir} past ${fmt$(beSingle)} by ${exp}.`, `🏆 At or beyond ${fmt$(farStrike)} you collect the full ${fmtU(maxGain)} — the spread width (${fmt$(Math.abs((shortStrike || 0) - (longStrike || 0)))}) minus what you paid.`, `🔒 The short leg at ${fmt$(farStrike)} caps your upside — you keep ${fmtU(maxLoss)} of capital at risk in exchange for ${(maxGain / Math.max(1, maxLoss)).toFixed(1)}× the return profile vs a long ${isBull ? "call" : "put"} alone.`, `⛔ Below ${fmt$(closeStrike)} at expiry, both legs expire worthless — you lose the full ${fmtU(maxLoss)}.`];
+        const fmt$ = n => Number.isFinite(n) ? `$${n.toFixed(2)}` : "—";
+        const fmtU = n => Number.isFinite(n) ? n >= 1000 ? `$${Math.round(n).toLocaleString()}` : `$${n.toFixed(0)}` : "—";
+        const verticalGuide = (() => {
+          if (!arch.includes("vertical")) return null;
+          const opt = String(legs[0]?.optionType || legs[0]?.option_type || "").toUpperCase();
+          const isBull = opt === "CALL";
+          const spreadWidth = Math.abs((shortStrike || 0) - (longStrike || 0));
+          const olabel = isBull ? "call" : "put";
+          const profitBound = isBull ? "at or above" : "at or below";
+          const lossBound = isBull ? "below" : "above";
+          return {
+            isBull,
+            spreadWidth,
+            goal: isBull ? `Moderately bullish on ${sym} into ${exp}: defined-risk bet that shares rise toward $${fmt$(shortStrike)}.` : `Moderately bearish on ${sym} into ${exp}: defined-risk bet that shares fall toward $${fmt$(shortStrike)}.`,
+            steps: [`Pay ${fmt$(netPrem)} per spread × ${contracts} = ${fmtU(maxLoss)} upfront (max loss).`, `Profit if ${sym} closes ${isBull ? "above" : "below"} ${fmt$(beSingle)} at ${exp} (breakeven).`, `Best case (${profitBound} ${fmt$(shortStrike)}): keep about ${fmtU(maxGain)} — spread width ${fmt$(spreadWidth)} minus net debit.`, `The sold $${fmt$(shortStrike)} ${olabel} caps profit; it funds part of the long leg so risk stays near ${fmtU(maxLoss)}.`, `Worst case (${lossBound} ${fmt$(longStrike)} at ${exp}): both legs expire worthless — lose the full ${fmtU(maxLoss)}.`],
+            priceLine: {
+              longStrike,
+              shortStrike,
+              breakeven: beSingle,
+              stockPrice: Number.isFinite(stockPrice) ? stockPrice : null,
+              isBull
+            }
+          };
+        })();
+        const renderVerticalPriceLine = line => {
+          if (!line || !Number.isFinite(line.longStrike) || !Number.isFinite(line.shortStrike)) return null;
+          const lo = Math.min(line.shortStrike, line.longStrike, line.breakeven || line.shortStrike) - 5;
+          const hi = Math.max(line.shortStrike, line.longStrike, line.breakeven || line.longStrike) + 5;
+          const span = Math.max(hi - lo, 1);
+          const pct = v => `${Math.min(100, Math.max(0, (v - lo) / span * 100))}%`;
+          const bePct = Number.isFinite(line.breakeven) ? pct(line.breakeven) : null;
+          const marker = (label, value, color, top) => h("div", {
+            key: label,
+            style: {
+              position: "absolute",
+              left: pct(value),
+              transform: "translateX(-50%)",
+              top,
+              textAlign: "center",
+              minWidth: 52
+            }
+          }, h("div", {
+            style: {
+              width: 2,
+              height: top === 0 ? 18 : 12,
+              background: color,
+              margin: "0 auto"
+            }
+          }), h("div", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              color,
+              fontWeight: 700,
+              marginTop: 2
+            }
+          }, fmt$(value)), h("div", {
+            style: {
+              fontSize: 8,
+              color: "var(--ds-text-faint)",
+              lineHeight: 1.2
+            }
+          }, label));
+          return h("div", {
+            style: {
+              marginTop: 10,
+              marginBottom: 10
+            }
+          }, h("div", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em",
+              marginBottom: 6
+            }
+          }, "PAYOFF AT EXPIRY (PRICE LINE)"), h("div", {
+            style: {
+              position: "relative",
+              height: 74,
+              borderRadius: 6,
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              overflow: "hidden"
+            }
+          }, h("div", {
+            style: {
+              position: "absolute",
+              left: line.isBull ? bePct : "0%",
+              right: line.isBull ? "0%" : bePct ? `calc(100% - ${bePct})` : "50%",
+              top: 28,
+              height: 8,
+              background: "rgba(52, 211, 153, 0.35)",
+              borderRadius: 4
+            },
+            title: line.isBull ? "Profit zone (above breakeven)" : "Profit zone (below breakeven)"
+          }), h("div", {
+            style: {
+              position: "absolute",
+              left: line.isBull ? "0%" : bePct,
+              right: line.isBull ? bePct ? `calc(100% - ${bePct})` : "50%" : "0%",
+              top: 28,
+              height: 8,
+              background: "rgba(248, 113, 113, 0.30)",
+              borderRadius: 4
+            },
+            title: line.isBull ? "Loss zone (below long strike)" : "Loss zone (above long strike)"
+          }), h("div", {
+            style: {
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: 31,
+              height: 2,
+              background: "rgba(255,255,255,0.15)"
+            }
+          }), marker("Short leg", line.shortStrike, "#fbbf24", 0), marker("Long leg", line.longStrike, line.isBull ? "#34d399" : "#f87171", 0), Number.isFinite(line.breakeven) && marker("Breakeven", line.breakeven, "#60a5fa", 44), Number.isFinite(line.stockPrice) && marker("Now", line.stockPrice, "#e2e8f0", 44)), h("div", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.45,
+              marginTop: 4
+            }
+          }, line.isBull ? `Lower prices (left) → more loss. Above ${fmt$(line.breakeven)} → profit; max near ${fmt$(line.shortStrike)}+.` : `Higher prices (right) → more loss. Below ${fmt$(line.breakeven)} → profit; max near ${fmt$(line.shortStrike)} or lower.`));
+        };
+        const renderExpiryTimeline = expLabel => h("div", {
+          style: {
+            marginBottom: 10
           }
+        }, h("div", {
+          style: {
+            fontSize: 9,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em",
+            marginBottom: 6
+          }
+        }, "TIMELINE"), h("div", {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: 10,
+            color: "var(--ds-text-body)"
+          }
+        }, h("span", {
+          style: {
+            fontWeight: 700,
+            color: "#60a5fa"
+          }
+        }, "Today"), h("span", {
+          style: {
+            flex: 1,
+            height: 2,
+            background: "rgba(96, 165, 250, 0.35)",
+            borderRadius: 1
+          }
+        }), h("span", {
+          style: {
+            fontWeight: 700,
+            color: "#34d399"
+          }
+        }, expLabel)), h("div", {
+          style: {
+            fontSize: 9,
+            color: "var(--ds-text-muted)",
+            marginTop: 4,
+            lineHeight: 1.4
+          }
+        }, "P/L below is modeled at expiry unless the card shows live exit projections above."));
+        const scenarios = (() => {
+          if (verticalGuide) return verticalGuide.steps;
+          if (arch.includes("vertical")) return null;
           if (arch.includes("long_call") || arch.includes("moonshot_call")) {
             return [`📈 You pay ${fmt$(netPrem)} per contract × ${contracts} = ${fmtU(maxLoss)} upfront (your max loss).`, `🎯 You profit if ${sym} closes above ${fmt$(beSingle)} by ${exp}.`, `🏆 Upside is unlimited — every $1 ${sym} rises past breakeven is roughly +$100 per contract.`, `⛔ Below ${fmt$(longStrike)} at expiry the call expires worthless — you lose the full ${fmtU(maxLoss)}.`];
           }
@@ -3803,7 +3964,28 @@
           style: {
             color: netMath.isCredit ? "#34d399" : "#f87171"
           }
-        }, fmtLegCost(Math.abs(netMath.netPerSpread) * 100 * (legObjects[0]?.qty || contracts || 1))), " ", netMath.isCredit ? "collected upfront" : "out of pocket"))), scenarios && h("div", null, h("div", {
+        }, fmtLegCost(Math.abs(netMath.netPerSpread) * 100 * (legObjects[0]?.qty || contracts || 1))), " ", netMath.isCredit ? "collected upfront" : "out of pocket"))), verticalGuide && h("div", {
+          style: {
+            marginBottom: 10,
+            padding: "8px 10px",
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.06)",
+            borderRadius: 6
+          }
+        }, h("div", {
+          style: {
+            fontSize: 9,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em",
+            marginBottom: 4
+          }
+        }, "GOAL"), h("div", {
+          style: {
+            fontSize: 11,
+            color: "var(--ds-text-body)",
+            lineHeight: 1.5
+          }
+        }, verticalGuide.goal)), verticalGuide && renderExpiryTimeline(exp), verticalGuide && renderVerticalPriceLine(verticalGuide.priceLine), scenarios && h("div", null, h("div", {
           style: {
             fontSize: 9,
             color: "var(--ds-text-faint)",
@@ -20001,4 +20183,4 @@
   };
 })();
 
-// cache-bust:1787671910527:64030816
+// cache-bust:1787761089632:131513649
