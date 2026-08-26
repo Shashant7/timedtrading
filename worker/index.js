@@ -48383,6 +48383,7 @@ const TRADE_EXIT_REASON_DISPLAY_MAP = {
   tt_cloud_pivot_magnet_tag_trim: "Cloud Pivot — price tagged the higher-timeframe cloud magnet; trimming into the attractor",
   tt_cloud_pivot_magnet_tag_cover: "Cloud Pivot — price tagged the higher-timeframe cloud magnet; covering the remaining runner",
   tt_cloud_pivot_ribbon_trail: "Cloud Pivot — ride still held; trailing the stop to the last held 5/12 then 34/50 ribbon",
+  tt_cloud_pivot_profit_lock: "Cloud Pivot — locked the run; price gave back past the peak-keep floor, so banking the move instead of round-tripping to the stop",
   KANBAN_EXIT: "Engine exit lane triggered — model recommends closing the position",
 };
 

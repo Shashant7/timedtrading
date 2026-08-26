@@ -221,6 +221,46 @@ describe("tt_cloud_pivot", () => {
     expect(trim?.reason).toBe("tt_cloud_pivot_5_12_close_trim");
   });
 
+  it("profit-lock banks a retraced winner before the lagging cloud stop", () => {
+    // Healthy 5/12 (no cross-down) and no magnet lo/hi, so neither the 5/12
+    // loss nor the magnet-tag fires. A +5% MFE run that retraced to +2% (past
+    // the 50% keep floor of 2.5%) must be banked by the profit-lock instead of
+    // round-tripping to max_loss.
+    const base = { tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" }, direction: "LONG", currentPrice: 100, positionAgeMin: 20, trimmedPct: 0 };
+    const res = evaluateTtCloudPivotExit({ ...base, pnlPct: 2, mfePct: 5 });
+    expect(res?.reason).toBe("tt_cloud_pivot_profit_lock");
+    expect(res?.stage).toBe("exit");
+    expect(res?.metadata?.keep_floor_pct).toBe(2.5);
+  });
+
+  it("profit-lock holds a winner still near its peak", () => {
+    const res = evaluateTtCloudPivotExit({
+      tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" },
+      direction: "LONG", currentPrice: 100, pnlPct: 4.8, mfePct: 5, positionAgeMin: 20, trimmedPct: 0,
+    });
+    expect(res?.reason).not.toBe("tt_cloud_pivot_profit_lock");
+  });
+
+  it("profit-lock does not arm below the MFE threshold", () => {
+    const res = evaluateTtCloudPivotExit({
+      tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" },
+      direction: "LONG", currentPrice: 100, pnlPct: 0.1, mfePct: 0.8, positionAgeMin: 20, trimmedPct: 0,
+    });
+    expect(res?.reason).not.toBe("tt_cloud_pivot_profit_lock");
+  });
+
+  it("profit-lock is flag-gated and keep-fraction configurable", () => {
+    const base = { tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" }, direction: "LONG", currentPrice: 100, positionAgeMin: 20, trimmedPct: 0, mfePct: 5 };
+    const off = evaluateTtCloudPivotExit({ ...base, pnlPct: 2, daCfg: { deep_audit_tt_cloud_pivot_profit_lock_enabled: "false" } });
+    expect(off?.reason).not.toBe("tt_cloud_pivot_profit_lock");
+    // keep 30% → floor 1.5%: pnl 2 holds, pnl 1.0 exits.
+    const hold = evaluateTtCloudPivotExit({ ...base, pnlPct: 2, daCfg: { deep_audit_tt_cloud_pivot_profit_lock_keep_frac: "0.3" } });
+    expect(hold?.reason).not.toBe("tt_cloud_pivot_profit_lock");
+    const exit = evaluateTtCloudPivotExit({ ...base, pnlPct: 1.0, daCfg: { deep_audit_tt_cloud_pivot_profit_lock_keep_frac: "0.3" } });
+    expect(exit?.reason).toBe("tt_cloud_pivot_profit_lock");
+    expect(exit?.metadata?.keep_floor_pct).toBe(1.5);
+  });
+
   it("does not treat a canonical core path as a Cloud Pivot trade", () => {
     expect(isTtCloudPivotTrade({
       entry_path: "tt_n_test_support",
