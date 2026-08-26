@@ -27925,14 +27925,21 @@ async function processTradeSimulation(
             if (env?.DB && !isReplay) {
               const _ledgerQty = Number(trade.shares);
               const _ledgerPx = Number(trade.entryPrice);
+              // The note is shown verbatim in the Trade Review receipt — round
+              // fractional shares so it reads "21.30sh", not the raw float.
+              const _qtyStr = Number.isFinite(_ledgerQty)
+                ? (Math.abs(_ledgerQty - Math.round(_ledgerQty)) < 1e-9
+                  ? String(Math.round(_ledgerQty))
+                  : _ledgerQty.toFixed(2))
+                : String(_ledgerQty);
               const _ledgerDebit = Number(trade.notional) > 0
                 ? Number(trade.notional)
                 : _ledgerQty * _ledgerPx * (Number(trade.pointValue) || 1);
               const _vehNote = _executedVehicle === "options"
-                ? `${trade.contracts || _ledgerQty}ct @$${ _ledgerPx.toFixed(2)} prem`
+                ? `${trade.contracts || _qtyStr}ct @$${ _ledgerPx.toFixed(2)} prem`
                 : _executedVehicle === "letf"
-                  ? `${_ledgerQty}sh ${trade.letf_ticker || ""} @$${_ledgerPx.toFixed(2)}`
-                  : `${_ledgerQty}sh @$${_ledgerPx.toFixed(2)}`;
+                  ? `${_qtyStr}sh ${trade.letf_ticker || ""} @$${_ledgerPx.toFixed(2)}`
+                  : `${_qtyStr}sh @$${_ledgerPx.toFixed(2)}`;
               d1InsertLedgerEntry(env, {
                 mode: "trader",
                 ts: entryTsMs || Date.now(),
