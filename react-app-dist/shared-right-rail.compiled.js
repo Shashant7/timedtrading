@@ -6502,14 +6502,18 @@
         let compact = false;
         let collapseDelta = 0;
         const measureDelta = () => {
+          const hadMeasuring = hdr.classList.contains("tt-rail-header-measuring");
+          if (!hadMeasuring) hdr.classList.add("tt-rail-header-measuring");
           const wasCompact = hdr.classList.contains("tt-rail-header-compact");
-          hdr.classList.add("tt-rail-header-measuring");
           hdr.classList.remove("tt-rail-header-compact");
           const hExpanded = hdr.offsetHeight;
           hdr.classList.add("tt-rail-header-compact");
           const hCompact = hdr.offsetHeight;
           hdr.classList.toggle("tt-rail-header-compact", wasCompact);
-          hdr.classList.remove("tt-rail-header-measuring");
+          if (!hadMeasuring) {
+            void hdr.offsetHeight;
+            hdr.classList.remove("tt-rail-header-measuring");
+          }
           const d = hExpanded - hCompact;
           if (d > 20) collapseDelta = d;
           return collapseDelta;
@@ -6519,6 +6523,12 @@
           compact = nextCompact;
           hdr.style.setProperty("--rail-header-progress", nextCompact ? "1" : "0");
           hdr.classList.toggle("tt-rail-header-compact", nextCompact);
+        };
+        const evalCompact = () => {
+          if (String(railTab || "").toUpperCase() === "CHART") return true;
+          const st = el.scrollTop;
+          const overflow = el.scrollHeight - el.clientHeight;
+          return st >= 10 && overflow > (collapseDelta || 0) + 16;
         };
         const onScroll = () => {
           if (raf) return;
@@ -6539,16 +6549,21 @@
             }
           });
         };
+        hdr.classList.add("tt-rail-header-measuring");
         measureDelta();
-        const startCompact = String(railTab || "").toUpperCase() === "CHART";
-        compact = !startCompact;
-        setCompact(startCompact);
+        const initCompact = evalCompact();
+        compact = initCompact;
+        hdr.style.setProperty("--rail-header-progress", initCompact ? "1" : "0");
+        hdr.classList.toggle("tt-rail-header-compact", initCompact);
+        void hdr.offsetHeight;
+        hdr.classList.remove("tt-rail-header-measuring");
         el.addEventListener("scroll", onScroll, {
           passive: true
         });
         return () => {
           el.removeEventListener("scroll", onScroll);
           if (raf) cancelAnimationFrame(raf);
+          hdr.classList.remove("tt-rail-header-measuring");
         };
       }, [layoutMode, railTab, tickerSymbol]);
       const [catalysts, setCatalysts] = useState(null);
@@ -20139,4 +20154,4 @@
   };
 })();
 
-// cache-bust:1787746033470:59714626
+// cache-bust:1787747704173:223114920

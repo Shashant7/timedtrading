@@ -724,7 +724,17 @@ let raf=0;let compact=false;let collapseDelta=0;// Read the exact px the header 
 // suppressed so the two offsetHeight reads are the true final heights
 // rather than a mid-animation frame. All reads/toggles happen
 // synchronously before the next paint, so there is no visible flash.
-const measureDelta=()=>{const wasCompact=hdr.classList.contains("tt-rail-header-compact");hdr.classList.add("tt-rail-header-measuring");hdr.classList.remove("tt-rail-header-compact");const hExpanded=hdr.offsetHeight;hdr.classList.add("tt-rail-header-compact");const hCompact=hdr.offsetHeight;hdr.classList.toggle("tt-rail-header-compact",wasCompact);hdr.classList.remove("tt-rail-header-measuring");const d=hExpanded-hCompact;if(d>20)collapseDelta=d;return collapseDelta;};const setCompact=nextCompact=>{if(compact===nextCompact)return;compact=nextCompact;hdr.style.setProperty("--rail-header-progress",nextCompact?"1":"0");hdr.classList.toggle("tt-rail-header-compact",nextCompact);};const onScroll=()=>{if(raf)return;raf=requestAnimationFrame(()=>{raf=0;const onChartTab=String(railTab||"").toUpperCase()==="CHART";// Chart tab stays compact (tall content + harmonic wave) — no toggle.
+// Self-suppresses transitions unless the caller already did (init).
+const measureDelta=()=>{const hadMeasuring=hdr.classList.contains("tt-rail-header-measuring");if(!hadMeasuring)hdr.classList.add("tt-rail-header-measuring");const wasCompact=hdr.classList.contains("tt-rail-header-compact");hdr.classList.remove("tt-rail-header-compact");const hExpanded=hdr.offsetHeight;hdr.classList.add("tt-rail-header-compact");const hCompact=hdr.offsetHeight;hdr.classList.toggle("tt-rail-header-compact",wasCompact);if(!hadMeasuring){// Commit the RESTORED height under transition:none before
+// re-enabling transitions — otherwise the last committed baseline
+// is the compact (max-height:0) read above, and re-enabling would
+// retro-animate 0 -> cap (a spurious expand on every call).
+void hdr.offsetHeight;hdr.classList.remove("tt-rail-header-measuring");}const d=hExpanded-hCompact;if(d>20)collapseDelta=d;return collapseDelta;};// Animated toggle (scroll-driven only — transitions live).
+const setCompact=nextCompact=>{if(compact===nextCompact)return;compact=nextCompact;hdr.style.setProperty("--rail-header-progress",nextCompact?"1":"0");hdr.classList.toggle("tt-rail-header-compact",nextCompact);};// What the compact state SHOULD be for the current scroll position —
+// used to set the header instantly (no animation) on mount / tab
+// switch, and matches the scroll thresholds so mounting never triggers
+// an animate-to-correct-state.
+const evalCompact=()=>{if(String(railTab||"").toUpperCase()==="CHART")return true;const st=el.scrollTop;const overflow=el.scrollHeight-el.clientHeight;return st>=10&&overflow>(collapseDelta||0)+16;};const onScroll=()=>{if(raf)return;raf=requestAnimationFrame(()=>{raf=0;const onChartTab=String(railTab||"").toUpperCase()==="CHART";// Chart tab stays compact (tall content + harmonic wave) — no toggle.
 if(onChartTab){setCompact(true);return;}const st=el.scrollTop;if(!compact){// Collapse once the pane — AFTER shedding the header — would
 // STILL overflow by a comfortable margin. `overflow` is measured
 // expanded; requiring it to exceed the (real) collapse delta
@@ -733,10 +743,14 @@ if(onChartTab){setCompact(true);return;}const st=el.scrollTop;if(!compact){// Co
 // compact<->expand flip-flop. With the delta pre-measured this
 // now fires on a slight scroll whenever the tab genuinely has
 // more content than the header height.
-const overflow=el.scrollHeight-el.clientHeight;const delta=collapseDelta||measureDelta();if(st>=10&&overflow>delta+16)setCompact(true);}else if(st<=6){setCompact(false);}});};// Prime the real collapse delta and sync the DOM to the initial state
-// (Chart starts compact; every other tab starts expanded). The effect
-// re-runs on tab/ticker change, so the delta is re-measured per view.
-measureDelta();const startCompact=String(railTab||"").toUpperCase()==="CHART";compact=!startCompact;setCompact(startCompact);el.addEventListener("scroll",onScroll,{passive:true});return()=>{el.removeEventListener("scroll",onScroll);if(raf)cancelAnimationFrame(raf);};},[layoutMode,railTab,tickerSymbol]);// 2026-05-28 — Catalysts tab: bundled per-ticker payload combining
+const overflow=el.scrollHeight-el.clientHeight;const delta=collapseDelta||measureDelta();if(st>=10&&overflow>delta+16)setCompact(true);}else if(st<=6){setCompact(false);}});};// Init: measure the delta and apply the correct initial state with
+// transitions SUPPRESSED so switching tabs (which re-runs this effect)
+// sets the header instantly — only real scrolling animates. The forced
+// reflow commits the state under `transition: none` before we re-enable
+// transitions, so re-enabling can't retro-animate the just-set state.
+hdr.classList.add("tt-rail-header-measuring");measureDelta();const initCompact=evalCompact();compact=initCompact;hdr.style.setProperty("--rail-header-progress",initCompact?"1":"0");hdr.classList.toggle("tt-rail-header-compact",initCompact);void hdr.offsetHeight;// flush layout under transition:none
+hdr.classList.remove("tt-rail-header-measuring");el.addEventListener("scroll",onScroll,{passive:true});return()=>{el.removeEventListener("scroll",onScroll);if(raf)cancelAnimationFrame(raf);// Never leave the transition-suppressing class behind on teardown.
+hdr.classList.remove("tt-rail-header-measuring");};},[layoutMode,railTab,tickerSymbol]);// 2026-05-28 — Catalysts tab: bundled per-ticker payload combining
 // news + insider + theme rotation + macro tilt + coverage-gap history.
 // Mirrors the Fundamentals fetch pattern (5min client cache, lazy on
 // tab open, worker caches 10min in KV).
