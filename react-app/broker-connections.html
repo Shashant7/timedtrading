@@ -229,6 +229,10 @@
       .tl-line { flex: 1; width: 2px; background: var(--tt-border-weak); margin-top: 4px; border-radius: 2px; }
       .tl-main { flex: 1; min-width: 0; }
       .tl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      /* Desktop: the lead/body groups flatten into the single flex row so the
+         header looks exactly as before. Mobile (below) turns .tl-head into a
+         grid and the groups become their own lines for real structure. */
+      .tl-head-lead, .tl-head-body { display: contents; }
       .tl-time { font-size: 11px; color: var(--tt-text-dim); }
       .tl-detail { margin-top: 8px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--tt-border-weak); border-radius: 10px; font-size: 12px; }
       .tl-acct-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; flex-wrap: wrap; }
@@ -324,6 +328,32 @@
         /* Slightly larger touch target for the mirror/options switches. */
         .toggle { width: 46px; height: 26px; }
         .toggle .knob { width: 20px; height: 20px; top: 3px; }
+      }
+      @media (max-width: 640px) {
+        /* Give each mirror-action row real structure instead of one long
+           wrapping line. Top line: time + LONG/SHORT TERM on the left, the
+           outcome pill (MIRRORED / REJECTED / NOT MIRRORED) right-aligned so
+           it's scannable down the edge. Second line: the action, ticker and
+           size/price grouped together. */
+        .tl-head {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas:
+            "lead outcome"
+            "body body";
+          gap: 4px 8px;
+          align-items: center;
+        }
+        .tl-head-lead {
+          grid-area: lead;
+          display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
+        }
+        .tl-head-body {
+          grid-area: body;
+          display: flex; align-items: baseline; gap: 3px 8px; flex-wrap: wrap; min-width: 0;
+        }
+        .tl-outcome { grid-area: outcome; justify-self: end; align-self: start; }
+        .tl-compact { margin-top: 6px; }
       }
     </style>
   </head>
@@ -680,18 +710,22 @@
               </div>
               <div className="tl-main">
                 <div className="tl-head">
-                  <span className="tl-time mono">{fmtTime(a.ts)}</span>
-                  <span className={`bc-pill ${(MODE_CHIP[a.mode] || MODE_CHIP.mirror).cls}`}>{(MODE_CHIP[a.mode] || MODE_CHIP.mirror).label}</span>
-                  <span style={{ fontWeight: 800, fontSize: 13, color: ev.color }}>{ev.label}</span>
-                  <span style={{ fontWeight: 800, fontSize: 13 }}>{a.ticker}</span>
-                  <span className="mono dim" style={{ fontSize: 12 }}>
-                    {fmtQty(a.qty)} {unit(a.qty)} @ {fmtUsd(a.price)}
+                  <span className="tl-head-lead">
+                    <span className="tl-time mono">{fmtTime(a.ts)}</span>
+                    <span className={`bc-pill ${(MODE_CHIP[a.mode] || MODE_CHIP.mirror).cls}`}>{(MODE_CHIP[a.mode] || MODE_CHIP.mirror).label}</span>
                   </span>
-                  {(a.event === "TRIM" || a.event === "EXIT") && pnl !== 0 && (
-                    <span className={`mono ${pnl >= 0 ? "up" : "dn"}`} style={{ fontSize: 12, fontWeight: 700 }}>{fmtSigned(pnl)}</span>
-                  )}
+                  <span className="tl-head-body">
+                    <span style={{ fontWeight: 800, fontSize: 13, color: ev.color }}>{ev.label}</span>
+                    <span style={{ fontWeight: 800, fontSize: 13 }}>{a.ticker}</span>
+                    <span className="mono dim tl-qty" style={{ fontSize: 12 }}>
+                      {fmtQty(a.qty)} {unit(a.qty)} @ {fmtUsd(a.price)}
+                    </span>
+                    {(a.event === "TRIM" || a.event === "EXIT") && pnl !== 0 && (
+                      <span className={`mono ${pnl >= 0 ? "up" : "dn"}`} style={{ fontSize: 12, fontWeight: 700 }}>{fmtSigned(pnl)}</span>
+                    )}
+                  </span>
                   <span className="tl-spacer" style={{ flex: 1 }} />
-                  <span className={`bc-pill ${mc.cls}`}>
+                  <span className={`tl-outcome bc-pill ${mc.cls}`}>
                     <span className="dot" />{mc.label}{fills.length > 1 ? ` ×${fills.length}` : ""}
                   </span>
                 </div>
