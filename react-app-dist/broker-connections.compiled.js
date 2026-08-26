@@ -648,10 +648,14 @@ function ActionRow({
   }, React.createElement("div", {
     className: "tl-head"
   }, React.createElement("span", {
+    className: "tl-head-lead"
+  }, React.createElement("span", {
     className: "tl-time mono"
   }, fmtTime(a.ts)), React.createElement("span", {
     className: `bc-pill ${(MODE_CHIP[a.mode] || MODE_CHIP.mirror).cls}`
-  }, (MODE_CHIP[a.mode] || MODE_CHIP.mirror).label), React.createElement("span", {
+  }, (MODE_CHIP[a.mode] || MODE_CHIP.mirror).label)), React.createElement("span", {
+    className: "tl-head-body"
+  }, React.createElement("span", {
     style: {
       fontWeight: 800,
       fontSize: 13,
@@ -663,7 +667,7 @@ function ActionRow({
       fontSize: 13
     }
   }, a.ticker), React.createElement("span", {
-    className: "mono dim",
+    className: "mono dim tl-qty",
     style: {
       fontSize: 12
     }
@@ -673,13 +677,13 @@ function ActionRow({
       fontSize: 12,
       fontWeight: 700
     }
-  }, fmtSigned(pnl)), React.createElement("span", {
+  }, fmtSigned(pnl))), React.createElement("span", {
     className: "tl-spacer",
     style: {
       flex: 1
     }
   }), React.createElement("span", {
-    className: `bc-pill ${mc.cls}`
+    className: `tl-outcome bc-pill ${mc.cls}`
   }, React.createElement("span", {
     className: "dot"
   }), mc.label, fills.length > 1 ? ` ×${fills.length}` : "")), hasDetail && React.createElement("div", {
@@ -3248,6 +3252,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787705689348:37687339
+// cache-bust:1787707076509:575659844
 
-// cache-bust:1787705689348:37687339
+// cache-bust:1787707076509:575659844

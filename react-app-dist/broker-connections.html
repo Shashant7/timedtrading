@@ -16,18 +16,18 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1787705689348" />
-    <script defer src="/vendor/react.production.min.js?v=1787705689348"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1787705689348"></script>
-<script defer src="auth-gate.js?v=1787705689348"></script>
-    <script defer src="shared-price-utils.js?v=1787705689348"></script>
-    <script src="tt-bottom-nav.js?v=1787705689348" defer></script>
-    <script defer src="investor-nav-badge.js?v=1787705689348"></script>
-    <script src="tt-nav-extras.js?v=1787705689348" defer></script>
-    <script src="tt-rail-bridge.js?v=1787705689348" defer></script>
-    <script defer src="tt-rail-lazy-load.js?v=1787705689348"></script>
-    <script defer src="ds-components.js?v=1787705689348"></script>
-    <script defer src="shared-lane-card.js?v=1787705689348"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1787707076509" />
+    <script defer src="/vendor/react.production.min.js?v=1787707076509"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1787707076509"></script>
+<script defer src="auth-gate.js?v=1787707076509"></script>
+    <script defer src="shared-price-utils.js?v=1787707076509"></script>
+    <script src="tt-bottom-nav.js?v=1787707076509" defer></script>
+    <script defer src="investor-nav-badge.js?v=1787707076509"></script>
+    <script src="tt-nav-extras.js?v=1787707076509" defer></script>
+    <script src="tt-rail-bridge.js?v=1787707076509" defer></script>
+    <script defer src="tt-rail-lazy-load.js?v=1787707076509"></script>
+    <script defer src="ds-components.js?v=1787707076509"></script>
+    <script defer src="shared-lane-card.js?v=1787707076509"></script>
     <style>
       body { margin: 0; min-height: 100vh; }
       main { max-width: 1040px; margin: 0 auto; padding: 20px 20px 110px; }
@@ -235,6 +235,10 @@
       .tl-line { flex: 1; width: 2px; background: var(--tt-border-weak); margin-top: 4px; border-radius: 2px; }
       .tl-main { flex: 1; min-width: 0; }
       .tl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      /* Desktop: the lead/body groups flatten into the single flex row so the
+         header looks exactly as before. Mobile (below) turns .tl-head into a
+         grid and the groups become their own lines for real structure. */
+      .tl-head-lead, .tl-head-body { display: contents; }
       .tl-time { font-size: 11px; color: var(--tt-text-dim); }
       .tl-detail { margin-top: 8px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--tt-border-weak); border-radius: 10px; font-size: 12px; }
       .tl-acct-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; flex-wrap: wrap; }
@@ -331,6 +335,32 @@
         .toggle { width: 46px; height: 26px; }
         .toggle .knob { width: 20px; height: 20px; top: 3px; }
       }
+      @media (max-width: 640px) {
+        /* Give each mirror-action row real structure instead of one long
+           wrapping line. Top line: time + LONG/SHORT TERM on the left, the
+           outcome pill (MIRRORED / REJECTED / NOT MIRRORED) right-aligned so
+           it's scannable down the edge. Second line: the action, ticker and
+           size/price grouped together. */
+        .tl-head {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas:
+            "lead outcome"
+            "body body";
+          gap: 4px 8px;
+          align-items: center;
+        }
+        .tl-head-lead {
+          grid-area: lead;
+          display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
+        }
+        .tl-head-body {
+          grid-area: body;
+          display: flex; align-items: baseline; gap: 3px 8px; flex-wrap: wrap; min-width: 0;
+        }
+        .tl-outcome { grid-area: outcome; justify-self: end; align-self: start; }
+        .tl-compact { margin-top: 6px; }
+      }
     </style>
   </head>
   <body class="vf-page">
@@ -339,10 +369,10 @@
          so the deferred consumers (tt-nav-extras, tt-bottom-nav, investor
          badge) find their mount target. -->
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1787705689348"></script>
+    <script defer src="shared-nav.js?v=1787707076509"></script>
     <div id="root"></div>
-    <script defer src="broker-connections.compiled.js?v=1787705689348"></script>
+    <script defer src="broker-connections.compiled.js?v=1787707076509"></script>
   </body>
 </html>
 
-<!-- cache-bust:1787705689348:37687339 -->
+<!-- cache-bust:1787707076509:575659844 -->
