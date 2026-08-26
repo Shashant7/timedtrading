@@ -747,9 +747,12 @@
       replay_dca: "DCA add",
     };
     function _humanizeLotReason(reason, opts) {
-      const raw = String(reason || "").trim();
-      if (!raw) return "";
-      if (LOT_REASON_LABELS[raw]) return LOT_REASON_LABELS[raw];
+      const raw0 = String(reason || "").trim();
+      if (!raw0) return "";
+      if (LOT_REASON_LABELS[raw0]) return LOT_REASON_LABELS[raw0];
+      // Round raw share floats embedded in ledger notes (e.g.
+      // "21.296928327645052sh" -> "21.30sh") so the receipt reads cleanly.
+      const raw = raw0.replace(/(\d+\.\d{3,})\s*sh\b/gi, (_m, n) => `${Number(n).toFixed(2)}sh`);
       const titled = raw
         .replace(/_/g, " ")
         .replace(/\s+/g, " ")
@@ -4974,10 +4977,14 @@
             if (raf) return;
             raf = requestAnimationFrame(() => {
               raf = 0;
-              const st = el.scrollTop;
+              // Only the Chart tab collapses the header — its tall content +
+              // harmonic wave need the room, and it stays compact so there is
+              // no toggle. Other tabs keep a STABLE header: collapsing it mid-
+              // scroll on a short tab (Now) removed ~120px of header, reflowed
+              // the pane, and flip-flopped compact<->expanded every frame — the
+              // "snap and gets stuck" bug. A stable header just scrolls.
               const onChartTab = String(railTab || "").toUpperCase() === "CHART";
-              if (!compact && (st >= 20 || onChartTab)) applyMorph(true);
-              else if (compact && st <= 8 && !onChartTab) applyMorph(false);
+              if (onChartTab && !compact) applyMorph(true);
             });
           };
           applyMorph(String(railTab || "").toUpperCase() === "CHART");
@@ -5881,7 +5888,7 @@
                                     >
                                       <td className="px-3 py-2 text-[#8AA39A] whitespace-nowrap">{_fmtDateShort(r.ts)}</td>
                                       <td className="px-2 py-2"><span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeChipCls(r.type)}`}>{r.type}</span></td>
-                                      <td className="px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px]" title={reasonLabel || ""}>
+                                      <td className="px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px] break-words" title={reasonLabel || ""}>
                                         {reasonLabel || <span className="text-[#6E867D]">—</span>}
                                       </td>
                                       <td className="px-2 py-2 text-right text-white">{_fmtShares(r.shares)}</td>
@@ -12653,7 +12660,7 @@
                                       </span>
                                     )}
                                     {t.setup_name && !isInvestor && (
-                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10 }} title={`Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`}>
+                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`}>
                                         {/* 2026-05-30 (P5) — Use shared _formatPath helper which strips
                                             the "TT Tt" / "tt_" / "ripster_" / "saty_" engine prefixes
                                             and falls back to the friendly label map. The raw
