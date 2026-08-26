@@ -6501,15 +6501,24 @@
         let raf = 0;
         let compact = false;
         let collapseDelta = 0;
-        const morphSpan = () => collapseDelta > 0 ? collapseDelta : 200;
-        const applyMorph = nextCompact => {
-          const beforeH = hdr.offsetHeight;
+        const measureDelta = () => {
+          const wasCompact = hdr.classList.contains("tt-rail-header-compact");
+          hdr.classList.add("tt-rail-header-measuring");
+          hdr.classList.remove("tt-rail-header-compact");
+          const hExpanded = hdr.offsetHeight;
+          hdr.classList.add("tt-rail-header-compact");
+          const hCompact = hdr.offsetHeight;
+          hdr.classList.toggle("tt-rail-header-compact", wasCompact);
+          hdr.classList.remove("tt-rail-header-measuring");
+          const d = hExpanded - hCompact;
+          if (d > 20) collapseDelta = d;
+          return collapseDelta;
+        };
+        const setCompact = nextCompact => {
+          if (compact === nextCompact) return;
           compact = nextCompact;
           hdr.style.setProperty("--rail-header-progress", nextCompact ? "1" : "0");
           hdr.classList.toggle("tt-rail-header-compact", nextCompact);
-          const afterH = hdr.offsetHeight;
-          const d = Math.abs(beforeH - afterH);
-          if (d > 20) collapseDelta = Math.max(collapseDelta, d);
         };
         const onScroll = () => {
           if (raf) return;
@@ -6517,19 +6526,23 @@
             raf = 0;
             const onChartTab = String(railTab || "").toUpperCase() === "CHART";
             if (onChartTab) {
-              if (!compact) applyMorph(true);
+              setCompact(true);
               return;
             }
             const st = el.scrollTop;
             if (!compact) {
               const overflow = el.scrollHeight - el.clientHeight;
-              if (st >= 20 && overflow > morphSpan() + 24) applyMorph(true);
-            } else if (st <= 8) {
-              applyMorph(false);
+              const delta = collapseDelta || measureDelta();
+              if (st >= 10 && overflow > delta + 16) setCompact(true);
+            } else if (st <= 6) {
+              setCompact(false);
             }
           });
         };
-        applyMorph(String(railTab || "").toUpperCase() === "CHART");
+        measureDelta();
+        const startCompact = String(railTab || "").toUpperCase() === "CHART";
+        compact = !startCompact;
+        setCompact(startCompact);
         el.addEventListener("scroll", onScroll, {
           passive: true
         });
@@ -9598,6 +9611,112 @@
             trade: tr
           };
         })();
+        const renderTraderPositionCard = () => {
+          const p = v2Pos;
+          if (!p || !(p.entry > 0)) return null;
+          const tr = p.trade || {};
+          const isLong = String(tr.direction || "LONG").toUpperCase() !== "SHORT";
+          const shares = Number(tr.shares ?? tr.quantity ?? 0) || 0;
+          const trimPct = Math.min(Math.max(Number(tr.trimmed_pct ?? tr.trimmedPct ?? 0) || 0, 0), 1);
+          const remShares = shares > 0 ? shares * (1 - trimPct) : 0;
+          const pnlPct = Number(p.pnlPct) || 0;
+          const pnlUsd = remShares > 0 && p.entry > 0 && p.current > 0 ? (p.current - p.entry) * remShares * (isLong ? 1 : -1) : null;
+          const up = pnlPct >= 0;
+          const accent = up ? "#34d399" : "#f87171";
+          const entryTs = Number(tr.entry_ts ?? tr.entryTs) || null;
+          const fmtSh = n => n >= 10 ? String(Math.round(n)) : String(Math.round(n * 100) / 100);
+          const facts = [{
+            k: "Entry",
+            v: `$${p.entry.toFixed(2)}`,
+            sub: entryTs ? _formatDate(entryTs) : null
+          }, {
+            k: "Live",
+            v: `$${p.current.toFixed(2)}`
+          }];
+          if (shares > 0) {
+            facts.push({
+              k: "Shares",
+              v: trimPct > 0 ? `${fmtSh(remShares)} / ${fmtSh(shares)}` : fmtSh(shares),
+              sub: trimPct > 0 ? `${Math.round(trimPct * 100)}% trimmed` : null
+            });
+          }
+          if (Number(p.sl) > 0) facts.push({
+            k: "Stop",
+            v: `$${Number(p.sl).toFixed(2)}`
+          });
+          return React.createElement("div", {
+            style: {
+              border: `1px solid ${up ? "rgba(52,211,153,0.28)" : "rgba(248,113,113,0.28)"}`,
+              background: up ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)",
+              borderRadius: "var(--ds-radius-md)",
+              padding: "var(--ds-space-3)",
+              marginBottom: "var(--ds-space-3)"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 8
+            }
+          }, React.createElement("span", {
+            className: `ds-chip ${isLong ? "ds-chip--up" : "ds-chip--dn"}`,
+            style: {
+              fontSize: 10,
+              fontWeight: 700
+            }
+          }, isLong ? "Open Long" : "Open Short"), React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-faint)",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              fontWeight: 700
+            }
+          }, "Open Position"), React.createElement("span", {
+            style: {
+              marginLeft: "auto",
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 800,
+              fontSize: "var(--ds-fs-body)",
+              color: accent
+            }
+          }, up ? "+" : "", pnlPct.toFixed(2), "%", pnlUsd != null ? ` · ${pnlUsd >= 0 ? "+" : "-"}${fmtUsd(Math.abs(pnlUsd))}` : "")), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "8px 12px"
+            }
+          }, facts.map((f, i) => React.createElement("div", {
+            key: i,
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              fontWeight: 700
+            }
+          }, f.k), React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text)",
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700
+            }
+          }, f.v), f.sub ? React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, f.sub) : null))));
+        };
         const v2SparkDir = v2DayPct > 0.05 ? "up" : v2DayPct < -0.05 ? "dn" : "flat";
         const v2SparkSvg = typeof window !== "undefined" && window.DS ? window.DS.sparklineSvg(v2Spark, {
           width: 320,
@@ -10614,7 +10733,7 @@
           style: {
             padding: "var(--ds-space-4)"
           }
-        }, window._ttIsPro && VerdictGuideBlock && v2RailTab === "SNAPSHOT" && React.createElement(VerdictGuideBlock, {
+        }, window._ttIsPro && v2RailTab === "SNAPSHOT" && renderTraderPositionCard(), window._ttIsPro && VerdictGuideBlock && v2RailTab === "SNAPSHOT" && React.createElement(VerdictGuideBlock, {
           ticker: tickerSymbol,
           data: phaseDVerdict,
           loading: phaseDVerdictLoading,
@@ -10733,7 +10852,7 @@
           }
         }, "Model read \u2014 Pro feature"), "Upgrade to Pro to see the model's short-term and long-term read plus live key levels for this ticker.")), v2RailTab === "SETUP" && React.createElement("div", {
           style: railTabBodyWrapStyle
-        }, (() => {
+        }, window._ttIsPro && renderTraderPositionCard(), (() => {
           const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
           const verdict = optionsTabData?.confluence_verdict || null;
           if (!timing || !timing.flash_headline) return null;
@@ -20020,4 +20139,4 @@
   };
 })();
 
-// cache-bust:1787743054940:626484621
+// cache-bust:1787746033470:59714626

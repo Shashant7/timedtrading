@@ -4962,26 +4962,38 @@
           const el = railScrollRef.current;
           const hdr = railHeaderRef.current;
           if (!el || !hdr || layoutMode === "workspace") return undefined;
-          // Binary snap (not continuous parallax): continuous padding/max-height
-          // morph changed header layout during scroll and caused feedback-loop
-          // jitter — especially on the Chart tab when scrolling to harmonic wave.
+          // Animated compaction (CSS transitions on the collapsing rows) driven
+          // by a scroll threshold. The header is a flex sibling ABOVE the scroll
+          // pane, so shedding it grows the pane and shrinks max-scroll by the
+          // collapse delta. We PRE-MEASURE that delta so the trigger fires on a
+          // slight scroll of any content-rich tab (the old lazy 200px fallback
+          // was so conservative the Short Term tab never compacted, so the delta
+          // was never learned — a chicken-and-egg that left it stuck expanded).
           let raf = 0;
           let compact = false;
-          // Learned header collapse height (px). The header is a flex sibling
-          // ABOVE the scroll pane, so collapsing it grows the pane by this much
-          // and shrinks max-scroll by the same. We measure it live (offsetHeight
-          // before/after the class toggle) and fall back to a conservative
-          // estimate until the first real toggle.
           let collapseDelta = 0;
-          const morphSpan = () => (collapseDelta > 0 ? collapseDelta : 200);
-          const applyMorph = (nextCompact) => {
-            const beforeH = hdr.offsetHeight;
+          // Read the exact px the header sheds when compacted, with transitions
+          // suppressed so the two offsetHeight reads are the true final heights
+          // rather than a mid-animation frame. All reads/toggles happen
+          // synchronously before the next paint, so there is no visible flash.
+          const measureDelta = () => {
+            const wasCompact = hdr.classList.contains("tt-rail-header-compact");
+            hdr.classList.add("tt-rail-header-measuring");
+            hdr.classList.remove("tt-rail-header-compact");
+            const hExpanded = hdr.offsetHeight;
+            hdr.classList.add("tt-rail-header-compact");
+            const hCompact = hdr.offsetHeight;
+            hdr.classList.toggle("tt-rail-header-compact", wasCompact);
+            hdr.classList.remove("tt-rail-header-measuring");
+            const d = hExpanded - hCompact;
+            if (d > 20) collapseDelta = d;
+            return collapseDelta;
+          };
+          const setCompact = (nextCompact) => {
+            if (compact === nextCompact) return;
             compact = nextCompact;
             hdr.style.setProperty("--rail-header-progress", nextCompact ? "1" : "0");
             hdr.classList.toggle("tt-rail-header-compact", nextCompact);
-            const afterH = hdr.offsetHeight; // reading offsetHeight flushes layout
-            const d = Math.abs(beforeH - afterH);
-            if (d > 20) collapseDelta = Math.max(collapseDelta, d);
           };
           const onScroll = () => {
             if (raf) return;
@@ -4989,23 +5001,32 @@
               raf = 0;
               const onChartTab = String(railTab || "").toUpperCase() === "CHART";
               // Chart tab stays compact (tall content + harmonic wave) — no toggle.
-              if (onChartTab) { if (!compact) applyMorph(true); return; }
+              if (onChartTab) { setCompact(true); return; }
               const st = el.scrollTop;
               if (!compact) {
-                // Collapse only when — AFTER removing the header — the pane would
-                // STILL be comfortably scrollable. `overflow` here is measured in
-                // the expanded state; requiring it to exceed the collapse span
+                // Collapse once the pane — AFTER shedding the header — would
+                // STILL overflow by a comfortable margin. `overflow` is measured
+                // expanded; requiring it to exceed the (real) collapse delta
                 // guarantees max-scroll never drops under the expand threshold,
-                // so scrollTop can't clamp back to the top and re-expand. That
-                // clamp was the compact<->expand flip-flop (snap / stuck).
+                // so scrollTop can't clamp to 0 and re-expand. That clamp was the
+                // compact<->expand flip-flop. With the delta pre-measured this
+                // now fires on a slight scroll whenever the tab genuinely has
+                // more content than the header height.
                 const overflow = el.scrollHeight - el.clientHeight;
-                if (st >= 20 && overflow > morphSpan() + 24) applyMorph(true);
-              } else if (st <= 8) {
-                applyMorph(false);
+                const delta = collapseDelta || measureDelta();
+                if (st >= 10 && overflow > delta + 16) setCompact(true);
+              } else if (st <= 6) {
+                setCompact(false);
               }
             });
           };
-          applyMorph(String(railTab || "").toUpperCase() === "CHART");
+          // Prime the real collapse delta and sync the DOM to the initial state
+          // (Chart starts compact; every other tab starts expanded). The effect
+          // re-runs on tab/ticker change, so the delta is re-measured per view.
+          measureDelta();
+          const startCompact = String(railTab || "").toUpperCase() === "CHART";
+          compact = !startCompact;
+          setCompact(startCompact);
           el.addEventListener("scroll", onScroll, { passive: true });
           return () => {
             el.removeEventListener("scroll", onScroll);
@@ -8394,6 +8415,69 @@
             const pnlPct = isLong ? ((cur - ep) / ep * 100) : ((ep - cur) / ep * 100);
             return { entry: ep, current: cur, pnlPct, sl: Number(tr.sl) || null, tp: Number(tr.tp) || null, trade: tr };
           })();
+          // Compact open-position detail card (entry / live / shares / P&L$).
+          // The header only shows the "Open Short" chip and the Key Levels ladder
+          // only shows the stop — the Now + Short Term tabs never surfaced the
+          // held size, entry date, or dollar P&L for an open short-term trade.
+          const renderTraderPositionCard = () => {
+            const p = v2Pos;
+            if (!p || !(p.entry > 0)) return null;
+            const tr = p.trade || {};
+            const isLong = String(tr.direction || "LONG").toUpperCase() !== "SHORT";
+            const shares = Number(tr.shares ?? tr.quantity ?? 0) || 0;
+            const trimPct = Math.min(Math.max(Number(tr.trimmed_pct ?? tr.trimmedPct ?? 0) || 0, 0), 1);
+            const remShares = shares > 0 ? shares * (1 - trimPct) : 0;
+            const pnlPct = Number(p.pnlPct) || 0;
+            const pnlUsd = (remShares > 0 && p.entry > 0 && p.current > 0)
+              ? (p.current - p.entry) * remShares * (isLong ? 1 : -1)
+              : null;
+            const up = pnlPct >= 0;
+            const accent = up ? "#34d399" : "#f87171";
+            const entryTs = Number(tr.entry_ts ?? tr.entryTs) || null;
+            const fmtSh = (n) => (n >= 10 ? String(Math.round(n)) : String(Math.round(n * 100) / 100));
+            const facts = [
+              { k: "Entry", v: `$${p.entry.toFixed(2)}`, sub: entryTs ? _formatDate(entryTs) : null },
+              { k: "Live", v: `$${p.current.toFixed(2)}` },
+            ];
+            if (shares > 0) {
+              facts.push({
+                k: "Shares",
+                v: trimPct > 0 ? `${fmtSh(remShares)} / ${fmtSh(shares)}` : fmtSh(shares),
+                sub: trimPct > 0 ? `${Math.round(trimPct * 100)}% trimmed` : null,
+              });
+            }
+            if (Number(p.sl) > 0) facts.push({ k: "Stop", v: `$${Number(p.sl).toFixed(2)}` });
+            return (
+              <div style={{
+                border: `1px solid ${up ? "rgba(52,211,153,0.28)" : "rgba(248,113,113,0.28)"}`,
+                background: up ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)",
+                borderRadius: "var(--ds-radius-md)",
+                padding: "var(--ds-space-3)",
+                marginBottom: "var(--ds-space-3)",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span className={`ds-chip ${isLong ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontSize: 10, fontWeight: 700 }}>
+                    {isLong ? "Open Long" : "Open Short"}
+                  </span>
+                  <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>
+                    Open Position
+                  </span>
+                  <span style={{ marginLeft: "auto", fontFamily: "var(--tt-font-mono)", fontWeight: 800, fontSize: "var(--ds-fs-body)", color: accent }}>
+                    {up ? "+" : ""}{pnlPct.toFixed(2)}%{pnlUsd != null ? ` · ${pnlUsd >= 0 ? "+" : "-"}${fmtUsd(Math.abs(pnlUsd))}` : ""}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 12px" }}>
+                  {facts.map((f, i) => (
+                    <div key={i} style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                      <span style={{ fontSize: 9, color: "var(--ds-text-faint)", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>{f.k}</span>
+                      <span style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontFamily: "var(--tt-font-mono)", fontWeight: 700 }}>{f.v}</span>
+                      {f.sub ? <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" }}>{f.sub}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          };
           // ── Sparkline SVG ──────────────────────────────────────────
           const v2SparkDir = v2DayPct > 0.05 ? "up" : v2DayPct < -0.05 ? "dn" : "flat";
           const v2SparkSvg = (typeof window !== "undefined" && window.DS)
@@ -9431,6 +9515,7 @@
                       tab where there is short term and long term and key
                       levels should not be there" — competing info sections
                       confused users. Now is THE plain-english summary tab. */}
+                  {window._ttIsPro && v2RailTab === "SNAPSHOT" && renderTraderPositionCard()}
                   {window._ttIsPro && VerdictGuideBlock && v2RailTab === "SNAPSHOT" && (
                     <VerdictGuideBlock
                       ticker={tickerSymbol}
@@ -9580,6 +9665,7 @@
                   {v2RailTab === "SETUP" && (
                     <div style={railTabBodyWrapStyle}>
 
+                      {window._ttIsPro && renderTraderPositionCard()}
                       {(() => {
                         const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
                         const verdict = optionsTabData?.confluence_verdict || null;
