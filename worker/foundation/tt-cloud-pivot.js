@@ -771,6 +771,28 @@ export function isTtCloudPivotTrade(trade = {}, tickerData = null) {
   return name.includes("tt_cloud_pivot") || name.includes("cloud_pivot");
 }
 
+/**
+ * True when a trade's EXECUTED setup is a canonical CORE play (not cloud
+ * pivot). The cloud-pivot detector stamps `tt_cloud_pivot` as a coincident
+ * signal on core setups (Support Bounce, HTF Reclaim, ATH), so a decision
+ * record can look like a cloud-pivot entry while the trade actually ran core
+ * doctrine. Attribution / program-timing use this to keep the cloud-pivot
+ * family's stats to trades the cloud-pivot exit doctrine actually managed.
+ * Cloud pivot is a paper family and is NOT in the core play catalog, so a
+ * real cloud-pivot trade resolves to null here (i.e. not foreign-core).
+ */
+export function tradeIsForeignCoreSetup(trade) {
+  if (!trade || typeof trade !== "object") return false;
+  const path = String(
+    trade.entry_path || trade.entryPath || trade.__entry_path
+    || trade.__tradeRef?.entry_path || trade.__tradeRef?.entryPath || "",
+  ).toLowerCase().trim();
+  if (path && isCanonicalCapitalEntryPath(path) && !path.includes("cloud_pivot")) return true;
+  const play = resolvePlay(trade.setup_name || trade.setupName, trade.direction);
+  if (play && !String(play.id).includes("cloud_pivot")) return true;
+  return false;
+}
+
 function isTighterStop(direction, nextPx, prevPx) {
   const next = finiteOrNull(nextPx);
   if (next == null) return false;
