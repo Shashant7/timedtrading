@@ -3,6 +3,7 @@
 
 import { computeWindowStats } from "../edge-scorecard.js";
 import { buildProgramTimingReport } from "./program-timing.js";
+import { tradeIsForeignCoreSetup } from "../foundation/tt-cloud-pivot.js";
 
 const DAY_MS = 86400000;
 const CONFIRM_STACK_FAMILY = "confirm_stack_ema21";
@@ -121,6 +122,7 @@ export function buildFamilyAttributionReport({
 
   const closed = [];
   let openN = 0;
+  let entryN = 0;
   let keepSum = 0;
   let keepN = 0;
   let mfeSum = 0;
@@ -130,6 +132,12 @@ export function buildFamilyAttributionReport({
   for (const d of familyEntries) {
     const t = tradeById.get(String(d.trade_id || ""));
     if (!t) continue;
+    // Attribution guard: the cloud-pivot detector stamps its flag on core
+    // setups, so only count trades that actually ran the cloud-pivot doctrine.
+    // (Applied to cloud pivot only — confirm-stack / continuation legitimately
+    // overlay core plays and would all be dropped by this filter.)
+    if (family === CLOUD_PIVOT_FAMILY && tradeIsForeignCoreSetup(t)) continue;
+    entryN++;
     const status = String(t.status || "").toUpperCase();
     const inputs = parseJson(d.inputs_json) || {};
     const vehicle = String(inputs.play_vehicle || inputs.vehicle || "shares");
@@ -174,7 +182,11 @@ export function buildFamilyAttributionReport({
     ok: true,
     family,
     days,
-    entries: familyEntries.length,
+    // Attributed entries — decisions whose joined trade actually ran this
+    // family's doctrine (foreign-core coincident stamps excluded for cloud
+    // pivot). `proposals` keeps the raw decision count for diagnostics.
+    entries: entryN,
+    proposals: familyEntries.length,
     open: openN,
     closed: closed.length,
     stats,

@@ -225,6 +225,102 @@ export function isOvernightCarry(book, now = Date.now()) {
 }
 
 /**
+ * One-line management copy for an open paper position on the Today strip.
+ * Names trim / exit / stop premiums and underlying invalidation; only
+ * mentions the 3:45 flat when the book is not an overnight carry.
+ */
+export function buildDayTradePositionMgmtLine({
+  book,
+  ticker,
+  execution,
+  gamePlan,
+  management,
+  bracket,
+  now = Date.now(),
+} = {}) {
+  const pos = book || {};
+  const sym = String(ticker || pos.ticker || "").toUpperCase();
+  const flav = String(pos.flavor || execution?.contract?.flavor || "").toLowerCase() === "put" ? "put" : "call";
+  const isPut = flav === "put";
+  const status = String(pos.status || "open");
+  const trimmed = status === "trimmed";
+  const entry = num(pos.entry_premium);
+  const trimPx = num(pos.trim_premium) ?? num(bracket?.trim) ?? num(execution?.rr?.trim);
+  const exitPx = num(pos.exit_premium) ?? num(bracket?.exit) ?? num(execution?.rr?.exit);
+  const peak = num(pos.peak_premium);
+  const trailStop = num(pos.trail_stop_premium);
+  const profitLock = !!pos.profit_lock_armed;
+  const heldOvernight = !!pos.held_overnight || isOvernightCarry(pos, now);
+  const contracts = bookContracts(pos, null);
+  const remaining = num(pos.contracts_remaining) ?? contracts;
+  const canTrim = canTrimContracts(contracts);
+
+  const gp = gamePlan || {};
+  const mgmt = management || execution?.management || {};
+  const inv = isPut
+    ? num(mgmt.invalidation?.underlying_above) ?? num(bracket?.stop_underlying) ?? num(gp.bull_trigger)
+    : num(mgmt.invalidation?.underlying_below) ?? num(bracket?.stop_underlying) ?? num(gp.bear_trigger);
+
+  const hardStop = num(bracket?.stop_premium) ?? hardStopPremium(entry);
+  const trailFloor = profitLock ? trailFloorFromPeak(peak) : null;
+  const premStopLevels = [];
+  if (profitLock) {
+    if (entry != null) premStopLevels.push(entry);
+    if (trailStop != null) premStopLevels.push(trailStop);
+    if (trailFloor != null) premStopLevels.push(trailFloor);
+  }
+  const activePremStop = premStopLevels.length ? Math.max(...premStopLevels) : null;
+
+  const parts = [];
+
+  if (trimmed) {
+    parts.push(
+      `Trimmed — ${remaining} contract${remaining === 1 ? "" : "s"} left on breakeven trail` +
+      (peak != null ? ` (${Math.round(TRAIL_GIVEBACK_PCT * 100)}% giveback from ${money(peak)} peak)` : "") +
+      ".",
+    );
+    if (exitPx != null) parts.push(`Exit remainder at ${money(exitPx)} (${EXIT_R}R).`);
+  } else if (canTrim) {
+    const trimBit = trimPx != null ? `Trim half at ${money(trimPx)} (${TRIM_R}R)` : null;
+    const exitBit = exitPx != null ? `exit runner at ${money(exitPx)} (${EXIT_R}R)` : null;
+    if (trimBit && exitBit) parts.push(`${trimBit}; ${exitBit}.`);
+    else if (trimBit) parts.push(`${trimBit}.`);
+    else if (exitBit) parts.push(`Exit at ${money(exitPx)} (${EXIT_R}R).`);
+  } else {
+    const trimBit = trimPx != null ? `At ${money(trimPx)} (${TRIM_R}R) raise stop to breakeven` : null;
+    const exitBit = exitPx != null ? `full exit at ${money(exitPx)} (${EXIT_R}R)` : null;
+    if (trimBit && exitBit) parts.push(`${trimBit}; ${exitBit}.`);
+    else if (exitBit) parts.push(`Exit at ${money(exitPx)} (${EXIT_R}R).`);
+  }
+
+  const watchBits = [];
+  if (profitLock) {
+    watchBits.push("Profit lock armed");
+    if (activePremStop != null) {
+      watchBits.push(
+        `trail stop ${money(activePremStop)}` +
+        (peak != null ? ` (${Math.round(TRAIL_GIVEBACK_PCT * 100)}% giveback from ${money(peak)} peak)` : ""),
+      );
+    }
+    if (entry != null) watchBits.push(`breakeven floor ${money(entry)}`);
+  } else if (hardStop != null) {
+    watchBits.push(`hard premium stop ${money(hardStop)} (${HARD_STOP_PCT}%)`);
+  }
+  if (inv != null && sym) {
+    watchBits.push(`${sym} ${isPut ? "reclaims" : "loses"} ${money(inv)}`);
+  }
+  if (watchBits.length) parts.push(`Watching: ${watchBits.join("; ")}.`);
+
+  if (heldOvernight) {
+    parts.push("Carried overnight — trim and exit stay live at the next open; no 3:45 flat.");
+  } else {
+    parts.push(`Flat by ${SESSION_FLAT_ET} ET before the cash close unless the thesis breaks first.`);
+  }
+
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
+/**
  * Model size for the index day-trade sleeve.
  * Heavy = high-conviction lean, SuperTrend with the play, premium not rich.
  * Light = veto, low conviction, rich premium, or SuperTrend against.
@@ -691,6 +787,192 @@ export function classifyPaperEvent({
   return { event: null, nextBook: null };
 }
 
+function pctChange(from, to) {
+  const a = num(from);
+  const b = num(to);
+  if (!(a > 0) || b == null) return null;
+  return round2(((b - a) / a) * 100);
+}
+
+function formatPct(v) {
+  const n = num(v);
+  return n == null ? "—" : `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
+}
+
+/**
+ * Human-readable exit/stop reason for Discord — not the entry playbook.
+ */
+export function describePaperExitReason(reason, ctx = {}) {
+  const r = String(reason || "").toLowerCase();
+  const entry = num(ctx.entry);
+  const mid = num(ctx.mid);
+  const hardStop = num(ctx.hardStop) ?? (entry != null ? hardStopPremium(entry) : null);
+  const peak = num(ctx.peak);
+  const trailFloor = num(ctx.trailFloor);
+  const inv = num(ctx.invUnderlying);
+  const sym = String(ctx.sym || "").toUpperCase();
+  const isPut = String(ctx.flavor || "").toLowerCase() === "put";
+
+  if (r === "premium_stop") {
+    return `Premium hard stop (${HARD_STOP_PCT}%) — contract traded at/below ${money(hardStop)}` +
+      (entry != null ? ` (half of entry ${money(entry)})` : "") +
+      (mid != null ? `. Fill ${money(mid)}.` : ".");
+  }
+  if (r === "breakeven_stop") {
+    const peakPct = entry != null && peak != null ? pctChange(entry, peak) : null;
+    return `Breakeven stop — profit lock was armed` +
+      (peakPct != null ? ` (peak ${formatPct(peakPct)} at ${money(peak)})` : "") +
+      `. Premium fell back to entry ${money(entry ?? mid)}.` +
+      (mid != null ? ` Fill ${money(mid)}.` : "");
+  }
+  if (r === "trail_stop") {
+    return `Trail giveback (${Math.round(TRAIL_GIVEBACK_PCT * 100)}% from peak) — floor ${money(trailFloor)}` +
+      (peak != null ? `, peak ${money(peak)}` : "") +
+      (mid != null ? `. Fill ${money(mid)}.` : ".");
+  }
+  if (r === "invalidation") {
+    return sym && inv != null
+      ? `Underlying invalidation — ${sym} ${isPut ? "reclaimed" : "lost"} ${money(inv)}.` +
+        (mid != null ? ` Fill ${money(mid)}.` : "")
+      : `Underlying invalidation.` + (mid != null ? ` Fill ${money(mid)}.` : "");
+  }
+  if (r === "tp2") {
+    return `Target exit — premium hit 2R` + (mid != null ? ` at ${money(mid)}.` : ".");
+  }
+  if (r === "open_trim") {
+    return `Opening trim — overnight carry trimmed at the open` + (mid != null ? ` (${money(mid)}).` : ".");
+  }
+  if (r === "profit_armed_single") {
+    return `Single-contract protect — 1R reached; stop raised to breakeven with trail.`;
+  }
+  if (r === "force_liq") {
+    return `0 DTE force liquidation before the options close.` + (mid != null ? ` Fill ${money(mid)}.` : "");
+  }
+  if (r === "time_stop" || r === "session_close" || r === "close_auction") {
+    return `Time stop — flatten before the cash close.` + (mid != null ? ` Fill ${money(mid)}.` : "");
+  }
+  if (r === "open_exit") {
+    return `Opening exit on overnight carry.` + (mid != null ? ` Fill ${money(mid)}.` : "");
+  }
+  if (r) {
+    return r.replace(/_/g, " ") + (mid != null ? ` — fill ${money(mid)}.` : ".");
+  }
+  return mid != null ? `Fill ${money(mid)}.` : "Paper exit.";
+}
+
+function buildPaperExitFields({
+  event,
+  reason,
+  plan,
+  size,
+  book,
+  mid,
+  spot,
+  execution,
+} = {}) {
+  const br = plan?.bracket || {};
+  const entry = num(book?.entry_premium) ?? num(execution?.rr?.entry) ?? num(br.buy_limit);
+  const peak = num(book?.peak_premium);
+  const trimPx = num(book?.trim_premium) ?? num(br.trim);
+  const exitPx = num(book?.exit_premium) ?? num(br.exit);
+  const hardStop = num(br.stop_premium) ?? hardStopPremium(entry);
+  const peakLockArmed = !!book?.profit_lock_armed || !!book?.profit_armed
+    || String(book?.status || "") === "trimmed";
+  const trailFloor = peakLockArmed ? trailFloorFromPeak(peak ?? mid) : null;
+  const exitPct = entry != null && mid != null ? pctChange(entry, mid) : null;
+  const peakPct = entry != null && peak != null ? pctChange(entry, peak) : null;
+  const sym = String(plan?.occ || "").split(/\s+/)[0] || "";
+
+  const fields = [];
+  fields.push({
+    name: "Exit / Why",
+    value: describePaperExitReason(reason, {
+      entry,
+      mid,
+      hardStop,
+      peak,
+      trailFloor,
+      invUnderlying: br.stop_underlying,
+      sym,
+      flavor: plan?.flavor,
+    }).slice(0, 1024),
+    inline: false,
+  });
+
+  const fillBits = [
+    entry != null ? `Entry ${money(entry)}` : null,
+    mid != null ? `Exit ${money(mid)}` : null,
+    exitPct != null ? `P/L ${formatPct(exitPct)}` : null,
+    peak != null ? `Peak ${money(peak)}` + (peakPct != null ? ` (${formatPct(peakPct)})` : "") : null,
+    size?.contracts ? `${size.contracts} contract${size.contracts === 1 ? "" : "s"}` : null,
+  ].filter(Boolean);
+  if (fillBits.length) {
+    fields.push({ name: "Fill recap", value: fillBits.join(" · ").slice(0, 1024), inline: false });
+  }
+
+  const plannedBits = [
+    hardStop != null ? `Hard stop ${money(hardStop)} (${HARD_STOP_PCT}%)` : null,
+    trimPx != null ? `1R trim ${money(trimPx)}` : null,
+    exitPx != null ? `2R exit ${money(exitPx)}` : null,
+    peakLockArmed ? `Profit lock armed — breakeven + ${Math.round(TRAIL_GIVEBACK_PCT * 100)}% trail` : null,
+    trailFloor != null ? `Trail floor now ${money(trailFloor)}` : null,
+    br.stop_underlying != null ? `Underlying inv ${money(br.stop_underlying)}` : null,
+    br.time_stop_et ? `Flat by ${br.time_stop_et} ET` : null,
+  ].filter(Boolean);
+  if (plannedBits.length) {
+    fields.push({ name: "Planned exits (at entry)", value: plannedBits.join(" · ").slice(0, 1024), inline: false });
+  }
+
+  if (spot != null && sym) {
+    fields.push({ name: sym, value: money(spot), inline: true });
+  }
+
+  return fields;
+}
+
+function buildPaperManageFields({ event, plan, book, mid, size } = {}) {
+  const br = plan?.bracket || {};
+  const entry = num(book?.entry_premium);
+  const peak = num(book?.peak_premium);
+  const fields = [];
+
+  if (event === "TRIM") {
+    const runnerBits = [
+      `Stop to breakeven ${money(entry)}`,
+      `Trail ${Math.round(TRAIL_GIVEBACK_PCT * 100)}% giveback from peak`,
+      num(book?.contracts_remaining) != null
+        ? `${book.contracts_remaining} contract${book.contracts_remaining === 1 ? "" : "s"} left`
+        : null,
+    ].filter(Boolean);
+    fields.push({
+      name: "Runner rules",
+      value: (runnerBits.join(" · ") || "Runner stays on with breakeven + trail.").slice(0, 1024),
+      inline: false,
+    });
+  } else if (event === "PROTECT") {
+    fields.push({
+      name: "Protect",
+      value: (`Stop raised to breakeven ${money(entry)} · trail ${Math.round(TRAIL_GIVEBACK_PCT * 100)}% from peak` +
+        (peak != null ? ` (peak ${money(peak)})` : "") +
+        ". No partial trim on a one-lot.").slice(0, 1024),
+      inline: false,
+    });
+  }
+
+  if (mid != null) {
+    fields.push({ name: "Fill", value: money(mid), inline: true });
+  }
+  if (entry != null && mid != null) {
+    const chg = pctChange(entry, mid);
+    if (chg != null) fields.push({ name: "vs entry", value: formatPct(chg), inline: true });
+  }
+  if (br.trim != null && event === "TRIM") {
+    fields.push({ name: "1R plan", value: money(br.trim), inline: true });
+  }
+
+  return fields;
+}
+
 export function buildDayTradeSignalEmbed({
   event,
   ticker,
@@ -700,6 +982,7 @@ export function buildDayTradeSignalEmbed({
   premium,
   spot,
   reason,
+  book,
   now = Date.now(),
 } = {}) {
   const ev = String(event || "BUY").toUpperCase();
@@ -735,39 +1018,66 @@ export function buildDayTradeSignalEmbed({
     const be = num(execution?.rr?.entry) ?? num(plan?.bracket?.protect_at_1r);
     descParts.push(`Single contract at ${money(mid)} (${TRIM_R}R) — stop raised to breakeven ${money(be)}. Trail ${Math.round(TRAIL_GIVEBACK_PCT * 100)}% giveback from peak; no partial trim.`);
   } else if (ev === "STOP") {
-    descParts.push(`Paper stop on ${occ} at ${money(mid)}${reason === "invalidation" ? " — underlying invalidation." : reason === "breakeven_stop" ? " — breakeven / trail stop." : " — premium hard stop."}`);
+    descParts.push(`Paper stop on ${occ} at ${money(mid)} — ${describePaperExitReason(reason, {
+      entry: num(book?.entry_premium) ?? num(execution?.rr?.entry),
+      mid,
+      hardStop: num(plan?.bracket?.stop_premium) ?? hardStopPremium(num(book?.entry_premium)),
+      peak: num(book?.peak_premium),
+      trailFloor: trailFloorFromPeak(num(book?.peak_premium)),
+      invUnderlying: plan?.bracket?.stop_underlying,
+      sym: sym,
+      flavor: plan?.flavor,
+    }).replace(/\.\s*$/, "")}.`);
   } else {
-    descParts.push(`Paper exit ${occ} at ${money(mid)}${reason ? ` (${reason.replace(/_/g, " ")})` : ""}.`);
+    descParts.push(`Paper exit ${occ} at ${money(mid)}${reason ? ` — ${describePaperExitReason(reason, { mid, sym, flavor: plan?.flavor }).replace(/\.\s*$/, "")}` : ""}.`);
   }
   descParts.push("_Not investment advice. Matches the model's paper fill, not a live broker order._");
 
-  const fields = [];
-  if (plan?.setup) fields.push({ name: "Setup / Thesis", value: String(plan.setup).slice(0, 1024), inline: false });
-  if (plan?.trigger) fields.push({ name: "Trigger", value: String(plan.trigger).slice(0, 1024), inline: false });
-  if (plan?.entry) fields.push({ name: "Entry", value: String(plan.entry).slice(0, 1024), inline: false });
-  if (plan?.exits) fields.push({ name: "Exits", value: String(plan.exits).slice(0, 1024), inline: false });
-  if (plan?.stop) fields.push({ name: "Stop", value: String(plan.stop).slice(0, 1024), inline: false });
-  if (plan?.flip) fields.push({ name: "Flip", value: String(plan.flip).slice(0, 1024), inline: false });
+  const isExitEvent = ev === "STOP" || ev === "EXIT";
+  const isManageEvent = ev === "TRIM" || ev === "PROTECT";
+  let fields = [];
 
-  const br = plan?.bracket || {};
-  const bracketLines = [
-    br.buy_limit != null ? `BUY limit ≤ ${money(br.buy_limit)}` : null,
-    br.single_contract && br.protect_at_1r != null
-      ? `PROTECT at 1R @ ${money(br.protect_at_1r)} (breakeven + ${Math.round((br.trail_giveback_pct ?? TRAIL_GIVEBACK_PCT) * 100)}% trail)`
-      : null,
-    !br.single_contract && br.trim != null
-      ? `TRIM 50% @ ${money(br.trim)} (${br.trim_r ?? TRIM_R}R)` : null,
-    br.exit != null ? `EXIT @ ${money(br.exit)} (${br.exit_r ?? EXIT_R}R)` : null,
-    br.rr != null ? `R:R to target ${br.rr}:1${br.rr_positive ? "" : " — below 1:1"}` : null,
-    br.hold_overnight
-      ? "HOLD overnight — leftover R:R still ≥ 1. Trim/exit live at the next open (do not wait for 09:45)"
-      : (br.time_stop_et ? `FLAT by ${br.time_stop_et} ET (before the cash close)` : null),
-    br.stop_premium != null ? `STOP premium @ ${money(br.stop_premium)} (${HARD_STOP_PCT}%)` : null,
-    br.stop_underlying != null ? `STOP underlying @ ${money(br.stop_underlying)}` : null,
-    sz.scale_note || null,
-  ].filter(Boolean);
-  if (bracketLines.length) {
-    fields.push({ name: "Bracket", value: bracketLines.join("\n").slice(0, 1024), inline: false });
+  if (isExitEvent) {
+    fields = buildPaperExitFields({
+      event: ev,
+      reason,
+      plan,
+      size,
+      book,
+      mid,
+      spot,
+      execution,
+    });
+  } else if (isManageEvent) {
+    fields = buildPaperManageFields({ event: ev, plan, book, mid, size });
+  } else {
+    if (plan?.setup) fields.push({ name: "Setup / Thesis", value: String(plan.setup).slice(0, 1024), inline: false });
+    if (plan?.trigger) fields.push({ name: "Trigger", value: String(plan.trigger).slice(0, 1024), inline: false });
+    if (plan?.entry) fields.push({ name: "Entry", value: String(plan.entry).slice(0, 1024), inline: false });
+    if (plan?.exits) fields.push({ name: "Exits", value: String(plan.exits).slice(0, 1024), inline: false });
+    if (plan?.stop) fields.push({ name: "Stop", value: String(plan.stop).slice(0, 1024), inline: false });
+    if (plan?.flip) fields.push({ name: "Flip", value: String(plan.flip).slice(0, 1024), inline: false });
+
+    const br = plan?.bracket || {};
+    const bracketLines = [
+      br.buy_limit != null ? `BUY limit ≤ ${money(br.buy_limit)}` : null,
+      br.single_contract && br.protect_at_1r != null
+        ? `PROTECT at 1R @ ${money(br.protect_at_1r)} (breakeven + ${Math.round((br.trail_giveback_pct ?? TRAIL_GIVEBACK_PCT) * 100)}% trail)`
+        : null,
+      !br.single_contract && br.trim != null
+        ? `TRIM 50% @ ${money(br.trim)} (${br.trim_r ?? TRIM_R}R)` : null,
+      br.exit != null ? `EXIT @ ${money(br.exit)} (${br.exit_r ?? EXIT_R}R)` : null,
+      br.rr != null ? `R:R to target ${br.rr}:1${br.rr_positive ? "" : " — below 1:1"}` : null,
+      br.hold_overnight
+        ? "HOLD overnight — leftover R:R still ≥ 1. Trim/exit live at the next open (do not wait for 09:45)"
+        : (br.time_stop_et ? `FLAT by ${br.time_stop_et} ET (before the cash close)` : null),
+      br.stop_premium != null ? `STOP premium @ ${money(br.stop_premium)} (${HARD_STOP_PCT}%)` : null,
+      br.stop_underlying != null ? `STOP underlying @ ${money(br.stop_underlying)}` : null,
+      sz.scale_note || null,
+    ].filter(Boolean);
+    if (bracketLines.length) {
+      fields.push({ name: "Bracket", value: bracketLines.join("\n").slice(0, 1024), inline: false });
+    }
   }
 
   return {

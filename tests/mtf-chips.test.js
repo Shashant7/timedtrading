@@ -33,7 +33,7 @@ describe("TimedMtfChips", () => {
       },
     };
     const reads = MTF.readsForTicker(ticker);
-    expect(reads.map((r) => r.label)).toEqual(["1H↑", "21↓", "55↑"]);
+    expect(reads.map((r) => r.label)).toEqual(["1H EMA ↑", "D 21 EMA ↓", "D 55 EMA ↑"]);
   });
 
   it("falls back to legacy D clouds when 20/21 and 50/55 absent", () => {
@@ -49,7 +49,7 @@ describe("TimedMtfChips", () => {
       },
     };
     const reads = MTF.readsForTicker(ticker);
-    expect(reads.map((r) => r.label)).toEqual(["1H↑", "21↓", "55↑"]);
+    expect(reads.map((r) => r.label)).toEqual(["1H EMA ↑", "D 21 EMA ↓", "D 55 EMA ↑"]);
   });
 
   it("builds stack chip when majority agree", () => {
@@ -71,8 +71,8 @@ describe("TimedMtfChips", () => {
     };
     MTF.buildChipElements("NVDA", h, { ticker, max: 4, stack: true });
     const labels = chips.map((c) => c.children[0]);
-    expect(labels).toContain("MTF 3↑");
-    expect(labels.some((l) => String(l).startsWith("1H"))).toBe(true);
+    expect(labels).toContain("MTF 3/3 ↑");
+    expect(labels.some((l) => String(l).startsWith("1H EMA"))).toBe(true);
   });
 
   it("returns empty when tf_tech missing", () => {

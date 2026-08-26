@@ -785,7 +785,7 @@ export async function fetchAuthenticatedFsdPage(env, pathOrUrl, { cfg: cfgIn } =
   if (!auth.ok) {
     return { ok: false, error_kind: auth.error_kind || "login_failed", hint: auth.hint, login_probe: auth.probe_summary || null };
   }
-  const url = urlJoin(cfg.base_url, pathOrUrl);
+  const url = /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : urlJoin(cfg.base_url, pathOrUrl);
   try {
     const { signal, done: req } = withTimeout(
       fetch(url, {
@@ -810,6 +810,98 @@ export async function fetchAuthenticatedFsdPage(env, pathOrUrl, { cfg: cfgIn } =
     return { ok: true, html, url, fetched_at: Date.now(), auth_from_cache: !!auth.from_cache };
   } catch (e) {
     return { ok: false, error_kind: "page_exception", hint: String(e?.message || e).slice(0, 200), url };
+  }
+}
+
+/** GET a members-area URL (PDF, etc.) using the cached FSD login session. */
+export async function fetchAuthenticatedFsdUrl(env, pathOrUrl, { cfg: cfgIn, accept = "*/*" } = {}) {
+  const cfg = cfgIn || await getConfig(env);
+  const auth = await loginFSD(env);
+  if (!auth.ok) {
+    return { ok: false, error_kind: auth.error_kind || "login_failed", hint: auth.hint };
+  }
+  const url = /^https?:\/\//i.test(pathOrUrl) ? pathOrUrl : urlJoin(cfg.base_url, pathOrUrl);
+  try {
+    const { signal, done: req } = withTimeout(
+      fetch(url, {
+        method: "GET",
+        headers: {
+          "User-Agent": cfg.user_agent,
+          Accept: accept,
+          "Cookie": serializeCookieHeader(auth.cookies),
+        },
+      }),
+      FETCH_TIMEOUT_MS,
+    );
+    const resp = await Object.assign(req, { signal });
+    if (!resp.ok) {
+      if (resp.status === 401 || resp.status === 403) {
+        try { await env.KV?.delete(SESSION_KV_KEY); } catch (_) {}
+      }
+      return { ok: false, error_kind: "fetch_http_error", status: resp.status, url };
+    }
+    const ct = String(resp.headers.get("content-type") || "").toLowerCase();
+    const buf = await resp.arrayBuffer();
+    return {
+      ok: true,
+      url,
+      fetched_at: Date.now(),
+      content_type: ct,
+      body_bytes: buf,
+      body_bytes_len: buf?.byteLength || 0,
+      auth_from_cache: !!auth.from_cache,
+    };
+  } catch (e) {
+    return { ok: false, error_kind: "fetch_exception", hint: String(e?.message || e).slice(0, 200), url };
+  }
+}
+
+/** POST admin-ajax.php with the logged-in FSD session (stock-list fragments). */
+export async function fetchAuthenticatedFsdAjax(env, {
+  action,
+  category = "",
+  params = {},
+  cfg: cfgIn,
+} = {}) {
+  const cfg = cfgIn || await getConfig(env);
+  const auth = await loginFSD(env);
+  if (!auth.ok) {
+    return { ok: false, error_kind: auth.error_kind || "login_failed", hint: auth.hint };
+  }
+  const base = urlJoin(cfg.base_url, "/wp-admin/admin-ajax.php");
+  const url = category ? `${base}?category=${encodeURIComponent(category)}` : base;
+  const body = new URLSearchParams({ action, ...params });
+  try {
+    const { signal, done: req } = withTimeout(
+      fetch(url, {
+        method: "POST",
+        headers: {
+          "User-Agent": cfg.user_agent,
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Cookie": serializeCookieHeader(auth.cookies),
+        },
+        body,
+      }),
+      FETCH_TIMEOUT_MS,
+    );
+    const resp = await Object.assign(req, { signal });
+    if (!resp.ok) {
+      return { ok: false, error_kind: "ajax_http_error", status: resp.status, url };
+    }
+    const json = await resp.json().catch(() => null);
+    const html = String(json?.data?.html || "");
+    return {
+      ok: true,
+      url,
+      action,
+      html,
+      html_length: html.length,
+      raw: json,
+      fetched_at: Date.now(),
+      auth_from_cache: !!auth.from_cache,
+    };
+  } catch (e) {
+    return { ok: false, error_kind: "ajax_exception", hint: String(e?.message || e).slice(0, 200), url };
   }
 }
 

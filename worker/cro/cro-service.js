@@ -494,6 +494,14 @@ async function callOpenAI(env, messages, { model = DEFAULT_MODEL, maxTokens = 25
     const json = await resp.json();
     const content = json.choices?.[0]?.message?.content || "";
     const usage = json.usage || {};
+    try {
+      const { recordOpenAiSpend } = await import("../openai-spend.js");
+      recordOpenAiSpend(env, "cro_note", {
+        model,
+        prompt_tokens: usage.prompt_tokens,
+        completion_tokens: usage.completion_tokens,
+      }).catch(() => {});
+    } catch (_) {}
     return { ok: true, content, model, prompt_tokens: usage.prompt_tokens, completion_tokens: usage.completion_tokens };
   } catch (e) {
     return { ok: false, error_kind: e?.name === "AbortError" ? "openai_timeout" : "openai_exception", hint: String(e?.message || e).slice(0, 200) };
@@ -646,7 +654,9 @@ export function shouldRefreshCroForBriefCadence(slot, note, opts = {}) {
   if (s === "intraday") {
     if (!noteIsToday) return true;
     if (noteAgeMs > 2 * 3600000) return true;
-    return hasNewFsd;
+    // Intraday flash no longer re-synthesizes CRO on new FSD alone — morning/evening
+    // cadence owns fresh notes; saves duplicate gpt-4o-mini synthesis calls at 11 AM / 2 PM.
+    return false;
   }
   return !noteIsToday;
 }

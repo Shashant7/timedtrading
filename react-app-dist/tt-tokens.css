@@ -2415,13 +2415,29 @@ body.tt-rail-scroll-lock .rail-panel {
   padding-top: var(--ds-space-3);
   padding-bottom: var(--ds-space-3);
   contain: layout style;
+  transition: padding-top 0.26s cubic-bezier(0.4, 0, 0.2, 1),
+              padding-bottom 0.26s cubic-bezier(0.4, 0, 0.2, 1);
 }
+/* Collapsing rows animate their height + fade (rather than snapping via
+   display:none) — this is the "animated" compaction. Each row carries a
+   generous max-height cap; content is always shorter, so the expanded state
+   never clips, but the cap gives the transition a value to animate to 0. */
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-chips,
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-context,
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-price,
-.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-outside-banner {
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-outside-banner,
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-actions-secondary {
   overflow: hidden;
+  transition: max-height 0.26s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.22s ease,
+              margin 0.26s ease,
+              padding 0.26s ease;
 }
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-chips { max-height: 148px; }
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-context { max-height: 72px; }
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-price { max-height: 88px; }
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-outside-banner { max-height: 96px; }
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-actions-secondary { max-height: 56px; }
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-chips {
   display: flex;
   flex-wrap: wrap;
@@ -2439,11 +2455,25 @@ body.tt-rail-scroll-lock .rail-panel {
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-price,
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-outside-banner,
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-actions-secondary {
-  display: none !important;
+  max-height: 0 !important;
+  opacity: 0;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  pointer-events: none;
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact {
   padding-top: var(--ds-space-2);
   padding-bottom: var(--ds-space-2);
+}
+/* Transition-free measurement pass: JS toggles the compact class to read the
+   collapsed height, then restores — all synchronously before the next paint.
+   Suppressing transitions makes those reads the true final heights (not a
+   mid-animation frame), so the collapse-delta guard is accurate from mount. */
+.tt-rail-header-measuring,
+.tt-rail-header-measuring * {
+  transition: none !important;
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-price-compact {
   display: inline-flex !important;
@@ -2458,6 +2488,7 @@ body.tt-rail-scroll-lock .rail-panel {
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-identity {
   margin-bottom: var(--ds-space-2);
+  transition: margin-bottom 0.26s ease;
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-identity {
   margin-bottom: 0;

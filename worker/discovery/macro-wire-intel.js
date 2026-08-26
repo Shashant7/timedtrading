@@ -138,11 +138,34 @@ export function buildTopCatalysts(rows, limit = 8) {
   return scored.slice(0, limit);
 }
 
+function headlineClassifyHash(normText) {
+  let h = 2166136261;
+  const s = String(normText || "");
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
+}
+
 export async function classifyMacroWirePost(env, post) {
   const apiKey = env?.OPENAI_API_KEY;
   if (!apiKey) return { ok: false, error: "no_openai_api_key" };
   const text = decodeXWireText(post?.text).trim().slice(0, 500);
   if (!text) return { ok: false, error: "empty_text" };
+  const KV = env?.KV_TIMED || env?.KV;
+  const norm = text.toLowerCase().replace(/\s+/g, " ").trim();
+  let cacheKey = null;
+  if (KV && norm.length > 12) {
+    try {
+      const hash = headlineClassifyHash(norm);
+      cacheKey = `timed:macro-wire:classify:${hash}`;
+      const cached = await KV.get(cacheKey, "json");
+      if (cached?.intel) {
+        return { ok: true, intel: cached.intel, model: cached.model || "cache", cached: true };
+      }
+    } catch (_) { /* cache optional */ }
+  }
   const model = String(env?.AI_MACRO_WIRE_MODEL || env?.AI_NEWS_SENTIMENT_MODEL || CLASSIFY_MODEL_FALLBACK);
   const isGpt5 = model.toLowerCase().startsWith("gpt-5");
   const body = {
@@ -171,6 +194,19 @@ export async function classifyMacroWirePost(env, post) {
     try { parsed = JSON.parse(raw); } catch (_) { /* invalid */ }
     const intel = parseIntelJson(parsed);
     if (!intel) return { ok: false, error: "parse_failed", raw_preview: raw.slice(0, 200) };
+    if (KV && cacheKey) {
+      try {
+        await KV.put(cacheKey, JSON.stringify({ intel, model }), { expirationTtl: 7 * 86400 });
+      } catch (_) {}
+    }
+    try {
+      const { recordOpenAiSpend } = await import("../openai-spend.js");
+      recordOpenAiSpend(env, "macro_wire_classify", {
+        model,
+        prompt_tokens: json.usage?.prompt_tokens,
+        completion_tokens: json.usage?.completion_tokens,
+      }).catch(() => {});
+    } catch (_) {}
     return { ok: true, intel, model };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 120) };

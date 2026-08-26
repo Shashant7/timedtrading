@@ -16,21 +16,25 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1787671910527" />
-    <script defer src="/vendor/react.production.min.js?v=1787671910527"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1787671910527"></script>
-<script defer src="auth-gate.js?v=1787671910527"></script>
-    <script defer src="shared-price-utils.js?v=1787671910527"></script>
-    <script src="tt-bottom-nav.js?v=1787671910527" defer></script>
-    <script defer src="investor-nav-badge.js?v=1787671910527"></script>
-    <script src="tt-nav-extras.js?v=1787671910527" defer></script>
-    <script src="tt-rail-bridge.js?v=1787671910527" defer></script>
-    <script defer src="tt-rail-lazy-load.js?v=1787671910527"></script>
-    <script defer src="ds-components.js?v=1787671910527"></script>
-    <script defer src="shared-lane-card.js?v=1787671910527"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1787747704173" />
+    <script defer src="/vendor/react.production.min.js?v=1787747704173"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1787747704173"></script>
+<script defer src="auth-gate.js?v=1787747704173"></script>
+    <script defer src="shared-price-utils.js?v=1787747704173"></script>
+    <script src="tt-bottom-nav.js?v=1787747704173" defer></script>
+    <script defer src="investor-nav-badge.js?v=1787747704173"></script>
+    <script src="tt-nav-extras.js?v=1787747704173" defer></script>
+    <script src="tt-rail-bridge.js?v=1787747704173" defer></script>
+    <script defer src="tt-rail-lazy-load.js?v=1787747704173"></script>
+    <script defer src="ds-components.js?v=1787747704173"></script>
+    <script defer src="shared-lane-card.js?v=1787747704173"></script>
     <style>
       body { margin: 0; min-height: 100vh; }
       main { max-width: 1040px; margin: 0 auto; padding: 20px 20px 110px; }
+      /* This page uniquely omitted .tt-card-pad, so every card fell back to
+         the 24px .tt-card padding with no mobile reduction. Match the sibling
+         journey pages (today.html) so cards breathe correctly on phones. */
+      .tt-card-pad { padding: 22px 24px 20px; }
       .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
       .up { color: var(--tt-success, #34d399); }
       .dn { color: var(--tt-danger, #ef4444); }
@@ -107,7 +111,7 @@
       }
       .bc-acct-row:first-of-type { border-top: none; padding-top: 2px; }
       .bc-acct-name { font-weight: 800; font-size: 14px; font-family: Manrope, Inter, sans-serif; }
-      .bc-acct-id { font-size: 11px; margin-top: 2px; }
+      .bc-acct-id { font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; word-break: break-word; }
       .bc-acct-switch { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
       .bc-acct-vehicles {
         grid-column: 1 / -1;
@@ -231,6 +235,10 @@
       .tl-line { flex: 1; width: 2px; background: var(--tt-border-weak); margin-top: 4px; border-radius: 2px; }
       .tl-main { flex: 1; min-width: 0; }
       .tl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      /* Desktop: the lead/body groups flatten into the single flex row so the
+         header looks exactly as before. Mobile (below) turns .tl-head into a
+         grid and the groups become their own lines for real structure. */
+      .tl-head-lead, .tl-head-body { display: contents; }
       .tl-time { font-size: 11px; color: var(--tt-text-dim); }
       .tl-detail { margin-top: 8px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--tt-border-weak); border-radius: 10px; font-size: 12px; }
       .tl-acct-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; flex-wrap: wrap; }
@@ -297,6 +305,62 @@
       @keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
       code { background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
       ol.steps { margin: 8px 0 0; padding-left: 18px; color: var(--tt-text-2); font-size: 13px; line-height: 1.7; }
+
+      /* ── Mobile ──────────────────────────────────────────────────────
+         The page previously tuned only to 720px (and never defined
+         .tt-card-pad), so phones kept desktop padding, long account IDs
+         could overflow, the timeline header orphaned "qty @ price", and the
+         kill switch was easy to miss. Reclaim width, stack account controls,
+         and fix the timeline wrap without touching desktop. */
+      @media (max-width: 720px) {
+        main { padding: 16px 14px 110px; }
+        .tt-card-pad { padding: 16px 16px 14px; }
+        .nav-row { padding: 12px 14px; }
+        /* Timeline: the flex spacer pushed the outcome pill to the far right
+           and dropped the qty/price fragment to its own line. Drop it so the
+           pill sits inline right after the meta and wraps cleanly. */
+        .tl-spacer { display: none; }
+        .tl-row { gap: 9px; }
+        /* Kill switch spans the header row so it reads as a clear action. */
+        .bc-pause-all { width: 100%; margin-top: 8px; }
+      }
+      @media (max-width: 540px) {
+        /* Each account's controls stack full-width: pill left, toggle right —
+           bigger effective hit area and no crowding on ~360px screens. */
+        .bc-acct-row { grid-template-columns: 1fr; gap: 8px; }
+        .bc-acct-switch,
+        .bc-acct-switch:last-of-type { grid-column: 1; justify-content: space-between; }
+        .bc-acct-vehicles { margin-top: 2px; }
+        /* Slightly larger touch target for the mirror/options switches. */
+        .toggle { width: 46px; height: 26px; }
+        .toggle .knob { width: 20px; height: 20px; top: 3px; }
+      }
+      @media (max-width: 640px) {
+        /* Give each mirror-action row real structure instead of one long
+           wrapping line. Top line: time + LONG/SHORT TERM on the left, the
+           outcome pill (MIRRORED / REJECTED / NOT MIRRORED) right-aligned so
+           it's scannable down the edge. Second line: the action, ticker and
+           size/price grouped together. */
+        .tl-head {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas:
+            "lead outcome"
+            "body body";
+          gap: 4px 8px;
+          align-items: center;
+        }
+        .tl-head-lead {
+          grid-area: lead;
+          display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
+        }
+        .tl-head-body {
+          grid-area: body;
+          display: flex; align-items: baseline; gap: 3px 8px; flex-wrap: wrap; min-width: 0;
+        }
+        .tl-outcome { grid-area: outcome; justify-self: end; align-self: start; }
+        .tl-compact { margin-top: 6px; }
+      }
     </style>
   </head>
   <body class="vf-page">
@@ -305,10 +369,10 @@
          so the deferred consumers (tt-nav-extras, tt-bottom-nav, investor
          badge) find their mount target. -->
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1787671910527"></script>
+    <script defer src="shared-nav.js?v=1787747704173"></script>
     <div id="root"></div>
-    <script defer src="broker-connections.compiled.js?v=1787671910527"></script>
+    <script defer src="broker-connections.compiled.js?v=1787747704173"></script>
   </body>
 </html>
 
-<!-- cache-bust:1787671910527:64030816 -->
+<!-- cache-bust:1787747704173:223114920 -->

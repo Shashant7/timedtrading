@@ -948,17 +948,16 @@ function tickerIsModelEntry(t, play) {
   return seqs.some(s => String(s?.status || "").toLowerCase() === "entry_ready");
 }
 function planFactList(facts) {
-  const rows = (Array.isArray(facts) ? facts : []).filter(f => f && f.value);
-  if (!rows.length) return null;
-  return h("dl", {
-    className: "tt-plan-facts"
-  }, rows.map(f => h("div", {
-    key: f.label,
-    className: "tt-plan-facts__row"
-  }, h("dt", null, f.label), h("dd", {
-    className: f.tone ? `tt-plan-facts__v--${f.tone}` : null,
-    title: f.title || undefined
-  }, f.value))));
+  return stripFactStack(factsToStackItems(facts));
+}
+function stripPlanFoot(punch, facts) {
+  const grid = planFactList(facts);
+  if (!punch && !grid) return null;
+  return h("div", {
+    className: "tt-dt-plan"
+  }, punch && h("p", {
+    className: "tt-dt-plan__punch"
+  }, punch), grid);
 }
 function stripZoneFacts(zm, extras, rrOpts) {
   const VU = window.TimedVerdictUI;
@@ -1032,6 +1031,130 @@ function dayTradePlanCopy({
     flavor: flav
   };
 }
+function dayTradeActionChip(action, flavor, title) {
+  const a = String(action || "WAIT").toUpperCase();
+  const flav = flavor === "put" ? "PUT" : "CALL";
+  let label;
+  let cls;
+  if (a === "BUY" || a === "ENTER" || a === "FIRE" || a === "ADD" || a === "SCALE IN") {
+    label = `BUY ${flav}`;
+    cls = flavor === "put" ? "ds-chip ds-chip--sm ds-chip--dn" : "ds-chip ds-chip--sm ds-chip--up";
+  } else if (a === "SELL" || a === "FLAT" || a === "EXIT") {
+    label = "EXIT";
+    cls = "ds-chip ds-chip--sm ds-chip--dn";
+  } else if (a === "TRIM") {
+    label = "TRIM";
+    cls = "ds-chip ds-chip--sm ds-chip--accent";
+  } else {
+    label = "WAIT";
+    cls = "ds-chip ds-chip--sm ds-chip--solid";
+  }
+  return h("span", {
+    key: "act",
+    className: cls,
+    title: title || "",
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontWeight: 800
+    }
+  }, label);
+}
+function dayTradePlanFacts({
+  livePremium,
+  debit,
+  trim,
+  exit
+}) {
+  const cells = [];
+  const lp = formatLivePremium(livePremium);
+  if (lp) cells.push({
+    k: "LIVE",
+    v: lp,
+    tone: "live"
+  });
+  if (debit) cells.push({
+    k: "DEBIT",
+    v: String(debit).replace(/\s+/g, ""),
+    tone: ""
+  });
+  if (trim) cells.push({
+    k: "TRIM",
+    v: trim,
+    tone: "trim"
+  });
+  if (exit) cells.push({
+    k: "EXIT",
+    v: exit,
+    tone: "exit"
+  });
+  return cells;
+}
+function dayTradeFactsRow(cells) {
+  return stripFactStack(cells);
+}
+function stripFactStack(items, opts = {}) {
+  if (!items || !items.length) return null;
+  const kids = [];
+  if (opts.dividerBefore) kids.push(h("div", {
+    key: "div",
+    className: "tt-strip-fact-stack__divider"
+  }));
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (!it || !it.v) continue;
+    kids.push(h("div", {
+      key: it.k + i,
+      className: "tt-strip-fact-stack__item" + (it.full ? " tt-strip-fact-stack__item--full" : ""),
+      title: it.title || undefined
+    }, h("span", {
+      className: "tt-strip-fact-stack__k"
+    }, it.k), h("span", {
+      className: "tt-strip-fact-stack__v" + (it.tone ? ` tt-strip-fact-stack__v--${it.tone}` : "")
+    }, it.v)));
+  }
+  if (!kids.length) return null;
+  return h("div", {
+    className: "tt-strip-fact-stack"
+  }, kids);
+}
+function factsToStackItems(facts) {
+  return (Array.isArray(facts) ? facts : []).filter(f => f && f.value).map(f => ({
+    k: String(f.label || "").slice(0, 8).toUpperCase(),
+    v: String(f.value),
+    tone: f.tone === "buy" || f.tone === "trim" ? "trim" : f.tone === "wait" || f.tone === "exit" ? "exit" : "",
+    title: f.title || "",
+    full: /^(catalyst|implied|crush|needs|exit|hold|own)/i.test(String(f.label || ""))
+  }));
+}
+function dayTradePositionPnl(pos) {
+  const entry = Number(pos?.entry_premium);
+  const last = Number(pos?.last_premium);
+  let pct = Number(pos?.pnl_pct);
+  if (!Number.isFinite(pct) && entry > 0 && last > 0) pct = (last - entry) / entry * 100;
+  return Number.isFinite(pct) ? pct : null;
+}
+function dayTradePositionOpen(pos) {
+  const st = String(pos?.status || "").toLowerCase();
+  return !!pos && (st === "open" || st === "trimmed") && Number(pos?.strike) > 0;
+}
+function dayTradePositionMgmtLine(pos, opts = {}) {
+  const line = String(pos?.mgmt_line || "").trim();
+  if (line) return line;
+  const sym = String(opts.ticker || pos?.ticker || "").toUpperCase();
+  const held = !!pos?.held_overnight;
+  const trim = Number(pos?.trim_premium);
+  const exit = Number(pos?.exit_premium);
+  const bits = [];
+  if (trim > 0 && exit > 0) {
+    bits.push(`Trim at $${trim.toFixed(2)}; exit at $${exit.toFixed(2)}.`);
+  }
+  if (pos?.profit_lock_armed) bits.push("Profit lock armed — trailing the stop.");else if (Number(pos?.entry_premium) > 0) {
+    bits.push(`Hard stop $${(Number(pos.entry_premium) * 0.5).toFixed(2)} (-50%).`);
+  }
+  if (held) bits.push("Carried overnight — trim and exit at the next open.");else bits.push("Flat by 3:45 ET before the cash close.");
+  if (sym && bits.length) return bits.join(" ");
+  return bits.join(" ");
+}
 function optionsPlanFacts({
   action,
   flavor,
@@ -1103,6 +1226,124 @@ function optionsPlanFacts({
     value: payoff
   });
   return rows.filter(f => f && f.value);
+}
+function convexityOptionFactCells(p, flavor, expShort, dte) {
+  const cells = [];
+  const liveChain = String(p.premium_source || "").toLowerCase() === "live_chain";
+  const prem = formatLivePremium(Number(p.premium_mid));
+  if (prem) {
+    cells.push({
+      k: liveChain ? "LIVE" : "EST",
+      v: prem,
+      tone: liveChain ? "live" : "",
+      title: liveChain ? "Live chain mid — refreshes on each options poll" : "Model estimate until chain quotes land for this strike"
+    });
+  }
+  if (Number.isFinite(Number(p.premium_mid))) {
+    cells.push({
+      k: "DEBIT",
+      v: `≤ $${Number(p.premium_mid).toFixed(2)}`,
+      title: "Max debit to enter"
+    });
+  }
+  if (Number.isFinite(Number(p.max_loss_usd))) {
+    cells.push({
+      k: "RISK",
+      v: `$${Number(p.max_loss_usd)}`,
+      title: "Sized max loss at entry"
+    });
+  }
+  if (Number.isFinite(Number(p.top_target_underlying))) {
+    cells.push({
+      k: "PAYOFF",
+      v: `3x+ $${Number(p.top_target_underlying).toFixed(2)}`,
+      tone: "trim",
+      title: "Underlying target for 3x+ payoff"
+    });
+  }
+  const k = Number(p.strike);
+  if (Number.isFinite(k) && k > 0) {
+    cells.push({
+      k: "STRK",
+      v: `${Math.round(k)}${flavor === "put" ? "P" : "C"}`
+    });
+  }
+  if (expShort) {
+    const d = Number(dte);
+    cells.push({
+      k: "EXP",
+      v: Number.isFinite(d) ? `${expShort} (${d} DTE)` : expShort
+    });
+  }
+  const priority = ["LIVE", "DEBIT", "STRK", "EXP", "RISK", "PAYOFF"];
+  const picked = [];
+  for (const key of priority) {
+    const hit = cells.find(c => c.k === key);
+    if (hit) picked.push(hit);
+  }
+  return picked;
+}
+function convexityOptionStackItems(p, flavor, expShort, dte) {
+  return convexityOptionFactCells(p, flavor, expShort, dte).map(c => ({
+    k: c.k,
+    v: c.v,
+    tone: c.tone,
+    title: c.title,
+    full: c.k === "RISK" || c.k === "PAYOFF"
+  }));
+}
+function earnCellsToStack(cells) {
+  return (Array.isArray(cells) ? cells : []).map(c => ({
+    k: c.k,
+    v: c.v,
+    tone: c.tone,
+    title: c.title,
+    full: c.k === "CAT" || c.k === "IMPL" || c.k === "CONF"
+  }));
+}
+function convexityEarnPrimaryCells(earn) {
+  if (!earn) return [];
+  const cells = [];
+  const label = earn.report_date_label || earn.report_date || "";
+  const days = Number(earn.days_to_print);
+  cells.push({
+    k: "CAT",
+    v: `${earn.report_session ? `${earn.report_session} ` : ""}${label}${Number.isFinite(days) ? ` (${days}d)` : ""}`.trim(),
+    title: earn.covers_print === false ? "The contract expires before the print — trades the run-up." : "Report session + date from the earnings calendar."
+  });
+  const movePct = Number(earn.implied_move_pct);
+  const moveUsd = Number(earn.implied_move_usd);
+  if (Number.isFinite(movePct) && movePct > 0) {
+    cells.push({
+      k: "IMPL",
+      v: `±${movePct.toFixed(1)}%${Number.isFinite(moveUsd) && moveUsd > 0 ? ` ($${moveUsd.toFixed(2)})` : ""}`,
+      title: earn.implied_move_basis === "atm_straddle" ? "Priced off the at-the-money straddle through this expiration." : "Estimated from at-the-money implied volatility."
+    });
+  }
+  const al = earn.alignment || {};
+  if (al.verdict) {
+    cells.push({
+      k: "CONF",
+      v: al.verdict,
+      tone: al.verdict === "CONFLUENT" ? "trim" : al.verdict === "THIN" ? "" : "exit",
+      title: al.summary ? `${al.verdict} — ${al.summary}` : (Array.isArray(al.pillars) ? al.pillars : []).map(pillar => `${pillar.label}: ${pillar.note}`).join(" — ")
+    });
+  }
+  const tgt = Number(earn.target?.underlying);
+  if (earn.target?.basis === "implied_move" && Number.isFinite(tgt) && tgt > 0) {
+    cells.push({
+      k: "TGT",
+      v: `$${tgt.toFixed(2)}`,
+      tone: "trim",
+      title: earn.target.note || "Implied-move target"
+    });
+  }
+  return cells.slice(0, 4);
+}
+function convexityEarnMgmtFacts(earn) {
+  if (!earn) return [];
+  const labels = ["Crush", "Needs", "Exit by"];
+  return earningsPlayFacts(earn).filter(f => labels.includes(f.label));
 }
 function stripHoldFact(trade, invPos, liveT) {
   const VU = window.TimedVerdictUI;
@@ -1644,10 +1885,7 @@ function SetupFamiliesStrip({
       lastPx,
       nextPx
     });
-    const footEls = [h("div", {
-      key: "plan",
-      className: "tt-dt-plan"
-    }, planFactList(copy.facts))];
+    const footEls = [stripPlanFoot(copy.punch, copy.facts)].filter(Boolean);
     if (LaneCard?.create) {
       return h("div", {
         key: "desk-" + sym,
@@ -1664,12 +1902,13 @@ function SetupFamiliesStrip({
           }
         },
         chipRow,
+        mtfBelow: true,
         quote: {
           price: livePrice,
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -1740,10 +1979,7 @@ function SetupFamiliesStrip({
       planLabel: zm.lane === "investor" ? "Long Term plan" : "Short Term plan",
       trackTitle: zm.lane === "investor" ? "Long Term lane — invalidation floor, add-on-pullback zone, and target." : "Short Term plan — stop, add zone, and first target."
     }) : null;
-    const footEls = [h("div", {
-      key: "plan",
-      className: "tt-dt-plan"
-    }, planFactList(familyCopy.facts))];
+    const footEls = [stripPlanFoot(familyCopy.punch, familyCopy.facts)].filter(Boolean);
     const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
     if (LaneCard?.create) {
       return h("div", {
@@ -1761,12 +1997,13 @@ function SetupFamiliesStrip({
           }
         },
         chipRow,
+        mtfBelow: true,
         quote: {
           price: livePrice,
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -1995,19 +2232,22 @@ function ConvexityPlaysStrip({
   sparkCache,
   ensureSpark
 }) {
-  const [plays, setPlays] = useState(null);
-  const [publishedAt, setPublishedAt] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
+  const url = `${API_BASE}/timed/options/convexity?limit=10`;
+  const seed = CACHE && window._ttIsPro ? CACHE.peek(url) : null;
+  const seedPlays = seed && Array.isArray(seed.plays) && seed.plays.length ? seed.plays : null;
+  const [plays, setPlays] = useState(seedPlays);
+  const [publishedAt, setPublishedAt] = useState(seed ? Number(seed.generated_at) || null : null);
+  const [loading, setLoading] = useState(!seedPlays);
   useEffect(() => {
     let alive = true;
-    const url = `${API_BASE}/timed/options/convexity?limit=10`;
     const load = async () => {
       if (!window._ttIsPro) {
-        if (alive) setLoading(true);
+        if (alive) setLoading(false);
         return;
       }
       try {
-        if (alive) setLoading(true);
+        if (alive && !seedPlays) setLoading(true);
         try {
           window.TTFetchCache?.invalidate?.(url);
         } catch (_) {}
@@ -2028,11 +2268,11 @@ function ConvexityPlaysStrip({
           try {
             window.TTFetchCache?.put?.(url, j);
           } catch (_) {}
-        } else {
+        } else if (!seedPlays) {
           setPlays([]);
         }
       } catch (_) {
-        if (alive) setPlays([]);
+        if (alive && !seedPlays) setPlays([]);
       } finally {
         if (alive) setLoading(false);
       }
@@ -2140,29 +2380,28 @@ function ConvexityPlaysStrip({
       planLabel: "Convexity plan",
       trackTitle: flavor === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
     }) : null;
-    const optionFacts = optionsPlanFacts({
-      action,
-      flavor,
-      strike,
-      expShort,
-      dte: Number(exp?.dte),
-      livePremium: Number(p.premium_mid),
-      debit: Number.isFinite(Number(p.premium_mid)) ? `≤ $${Number(p.premium_mid).toFixed(2)}` : null,
-      risk: Number.isFinite(Number(p.max_loss_usd)) ? `$${Number(p.max_loss_usd)}` : null,
-      payoff: Number.isFinite(Number(p.top_target_underlying)) ? `3x+ @ $${Number(p.top_target_underlying).toFixed(2)}` : null,
-      why: earn?.catalyst ? null : convexityShotReason(p)
-    });
-    const rrOpts = {
-      zone: zm,
-      ticker: liveT,
-      side: convSide,
-      price: trackPrice
-    };
-    const footFacts = (VU?.factsWithLiveRr ? VU.factsWithLiveRr(optionFacts, rrOpts) : optionFacts).concat(earningsPlayFacts(earn));
+    const whyLine = earn?.catalyst ? null : convexityShotReason(p);
+    const earnCells = convexityEarnPrimaryCells(earn);
+    const earnMgmt = convexityEarnMgmtFacts(earn);
+    const optStack = stripFactStack(convexityOptionStackItems(p, flavor, expShort, Number(exp?.dte)));
+    const earnStack = earnCells.length ? stripFactStack(earnCellsToStack(earnCells), {
+      dividerBefore: true
+    }) : null;
+    const earnMgmtStack = earnMgmt.length ? stripFactStack(factsToStackItems(earnMgmt), {
+      dividerBefore: !earnStack
+    }) : null;
+    const footPlanChildren = [h("p", {
+      key: "punch",
+      className: "tt-dt-plan__punch"
+    }, copy.punch), whyLine && h("p", {
+      key: "why",
+      className: "tt-dt-plan__why",
+      title: whyLine
+    }, whyLine), optStack, earnStack, earnMgmtStack].filter(Boolean);
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
-    }, planFactList(footFacts))];
+    }, footPlanChildren)];
     if (earn?.crush_note) {
       footEls.push(h("div", {
         key: "crush",
@@ -2188,12 +2427,13 @@ function ConvexityPlaysStrip({
           }
         },
         chipRow,
+        mtfBelow: true,
         quote: {
           price: livePrice,
           dayPct,
           dayChg,
           dir: quoteDir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -2209,7 +2449,7 @@ function ConvexityPlaysStrip({
       onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS")
     }, h("div", {
       className: "tt-dt-plan"
-    }, planFactList(footFacts)));
+    }, footPlanChildren));
   }))));
 }
 function IndexDayTradeStrip({
@@ -2349,7 +2589,7 @@ function IndexDayTradeStrip({
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
     role: "list"
-  }, plays.map(p => {
+  }, plays.flatMap(p => {
     const sym = String(p.ticker || "").toUpperCase();
     const liveT = data && data[sym] ? data[sym] : {};
     const livePrice = tickerHeadlinePrice(liveT, p.price);
@@ -2388,12 +2628,9 @@ function IndexDayTradeStrip({
       trim,
       exit
     });
-    const modelSide = lean === "LONG" || lean === "SHORT" ? lean : flavor === "put" ? "SHORT" : flavor === "call" ? "LONG" : "";
-    const chipRow = stripCallChips({
-      action,
-      side: modelSide,
-      actionTitle: copy.punch
-    });
+    const pos = dayTradePositionOpen(p.position) ? p.position : null;
+    const holdingThis = pos && Number(pos.strike) === Number(strike);
+    const chipRow = [dayTradeActionChip(action, flavor, copy.punch)];
     const modeChip = confluenceModeChip(mode, p.confluence_summary || "Model confluence");
     if (modeChip) chipRow.push(modeChip);
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
@@ -2417,47 +2654,50 @@ function IndexDayTradeStrip({
       label: "Exit",
       value: exit
     } : null].filter(Boolean), rrOpts) : [];
-    const scan = copy.scan || liveRr.map(f => `${f.label} ${f.value}`).join(" · ");
+    const liveTrim = (liveRr.find(f => f.label === "Trim") || {}).value || trim;
+    const liveExit = (liveRr.find(f => f.label === "Exit") || {}).value || exit;
+    const factCells = dayTradePlanFacts({
+      livePremium: band?.premium,
+      debit,
+      trim: liveTrim,
+      exit: liveExit
+    });
     const footEls = [h("div", {
       key: "plan",
       className: "tt-dt-plan"
     }, h("p", {
       className: "tt-dt-plan__punch"
-    }, copy.punch), scan ? h("p", {
-      className: "tt-dt-plan__scan"
-    }, scan) : null)];
-    if (LaneCard?.create) {
-      return h("div", {
-        key: sym,
-        className: "tt-strip-card",
-        role: "listitem"
-      }, LaneCard.create({
-        sym,
-        ticker: liveT,
-        button: {
-          onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
-          title: `${sym} — open options plan`,
-          style: {
-            textAlign: "left"
-          }
-        },
-        chipRow,
-        quote: {
-          price: livePrice,
-          dayPct,
-          dayChg,
-          dir: quoteDir,
-          extLine: null
-        },
-        sparkSvg,
-        midBody,
-        metrics: []
-      }), h("div", {
-        className: "tt-strip-card__foot"
-      }, footEls));
-    }
-    return h("button", {
-      key: sym,
+    }, copy.punch), dayTradeFactsRow(factCells))];
+    const signalCard = LaneCard?.create ? h("div", {
+      key: sym + ":sig",
+      className: "tt-strip-card",
+      role: "listitem"
+    }, LaneCard.create({
+      sym,
+      ticker: liveT,
+      button: {
+        onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
+        title: `${sym} — open options plan`,
+        style: {
+          textAlign: "left"
+        }
+      },
+      chipRow,
+      mtfBelow: true,
+      quote: {
+        price: livePrice,
+        dayPct,
+        dayChg,
+        dir: quoteDir,
+        extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
+      },
+      sparkSvg,
+      midBody,
+      metrics: []
+    }), h("div", {
+      className: "tt-strip-card__foot"
+    }, footEls)) : h("button", {
+      key: sym + ":sig",
       type: "button",
       className: "tt-opp-card",
       onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS")
@@ -2465,9 +2705,124 @@ function IndexDayTradeStrip({
       className: "tt-dt-plan"
     }, h("p", {
       className: "tt-dt-plan__punch"
-    }, copy.punch), scan ? h("p", {
-      className: "tt-dt-plan__scan"
-    }, scan) : null));
+    }, copy.punch), dayTradeFactsRow(factCells)));
+    let posCard = null;
+    if (pos && LaneCard?.create) {
+      const pPnl = dayTradePositionPnl(pos);
+      const pFlav = pos.flavor === "put" ? "put" : "call";
+      const pExpShort = formatExpShort(pos.expiration);
+      const pContracts = Number(pos.contracts_remaining || pos.contracts) || 1;
+      const posMidBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
+        compact: true,
+        planLabel: "Position plan",
+        trackTitle: pFlav === "put" ? "Put path — invalidation above, first target below." : "Call path — invalidation below, first target above."
+      }) : null;
+      const heldChip = h("span", {
+        key: "held",
+        className: "ds-chip ds-chip--sm " + (pPnl != null && pPnl < 0 ? "ds-chip--dn" : "ds-chip--up"),
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontWeight: 800
+        },
+        title: `Open paper position: ${pContracts} × ${pos.strike}${pFlav === "put" ? "P" : "C"} from $${Number(pos.entry_premium).toFixed(2)}`
+      }, pPnl != null ? `HELD ${pPnl >= 0 ? "+" : ""}${pPnl.toFixed(0)}%` : "HELD");
+      const sizeChip = pos.size_label ? h("span", {
+        key: "size",
+        className: "ds-chip ds-chip--sm ds-chip--solid",
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, String(pos.size_label).toUpperCase()) : null;
+      const posPunch = `HOLDING ${sym} ${Math.round(Number(pos.strike))}${pFlav === "put" ? "P" : "C"}${pExpShort ? ` ${pExpShort}` : ""} — ${pContracts} contract${pContracts === 1 ? "" : "s"}`;
+      const posTrimmed = String(pos.status || "").toLowerCase() === "trimmed";
+      const pStop = Number(pos.stop_premium);
+      const pTrim = Number(pos.trim_premium);
+      const pExit = Number(pos.exit_premium);
+      const pTrail = Number(pos.trail_stop_premium);
+      const pStopUl = Number(pos.stop_underlying);
+      const posFacts = [Number(pos.entry_premium) > 0 ? {
+        k: "ENTRY",
+        v: `$${Number(pos.entry_premium).toFixed(2)}`,
+        tone: ""
+      } : null, Number(pos.last_premium) > 0 ? {
+        k: "LIVE",
+        v: `$${Number(pos.last_premium).toFixed(2)}`,
+        tone: "live"
+      } : null, Number(pos.peak_premium) > 0 ? {
+        k: "PEAK",
+        v: `$${Number(pos.peak_premium).toFixed(2)}`,
+        tone: "trim"
+      } : null, pPnl != null ? {
+        k: "P&L",
+        v: `${pPnl >= 0 ? "+" : ""}${pPnl.toFixed(0)}%`,
+        tone: pPnl >= 0 ? "trim" : "exit"
+      } : null, posTrimmed ? pTrail > 0 ? {
+        k: "TRAIL",
+        v: `$${pTrail.toFixed(2)}`,
+        tone: "trim",
+        title: "Breakeven / trail stop on the runner"
+      } : null : pTrim > 0 ? {
+        k: "TRIM",
+        v: `$${pTrim.toFixed(2)}`,
+        tone: "trim",
+        title: "Trim half here (1R)"
+      } : null, pExit > 0 ? {
+        k: "EXIT",
+        v: `$${pExit.toFixed(2)}`,
+        tone: "trim",
+        title: "Runner exit target (2R)"
+      } : null, pStop > 0 ? {
+        k: "STOP",
+        v: `$${pStop.toFixed(2)}`,
+        tone: "exit",
+        title: "Premium hard stop (-50%)"
+      } : null, pStopUl > 0 ? {
+        k: "STOP U/L",
+        v: `$${pStopUl.toFixed(2)}`,
+        tone: "exit",
+        title: `${sym} ${pFlav === "put" ? "reclaims" : "loses"} this level — thesis break`
+      } : null].filter(Boolean);
+      const posMgmtLine = dayTradePositionMgmtLine(pos, {
+        ticker: sym
+      });
+      posCard = h("div", {
+        key: sym + ":pos",
+        className: "tt-strip-card tt-strip-card--position",
+        role: "listitem"
+      }, LaneCard.create({
+        sym,
+        ticker: liveT,
+        button: {
+          onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
+          title: `${sym} — open position`,
+          style: {
+            textAlign: "left"
+          }
+        },
+        chipRow: [heldChip, sizeChip].filter(Boolean),
+        mtfBelow: true,
+        quote: {
+          price: livePrice,
+          dayPct,
+          dayChg,
+          dir: quoteDir,
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
+        },
+        sparkSvg,
+        midBody: posMidBody,
+        metrics: []
+      }), h("div", {
+        className: "tt-strip-card__foot"
+      }, h("div", {
+        className: "tt-dt-plan"
+      }, h("p", {
+        className: "tt-dt-plan__punch"
+      }, posPunch), dayTradeFactsRow(posFacts), posMgmtLine ? h("p", {
+        className: "tt-dt-plan__mgmt"
+      }, posMgmtLine) : null)));
+    }
+    const suppressSignal = pos && holdingThis && (action === "WAIT" || action === "DRIFT");
+    return [posCard, suppressSignal ? null : signalCard].filter(Boolean);
   }))));
 }
 function computeOpenPositionPnlPct(tr, livePx) {
@@ -4625,10 +4980,7 @@ function GrowthIdeasStrip({
       trackTitle: "Long Term lane — invalidation floor, add-on-pullback zone, and target."
     }) : null;
     const hold = stripHoldFact(tradeByTicker && tradeByTicker.get ? tradeByTicker.get(sym) : null, investorByTicker && investorByTicker.get ? investorByTicker.get(sym) : null, liveT);
-    const footEls = [h("div", {
-      key: "levels",
-      className: "tt-dt-plan"
-    }, planFactList(stripZoneFacts(zm, hold, rrOpts)))].filter(Boolean);
+    const footEls = [stripPlanFoot(`${action} on ${sym}`, stripZoneFacts(zm, hold, rrOpts))].filter(Boolean);
     if (LaneCard?.create) {
       return h("div", {
         key: sym,
@@ -4645,12 +4997,13 @@ function GrowthIdeasStrip({
           }
         },
         chipRow,
+        mtfBelow: true,
         quote: {
           price: livePrice,
           dayPct: liveDayPct,
           dayChg,
           dir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -4865,10 +5218,7 @@ function ValueBottomsStrip({
       side: "LONG",
       price: trackPrice
     };
-    const footEls = [h("div", {
-      key: "levels",
-      className: "tt-dt-plan"
-    }, planFactList(valueBottomFootFacts(row, zm, hold, rrOpts)))];
+    const footEls = [stripPlanFoot(`${action} on ${sym}`, valueBottomFootFacts(row, zm, hold, rrOpts))].filter(Boolean);
     if (LaneCard?.create) {
       return h("div", {
         key: sym,
@@ -4885,12 +5235,13 @@ function ValueBottomsStrip({
           }
         },
         chipRow,
+        mtfBelow: true,
         quote: {
           price: livePrice,
           dayPct: liveDayPct,
           dayChg,
           dir,
-          extLine: null
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
         midBody,
@@ -6642,6 +6993,7 @@ function ViewportCard({
       className: `tt-pattern-chip ${p.bias === "bullish" ? "tt-pattern-chip--bull" : p.bias === "bearish" ? "tt-pattern-chip--bear" : ""}`,
       title: p.tooltip
     }, `${p.icon} ${p.type}`))],
+    mtfBelow: true,
     quote: {
       price,
       dayPct,
@@ -8741,6 +9093,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787671910527:64030816
+// cache-bust:1787747704173:223114920
 
-// cache-bust:1787671910527:64030816
+// cache-bust:1787747704173:223114920

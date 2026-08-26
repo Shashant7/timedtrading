@@ -816,6 +816,7 @@ import {
   loadDayTradeBook as _optDtLoadBook,
   readDayTradeActions as _optDtReadActions,
 } from "./option-day-trade-alerts.js";
+import { buildDayTradePositionMgmtLine as _optDtPositionMgmtLine } from "./option-day-trade-plan.js";
 import { extraActionFromLedger, modelRowFromDayTradeAction } from "./broker-day-actions-join.js";
 import {
   recordSignal as _soRecordSignal,
@@ -1187,6 +1188,7 @@ import {
   isConvexityPlayActionable as _isConvexityPlayActionable,
   toConvexityCard as _toConvexityCard,
   rankConvexityCards as _rankConvexityCards,
+  enrichConvexityChainPremiums as _enrichConvexityChainPremiums,
 } from "./options-convexity.js";
 import { enrichEarningsPlayCards as _enrichEarningsPlayCards } from "./earnings-play.js";
 import {
@@ -2453,6 +2455,7 @@ const ROUTES = [
   ["GET",  "/timed/admin/cro/sector-outlook",            "GET /timed/admin/cro/sector-outlook"],
   ["PUT",  "/timed/admin/cro/sector-outlook",            "PUT /timed/admin/cro/sector-outlook"],
   ["POST", "/timed/admin/cro/sector-outlook/sync",       "POST /timed/admin/cro/sector-outlook/sync"],
+  ["GET",  "/timed/admin/cro/sector-outlook/diag",       "GET /timed/admin/cro/sector-outlook/diag"],
   ["POST", "/timed/admin/cro/backfill-cashtags",         "POST /timed/admin/cro/backfill-cashtags"],
   ["POST", "/timed/admin/cto/universe/refresh",          "POST /timed/admin/cto/universe/refresh"],
   ["POST", "/timed/admin/cto/feed/refresh",              "POST /timed/admin/cto/feed/refresh"],
@@ -2511,6 +2514,7 @@ const ROUTES = [
   // P0.7.154 — surface cron failure tombstones so the operator can
   // grep "what's been silently broken?" without trawling logs.
   ["GET", "/timed/admin/cron-status", "GET /timed/admin/cron-status"],
+  ["GET", "/timed/admin/openai-spend", "GET /timed/admin/openai-spend"],
   ["POST", "/timed/admin/cron-clear", "POST /timed/admin/cron-clear"],
   ["POST", "/timed/admin/rebuild-snapshots", "POST /timed/admin/rebuild-snapshots"],
   // P0.7.156 — candle freshness probe. Returns the worst-stale ticker
@@ -27922,14 +27926,21 @@ async function processTradeSimulation(
             if (env?.DB && !isReplay) {
               const _ledgerQty = Number(trade.shares);
               const _ledgerPx = Number(trade.entryPrice);
+              // The note is shown verbatim in the Trade Review receipt — round
+              // fractional shares so it reads "21.30sh", not the raw float.
+              const _qtyStr = Number.isFinite(_ledgerQty)
+                ? (Math.abs(_ledgerQty - Math.round(_ledgerQty)) < 1e-9
+                  ? String(Math.round(_ledgerQty))
+                  : _ledgerQty.toFixed(2))
+                : String(_ledgerQty);
               const _ledgerDebit = Number(trade.notional) > 0
                 ? Number(trade.notional)
                 : _ledgerQty * _ledgerPx * (Number(trade.pointValue) || 1);
               const _vehNote = _executedVehicle === "options"
-                ? `${trade.contracts || _ledgerQty}ct @$${ _ledgerPx.toFixed(2)} prem`
+                ? `${trade.contracts || _qtyStr}ct @$${ _ledgerPx.toFixed(2)} prem`
                 : _executedVehicle === "letf"
-                  ? `${_ledgerQty}sh ${trade.letf_ticker || ""} @$${_ledgerPx.toFixed(2)}`
-                  : `${_ledgerQty}sh @$${_ledgerPx.toFixed(2)}`;
+                  ? `${_qtyStr}sh ${trade.letf_ticker || ""} @$${_ledgerPx.toFixed(2)}`
+                  : `${_qtyStr}sh @$${_ledgerPx.toFixed(2)}`;
               d1InsertLedgerEntry(env, {
                 mode: "trader",
                 ts: entryTsMs || Date.now(),
@@ -40349,6 +40360,15 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
     ring = ((await kvGetJSON(env.KV_TIMED, "bridge:client:recent")) || [])
       .filter((e) => Number(e?.ts) >= sinceMs);
   } catch (_) { ring = []; }
+  // 2b. Options day-trade mirror decisions (paper DT is not in the client
+  // ring; its BUY/EXIT skips record here). Explains a "NOT MIRRORED" option
+  // row — auto-mirror off, vehicle disabled, globally paused, or an exit
+  // with no mirrored entry.
+  let optDtMirrorLog = [];
+  try {
+    optDtMirrorLog = ((await kvGetJSON(env.KV_TIMED, "timed:opt-dt-mirror-log")) || [])
+      .filter((e) => Number(e?.ts) >= sinceMs);
+  } catch (_) { optDtMirrorLog = []; }
   // 3. Per-account outcomes from the bridge.
   const bridgeHours = Math.max(1, Math.ceil((Date.now() - sinceMs) / 3600000));
   let bridge = { accounts: [], ledger: [], audit: [] };
@@ -40446,6 +40466,17 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
     } else if (ringMatch && String(ringMatch.status) === "ok") {
       mirror = "forwarded";
     }
+    // Options day-trade rows carry a "dt:" signal id and are paper-first —
+    // when nothing mirrored, explain WHY from the opt-dt decision log so the
+    // operator sees "SKIPPED · <reason>" instead of a bare "NOT MIRRORED".
+    if (mirror === "not_mirrored" && String(m.position_id || "").toLowerCase().startsWith("dt:")) {
+      const logHit = optDtMirrorLog.find((e) =>
+        _normId(e.signal_id) === mid && near(e.ts) && _sideFamily(e.side) === fam);
+      if (logHit && logHit.decision === "skipped") {
+        mirror = "skipped";
+        mirrorReason = logHit.reason || null;
+      }
+    }
     return {
       ts: m.ts,
       mode: m.mode,
@@ -40457,6 +40488,7 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
       value: Math.abs(Number(m.cash_delta) || 0),
       realized_pnl: Number(m.realized_pnl) || 0,
       note: m.note || null,
+      instrument: m.instrument || null,
       mirror,
       mirror_reason: mirrorReason,
       fills,
@@ -43056,8 +43088,15 @@ function _optionsBriefSurfaceEnabled(env) {
   return _optOn(cfg.options_brief_surface ?? env?.OPTIONS_BRIEF_SURFACE ?? false);
 }
 function _optionsAutoMirrorIndicesEnabled(env) {
+  // Index day-trade auto-mirror is gated by the operator's per-vehicle
+  // auto-mirror prefs (long_call / long_put + master `enabled`), which the
+  // Broker Connections "options" account toggle already syncs. This flag is
+  // only a GLOBAL kill switch and defaults to ALLOW so enabling options on
+  // the account actually reaches the index DT product (its confirm copy
+  // promises exactly that). Set OPTIONS_AUTO_MIRROR_INDICES / the D1
+  // options_auto_mirror_indices key to "false" to pause the whole product.
   const cfg = env?._deepAuditConfig || {};
-  return _optOn(cfg.options_auto_mirror_indices ?? env?.OPTIONS_AUTO_MIRROR_INDICES ?? false);
+  return _optOn(cfg.options_auto_mirror_indices ?? env?.OPTIONS_AUTO_MIRROR_INDICES ?? true);
 }
 function _optionsIndexSwingEnabled(env) {
   const cfg = env?._deepAuditConfig || {};
@@ -48352,6 +48391,7 @@ const TRADE_EXIT_REASON_DISPLAY_MAP = {
   tt_cloud_pivot_magnet_tag_trim: "Cloud Pivot — price tagged the higher-timeframe cloud magnet; trimming into the attractor",
   tt_cloud_pivot_magnet_tag_cover: "Cloud Pivot — price tagged the higher-timeframe cloud magnet; covering the remaining runner",
   tt_cloud_pivot_ribbon_trail: "Cloud Pivot — ride still held; trailing the stop to the last held 5/12 then 34/50 ribbon",
+  tt_cloud_pivot_profit_lock: "Cloud Pivot — locked the run; price gave back past the peak-keep floor, so banking the move instead of round-tripping to the stop",
   KANBAN_EXIT: "Engine exit lane triggered — model recommends closing the position",
 };
 
@@ -73227,6 +73267,21 @@ export default {
         }
       }
 
+      // GET /timed/admin/openai-spend?key=...&weeks=4
+      // Weekly feature-by-dollar OpenAI usage rollup (estimates).
+      if (routeKey === "GET /timed/admin/openai-spend") {
+        const _spAuthFail = await requireKeyOrAdmin(req, env);
+        if (_spAuthFail) return _spAuthFail;
+        try {
+          const weeks = Math.max(1, Math.min(12, Number(url.searchParams.get("weeks")) || 4));
+          const { getWeeklyOpenAiSpendReport } = await import("./openai-spend.js");
+          const report = await getWeeklyOpenAiSpendReport(env, { weeks });
+          return sendJSON(report, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/rebuild-snapshots?key=...&fromDate=YYYY-MM-DD[&toDate=YYYY-MM-DD]
       //
       // P0.7.172 (2026-05-15) — rebuild trader+investor portfolio snapshots
@@ -86376,6 +86431,19 @@ export default {
         }
       }
 
+      // GET /timed/admin/cro/sector-outlook/diag — fetch + parse diagnostics (no KV write)
+      if (routeKey === "GET /timed/admin/cro/sector-outlook/diag") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { diagFsdEtfOutlookPage } = await import("./cro/fsd-sector-outlook.js");
+          const r = await diagFsdEtfOutlookPage(env);
+          return sendJSON(r, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/cro/backfill-cashtags — re-parse existing pubs
       if (routeKey === "POST /timed/admin/cro/backfill-cashtags") {
         const authFail = await requireKeyOrAdmin(req, env);
@@ -94909,7 +94977,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
           const limit = Math.min(10, Math.max(1, Number(url.searchParams.get("limit")) || 10));
           const profile = "speculator";
-          const _cxCacheKey = `timed:options:convexity:${limit}`;
+          const _cxCacheKey = `timed:options:convexity:v3:${limit}`;
           const _bypassCx = String(url.searchParams.get("_nocache") || "0") === "1";
           if (!_bypassCx) {
             const cached = await kvGetJSON(env.KV_TIMED, _cxCacheKey).catch(() => null);
@@ -95095,8 +95163,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               confluenceBySym: _cxConfluenceBySym,
               spotBySym: _cxSpotBySym,
               atrPctBySym: _cxAtrPctBySym,
+              lottoMaxLossUsd: _lottoMax,
               fetchChain: _alpacaFetchOptionsChain,
               fetchExpirations: _alpacaFetchOptionsExpirations,
+            });
+            await _enrichConvexityChainPremiums(env, plays, {
+              spotBySym: _cxSpotBySym,
+              atrPctBySym: _cxAtrPctBySym,
+              lottoMaxLossUsd: _lottoMax,
+              fetchChain: _alpacaFetchOptionsChain,
             });
           } catch (e) {
             console.warn("[CONVEXITY] earnings-play enrich failed:", String(e?.message || e).slice(0, 160));
@@ -95148,6 +95223,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
           const _opaCacheKey = `timed:options:plays-of-day:${profile}:${limit}`;
           const _bypassCache = String(url.searchParams.get("_nocache") || "0") === "1";
+          // dt_only=1 (internal only) runs JUST the index day-trade section so
+          // the */1 cron can advance the paper book + fire trim/exit/stop
+          // signals near-real-time without re-running the 20-ticker swing scan.
+          const _dtOnly = String(url.searchParams.get("dt_only") || "0") === "1";
+          // Paper-book mutation + Discord/broker dispatch is a SIDE EFFECT that
+          // must be driven only by the internal */5 cron self-dispatch (which
+          // carries the API key), never by an organic page load. Otherwise a
+          // user's GET could open/close a paper position out-of-band from the
+          // alert feed — the card would flip to HELD (or vanish as "closed")
+          // with no trade signal ever fired. Organic loads still LOAD and
+          // DISPLAY the book read-only; only the cron advances it.
+          const _dtDispatchAllowed = (() => {
+            try {
+              const k = req.headers.get("X-API-Key") || req.headers.get("x-api-key") || "";
+              return !!env.TIMED_API_KEY && k === env.TIMED_API_KEY;
+            } catch (_) { return false; }
+          })();
           const _optionsPlaysMod = await import("./options-plays.js");
           const _flattenOptionsTickers = (all) => {
             if (Array.isArray(all?.tickers)) return all.tickers;
@@ -95171,7 +95263,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               return _optionsPlaysMod.validateDayTradePlay({ spot, strike, expirationDte: dte }).valid;
             });
           };
-          const _buildDayTradeSection = async (tickers, pricesMap, marketOpen) => {
+          const _buildDayTradeSection = async (tickers, pricesMap, marketOpen, _dtSectionOpts = {}) => {
+            // dispatchOnly (the */1 lean lane) advances the paper book + fires
+            // signals but SKIPS the D1 mark-recording so mark cadence stays on
+            // the */5 tick — the minute lane is about signal latency, not marks.
+            const _dtDispatchOnly = !!_dtSectionOpts.dispatchOnly;
             const _dtTickers = Array.from(_optionsPlaysMod.DAY_TRADE_TICKERS);
             const _pickDtExp = _optionsPlaysMod.pickDayTradeExpiration;
             const _dtExpiration = _pickDtExp(Date.now(), {
@@ -95423,7 +95519,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       plan: _assembled.plan,
                       size: _assembled.size,
                     };
-                    _optDtNotifyPaper(env, {
+                    if (_dtDispatchAllowed) _optDtNotifyPaper(env, {
                       profile,
                       signal_id: _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId,
                       ticker: _dtSym,
@@ -95452,7 +95548,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         engine: "options_day_trade",
                         exec_state: ev.event,
                       }).catch(() => {});
-                      if (_optionsAutoMirrorIndicesEnabled(env)) {
+                      {
+                        // Always invoke the mirror path (even when globally
+                        // paused or the account's option vehicles are off) so
+                        // the decision — and the reason it did NOT place an
+                        // order — is recorded for the Broker Connections
+                        // timeline instead of a mystery "NOT MIRRORED".
                         try {
                           const { maybeAutoMirrorIndexDayTradeEvent } = await import("./options-auto-mirror.js");
                           const _mirrorSid = _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId;
@@ -95479,7 +95580,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                             strike: _dtExecution.contract?.strike ?? _strike,
                             expiration: _dtExecution.contract?.expiration || _dtPrimary?.expiration || _dtPlay.expiration,
                             flavor: _dtExecution.contract?.flavor || _dtPlay._day_trade_flavor,
-                            indicesFlagOn: true,
+                            indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
                           }));
                         } catch (_) { /* never block on options mirror */ }
                       }
@@ -95514,6 +95615,63 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   honesty_gate_veto: _dtVetoReason,
                   execution: _dtExecution,
                   zone: _dtExecution?.zone || null,
+                  // Open paper position (if the model is holding this ticker),
+                  // so the strip can show the live position ALONGSIDE a fresh
+                  // signal instead of silently mutating the strike on one card.
+                  position: _dtOpenBook ? (() => {
+                    const _dtBracket = _dtExecution?.plan?.bracket || {};
+                    const _dtMgmt = _dtPrimary?.option_management || _dtPlay?.option_management
+                      || _dtExecution?.management || null;
+                    const _dtTrimPx = Number(_dtOpenBook.trim_premium) > 0
+                      ? Number(_dtOpenBook.trim_premium)
+                      : (Number(_dtBracket.trim) > 0 ? Number(_dtBracket.trim) : Number(_dtExecution?.rr?.trim) || null);
+                    const _dtExitPx = Number(_dtOpenBook.exit_premium) > 0
+                      ? Number(_dtOpenBook.exit_premium)
+                      : (Number(_dtBracket.exit) > 0 ? Number(_dtBracket.exit) : Number(_dtExecution?.rr?.exit) || null);
+                    const _dtPosBook = {
+                      ..._dtOpenBook,
+                      trim_premium: _dtTrimPx,
+                      exit_premium: _dtExitPx,
+                    };
+                    return {
+                      signal_id: _dtOpenBook.signal_id || _dtSignalId,
+                      status: _dtOpenBook.status,
+                      flavor: _dtOpenBook.flavor,
+                      strike: _dtOpenBook.strike,
+                      expiration: _dtOpenBook.expiration,
+                      entry_premium: _dtOpenBook.entry_premium,
+                      last_premium: _dtOpenBook.last_premium,
+                      peak_premium: _dtOpenBook.peak_premium,
+                      contracts: _dtOpenBook.contracts,
+                      contracts_remaining: _dtOpenBook.contracts_remaining,
+                      size_label: _dtOpenBook.size_label,
+                      held_overnight: !!_dtOpenBook.held_overnight,
+                      profit_lock_armed: !!_dtOpenBook.profit_lock_armed,
+                      entry_ts: _dtOpenBook.entry_ts,
+                      trim_premium: _dtTrimPx,
+                      exit_premium: _dtExitPx,
+                      stop_premium: Number(_dtBracket.stop_premium) > 0
+                        ? Number(_dtBracket.stop_premium)
+                        : null,
+                      trail_stop_premium: Number(_dtOpenBook.trail_stop_premium) > 0
+                        ? Number(_dtOpenBook.trail_stop_premium)
+                        : null,
+                      stop_underlying: Number(_dtBracket.stop_underlying) > 0
+                        ? Number(_dtBracket.stop_underlying)
+                        : null,
+                      mgmt_line: _optDtPositionMgmtLine({
+                        book: _dtPosBook,
+                        ticker: _dtSym,
+                        execution: _dtExecution,
+                        gamePlan: _dtGp,
+                        management: _dtMgmt,
+                        bracket: _dtBracket,
+                      }),
+                      pnl_pct: (Number(_dtOpenBook.entry_premium) > 0 && Number(_dtOpenBook.last_premium) > 0)
+                        ? Math.round(((Number(_dtOpenBook.last_premium) - Number(_dtOpenBook.entry_premium)) / Number(_dtOpenBook.entry_premium)) * 1000) / 10
+                        : null,
+                    };
+                  })() : null,
                 });
                 // Stage 1+2 — record every tier we published so the
                 // scorecard grades each independently. Signal ids are
@@ -95521,7 +95679,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 // never collide.
                 try {
                   await loadTradeReviewConfig(env).catch(() => {});
-                  if (_optionMarksEnabled(env)) {
+                  if (!_dtDispatchOnly && _optionMarksEnabled(env)) {
                     const _recordTargets = _dtTiers?.tiers?.length
                       ? _dtTiers.tiers.map((t) => ({ play: t, tier: t._tier || "gamma" }))
                       : [{ play: _dtPlay, tier: "gamma" }];
@@ -95559,6 +95717,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               day_trade_generated_at: Date.now(),
             };
           };
+          if (_dtOnly) {
+            // Lean */1 dispatch lane — internal cron only. Advance the paper
+            // book + fire trim/exit/stop signals for the 4 index tickers
+            // without the 20-ticker swing scan. Reuses the internal-only gate
+            // the dispatch itself checks, so a stray public GET can't drive it.
+            if (!_dtDispatchAllowed) {
+              return sendJSON({ ok: false, error_kind: "internal_only" }, 403, corsHeaders(env, req));
+            }
+            let allDt = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
+            if (!allDt) allDt = await kvGetJSON(env.KV_TIMED, "timed:all");
+            const tickersDt = _flattenOptionsTickers(allDt);
+            const _dtPricesRawX = await KV.get("timed:prices").catch(() => null);
+            const _dtPricesMapX = _dtPricesRawX ? (JSON.parse(_dtPricesRawX)?.prices || {}) : {};
+            const _dtMarketOpenX = (typeof isNyRegularMarketOpen === "function") ? isNyRegularMarketOpen() : true;
+            const dtSection = await _buildDayTradeSection(tickersDt, _dtPricesMapX, _dtMarketOpenX, { dispatchOnly: true });
+            return sendJSON({ ok: true, dt_only: true, ...dtSection, generated_at: Date.now() }, 200, corsHeaders(env, req));
+          }
           if (!_bypassCache) {
             const cached = await kvGetJSON(env.KV_TIMED, _opaCacheKey).catch(() => null);
             if (cached && (Date.now() - (Number(cached._cached_at) || 0)) < 5 * 60 * 1000) {
@@ -103522,6 +103697,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
     }
 
+    // 2026-08-25 — 1-minute index day-trade dispatch. The paper book +
+    // Discord/mirror advance ONLY on the internal self-dispatch; the */5
+    // prewarm below covers minutes divisible by 5, so this */1 lane fills
+    // the gaps for near-real-time trim / exit / stop signals (a 5-min lag
+    // can round-trip a 0DTE winner). Monolith-only (engine/research already
+    // returned above); skip %5 minutes so the */5 full builder owns those
+    // ticks and we never double-process the same minute. Lean dt_only path
+    // (4 index tickers, no swing scan, no mark writes). Only inside the
+    // options session so we don't spin the builder overnight.
+    if (_isEveryMin && !_isDedicatedEngine && (_utcM % 5 !== 0)
+        && (typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false)) {
+      ctx.waitUntil((async () => {
+        try {
+          await _selfDispatch("/timed/options/all?dt_only=1&_nocache=1").catch(() => {});
+        } catch (_) { /* never block the per-minute tick on the day-trade lane */ }
+      })());
+    }
+
     // 2026-05-30 — Options Plays of the Day cache pre-warm. Fires on
     // every */5 tick during ET trading hours (and twice/hour off-hours
     // via the */5 schedule). Hits /timed/options/all?_nocache=1 in the
@@ -104668,6 +104861,48 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       })());
       // Don't return — allow other handlers
+    }
+
+    // ── OpenAI weekly spend rollup (Monday 8 AM ET — ops Discord) ──
+    if (vc.has("0 * * * *")) {
+      const _spEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
+      const _spEtDow = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
+      if (_spEtDow === "Mon" && _spEtH === 8) {
+        ctx.waitUntil((async () => {
+          try {
+            const { getWeeklyOpenAiSpendReport } = await import("./openai-spend.js");
+            const report = await getWeeklyOpenAiSpendReport(env, { weeks: 2 });
+            const cur = report.weeks?.[0];
+            const prev = report.weeks?.[1];
+            if (!cur) return;
+            const lines = (cur.features || []).slice(0, 14).map((f) =>
+              `• ${f.feature}: $${Number(f.usd).toFixed(2)} (${f.calls} calls)`);
+            const prevUsd = prev ? Number(prev.total_usd) : null;
+            const delta = prevUsd != null ? cur.total_usd - prevUsd : null;
+            const deltaLine = delta != null
+              ? `\nvs prior week: ${delta >= 0 ? "+" : ""}$${delta.toFixed(2)}`
+              : "";
+            await notifyDiscord(env, {
+              title: `OpenAI spend · ${cur.week}`,
+              description: [
+                `Estimated **$${Number(cur.total_usd).toFixed(2)}** (${cur.total_calls} calls)${deltaLine}`,
+                lines.join("\n"),
+                report.cio_monthly_cap_usd != null
+                  ? `\nCIO monthly cap: $${report.cio_monthly_usd.toFixed(2)} / $${report.cio_monthly_cap_usd}`
+                  : "",
+              ].filter(Boolean).join("\n").slice(0, 1900),
+              color: 0x14b8a6,
+            }, "general").catch(() => {});
+            recordCronSuccess(env, "openai_weekly_spend_report").catch(() => {});
+          } catch (e) {
+            recordCronFailure(env, {
+              op: "openai_weekly_spend_report",
+              error: String(e?.message || e).slice(0, 200),
+              caller: "scheduled_event",
+            }).catch(() => {});
+          }
+        })());
+      }
     }
 
     // ── Re-engagement Emails: Monday 10 AM ET (14:00 UTC in EDT, 15:00 UTC in EST) ──
@@ -105859,17 +106094,31 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           try {
             console.log("[DAILY BRIEF CRON] Generating morning brief...");
             const hybridGetCandles = _makeHybridD1GetCandles(env);
-            const result = await generateDailyBrief(env, "morning", {
+            const morningOpts = {
               SECTOR_MAP,
               d1GetCandles: hybridGetCandles,
               notifyDiscord,
               d1InsertNotification,
               skipIfExists: true,
-            });
-            console.log(`[DAILY BRIEF CRON] Morning: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            };
+            let result;
+            try {
+              result = await generateDailyBrief(env, "morning", morningOpts);
+              console.log(`[DAILY BRIEF CRON] Morning: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            } catch (e) {
+              console.error("[DAILY BRIEF CRON] Morning failed:", String(e).slice(0, 300));
+              result = { ok: false, error: String(e?.message || e) };
+            }
             await recordBriefCronOutcome(env, "daily_brief_morning", result);
+            try {
+              const { shouldScheduleBriefRetry, scheduleBriefCronRetry } = await import("./openai-spend.js");
+              if (shouldScheduleBriefRetry(result)) {
+                scheduleBriefCronRetry(ctx, env, "daily_brief_morning", () =>
+                  generateDailyBrief(env, "morning", morningOpts));
+              }
+            } catch (_) { /* retry scheduling optional */ }
           } catch (e) {
-            console.error("[DAILY BRIEF CRON] Morning failed:", String(e).slice(0, 300));
+            console.error("[DAILY BRIEF CRON] Morning outer failed:", String(e).slice(0, 300));
             await recordBriefCronOutcome(env, "daily_brief_morning", { ok: false, error: String(e?.message || e) });
           }
         })());
@@ -106088,17 +106337,31 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           try {
             console.log("[DAILY BRIEF CRON] Generating evening brief...");
             const hybridGetCandles = _makeHybridD1GetCandles(env);
-            const result = await generateDailyBrief(env, "evening", {
+            const eveningOpts = {
               SECTOR_MAP,
               d1GetCandles: hybridGetCandles,
               notifyDiscord,
               d1InsertNotification,
               skipIfExists: true,
-            });
-            console.log(`[DAILY BRIEF CRON] Evening: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            };
+            let result;
+            try {
+              result = await generateDailyBrief(env, "evening", eveningOpts);
+              console.log(`[DAILY BRIEF CRON] Evening: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            } catch (e) {
+              console.error("[DAILY BRIEF CRON] Evening failed:", String(e).slice(0, 300));
+              result = { ok: false, error: String(e?.message || e) };
+            }
             await recordBriefCronOutcome(env, "daily_brief_evening", result);
+            try {
+              const { shouldScheduleBriefRetry, scheduleBriefCronRetry } = await import("./openai-spend.js");
+              if (shouldScheduleBriefRetry(result)) {
+                scheduleBriefCronRetry(ctx, env, "daily_brief_evening", () =>
+                  generateDailyBrief(env, "evening", eveningOpts));
+              }
+            } catch (_) { /* retry scheduling optional */ }
           } catch (e) {
-            console.error("[DAILY BRIEF CRON] Evening failed:", String(e).slice(0, 300));
+            console.error("[DAILY BRIEF CRON] Evening outer failed:", String(e).slice(0, 300));
             await recordBriefCronOutcome(env, "daily_brief_evening", { ok: false, error: String(e?.message || e) });
           }
         })());
@@ -106320,17 +106583,31 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           try {
             console.log(`[INTRADAY FLASH CRON] Generating flash insight at ${_etFlashH}:00 ET...`);
             const hybridGetCandles = _makeHybridD1GetCandles(env);
-            const result = await generateIntradayBrief(env, {
+            const flashOpts = {
               SECTOR_MAP,
               d1GetCandles: hybridGetCandles,
               notifyDiscord,
               skipIfExists: true,
               intradayEtHour: _etFlashH,
-            });
-            console.log(`[INTRADAY FLASH CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            };
+            let result;
+            try {
+              result = await generateIntradayBrief(env, flashOpts);
+              console.log(`[INTRADAY FLASH CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            } catch (e) {
+              console.error("[INTRADAY FLASH CRON] Failed:", String(e).slice(0, 300));
+              result = { ok: false, error: String(e?.message || e) };
+            }
             await recordBriefCronOutcome(env, "intraday_flash", result);
+            try {
+              const { shouldScheduleBriefRetry, scheduleBriefCronRetry } = await import("./openai-spend.js");
+              if (shouldScheduleBriefRetry(result)) {
+                scheduleBriefCronRetry(ctx, env, "intraday_flash", () =>
+                  generateIntradayBrief(env, flashOpts));
+              }
+            } catch (_) { /* retry scheduling optional */ }
           } catch (e) {
-            console.error("[INTRADAY FLASH CRON] Failed:", String(e).slice(0, 300));
+            console.error("[INTRADAY FLASH CRON] Outer failed:", String(e).slice(0, 300));
             await recordBriefCronOutcome(env, "intraday_flash", { ok: false, error: String(e?.message || e) });
           }
         })());

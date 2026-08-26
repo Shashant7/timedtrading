@@ -21,7 +21,7 @@
 
 const FINNHUB_BASE = "https://finnhub.io/api/v1";
 const SENTIMENT_MODEL_FALLBACK = "gpt-4o-mini";
-const SENTIMENT_BATCH_SIZE = 20;
+const SENTIMENT_BATCH_SIZE = 40;
 
 /** True when headline/summary text plausibly references the ticker symbol. */
 export function headlineMentionsTicker(headline, summary, ticker) {
@@ -163,6 +163,23 @@ export async function fetchAndStoreNewsForTickers(env, tickers, opts = {}) {
 }
 
 // Pull unscored rows, batch-score via gpt-4o-mini, UPDATE rows.
+async function loadScoredUniverseSet(env) {
+  try {
+    const KV = env?.KV_TIMED || env?.KV;
+    const list = KV ? await KV.get("timed:tickers", "json") : null;
+    if (Array.isArray(list) && list.length > 0) {
+      return new Set(list.map((t) => String(t).toUpperCase()).filter(Boolean));
+    }
+    const snapRaw = KV ? await KV.get("timed:all:snapshot", "json") : null;
+    const data = snapRaw?.data || snapRaw || {};
+    if (data && typeof data === "object") {
+      const keys = Object.keys(data).filter((k) => k && !k.startsWith("__"));
+      if (keys.length > 0) return new Set(keys.map((k) => String(k).toUpperCase()));
+    }
+  } catch (_) { /* fallback: score all */ }
+  return null;
+}
+
 export async function scoreUnscoredNews(env, opts = {}) {
   const db = env?.DB;
   if (!db) return { ok: false, error: "no_db" };
@@ -172,14 +189,18 @@ export async function scoreUnscoredNews(env, opts = {}) {
   const model = String(opts.model || env?.AI_NEWS_SENTIMENT_MODEL || SENTIMENT_MODEL_FALLBACK);
   await ensureTickerNewsSchema(env);
 
-  const rows = (await db.prepare(`
+  const rowsRaw = (await db.prepare(`
     SELECT id, ticker, headline, source, summary FROM ticker_news
      WHERE sentiment IS NULL
      ORDER BY created_at DESC
      LIMIT ?1
   `).bind(limit).all().catch(() => ({ results: [] })))?.results || [];
+  const universeSet = opts.universeOnly !== false ? await loadScoredUniverseSet(env) : null;
+  const rows = universeSet
+    ? rowsRaw.filter((r) => universeSet.has(String(r.ticker || "").toUpperCase()))
+    : rowsRaw;
   if (rows.length === 0) {
-    return { ok: true, scored: 0, message: "no_unscored_rows" };
+    return { ok: true, scored: 0, message: rowsRaw.length > 0 ? "no_universe_rows" : "no_unscored_rows" };
   }
 
   let totalScored = 0, batches = 0;
@@ -215,6 +236,14 @@ export async function scoreUnscoredNews(env, opts = {}) {
       }
       const json = await resp.json();
       const raw = json.choices?.[0]?.message?.content || "";
+      try {
+        const { recordOpenAiSpend } = await import("../openai-spend.js");
+        recordOpenAiSpend(env, "news_sentiment", {
+          model,
+          prompt_tokens: json.usage?.prompt_tokens,
+          completion_tokens: json.usage?.completion_tokens,
+        }).catch(() => {});
+      } catch (_) {}
       let parsed = null;
       try { parsed = JSON.parse(raw); } catch (_) { /* invalid */ }
       const scores = Array.isArray(parsed?.scores) ? parsed.scores : [];

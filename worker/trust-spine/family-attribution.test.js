@@ -63,4 +63,25 @@ describe("buildFamilyAttributionReport cloud pivot", () => {
     expect(report.entries).toBe(1);
     expect(report.widen_ready).toBe(false);
   });
+
+  it("excludes a core setup that only carries a coincident cloud-pivot stamp", () => {
+    const report = buildFamilyAttributionReport({
+      family: "tt_cloud_pivot",
+      entryDecisions: [
+        { event_type: "ENTRY", trade_id: "CP", inputs_json: JSON.stringify({ tt_cloud_pivot: true }) },
+        { event_type: "ENTRY", trade_id: "SB", inputs_json: JSON.stringify({ tt_cloud_pivot: true }) },
+      ],
+      trades: [
+        // real cloud-pivot paper trade — kept
+        { trade_id: "CP", status: "WIN", pnl: 20, pnl_pct: 2, max_favorable_excursion: 4, setup_name: "TT Cloud Pivot" },
+        // core Support Bounce carrying the coincident stamp — must NOT pollute
+        { trade_id: "SB", status: "LOSS", pnl: -50, pnl_pct: -3, max_favorable_excursion: 5, setup_name: "TT Support Bounce" },
+      ],
+    });
+    expect(report.entries).toBe(1);
+    expect(report.proposals).toBe(2);
+    expect(report.closed).toBe(1);
+    expect(report.stats.losses).toBe(0);
+    expect(report.stats.wins).toBe(1);
+  });
 });

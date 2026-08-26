@@ -11,6 +11,23 @@ import { FSD_TO_TT_SECTOR } from "./fsd-gics-sectors.js";
 export const FSD_SECTOR_OUTLOOK_KV_KEY = "timed:fsd:sector-allocation-outlook";
 export const FSD_SECTOR_OUTLOOK_META_KV_KEY = "timed:fsd:sector-allocation-outlook:meta";
 export const FSD_ETF_OUTLOOK_PATH = "/members/stock-lists/?category=etf-outlook";
+export const FSD_ETF_OUTLOOK_PAGE_ID = 796381;
+/** WP category for monthly Sector Allocation updates (etf-prior-outlooks grid). */
+export const FSD_SECTOR_ALLOCATION_CATEGORY_ID = 8362;
+
+const OUTLOOK_SECTOR_NAMES = [
+  "Communication Services",
+  "Consumer Discretionary",
+  "Consumer Staples",
+  "Energy",
+  "Financials",
+  "Health Care",
+  "Industrials",
+  "Information Technology",
+  "Materials",
+  "Real Estate",
+  "Utilities",
+];
 
 /** Monthly deck cadence — alert if no successful sync in this window. */
 export const SECTOR_OUTLOOK_STALE_MS = 35 * 24 * 60 * 60 * 1000;
@@ -262,10 +279,12 @@ export function outlookFingerprint(outlook) {
 }
 
 export function isEtfOutlookPaywall(html = "") {
-  const text = String(html);
+  const article = extractArticleBackgroundHtml(html);
+  const text = String(article);
   return /Become a Member To Access/i.test(text)
     && !/Health Care[\s\S]{0,400}XLV/i.test(text)
-    && Object.keys(parseFsdSectorOutlookTable(stripHtmlToTableText(text)).sectors || {}).length < 8;
+    && Object.keys(parseFsdSectorOutlookTable(stripHtmlToTableText(text)).sectors || {}).length < 8
+    && Object.keys(parseFsdEtfOutlookHtmlRows(text).sectors || {}).length < 8;
 }
 
 export function stripHtmlToTableText(html = "") {
@@ -275,17 +294,126 @@ export function stripHtmlToTableText(html = "") {
     .replace(/<\/tr>/gi, "\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/g, " ")
-    .replace(/&#8211;/g, "-");
+    .replace(/&#8211;/g, "-")
+    .replace(/&amp;/g, "&");
+}
+
+function extractArticleBackgroundHtml(html = "") {
+  const src = String(html || "");
+  const start = src.search(/id=["']article-background["']/i);
+  if (start < 0) return src;
+  const slice = src.slice(start, start + 120_000);
+  const end = slice.search(/<\/div>\s*<\/div>\s*<div[^>]*class="[^"]*fsi-plan-boxes/i);
+  return end > 0 ? slice.slice(0, end) : slice;
+}
+
+function mergeOutlookParses(...parsedList) {
+  const sectors = {};
+  let asOf = null;
+  for (const parsed of parsedList) {
+    if (!parsed) continue;
+    if (parsed.as_of) asOf = parsed.as_of;
+    Object.assign(sectors, parsed.sectors || {});
+  }
+  return {
+    source: "etf_outlook",
+    as_of: asOf || new Date().toISOString().slice(0, 7),
+    sectors,
+  };
+}
+
+function parseStanceToken(raw) {
+  const t = String(raw || "").trim().toUpperCase();
+  if (t === "OW" || t === "OVERWEIGHT") return "overweight";
+  if (t === "UW" || t === "UNDERWEIGHT") return "underweight";
+  if (t === "N" || t === "NEUTRAL") return "neutral";
+  return normalizeAnalystStance(raw);
+}
+
+/** Parse HTML <tr> rows with Sector / ETF / weights / Lee / Newton columns. */
+export function parseFsdEtfOutlookHtmlRows(html = "") {
+  const sectors = {};
+  const trRe = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+  let m;
+  while ((m = trRe.exec(String(html))) !== null) {
+    const rowHtml = m[1];
+    if (!/X[A-Z]{2,4}/i.test(rowHtml)) continue;
+    const cells = [...rowHtml.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+      .map((c) => stripHtmlToTableText(c[1]).replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    if (cells.length < 4) continue;
+
+    let sector = null;
+    let etf = null;
+    let spx = null;
+    let fsi = null;
+    let delta = null;
+    let lee = null;
+    let newton = null;
+
+    for (const cell of cells) {
+      if (!etf && /^X[A-Z]{2,4}$/i.test(cell)) etf = cell.toUpperCase();
+      if (!sector) {
+        const known = OUTLOOK_SECTOR_NAMES.find((s) => cell.toLowerCase() === s.toLowerCase());
+        if (known) sector = known;
+      }
+      const pct = cell.match(/^([-+]?[\d.]+)\s*%?$/);
+      if (pct && spx == null) spx = Number(pct[1]);
+      else if (pct && fsi == null) fsi = Number(pct[1]);
+      else if (pct && delta == null) delta = Number(pct[1]);
+      if (/^(OW|N|UW|OVERWEIGHT|NEUTRAL|UNDERWEIGHT)$/i.test(cell)) {
+        if (!lee) lee = parseStanceToken(cell);
+        else if (!newton) newton = parseStanceToken(cell);
+      }
+    }
+
+    if (!sector || !etf) {
+      const rowText = stripHtmlToTableText(rowHtml).replace(/\s+/g, " ").trim();
+      const rowMatch = rowText.match(
+        /^(.+?)\s+(X[A-Z]{2,4})\s+([\d.]+)%?\s+([\d.]+)%?\s+([-+]?[\d.]+)%?\s+(OW|N|UW|OVERWEIGHT|NEUTRAL|UNDERWEIGHT)\s+(OW|N|UW|OVERWEIGHT|NEUTRAL|UNDERWEIGHT)\s*$/i,
+      );
+      if (rowMatch) {
+        sector = normalizeOutlookSectorName(rowMatch[1].trim());
+        etf = rowMatch[2].toUpperCase();
+        spx = Number(rowMatch[3]);
+        fsi = Number(rowMatch[4]);
+        delta = Number(rowMatch[5]);
+        lee = parseStanceToken(rowMatch[6]);
+        newton = parseStanceToken(rowMatch[7]);
+      }
+    }
+
+    if (!sector || !etf) continue;
+    const key = normalizeOutlookSectorName(sector);
+    if (!OUTLOOK_SECTOR_NAMES.includes(key) && key !== "Basic Materials") continue;
+    sectors[key] = {
+      etf,
+      spx_weight_pct: spx ?? sectors[key]?.spx_weight_pct ?? null,
+      fsi_weight_pct: fsi ?? sectors[key]?.fsi_weight_pct ?? null,
+      delta_pct: delta ?? sectors[key]?.delta_pct ?? null,
+      lee: lee ?? sectors[key]?.lee ?? "neutral",
+      newton: newton ?? sectors[key]?.newton ?? "neutral",
+    };
+  }
+  return {
+    source: "etf_outlook",
+    as_of: new Date().toISOString().slice(0, 7),
+    sectors,
+  };
 }
 
 /** Parse authenticated ETF Outlook HTML into sector rows. */
 export function parseFsdEtfOutlookHtml(html = "") {
-  const text = stripHtmlToTableText(html);
+  const article = extractArticleBackgroundHtml(html);
+  const text = stripHtmlToTableText(article);
   const parsed = parseFsdSectorOutlookTable(text);
-  if (Object.keys(parsed.sectors || {}).length >= 8) return parsed;
+  const rowParsed = parseFsdEtfOutlookHtmlRows(article);
+  const merged = mergeOutlookParses(parsed, rowParsed);
+
+  if (Object.keys(merged.sectors || {}).length >= 8) return merged;
 
   // Fallback: row scan for "Sector ETF wt wt delta OW N" patterns in raw HTML.
-  const sectors = { ...parsed.sectors };
+  const sectors = { ...merged.sectors };
   const rowRe = /([A-Za-z][A-Za-z &]+?)\s+(X[A-Z]{2,4})\s+([\d.]+)%?\s+([\d.]+)%?\s+([-+]?[\d.]+)%?\s+(OW|N|UW)\s+(OW|N|UW)/gi;
   let m;
   while ((m = rowRe.exec(String(html))) !== null) {
@@ -304,6 +432,97 @@ export function parseFsdEtfOutlookHtml(html = "") {
     source: "etf_outlook",
     as_of: new Date().toISOString().slice(0, 7),
     sectors,
+  };
+}
+
+export async function fetchFsdLatestSectorAllocationPdfText(env) {
+  const listUrl = `https://fundstratdirect.com/wp-json/wp/v2/posts?categories=${FSD_SECTOR_ALLOCATION_CATEGORY_ID}&per_page=1&_fields=id,title,content,date`;
+  const listRes = await fetch(listUrl, { signal: AbortSignal.timeout(15_000) });
+  if (!listRes.ok) return { ok: false, error_kind: "wp_rest_list_error", status: listRes.status };
+  const posts = await listRes.json().catch(() => []);
+  const post = Array.isArray(posts) ? posts[0] : null;
+  const content = String(post?.content?.rendered || "");
+  const pdfMatch = content.match(/href=["']([^"']+SectorAllocation[^"']+\.pdf[^"']*)["']/i)
+    || content.match(/href=["']([^"']+\.pdf[^"']*)["']/i);
+  if (!pdfMatch?.[1]) {
+    return { ok: false, error_kind: "pdf_link_missing", post_id: post?.id || null };
+  }
+  let pdfUrl = pdfMatch[1].replace(/&amp;/g, "&");
+  if (!/^https?:\/\//i.test(pdfUrl)) {
+    pdfUrl = `https://fundstratdirect.com${pdfUrl.startsWith("/") ? "" : "/"}${pdfUrl}`;
+  }
+  const { fetchAuthenticatedFsdUrl } = await import("./fsd-client.js");
+  const fetched = await fetchAuthenticatedFsdUrl(env, pdfUrl, { accept: "application/pdf,*/*" });
+  if (!fetched.ok) return { ok: false, ...fetched, pdf_url: pdfUrl };
+  const ct = String(fetched.content_type || "");
+  if (!ct.includes("pdf") && (fetched.body_bytes_len || 0) < 5000) {
+    return { ok: false, error_kind: "pdf_not_binary", pdf_url: pdfUrl, content_type: ct };
+  }
+  const { extractPdfTextHeuristic } = await import("./fsd-ingestion.js");
+  const text = extractPdfTextHeuristic(fetched.body_bytes);
+  if (!text || text.length < 200) {
+    return { ok: false, error_kind: "pdf_text_empty", pdf_url: pdfUrl, text_len: text?.length || 0 };
+  }
+  return {
+    ok: true,
+    pdf_url: pdfUrl,
+    post_id: post?.id || null,
+    post_title: post?.title?.rendered || null,
+    text,
+    fetched_at: fetched.fetched_at,
+  };
+}
+
+export async function fetchFsdEtfOutlookPage(env) {
+  const { fetchAuthenticatedFsdPage, fetchAuthenticatedFsdAjax } = await import("./fsd-client.js");
+  const chunks = [];
+  const meta = { sources: [] };
+
+  const page = await fetchAuthenticatedFsdPage(env, FSD_ETF_OUTLOOK_PATH);
+  if (!page.ok) return page;
+  chunks.push(page.html || "");
+  meta.sources.push({ kind: "page", url: page.url, html_length: String(page.html || "").length });
+
+  const ajaxTemplates = [
+    String(FSD_ETF_OUTLOOK_PAGE_ID),
+    "etf-outlook",
+    "stock-lists",
+    "",
+  ];
+  for (const template of ajaxTemplates) {
+    const ajax = await fetchAuthenticatedFsdAjax(env, {
+      action: "client_portal_view_more",
+      category: "etf-outlook",
+      params: {
+        offset: "0",
+        template,
+        max: "50",
+        min: "0",
+        author_id: "0",
+        extra_author_ids: "",
+        watchlist: "",
+        flashtype: "",
+      },
+    });
+    if (ajax.ok && ajax.html_length > 0) {
+      chunks.push(ajax.html);
+      meta.sources.push({ kind: "ajax", template, html_length: ajax.html_length });
+    }
+  }
+
+  const pdf = await fetchFsdLatestSectorAllocationPdfText(env);
+  if (pdf.ok && pdf.text) {
+    chunks.push(pdf.text);
+    meta.sources.push({ kind: "pdf", pdf_url: pdf.pdf_url, text_len: pdf.text.length });
+  }
+
+  return {
+    ok: true,
+    html: chunks.join("\n\n"),
+    url: page.url,
+    fetched_at: Date.now(),
+    auth_from_cache: page.auth_from_cache,
+    fetch_meta: meta,
   };
 }
 
@@ -326,13 +545,29 @@ export function assessSectorOutlookFreshness(outlook, now = Date.now()) {
   };
 }
 
-export async function fetchFsdEtfOutlookPage(env) {
-  const { fetchAuthenticatedFsdPage } = await import("./fsd-client.js");
-  return fetchAuthenticatedFsdPage(env, FSD_ETF_OUTLOOK_PATH);
+export async function diagFsdEtfOutlookPage(env) {
+  const fetched = await fetchFsdEtfOutlookPage(env);
+  if (!fetched.ok) return { ok: false, ...fetched };
+  const html = String(fetched.html || "");
+  const stripped = stripHtmlToTableText(html);
+  const parsed = parseFsdEtfOutlookHtml(html);
+  return {
+    ok: true,
+    url: fetched.url,
+    html_length: html.length,
+    has_xlv: /XLV/i.test(html),
+    has_health_care: /Health\s*Care/i.test(html),
+    has_ow_tokens: (html.match(/\bOW\b/g) || []).length,
+    paywall: isEtfOutlookPaywall(html),
+    sectors_parsed: Object.keys(parsed.sectors || {}).length,
+    stripped_sample: stripped.slice(0, 4000),
+    parsed_sectors: Object.keys(parsed.sectors || {}),
+    auth_from_cache: fetched.auth_from_cache,
+    fetch_meta: fetched.fetch_meta || null,
+  };
 }
 
 /**
- * Authenticated pull of etf-outlook page → parse → apply if changed.
  * Called from the daily FSD ingestion cron so sector ratings stay current.
  */
 export async function syncFsdSectorOutlookFromFsd(env, { notify = true } = {}) {
@@ -363,7 +598,15 @@ export async function syncFsdSectorOutlookFromFsd(env, { notify = true } = {}) {
     meta.last_error = "parse_incomplete";
     meta.sectors_parsed = sectorCount;
     if (kv) await kvPutJSON(kv, FSD_SECTOR_OUTLOOK_META_KV_KEY, meta);
-    return { ok: false, error_kind: "parse_incomplete", sectors_parsed: sectorCount, changed: false, freshness: assessSectorOutlookFreshness(prev) };
+    const diag = {
+      html_length: String(fetched.html || "").length,
+      has_xlv: /XLV/i.test(fetched.html || ""),
+      has_health_care: /Health\s*Care/i.test(fetched.html || ""),
+      paywall: isEtfOutlookPaywall(fetched.html),
+      stripped_sample: stripHtmlToTableText(fetched.html).slice(0, 1500),
+      fetch_meta: fetched.fetch_meta || null,
+    };
+    return { ok: false, error_kind: "parse_incomplete", sectors_parsed: sectorCount, changed: false, diag, freshness: assessSectorOutlookFreshness(prev) };
   }
 
   const fp = outlookFingerprint(parsed);

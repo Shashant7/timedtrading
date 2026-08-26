@@ -5527,6 +5527,14 @@ export async function findExistingIntradayFlashSlot(env, dateEt, etHour) {
   return match || null;
 }
 
+function resolveBriefModel(env, type = "morning") {
+  const t = String(type || "morning").toLowerCase();
+  if (t === "intraday") {
+    return String(env?.DAILY_BRIEF_INTRADAY_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
+  }
+  return String(env?.DAILY_BRIEF_MODEL || "gpt-5.4").trim() || "gpt-5.4";
+}
+
 function resolveBriefOpenAiTimeoutMs(env, type = "morning") {
   const t = String(type || "morning").toLowerCase();
   const perType = Number(env?.[`DAILY_BRIEF_${t.toUpperCase()}_TIMEOUT_MS`]);
@@ -5547,7 +5555,7 @@ async function callOpenAI(env, systemPrompt, userPrompt, { type = "morning" } = 
   const briefType = String(type || "morning").toLowerCase();
   const timeoutMs = resolveBriefOpenAiTimeoutMs(env, briefType);
   const maxTokens = BRIEF_MAX_COMPLETION_TOKENS[briefType] || BRIEF_MAX_COMPLETION_TOKENS.morning;
-  const model = env?.DAILY_BRIEF_MODEL || "gpt-5.4";
+  const model = resolveBriefModel(env, briefType);
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -5580,6 +5588,17 @@ async function callOpenAI(env, systemPrompt, userPrompt, { type = "morning" } = 
 
   const json = await resp.json();
   const raw = json.choices?.[0]?.message?.content || "";
+  try {
+    const { recordOpenAiSpend } = await import("./openai-spend.js");
+    const feat = briefType === "intraday" ? "intraday_flash"
+      : briefType === "evening" ? "daily_brief_evening"
+        : "daily_brief_morning";
+    recordOpenAiSpend(env, feat, {
+      model,
+      prompt_tokens: json.usage?.prompt_tokens,
+      completion_tokens: json.usage?.completion_tokens,
+    }).catch(() => {});
+  } catch (_) { /* spend tracking optional */ }
   return sanitizeBriefContent(raw);
 }
 
@@ -6957,6 +6976,15 @@ export async function generateDailyBrief(env, type, opts = {}) {
       opts,
     });
 
+    // Heal cron tombstones after manual or cron success (quota outages clear here).
+    try {
+      const { recordCronSuccess } = await import("./alerts.js");
+      const cronOp = type === "evening" ? "daily_brief_evening"
+        : type === "intraday" ? "intraday_flash"
+          : "daily_brief_morning";
+      await recordCronSuccess(env, cronOp);
+    } catch (_) { /* best effort */ }
+
     return { ok: true, id: briefId, elapsed, chars: content.length, notifications: "sent" };
   } catch (e) {
     console.error(`[DAILY BRIEF] ${type} generation failed:`, String(e).slice(0, 300));
@@ -7572,6 +7600,10 @@ export async function generateIntradayBrief(env, opts = {}) {
 
     const elapsed = Date.now() - start;
     console.log(`[INTRADAY BRIEF] Flash insight generated in ${elapsed}ms (${content.length} chars)`);
+    try {
+      const { recordCronSuccess } = await import("./alerts.js");
+      await recordCronSuccess(env, "intraday_flash");
+    } catch (_) { /* best effort */ }
     return { ok: true, id: entry.id, elapsed, chars: content.length };
   } catch (e) {
     console.error("[INTRADAY BRIEF] Generation failed:", String(e).slice(0, 300));

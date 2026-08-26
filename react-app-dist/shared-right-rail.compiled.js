@@ -839,9 +839,10 @@
       replay_dca: "DCA add"
     };
     function _humanizeLotReason(reason, opts) {
-      const raw = String(reason || "").trim();
-      if (!raw) return "";
-      if (LOT_REASON_LABELS[raw]) return LOT_REASON_LABELS[raw];
+      const raw0 = String(reason || "").trim();
+      if (!raw0) return "";
+      if (LOT_REASON_LABELS[raw0]) return LOT_REASON_LABELS[raw0];
+      const raw = raw0.replace(/(\d+\.\d{3,})\s*sh\b/gi, (_m, n) => `${Number(n).toFixed(2)}sh`);
       const titled = raw.replace(/_/g, " ").replace(/\s+/g, " ").trim().replace(/\b\w/g, c => c.toUpperCase());
       const max = Number(opts?.max) || 0;
       if (max > 0 && titled.length > max) return titled.slice(0, max - 1) + "…";
@@ -6681,28 +6682,70 @@
         if (!el || !hdr || layoutMode === "workspace") return undefined;
         let raf = 0;
         let compact = false;
-        const applyMorph = nextCompact => {
+        let collapseDelta = 0;
+        const measureDelta = () => {
+          const hadMeasuring = hdr.classList.contains("tt-rail-header-measuring");
+          if (!hadMeasuring) hdr.classList.add("tt-rail-header-measuring");
+          const wasCompact = hdr.classList.contains("tt-rail-header-compact");
+          hdr.classList.remove("tt-rail-header-compact");
+          const hExpanded = hdr.offsetHeight;
+          hdr.classList.add("tt-rail-header-compact");
+          const hCompact = hdr.offsetHeight;
+          hdr.classList.toggle("tt-rail-header-compact", wasCompact);
+          if (!hadMeasuring) {
+            void hdr.offsetHeight;
+            hdr.classList.remove("tt-rail-header-measuring");
+          }
+          const d = hExpanded - hCompact;
+          if (d > 20) collapseDelta = d;
+          return collapseDelta;
+        };
+        const setCompact = nextCompact => {
+          if (compact === nextCompact) return;
           compact = nextCompact;
-          const p = nextCompact ? 1 : 0;
-          hdr.style.setProperty("--rail-header-progress", String(p));
+          hdr.style.setProperty("--rail-header-progress", nextCompact ? "1" : "0");
           hdr.classList.toggle("tt-rail-header-compact", nextCompact);
+        };
+        const evalCompact = () => {
+          if (String(railTab || "").toUpperCase() === "CHART") return true;
+          const st = el.scrollTop;
+          const overflow = el.scrollHeight - el.clientHeight;
+          return st >= 10 && overflow > (collapseDelta || 0) + 16;
         };
         const onScroll = () => {
           if (raf) return;
           raf = requestAnimationFrame(() => {
             raf = 0;
-            const st = el.scrollTop;
             const onChartTab = String(railTab || "").toUpperCase() === "CHART";
-            if (!compact && (st >= 20 || onChartTab)) applyMorph(true);else if (compact && st <= 8 && !onChartTab) applyMorph(false);
+            if (onChartTab) {
+              setCompact(true);
+              return;
+            }
+            const st = el.scrollTop;
+            if (!compact) {
+              const overflow = el.scrollHeight - el.clientHeight;
+              const delta = collapseDelta || measureDelta();
+              if (st >= 10 && overflow > delta + 16) setCompact(true);
+            } else if (st <= 6) {
+              setCompact(false);
+            }
           });
         };
-        applyMorph(String(railTab || "").toUpperCase() === "CHART");
+        hdr.classList.add("tt-rail-header-measuring");
+        measureDelta();
+        const initCompact = evalCompact();
+        compact = initCompact;
+        hdr.style.setProperty("--rail-header-progress", initCompact ? "1" : "0");
+        hdr.classList.toggle("tt-rail-header-compact", initCompact);
+        void hdr.offsetHeight;
+        hdr.classList.remove("tt-rail-header-measuring");
         el.addEventListener("scroll", onScroll, {
           passive: true
         });
         return () => {
           el.removeEventListener("scroll", onScroll);
           if (raf) cancelAnimationFrame(raf);
+          hdr.classList.remove("tt-rail-header-measuring");
         };
       }, [layoutMode, railTab, tickerSymbol]);
       const [catalysts, setCatalysts] = useState(null);
@@ -7374,7 +7417,7 @@
             }, React.createElement("span", {
               className: `inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeChipCls(r.type)}`
             }, r.type)), React.createElement("td", {
-              className: "px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px]",
+              className: "px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px] break-words",
               title: reasonLabel || ""
             }, reasonLabel || React.createElement("span", {
               className: "text-[#6E867D]"
@@ -9765,6 +9808,112 @@
             trade: tr
           };
         })();
+        const renderTraderPositionCard = () => {
+          const p = v2Pos;
+          if (!p || !(p.entry > 0)) return null;
+          const tr = p.trade || {};
+          const isLong = String(tr.direction || "LONG").toUpperCase() !== "SHORT";
+          const shares = Number(tr.shares ?? tr.quantity ?? 0) || 0;
+          const trimPct = Math.min(Math.max(Number(tr.trimmed_pct ?? tr.trimmedPct ?? 0) || 0, 0), 1);
+          const remShares = shares > 0 ? shares * (1 - trimPct) : 0;
+          const pnlPct = Number(p.pnlPct) || 0;
+          const pnlUsd = remShares > 0 && p.entry > 0 && p.current > 0 ? (p.current - p.entry) * remShares * (isLong ? 1 : -1) : null;
+          const up = pnlPct >= 0;
+          const accent = up ? "#34d399" : "#f87171";
+          const entryTs = Number(tr.entry_ts ?? tr.entryTs) || null;
+          const fmtSh = n => n >= 10 ? String(Math.round(n)) : String(Math.round(n * 100) / 100);
+          const facts = [{
+            k: "Entry",
+            v: `$${p.entry.toFixed(2)}`,
+            sub: entryTs ? _formatDate(entryTs) : null
+          }, {
+            k: "Live",
+            v: `$${p.current.toFixed(2)}`
+          }];
+          if (shares > 0) {
+            facts.push({
+              k: "Shares",
+              v: trimPct > 0 ? `${fmtSh(remShares)} / ${fmtSh(shares)}` : fmtSh(shares),
+              sub: trimPct > 0 ? `${Math.round(trimPct * 100)}% trimmed` : null
+            });
+          }
+          if (Number(p.sl) > 0) facts.push({
+            k: "Stop",
+            v: `$${Number(p.sl).toFixed(2)}`
+          });
+          return React.createElement("div", {
+            style: {
+              border: `1px solid ${up ? "rgba(52,211,153,0.28)" : "rgba(248,113,113,0.28)"}`,
+              background: up ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)",
+              borderRadius: "var(--ds-radius-md)",
+              padding: "var(--ds-space-3)",
+              marginBottom: "var(--ds-space-3)"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: 8
+            }
+          }, React.createElement("span", {
+            className: `ds-chip ${isLong ? "ds-chip--up" : "ds-chip--dn"}`,
+            style: {
+              fontSize: 10,
+              fontWeight: 700
+            }
+          }, isLong ? "Open Long" : "Open Short"), React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-faint)",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              fontWeight: 700
+            }
+          }, "Open Position"), React.createElement("span", {
+            style: {
+              marginLeft: "auto",
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 800,
+              fontSize: "var(--ds-fs-body)",
+              color: accent
+            }
+          }, up ? "+" : "", pnlPct.toFixed(2), "%", pnlUsd != null ? ` · ${pnlUsd >= 0 ? "+" : "-"}${fmtUsd(Math.abs(pnlUsd))}` : "")), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "8px 12px"
+            }
+          }, facts.map((f, i) => React.createElement("div", {
+            key: i,
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              minWidth: 0
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              fontWeight: 700
+            }
+          }, f.k), React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text)",
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700
+            }
+          }, f.v), f.sub ? React.createElement("span", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, f.sub) : null))));
+        };
         const v2SparkDir = v2DayPct > 0.05 ? "up" : v2DayPct < -0.05 ? "dn" : "flat";
         const v2SparkSvg = typeof window !== "undefined" && window.DS ? window.DS.sparklineSvg(v2Spark, {
           width: 320,
@@ -10781,7 +10930,7 @@
           style: {
             padding: "var(--ds-space-4)"
           }
-        }, window._ttIsPro && VerdictGuideBlock && v2RailTab === "SNAPSHOT" && React.createElement(VerdictGuideBlock, {
+        }, window._ttIsPro && v2RailTab === "SNAPSHOT" && renderTraderPositionCard(), window._ttIsPro && VerdictGuideBlock && v2RailTab === "SNAPSHOT" && React.createElement(VerdictGuideBlock, {
           ticker: tickerSymbol,
           data: phaseDVerdict,
           loading: phaseDVerdictLoading,
@@ -10900,7 +11049,7 @@
           }
         }, "Model read \u2014 Pro feature"), "Upgrade to Pro to see the model's short-term and long-term read plus live key levels for this ticker.")), v2RailTab === "SETUP" && React.createElement("div", {
           style: railTabBodyWrapStyle
-        }, (() => {
+        }, window._ttIsPro && renderTraderPositionCard(), (() => {
           const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
           const verdict = optionsTabData?.confluence_verdict || null;
           if (!timing || !timing.flash_headline) return null;
@@ -15519,7 +15668,11 @@
             style: {
               color: "var(--ds-text-faint)",
               fontFamily: "var(--tt-font-mono)",
-              fontSize: 10
+              fontSize: 10,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap"
             },
             title: `Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`
           }, "\xB7 ", (_formatPath(t.setup_name) || String(t.setup_name)).slice(0, 24)), isBuy && Number.isFinite(heldAfter) && React.createElement("span", {
@@ -20183,4 +20336,4 @@
   };
 })();
 
-// cache-bust:1787761089632:131513649
+// cache-bust:1787761550523:502925437

@@ -52,6 +52,13 @@ export function loadCloudPivotConfig(daCfg = {}) {
   const openNoiseEnd = Number(daCfg.deep_audit_tt_cloud_pivot_opening_noise_end_minute);
   const openMin10 = Number(daCfg.deep_audit_tt_cloud_pivot_open_min_10m_close_min);
   const openChaseDist = Number(daCfg.deep_audit_tt_cloud_pivot_open_chase_dist_pct);
+  // Profit-lock (keep-rate) knobs. The 5/12 / 34-50 cloud stops lag a fast
+  // run, so a +5% winner can round-trip to max_loss (observed avg MFE-keep
+  // rate ≈ -1.0 on the live family). Once MFE clears the arm threshold, keep
+  // a fraction of the peak and exit the rest on a retrace below that floor.
+  const plEnabled = String(daCfg.deep_audit_tt_cloud_pivot_profit_lock_enabled ?? "true") === "true";
+  const plArm = Number(daCfg.deep_audit_tt_cloud_pivot_profit_lock_arm_pct);
+  const plKeep = Number(daCfg.deep_audit_tt_cloud_pivot_profit_lock_keep_frac);
   return {
     enabled,
     exitEnabled,
@@ -61,6 +68,11 @@ export function loadCloudPivotConfig(daCfg = {}) {
     openMaxChaseDistToCloudPct: Number.isFinite(openChaseDist) && openChaseDist > 0
       ? openChaseDist
       : 0.0045,
+    profitLockEnabled: plEnabled,
+    // arm once MFE ≥ 1.2% (a genuine winner, above intraday noise)
+    profitLockArmPct: Number.isFinite(plArm) && plArm > 0 ? plArm : 0.012,
+    // keep half the peak: exit the runner if it retraces past 50% of MFE
+    profitLockKeepFrac: Number.isFinite(plKeep) && plKeep > 0 && plKeep < 1 ? plKeep : 0.5,
   };
 }
 
@@ -759,6 +771,28 @@ export function isTtCloudPivotTrade(trade = {}, tickerData = null) {
   return name.includes("tt_cloud_pivot") || name.includes("cloud_pivot");
 }
 
+/**
+ * True when a trade's EXECUTED setup is a canonical CORE play (not cloud
+ * pivot). The cloud-pivot detector stamps `tt_cloud_pivot` as a coincident
+ * signal on core setups (Support Bounce, HTF Reclaim, ATH), so a decision
+ * record can look like a cloud-pivot entry while the trade actually ran core
+ * doctrine. Attribution / program-timing use this to keep the cloud-pivot
+ * family's stats to trades the cloud-pivot exit doctrine actually managed.
+ * Cloud pivot is a paper family and is NOT in the core play catalog, so a
+ * real cloud-pivot trade resolves to null here (i.e. not foreign-core).
+ */
+export function tradeIsForeignCoreSetup(trade) {
+  if (!trade || typeof trade !== "object") return false;
+  const path = String(
+    trade.entry_path || trade.entryPath || trade.__entry_path
+    || trade.__tradeRef?.entry_path || trade.__tradeRef?.entryPath || "",
+  ).toLowerCase().trim();
+  if (path && isCanonicalCapitalEntryPath(path) && !path.includes("cloud_pivot")) return true;
+  const play = resolvePlay(trade.setup_name || trade.setupName, trade.direction);
+  if (play && !String(play.id).includes("cloud_pivot")) return true;
+  return false;
+}
+
 function isTighterStop(direction, nextPx, prevPx) {
   const next = finiteOrNull(nextPx);
   if (next == null) return false;
@@ -856,6 +890,25 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
         metadata: meta,
       };
     }
+  }
+
+  // Profit-lock peak-giveback — the anti-round-trip the cloud stops miss.
+  // The 5/12 / 34-50 ribbons sit far below a fast +5% run, so price can hand
+  // the whole move back to max_loss before the cloud "loses" it. Once MFE
+  // clears the arm threshold, keep a fraction of the peak: exit the remainder
+  // when the live P&L retraces below that keep floor. `mfe` and `pnl` are both
+  // in percent; a runner still near its peak (pnl ≈ mfe) never triggers.
+  if (cfg.profitLockEnabled
+    && age >= 5
+    && mfe >= cfg.profitLockArmPct * 100
+    && pnl <= mfe * cfg.profitLockKeepFrac) {
+    const keepFloorPct = Math.round(mfe * cfg.profitLockKeepFrac * 100) / 100;
+    return {
+      stage: "exit",
+      reason: "tt_cloud_pivot_profit_lock",
+      family: CLOUD_PIVOT_FAMILY,
+      metadata: { direction, pnlPct: pnl, mfePct: mfe, keep_floor_pct: keepFloorPct },
+    };
   }
 
   // Primary Ripster rule: lose 5/12 → get out (after brief confirm).

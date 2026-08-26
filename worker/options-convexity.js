@@ -11,12 +11,19 @@ import {
   isDayTradeTicker,
   pickDayTradeExpiration,
   resolveContractDirection,
+  bindChainLegForStrike,
+  estimatePremium,
 } from "./options-plays.js";
 
 export const CONVEXITY_LOTTO_MAX_LOSS_DEFAULT_USD = 50;
 export const CONVEXITY_FRESH_TTL_MS_01_DTE = 5 * 60 * 1000;
 export const CONVEXITY_FRESH_TTL_MS_SWING = 15 * 60 * 1000;
 export const CONVEXITY_SWING_MAX_DRIFT_PCT = 0.05;
+// Earnings-prep lottos buy a ~0.15-delta strike into a binary print. On
+// higher-priced or higher-IV names that lands further OTM than a regular
+// swing lotto (e.g. INTU 3-DTE 0.15-delta put ≈ 6.5% OTM into an AMC print),
+// so the swing drift ceiling would silently filter a valid earnings play.
+export const CONVEXITY_EARNINGS_MAX_DRIFT_PCT = 0.15;
 
 const MOONSHOT_ARCH = new Set(["moonshot_call", "moonshot_put"]);
 const LOTTO_ARCH = new Set(["lotto_call", "lotto_put"]);
@@ -88,10 +95,16 @@ export function isConvexityPlayActionable({
   if (!play || typeof play !== "object") return false;
   const playClass = playClassIn || playClassFromArchetype(play.archetype);
   if (!playClass) return false;
+  // Earnings-prep lottos are a distinct product: a deliberately cheap OTM
+  // gamma bet into a binary print. They (a) legitimately oppose the base
+  // contract direction when the read is a FADE (a put on a name whose base
+  // contract is LONG), and (b) sit further OTM than a regular swing lotto.
+  // Both are relaxed below, gated on this flag, so the same-day / 1-5d
+  // earnings-prep card is not silently filtered by swing-lotto constraints.
+  const earnPrep = playClass === "lotto" && !!play._earnings_prep;
 
   const mode = String(confluence?.mode || "").toUpperCase();
   if (playClass === "lotto") {
-    const earnPrep = !!play._earnings_prep;
     const lottoModes = earnPrep
       ? ["READY", "RIDE", "DRIFT", "WAIT", "FADE"]
       : ["READY", "RIDE", "DRIFT"];
@@ -113,8 +126,16 @@ export function isConvexityPlayActionable({
     }
   }
 
-  const contractDir = resolveContractDirection(contract?.direction, contract?.effective_direction)
-    || String(confluence?.side || "").toUpperCase();
+  // For an earnings-prep FADE, the play intentionally trades the fade side
+  // (a put on a bullish base contract). Anchor the alignment check to the
+  // confluence side in that case so the fade is not rejected as "opposed" —
+  // the play direction is still required to match the confluence + timing
+  // lean below, so a genuinely mis-built play is still caught.
+  const contractDir = (earnPrep && confluence?.side
+    && String(confluence.side).toUpperCase() !== "NEUTRAL")
+    ? String(confluence.side).toUpperCase()
+    : (resolveContractDirection(contract?.direction, contract?.effective_direction)
+      || String(confluence?.side || "").toUpperCase());
   const playDir = resolvePlayDirection(play, contractDir);
   if (playDir && contractDir && playDir !== contractDir) return false;
 
@@ -141,7 +162,8 @@ export function isConvexityPlayActionable({
     if (!gate.valid) return false;
   } else {
     const drift = Math.abs(strike - px) / px;
-    if (drift > CONVEXITY_SWING_MAX_DRIFT_PCT) return false;
+    const maxDrift = earnPrep ? CONVEXITY_EARNINGS_MAX_DRIFT_PCT : CONVEXITY_SWING_MAX_DRIFT_PCT;
+    if (drift > maxDrift) return false;
   }
 
   const ts = Number(asOfMs ?? now);
@@ -355,8 +377,8 @@ export function toConvexityCard({
     confluence_mode: confluence?.mode || null,
     confluence_score: Number(confluence?.score) || null,
     stop_level: Number.isFinite(sl) && sl > 0 ? sl : null,
-    chain_status: chainStatus && !String(chainStatus).includes("not_attempted")
-      && !String(chainStatus).startsWith("exception") ? "live" : "estimated",
+    premium_source: play.premium?.source || null,
+    chain_status: play.premium?.source === "live_chain" ? "live" : "estimated",
     as_of_ms: Number(asOfMs) || Date.now(),
     label: play.label || null,
     earnings_prep: !!play._earnings_prep,
@@ -384,6 +406,110 @@ export function toConvexityCard({
   card.scan_line = copy.scan;
   card.action = copy.action;
   return card;
+}
+
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Alpaca chain fetch must include the play strike. A fixed ±8% band around
+ * spot misses deep OTM earnings lottos (INTU 300P when spot is 357).
+ */
+export function chainStrikeRangeForPlay(spot, strike, minPct = 0.08) {
+  const px = num(spot);
+  const k = num(strike);
+  if (!(px > 0) || !(k > 0)) return minPct;
+  const wing = Math.abs(k - px) / px;
+  return Math.min(0.35, Math.max(minPct, wing + 0.02));
+}
+
+/**
+ * Overlay a live chain mid on a convexity card — replaces Black-Scholes
+ * estimates that understate earnings IV (e.g. INTU 345P ~$9 vs ~$0.9 BS).
+ */
+export function overlayConvexityCardPremium(card, chain, ctx = {}) {
+  if (!card || !chain?.ok) return card;
+  const strike = num(card.strike);
+  if (!(strike > 0)) return card;
+  const dir = String(card.direction || "").toUpperCase();
+  const side = dir === "SHORT" ? "P" : "C";
+  const leg = bindChainLegForStrike(chain, side, strike);
+  if (!leg) return card;
+  const spot = num(ctx.spot) ?? num(chain.underlying_price);
+  const dte = num(card.expiration?.dte);
+  const atrPct = num(ctx.atrPct);
+  const est = estimatePremium({
+    price: spot,
+    strike,
+    dte,
+    atrPct,
+    type: side,
+    chainLeg: leg,
+  });
+  if (est?.source !== "live_chain") return card;
+  const mid = num(est?.mid);
+  if (!(mid > 0)) return card;
+  card.premium_mid = mid;
+  // Risk = the ACTUAL premium at risk for the sized position, NOT the sizing
+  // budget. A $50 lotto budget can't buy even one $7.60 contract, so the real
+  // risk of the minimum 1 contract is $760 — clamping the DISPLAY to $50 was
+  // wrong (and made the payoff basis inconsistent). Size contracts against the
+  // budget (min 1) and set risk to premium × 100 × contracts.
+  const perContract = mid * 100;
+  const budget = num(ctx.lottoMaxLossUsd) > 0 ? num(ctx.lottoMaxLossUsd) : perContract;
+  const contracts = Math.max(1, Math.floor(budget / perContract));
+  card.contracts = contracts;
+  card.max_loss_usd = Math.round(perContract * contracts);
+  // Recompute the multi-bagger underlying targets off the LIVE premium so the
+  // payoff line matches the shown debit (they were built from the BS estimate,
+  // so after the overlay the "3x+" underlying was stale/off).
+  const px2x = side === "P" ? Math.max(0, strike - mid) : strike + mid;
+  const px3x = side === "P" ? Math.max(0, strike - mid * 2) : strike + mid * 2;
+  card.multi_bagger_targets = {
+    ...(card.multi_bagger_targets || {}),
+    "2x_underlying_at": Math.round(px2x * 100) / 100,
+    "3x_underlying_at": Math.round(px3x * 100) / 100,
+  };
+  card.top_target_underlying = Math.round(px3x * 100) / 100;
+  card.chain_status = "live";
+  card.premium_source = "live_chain";
+  const copy = convexityPlanCopy(card);
+  card.headline = copy.punch;
+  card.scan_line = copy.scan;
+  card.action = copy.action;
+  return card;
+}
+
+/**
+ * Fetch chain mids for ranked convexity cards still on estimates.
+ */
+export async function enrichConvexityChainPremiums(env, cards, opts = {}) {
+  const list = Array.isArray(cards) ? cards : [];
+  const fetchChain = opts.fetchChain;
+  if (!fetchChain) return list;
+  await Promise.all(list.map(async (card) => {
+    if (!card?.ticker || !card?.expiration?.iso) return;
+    if (card.premium_source === "live_chain") return;
+    const sym = String(card.ticker).toUpperCase();
+    const expIso = String(card.expiration.iso).slice(0, 10);
+    const spot = num(opts.spotBySym?.[sym]);
+    const strikeRangePct = chainStrikeRangeForPlay(spot, card.strike, 0.08);
+    try {
+      const chain = await fetchChain(env, sym, expIso, {
+        strikeRangePct,
+        skipOI: true,
+        playStrike: card.strike,
+      });
+      overlayConvexityCardPremium(card, chain, {
+        spot,
+        atrPct: opts.atrPctBySym?.[sym],
+        lottoMaxLossUsd: opts.lottoMaxLossUsd,
+      });
+    } catch (_) { /* keep estimate */ }
+  }));
+  return list;
 }
 
 export function rankConvexityCards(cards = []) {

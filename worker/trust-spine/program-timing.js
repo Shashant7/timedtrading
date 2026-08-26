@@ -4,6 +4,7 @@
 // This is NOT a counterfactual replay of "what if entry was 30m later."
 
 import { computeWindowStats } from "../edge-scorecard.js";
+import { tradeIsForeignCoreSetup } from "../foundation/tt-cloud-pivot.js";
 
 export const CONFIRM_STACK_FAMILY = "confirm_stack_ema21";
 export const CLOUD_PIVOT_FAMILY = "tt_cloud_pivot";
@@ -64,8 +65,12 @@ export function classifyProgram(decision = {}, trade = {}) {
   const gates = parseJson(decision.gate_trace_json) || inputs.setup_gates || inputs.gates || {};
   const stamped = trade.slice_family || trade.entry_family || inputs.slice_family;
   const blob = setupBlob(decision, trade);
+  // A trade whose executed setup is a canonical core play is CORE, even if a
+  // coincident cloud-pivot stamp rode along — keeps the paper timing report
+  // measuring the cloud-pivot doctrine, not core setups it merely tagged.
+  const foreignCore = tradeIsForeignCoreSetup(trade);
   if (stamped === CONFIRM_STACK_FAMILY) return CONFIRM_STACK_FAMILY;
-  if (stamped === CLOUD_PIVOT_FAMILY) return CLOUD_PIVOT_FAMILY;
+  if (stamped === CLOUD_PIVOT_FAMILY && !foreignCore) return CLOUD_PIVOT_FAMILY;
   if (stamped === CONTINUATION_FAMILY) return CONTINUATION_FAMILY;
   if (
     inputs.slice_family === CONFIRM_STACK_FAMILY
@@ -78,12 +83,15 @@ export function classifyProgram(decision = {}, trade = {}) {
     return CONFIRM_STACK_FAMILY;
   }
   if (
-    inputs.slice_family === CLOUD_PIVOT_FAMILY
-    || inputs.tt_cloud_pivot === true
-    || inputs.sequence_paper_queue?.family === CLOUD_PIVOT_FAMILY
-    || blob.includes("tt_cloud_pivot")
-    || blob.includes("cloud pivot")
-    || blob.includes("cloud_pivot")
+    !foreignCore
+    && (
+      inputs.slice_family === CLOUD_PIVOT_FAMILY
+      || inputs.tt_cloud_pivot === true
+      || inputs.sequence_paper_queue?.family === CLOUD_PIVOT_FAMILY
+      || blob.includes("tt_cloud_pivot")
+      || blob.includes("cloud pivot")
+      || blob.includes("cloud_pivot")
+    )
   ) {
     return CLOUD_PIVOT_FAMILY;
   }

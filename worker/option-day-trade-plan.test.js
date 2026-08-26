@@ -5,12 +5,14 @@ import {
   buildSatyDayTradePlan,
   classifyPaperEvent,
   buildDayTradeSignalEmbed,
+  describePaperExitReason,
   computePremiumRr,
   shouldHoldOvernight,
   isOvernightCarry,
   formatExpirationShort,
   isOptionsBuyWindowEt,
   isOptionsSellWindowEt,
+  buildDayTradePositionMgmtLine,
 } from "./option-day-trade-plan.js";
 
 const ET = "-04:00";
@@ -130,6 +132,70 @@ describe("isOvernightCarry", () => {
       status: "open",
       entry_ts: ts(`2026-08-21T10:05:00${ET}`),
     }, ts(`2026-08-21T10:20:00${ET}`))).toBe(false);
+  });
+});
+
+describe("buildDayTradePositionMgmtLine", () => {
+  it("names trim, exit, hard stop, and 3:45 flat for a same-day open book", () => {
+    const line = buildDayTradePositionMgmtLine({
+      book: {
+        status: "open",
+        flavor: "call",
+        entry_premium: 0.74,
+        trim_premium: 1.08,
+        exit_premium: 1.44,
+        peak_premium: 0.81,
+        contracts: 3,
+        contracts_remaining: 3,
+        profit_lock_armed: false,
+        held_overnight: false,
+      },
+      ticker: "SPY",
+      management: { invalidation: { underlying_below: 764.5 } },
+    });
+    expect(line).toContain("Trim half at $1.08");
+    expect(line).toContain("$1.44");
+    expect(line).toContain("$0.37");
+    expect(line).toContain("764.50");
+    expect(line).toContain("15:45");
+    expect(line).not.toContain("Carried overnight");
+  });
+
+  it("skips 3:45 flat on overnight carry", () => {
+    const line = buildDayTradePositionMgmtLine({
+      book: {
+        status: "open",
+        flavor: "call",
+        entry_premium: 0.74,
+        trim_premium: 1.08,
+        exit_premium: 1.44,
+        held_overnight: true,
+        contracts: 3,
+      },
+      ticker: "SPY",
+      now: ts(`2026-08-25T10:00:00${ET}`),
+    });
+    expect(line).not.toMatch(/Flat by 15:45/);
+    expect(line).toContain("Carried overnight");
+  });
+
+  it("describes profit lock trail when armed", () => {
+    const line = buildDayTradePositionMgmtLine({
+      book: {
+        status: "open",
+        flavor: "call",
+        entry_premium: 0.74,
+        peak_premium: 1.20,
+        profit_lock_armed: true,
+        trim_premium: 1.08,
+        exit_premium: 1.44,
+        trail_stop_premium: 0.74,
+        contracts: 1,
+      },
+      ticker: "SPY",
+    });
+    expect(line).toContain("Profit lock armed");
+    expect(line).toContain("giveback");
   });
 });
 
@@ -502,6 +568,62 @@ describe("buildDayTradeSignalEmbed", () => {
     expect(names).toEqual(expect.arrayContaining(["Setup / Thesis", "Trigger", "Entry", "Exits", "Stop", "Bracket"]));
     const blob = [embed.title, embed.description, ...embed.fields.map((f) => f.value)].join(" ");
     expect(blob.toLowerCase()).not.toMatch(/\byou(r)?\b/);
+  });
+
+  it("STOP embed shows exit recap, not the entry playbook", () => {
+    const plan = buildSatyDayTradePlan({
+      ticker: "QQQ",
+      flavor: "call",
+      strike: 713,
+      expiration: { dte: 1, iso: "2026-08-26" },
+      spot: 712.5,
+      premium: 0.86,
+      execution: clockBuy,
+      gamePlan: { lean: "LONG", bull_target: 720, bull_trigger: 708.38 },
+    });
+    const book = {
+      status: "open",
+      entry_premium: 1.72,
+      trim_premium: 2.29,
+      exit_premium: 3.15,
+      peak_premium: 2.10,
+      contracts: 1,
+      profit_lock_armed: false,
+    };
+    const embed = buildDayTradeSignalEmbed({
+      event: "STOP",
+      ticker: "QQQ",
+      plan,
+      size: plan.size,
+      execution: clockBuy,
+      premium: 0.86,
+      spot: 711.2,
+      reason: "premium_stop",
+      book,
+    });
+    expect(embed.title).toMatch(/STOP OUT/);
+    const names = embed.fields.map((f) => f.name);
+    expect(names).toEqual(expect.arrayContaining(["Exit / Why", "Fill recap", "Planned exits (at entry)"]));
+    expect(names).not.toEqual(expect.arrayContaining(["Setup / Thesis", "Trigger", "Entry", "Bracket"]));
+    const why = embed.fields.find((f) => f.name === "Exit / Why")?.value || "";
+    expect(why).toMatch(/hard stop/i);
+    expect(why).toMatch(/\$0\.86/);
+    const recap = embed.fields.find((f) => f.name === "Fill recap")?.value || "";
+    expect(recap).toMatch(/Entry \$1\.72/);
+    expect(recap).toMatch(/Exit \$0\.86/);
+    expect(embed.description).not.toMatch(/BUY limit/);
+  });
+
+  it("breakeven_stop reason is not labeled as premium hard stop", () => {
+    const text = describePaperExitReason("breakeven_stop", {
+      entry: 0.86,
+      mid: 0.86,
+      peak: 1.20,
+      flavor: "call",
+      sym: "QQQ",
+    });
+    expect(text).toMatch(/breakeven/i);
+    expect(text).not.toMatch(/hard stop/i);
   });
 });
 

@@ -10,6 +10,8 @@ import {
   convexityPlanCopy,
   formatConvexityExpShort,
   buildConvexityShotReason,
+  overlayConvexityCardPremium,
+  chainStrikeRangeForPlay,
 } from "./options-convexity.js";
 import {
   shouldActivateLotto,
@@ -315,6 +317,54 @@ describe("isConvexityPlayActionable", () => {
     })).toBe(true);
   });
 
+  it("surfaces a same-day AMC earnings-prep FADE put opposing a bullish base contract (INTU)", () => {
+    // Real 2026-08-25 shape: base trader contract is LONG (HTF_BULL_LTF_PULLBACK,
+    // tp above spot) but the read is FADE/SHORT into an AMC print; the 0.15Δ put
+    // lands ~6.5% OTM. Before the earnings-prep relaxations this was dropped by
+    // BOTH the direction-oppose gate and the 5% swing drift ceiling.
+    expect(isConvexityPlayActionable({
+      play: {
+        archetype: "lotto_put",
+        _earnings_prep: true,
+        _h4_close_pending: true,
+        expiration: { dte: 3 },
+        strikes: { primary: 335 },
+        max_loss_usd: 129,
+        premium: { mid: 1.29 },
+      },
+      play_class: "lotto",
+      confluence: {
+        mode: "FADE",
+        side: "SHORT",
+        timing: { put_opportunity: true, call_opportunity: false },
+      },
+      contract: { direction: "LONG", sl: 344.23, atr_pct: 0.041 },
+      spot: 358.46,
+      chain_status: "not_attempted",
+      as_of_ms: Date.now(),
+    })).toBe(true);
+  });
+
+  it("keeps the tight 5% drift ceiling for non-earnings swing lottos", () => {
+    // Guard: the wider OTM band is earnings-prep only — a plain swing lotto
+    // 7% OTM must still be rejected as too far to be a real convexity leg.
+    expect(isConvexityPlayActionable({
+      play: {
+        archetype: "lotto_call",
+        expiration: { dte: 3 },
+        strikes: { primary: 107 },
+        max_loss_usd: 50,
+        premium: { mid: 0.5 },
+      },
+      play_class: "lotto",
+      confluence: { mode: "RIDE", side: "LONG", timing: { call_opportunity: true } },
+      contract: { direction: "LONG", sl: 98, atr_pct: 0.02 },
+      spot: 100,
+      chain_status: "not_attempted",
+      as_of_ms: Date.now(),
+    })).toBe(false);
+  });
+
   it("rejects 0 DTE on the convexity strip", () => {
     expect(isConvexityPlayActionable({
       play: { ...basePlay, expiration: { dte: 0, iso: "2026-08-25" } },
@@ -590,5 +640,113 @@ describe("toConvexityCard", () => {
     });
     expect(card.shot_reason).toMatch(/READY/i);
     expect(card.shot_reason).toMatch(/floor held/i);
+  });
+});
+
+describe("overlayConvexityCardPremium", () => {
+  it("replaces BS estimate with live chain mid", () => {
+    const card = {
+      ticker: "INTU",
+      direction: "SHORT",
+      strike: 345,
+      expiration: { dte: 3, iso: "2026-08-28" },
+      premium_mid: 0.91,
+      max_loss_usd: 50,
+      chain_status: "estimated",
+    };
+    const chain = {
+      ok: true,
+      underlying_price: 359,
+      puts: [{ strike: 345, bid: 8.8, ask: 9.2, implied_volatility: 0.55 }],
+    };
+    overlayConvexityCardPremium(card, chain, { spot: 359, atrPct: 0.02 });
+    expect(card.premium_mid).toBeGreaterThan(8);
+    expect(card.chain_status).toBe("live");
+    expect(card.premium_source).toBe("live_chain");
+    expect(card.headline).toMatch(/INTU/);
+  });
+
+  it("does not mark live when the play strike is missing from the chain", () => {
+    const card = {
+      ticker: "INTU",
+      direction: "SHORT",
+      strike: 300,
+      expiration: { dte: 3 },
+      premium_mid: 0.73,
+      chain_status: "estimated",
+    };
+    const chain = {
+      ok: true,
+      underlying_price: 357,
+      puts: [{ strike: 345, bid: 11, ask: 12 }],
+    };
+    overlayConvexityCardPremium(card, chain, { spot: 357 });
+    expect(card.premium_mid).toBe(0.73);
+    expect(card.chain_status).toBe("estimated");
+    expect(card.premium_source).toBeUndefined();
+  });
+
+  it("risk = real premium (not the budget), and payoff recomputed off live mid", () => {
+    // AXON 630C @ $7.60: a $50 lotto budget can't buy even one contract, so the
+    // real risk of the minimum 1 contract is $760 — not the clamped $50. And the
+    // 3x underlying target must be recomputed off the live mid, not left stale.
+    const card = {
+      ticker: "AXON",
+      direction: "LONG",
+      strike: 630,
+      expiration: { dte: 2 },
+      premium_mid: 1.8,
+      max_loss_usd: 50,
+      multi_bagger_targets: { "3x_underlying_at": 633.62 },
+      top_target_underlying: 633.62,
+      chain_status: "estimated",
+    };
+    const chain = {
+      ok: true,
+      underlying_price: 613,
+      calls: [{ strike: 630, bid: 7.5, ask: 7.7, implied_volatility: 0.6 }],
+    };
+    overlayConvexityCardPremium(card, chain, { spot: 613, atrPct: 0.03, lottoMaxLossUsd: 50 });
+    expect(card.premium_mid).toBeCloseTo(7.6, 1);
+    expect(card.contracts).toBe(1);
+    expect(card.max_loss_usd).toBe(760);
+    expect(card.top_target_underlying).toBeCloseTo(645.2, 1);
+    expect(card.chain_status).toBe("live");
+  });
+
+  it("sizes multiple cheap contracts within the budget", () => {
+    const card = { ticker: "F", direction: "LONG", strike: 12, expiration: { dte: 2 }, premium_mid: 0.05 };
+    const chain = { ok: true, underlying_price: 11.5, calls: [{ strike: 12, bid: 0.09, ask: 0.11 }] };
+    overlayConvexityCardPremium(card, chain, { spot: 11.5, atrPct: 0.03, lottoMaxLossUsd: 50 });
+    expect(card.premium_mid).toBeCloseTo(0.10, 2);
+    expect(card.contracts).toBe(5); // floor(50 / (0.10*100)) = 5
+    expect(card.max_loss_usd).toBe(50);
+  });
+});
+
+describe("chainStrikeRangeForPlay", () => {
+  it("widens fetch band to include deep OTM earnings strikes", () => {
+    expect(chainStrikeRangeForPlay(357, 300, 0.08)).toBeGreaterThan(0.15);
+    expect(chainStrikeRangeForPlay(357, 345, 0.08)).toBe(0.08);
+  });
+});
+
+describe("resolveAlpacaStrikeBand", () => {
+  it("includes play strike when underlying price is missing", async () => {
+    const { resolveAlpacaStrikeBand } = await import("./alpaca-options.js");
+    const band = resolveAlpacaStrikeBand({ playStrike: 300 });
+    expect(band.gte).toBeLessThanOrEqual(300);
+    expect(band.lte).toBeGreaterThanOrEqual(300);
+  });
+
+  it("widens pct band to cover deep OTM play strikes", async () => {
+    const { resolveAlpacaStrikeBand } = await import("./alpaca-options.js");
+    const band = resolveAlpacaStrikeBand({
+      underlyingPx: 357,
+      strikeRangePct: 0.08,
+      playStrike: 300,
+    });
+    expect(band.gte).toBeLessThanOrEqual(300);
+    expect(band.lte).toBeGreaterThanOrEqual(345);
   });
 });

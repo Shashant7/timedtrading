@@ -2420,10 +2420,21 @@ function buildCoveredCall(ctx) {
 //   • Sizing: 25-50% of standard risk budget (lottery)
 //   • Trade mgmt: scale out 100%+ profits aggressively, exit < 3 days
 //     if no follow-through (theta cliff)
-function buildLotto(ctx, direction, { lottoMaxLossUsd = 50 } = {}) {
+
+// Quiet-tape lotto: deep-OTM ~0.15Δ (roughly the far tail) — a cheap
+// pure-convexity lottery ticket sized for total premium loss.
+export const LOTTO_TARGET_DELTA = 0.15;
+// Earnings-prep lotto: a CLOSER strike (~0.25Δ, nearer the 1-sigma implied
+// move). Into a binary print the elevated IV pushes the 0.15Δ strike very
+// far OTM (e.g. INTU 300P vs spot 357), where post-print IV crush almost
+// guarantees a total loss unless the move is enormous. A 0.25Δ strike sits
+// nearer the expected move so it retains delta/value through the crush —
+// slightly pricier, materially better odds of paying on the actual move.
+export const EARNINGS_PREP_LOTTO_TARGET_DELTA = 0.25;
+
+export function buildLotto(ctx, direction, { lottoMaxLossUsd = 50, targetDelta = LOTTO_TARGET_DELTA } = {}) {
   const { price, sl, atrPct, chain, ticker } = ctx;
   const expiration = pickLottoExpiration(ticker, Date.now());
-  const targetDelta = 0.15;
   const type = direction === "SHORT" ? "P" : "C";
 
   let strike, chainLeg;
@@ -3646,10 +3657,15 @@ export function buildOptionsLadder(contract, opts = {}) {
     && !activateStandardLotto;
   if (activateStandardLotto || activateEarningsPrepLotto) {
     const lottoMax = Number(opts.lotto_max_loss_usd) || 50;
+    // Earnings-prep pulls the strike closer to the money (higher delta) so it
+    // can survive IV crush; quiet-tape lotto keeps the deep-OTM 0.15Δ tail.
+    const lottoDelta = activateEarningsPrepLotto
+      ? EARNINGS_PREP_LOTTO_TARGET_DELTA
+      : LOTTO_TARGET_DELTA;
     const lotto = buildLotto(
       { ...ctxEff, chain },
       activeDir || playDirection,
-      { lottoMaxLossUsd: lottoMax },
+      { lottoMaxLossUsd: lottoMax, targetDelta: lottoDelta },
     );
     if (lotto) {
       lotto._lotto_active = true;
