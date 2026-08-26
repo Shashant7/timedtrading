@@ -21,6 +21,11 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Day-trade STOP OUT Discord embed (2026-08-26).** STOP/EXIT alerts reused
+      the full entry playbook (Setup/Trigger/Entry/Bracket BUY limit) so a stop-out
+      read like a new entry. Embed now shows Exit/Why, fill recap, and planned
+      stops; reason text maps premium_stop vs breakeven_stop accurately. Branch:
+      `cursor/dt-stop-out-discord-embed-dbdd`.
 - [x] **Lotto: no 0 DTE + brief why (2026-08-25).** Live CVX card was
       `205C Exp Aug 25 (0 DTE)` with no reason. Convexity lotto is a
       swing/event debit, not the index day-trade product. Single-name
