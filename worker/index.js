@@ -2514,6 +2514,7 @@ const ROUTES = [
   // P0.7.154 — surface cron failure tombstones so the operator can
   // grep "what's been silently broken?" without trawling logs.
   ["GET", "/timed/admin/cron-status", "GET /timed/admin/cron-status"],
+  ["GET", "/timed/admin/openai-spend", "GET /timed/admin/openai-spend"],
   ["POST", "/timed/admin/cron-clear", "POST /timed/admin/cron-clear"],
   ["POST", "/timed/admin/rebuild-snapshots", "POST /timed/admin/rebuild-snapshots"],
   // P0.7.156 — candle freshness probe. Returns the worst-stale ticker
@@ -73266,6 +73267,21 @@ export default {
         }
       }
 
+      // GET /timed/admin/openai-spend?key=...&weeks=4
+      // Weekly feature-by-dollar OpenAI usage rollup (estimates).
+      if (routeKey === "GET /timed/admin/openai-spend") {
+        const _spAuthFail = await requireKeyOrAdmin(req, env);
+        if (_spAuthFail) return _spAuthFail;
+        try {
+          const weeks = Math.max(1, Math.min(12, Number(url.searchParams.get("weeks")) || 4));
+          const { getWeeklyOpenAiSpendReport } = await import("./openai-spend.js");
+          const report = await getWeeklyOpenAiSpendReport(env, { weeks });
+          return sendJSON(report, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // POST /timed/admin/rebuild-snapshots?key=...&fromDate=YYYY-MM-DD[&toDate=YYYY-MM-DD]
       //
       // P0.7.172 (2026-05-15) — rebuild trader+investor portfolio snapshots
@@ -104847,6 +104863,48 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // Don't return — allow other handlers
     }
 
+    // ── OpenAI weekly spend rollup (Monday 8 AM ET — ops Discord) ──
+    if (vc.has("0 * * * *")) {
+      const _spEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
+      const _spEtDow = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short" });
+      if (_spEtDow === "Mon" && _spEtH === 8) {
+        ctx.waitUntil((async () => {
+          try {
+            const { getWeeklyOpenAiSpendReport } = await import("./openai-spend.js");
+            const report = await getWeeklyOpenAiSpendReport(env, { weeks: 2 });
+            const cur = report.weeks?.[0];
+            const prev = report.weeks?.[1];
+            if (!cur) return;
+            const lines = (cur.features || []).slice(0, 14).map((f) =>
+              `• ${f.feature}: $${Number(f.usd).toFixed(2)} (${f.calls} calls)`);
+            const prevUsd = prev ? Number(prev.total_usd) : null;
+            const delta = prevUsd != null ? cur.total_usd - prevUsd : null;
+            const deltaLine = delta != null
+              ? `\nvs prior week: ${delta >= 0 ? "+" : ""}$${delta.toFixed(2)}`
+              : "";
+            await notifyDiscord(env, {
+              title: `OpenAI spend · ${cur.week}`,
+              description: [
+                `Estimated **$${Number(cur.total_usd).toFixed(2)}** (${cur.total_calls} calls)${deltaLine}`,
+                lines.join("\n"),
+                report.cio_monthly_cap_usd != null
+                  ? `\nCIO monthly cap: $${report.cio_monthly_usd.toFixed(2)} / $${report.cio_monthly_cap_usd}`
+                  : "",
+              ].filter(Boolean).join("\n").slice(0, 1900),
+              color: 0x14b8a6,
+            }, "general").catch(() => {});
+            recordCronSuccess(env, "openai_weekly_spend_report").catch(() => {});
+          } catch (e) {
+            recordCronFailure(env, {
+              op: "openai_weekly_spend_report",
+              error: String(e?.message || e).slice(0, 200),
+              caller: "scheduled_event",
+            }).catch(() => {});
+          }
+        })());
+      }
+    }
+
     // ── Re-engagement Emails: Monday 10 AM ET (14:00 UTC in EDT, 15:00 UTC in EST) ──
     if (vc.has("0 14 * * 1") || vc.has("0 15 * * 1")) {
       const _reEngEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
@@ -106036,17 +106094,31 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           try {
             console.log("[DAILY BRIEF CRON] Generating morning brief...");
             const hybridGetCandles = _makeHybridD1GetCandles(env);
-            const result = await generateDailyBrief(env, "morning", {
+            const morningOpts = {
               SECTOR_MAP,
               d1GetCandles: hybridGetCandles,
               notifyDiscord,
               d1InsertNotification,
               skipIfExists: true,
-            });
-            console.log(`[DAILY BRIEF CRON] Morning: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            };
+            let result;
+            try {
+              result = await generateDailyBrief(env, "morning", morningOpts);
+              console.log(`[DAILY BRIEF CRON] Morning: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            } catch (e) {
+              console.error("[DAILY BRIEF CRON] Morning failed:", String(e).slice(0, 300));
+              result = { ok: false, error: String(e?.message || e) };
+            }
             await recordBriefCronOutcome(env, "daily_brief_morning", result);
+            try {
+              const { shouldScheduleBriefRetry, scheduleBriefCronRetry } = await import("./openai-spend.js");
+              if (shouldScheduleBriefRetry(result)) {
+                scheduleBriefCronRetry(ctx, env, "daily_brief_morning", () =>
+                  generateDailyBrief(env, "morning", morningOpts));
+              }
+            } catch (_) { /* retry scheduling optional */ }
           } catch (e) {
-            console.error("[DAILY BRIEF CRON] Morning failed:", String(e).slice(0, 300));
+            console.error("[DAILY BRIEF CRON] Morning outer failed:", String(e).slice(0, 300));
             await recordBriefCronOutcome(env, "daily_brief_morning", { ok: false, error: String(e?.message || e) });
           }
         })());
@@ -106265,17 +106337,31 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           try {
             console.log("[DAILY BRIEF CRON] Generating evening brief...");
             const hybridGetCandles = _makeHybridD1GetCandles(env);
-            const result = await generateDailyBrief(env, "evening", {
+            const eveningOpts = {
               SECTOR_MAP,
               d1GetCandles: hybridGetCandles,
               notifyDiscord,
               d1InsertNotification,
               skipIfExists: true,
-            });
-            console.log(`[DAILY BRIEF CRON] Evening: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            };
+            let result;
+            try {
+              result = await generateDailyBrief(env, "evening", eveningOpts);
+              console.log(`[DAILY BRIEF CRON] Evening: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            } catch (e) {
+              console.error("[DAILY BRIEF CRON] Evening failed:", String(e).slice(0, 300));
+              result = { ok: false, error: String(e?.message || e) };
+            }
             await recordBriefCronOutcome(env, "daily_brief_evening", result);
+            try {
+              const { shouldScheduleBriefRetry, scheduleBriefCronRetry } = await import("./openai-spend.js");
+              if (shouldScheduleBriefRetry(result)) {
+                scheduleBriefCronRetry(ctx, env, "daily_brief_evening", () =>
+                  generateDailyBrief(env, "evening", eveningOpts));
+              }
+            } catch (_) { /* retry scheduling optional */ }
           } catch (e) {
-            console.error("[DAILY BRIEF CRON] Evening failed:", String(e).slice(0, 300));
+            console.error("[DAILY BRIEF CRON] Evening outer failed:", String(e).slice(0, 300));
             await recordBriefCronOutcome(env, "daily_brief_evening", { ok: false, error: String(e?.message || e) });
           }
         })());
@@ -106497,17 +106583,31 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           try {
             console.log(`[INTRADAY FLASH CRON] Generating flash insight at ${_etFlashH}:00 ET...`);
             const hybridGetCandles = _makeHybridD1GetCandles(env);
-            const result = await generateIntradayBrief(env, {
+            const flashOpts = {
               SECTOR_MAP,
               d1GetCandles: hybridGetCandles,
               notifyDiscord,
               skipIfExists: true,
               intradayEtHour: _etFlashH,
-            });
-            console.log(`[INTRADAY FLASH CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            };
+            let result;
+            try {
+              result = await generateIntradayBrief(env, flashOpts);
+              console.log(`[INTRADAY FLASH CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
+            } catch (e) {
+              console.error("[INTRADAY FLASH CRON] Failed:", String(e).slice(0, 300));
+              result = { ok: false, error: String(e?.message || e) };
+            }
             await recordBriefCronOutcome(env, "intraday_flash", result);
+            try {
+              const { shouldScheduleBriefRetry, scheduleBriefCronRetry } = await import("./openai-spend.js");
+              if (shouldScheduleBriefRetry(result)) {
+                scheduleBriefCronRetry(ctx, env, "intraday_flash", () =>
+                  generateIntradayBrief(env, flashOpts));
+              }
+            } catch (_) { /* retry scheduling optional */ }
           } catch (e) {
-            console.error("[INTRADAY FLASH CRON] Failed:", String(e).slice(0, 300));
+            console.error("[INTRADAY FLASH CRON] Outer failed:", String(e).slice(0, 300));
             await recordBriefCronOutcome(env, "intraday_flash", { ok: false, error: String(e?.message || e) });
           }
         })());

@@ -348,7 +348,12 @@ export async function cioLifecycleGate(env, opts = {}) {
 
   // 3. Account spend (only if we actually completed a call).
   if (!timedOut && !cioResult?.fallback && cioResult?.model) {
-    await addMonthlySpend(env, estimatedCostUsd(cioResult.model));
+    const usd = estimatedCostUsd(cioResult.model);
+    await addMonthlySpend(env, usd);
+    try {
+      const { recordOpenAiSpend } = await import("../openai-spend.js");
+      await recordOpenAiSpend(env, `cio_lifecycle_${type}`, { model: cioResult.model, usd });
+    } catch (_) { /* unified spend optional */ }
   }
 
   const latency = Date.now() - t0;

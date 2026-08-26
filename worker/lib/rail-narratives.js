@@ -3,8 +3,8 @@
 const DEFAULT_MODEL = "gpt-4o-mini";
 const FUNDAMENTALS_KV_PREFIX = "timed:fundamentals_narrative:v1:";
 const CATALYSTS_KV_PREFIX = "timed:catalysts_narrative:v1:";
-const FUNDAMENTALS_TTL_SEC = 12 * 60 * 60;
-const CATALYSTS_TTL_SEC = 90 * 60;
+const FUNDAMENTALS_TTL_SEC = 24 * 60 * 60;
+const CATALYSTS_TTL_SEC = 6 * 60 * 60;
 
 async function callOpenAI(env, systemPrompt, userPrompt, { maxTokens = 600 } = {}) {
   const key = env?.OPENAI_API_KEY;
@@ -33,6 +33,15 @@ async function callOpenAI(env, systemPrompt, userPrompt, { maxTokens = 600 } = {
       return { ok: false, error_kind: `openai_${resp.status}`, hint: errText.slice(0, 200) };
     }
     const json = await resp.json();
+    const model = body.model;
+    try {
+      const { recordOpenAiSpend } = await import("../openai-spend.js");
+      recordOpenAiSpend(env, opts.feature || "rail_narrative", {
+        model,
+        prompt_tokens: json.usage?.prompt_tokens,
+        completion_tokens: json.usage?.completion_tokens,
+      }).catch(() => {});
+    } catch (_) {}
     return { ok: true, content: json.choices?.[0]?.message?.content || "" };
   } catch (e) {
     return { ok: false, error_kind: e?.name === "AbortError" ? "openai_timeout" : "openai_exception" };
@@ -219,6 +228,7 @@ export async function fetchFundamentalsNarrative(env, ticker, { force = false, s
     env,
     FUNDAMENTALS_SYSTEM,
     JSON.stringify(compactFundamentalsInput(snap)),
+    { feature: "rail_fundamentals" },
   );
   let narrative = null;
   if (llm.ok) {
@@ -270,7 +280,7 @@ export async function fetchCatalystsNarrative(env, ticker, catalystsPayload, { f
     macro: C.macro?.macro_narrative || C.macro?.one_liner,
   };
 
-  const llm = await callOpenAI(env, CATALYSTS_SYSTEM, JSON.stringify(llmInput));
+  const llm = await callOpenAI(env, CATALYSTS_SYSTEM, JSON.stringify(llmInput), { feature: "rail_catalysts" });
   let narrative = null;
   if (llm.ok) {
     const parsed = safeParseJson(llm.content);
