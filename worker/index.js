@@ -84279,7 +84279,8 @@ export default {
               const prefs = await _loadAutoMirrorPrefs(env, email);
               const on = payload.options_enabled === true
                 || payload.vehicles?.long_call?.enabled === true
-                || payload.vehicles?.long_put?.enabled === true;
+                || payload.vehicles?.long_put?.enabled === true
+                || payload.vehicles?.index_trend_letf?.enabled === true;
               const off = payload.options_enabled === false;
               const vehicles = { ...(prefs.vehicles || {}) };
               if (on || off) {
@@ -84287,6 +84288,10 @@ export default {
                 const putOn = payload.vehicles?.long_put?.enabled;
                 vehicles.long_call = { ...vehicles.long_call, enabled: callOn !== undefined ? !!callOn : on };
                 vehicles.long_put = { ...vehicles.long_put, enabled: putOn !== undefined ? !!putOn : on };
+              }
+              const letfOn = payload.vehicles?.index_trend_letf?.enabled;
+              if (letfOn !== undefined) {
+                vehicles.index_trend_letf = { ...vehicles.index_trend_letf, enabled: !!letfOn };
               }
               await _saveAutoMirrorPrefs(env, email, {
                 ...prefs,

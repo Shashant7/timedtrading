@@ -97,7 +97,7 @@
       .bc-settings { margin-bottom: 16px; }
       .bc-acct-row {
         display: grid;
-        grid-template-columns: minmax(140px, 1.5fr) auto auto;
+        grid-template-columns: minmax(140px, 1.5fr) auto auto auto;
         gap: 10px 18px;
         align-items: center;
         padding: 10px 0;
@@ -112,9 +112,9 @@
         display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
         margin-top: -2px;
       }
-      @media (max-width: 720px) {
-        .bc-acct-row { grid-template-columns: 1fr auto; }
-        .bc-acct-switch:last-of-type { grid-column: 2; }
+      @media (max-width: 900px) {
+        .bc-acct-row { grid-template-columns: 1fr auto auto; }
+        .bc-acct-switch:nth-child(4) { grid-column: 2 / -1; justify-self: end; }
       }
       .bc-acct-fold { margin: 8px 0 0; border-top: 1px solid var(--tt-border-weak); }
       .bc-acct-fold > summary {
@@ -413,6 +413,7 @@
         }
         if (/vehicle_long_call_disabled/.test(r)) return "Index-call mirroring is off — enable options on the account";
         if (/vehicle_long_put_disabled/.test(r)) return "Index-put mirroring is off — enable options on the account";
+        if (/vehicle_index_trend_letf_disabled/.test(r)) return "Index Swings (LETF) mirroring is off — enable LETF on the account";
         if (/flag_off|indices_paused/.test(r)) return "Index options auto-mirror is globally paused";
         if (/no_mirrored_entry|entry_fill_rejected|entry_fill_pending/.test(r)) return "The entry never mirrored, so this exit was skipped";
         if (/entry_already_mirrored/.test(r)) return "Already mirrored";
@@ -1412,11 +1413,17 @@
         return !!(v.long_call?.enabled || v.long_put?.enabled);
       }
 
+      function accountLetfOn(acct) {
+        const v = acct?.options_prefs?.vehicles || {};
+        return v.index_trend_letf?.enabled === true;
+      }
+
       function AccountCard({ acct, onChanged }) {
         const [busy, setBusy] = useState(false);
         const [msg, setMsg] = useState(null);
         const enabled = !!acct.broker_integration_enabled;
         const optionsOn = accountOptionsOn(acct);
+        const letfOn = accountLetfOn(acct);
         const callOn = acct?.options_prefs?.vehicles?.long_call?.enabled === true;
         const putOn = acct?.options_prefs?.vehicles?.long_put?.enabled === true;
 
@@ -1442,6 +1449,17 @@
             options_enabled: next,
             ...(vehicles ? { vehicles } : {}),
           }, next ? "Options strategies enabled" : "Options strategies paused");
+        };
+
+        const setLetf = (next) => {
+          const warn = next
+            ? "Enable Index Swings on this account? SPYU/SPXU share orders from the trend book will place here (days-to-weeks swing lane — not 0/1 DTE options)."
+            : "Disable Index Swings on this account? No further SPYU/SPXU orders will be placed.";
+          if (!confirm(warn)) return;
+          call("/timed/broker/account/options", {
+            account_id: acct.user_id,
+            vehicles: { index_trend_letf: { enabled: next } },
+          }, next ? "Index Swings enabled" : "Index Swings paused");
         };
 
         return (
@@ -1476,6 +1494,15 @@
                 <span className="knob" style={{ left: optionsOn ? 22 : 3 }} />
               </button>
             </div>
+            <div className="bc-acct-switch">
+              <span className={`bc-pill ${letfOn ? "p-mint" : "p-off"}`}><span className="dot" />{letfOn ? "LETF ON" : "LETF OFF"}</span>
+              <button className="toggle" disabled={busy || !enabled}
+                title={enabled ? (letfOn ? "Disable Index Swings (SPYU/SPXU)" : "Enable Index Swings (SPYU/SPXU)") : "Turn on equity mirroring first"}
+                style={{ background: letfOn ? "rgba(56,242,161,0.55)" : "rgba(255,255,255,0.12)" }}
+                onClick={() => setLetf(!letfOn)}>
+                <span className="knob" style={{ left: letfOn ? 22 : 3 }} />
+              </button>
+            </div>
             {optionsOn && (
               <div className="bc-acct-vehicles">
                 <button className={`bc-btn bc-btn-sm ${callOn ? "bc-btn-primary" : ""}`} disabled={busy}
@@ -1494,6 +1521,14 @@
                   }}>
                   Long put {putOn ? "on" : "off"}
                 </button>
+              </div>
+            )}
+            {letfOn && (
+              <div className="bc-acct-vehicles">
+                <span className={`bc-btn bc-btn-sm bc-btn-primary`} style={{ cursor: "default", opacity: 0.95 }}
+                  title="Index Swings — SPYU/SPXU share expression on the trend book">
+                  Index swings on
+                </span>
               </div>
             )}
             {msg && <div className={msg.ok ? "msg-ok" : "msg-err"} style={{ gridColumn: "1 / -1" }}>{msg.text}</div>}
@@ -2003,6 +2038,7 @@
                       <span style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <span className={`bc-pill ${on ? "p-ok" : "p-off"}`}>{on ? "MIRROR ON" : "NOT MIRRORED"}</span>
                         <span className={`bc-pill ${accountOptionsOn(a) ? "p-mint" : "p-off"}`}>{accountOptionsOn(a) ? "OPTIONS ON" : "OPTIONS OFF"}</span>
+                        <span className={`bc-pill ${accountLetfOn(a) ? "p-mint" : "p-off"}`}>{accountLetfOn(a) ? "LETF ON" : "LETF OFF"}</span>
                       </span>
                     </div>
                     <div className="acct-perf-value">{Number.isFinite(r.current) ? fmtUsd(r.current, { compact: true }) : "—"}</div>
@@ -2456,6 +2492,7 @@
         const hasAny = webullAccounts.length > 0 || otherAccounts.length > 0;
         const anyEnabled = (accounts || []).some((a) => a.broker_integration_enabled === true);
         const anyOptions = (accounts || []).some((a) => accountOptionsOn(a));
+        const anyLetf = (accounts || []).some((a) => accountLetfOn(a));
         const marketOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : null;
 
         // KPI totals:
@@ -2576,6 +2613,7 @@
                 )}
                 {hasAny && <span className={`bc-pill ${anyEnabled ? "p-mint" : "p-off"}`}>{anyEnabled ? "MIRROR ACTIVE" : "MIRROR PAUSED"}</span>}
                 {hasAny && <span className={`bc-pill ${anyOptions ? "p-mint" : "p-off"}`}>{anyOptions ? "OPTIONS ON" : "OPTIONS OFF"}</span>}
+                {hasAny && <span className={`bc-pill ${anyLetf ? "p-mint" : "p-off"}`}>{anyLetf ? "LETF ON" : "LETF OFF"}</span>}
               </div>
             </div>
 
@@ -2593,8 +2631,8 @@
                   <div>
                     <div className="tt-sec-title">Accounts</div>
                     <div className="tt-sec-h" style={{ fontSize: 18 }}>Mirror settings</div>
-                    <div className="dim" style={{ fontSize: 12, marginTop: 4, maxWidth: 620 }}>
-                      Equity mirror and options strategies are separate. Size follows each account's equity — there is no daily order cap.
+                    <div className="dim" style={{ fontSize: 12, marginTop: 4, maxWidth: 720 }}>
+                      Equity mirror, options strategies, and Index Swings (LETF shares) are separate toggles per account. Size follows each account's equity — there is no daily order cap.
                     </div>
                     <FractionalSharesTip />
                   </div>
