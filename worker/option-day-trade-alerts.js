@@ -6,6 +6,7 @@
 // moderate/aggressive does not triple-post.
 
 import { notifyDiscord } from "./alerts.js";
+import { wirePaperLaneNotify } from "./paper-lane-notify.js";
 import {
   buildSatyDayTradePlan,
   sizeDayTradePlay,
@@ -231,6 +232,26 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     contracts: nextBook?.contracts_remaining ?? nextBook?.contracts ?? size?.contracts ?? 1,
     premium: payload.premium ?? payload.execution?.premium_band?.premium,
     reason: decision.reason || null,
+  }).catch(() => {});
+
+  const flavor = payload.execution?.contract?.flavor || payload.flavor || "call";
+  const strike = payload.execution?.contract?.strike ?? payload.strike;
+  const vehicleLabel = strike
+    ? `${String(payload.ticker || "").toUpperCase()} ${Math.round(Number(strike))}${flavor === "put" ? "P" : "C"}`
+    : String(payload.ticker || "").toUpperCase();
+
+  await wirePaperLaneNotify(env, {
+    engine: "options_day_trade",
+    event: decision.event,
+    ticker: payload.ticker,
+    vehicleTicker: vehicleLabel,
+    direction: flavor === "put" ? "SHORT" : "LONG",
+    price: payload.premium ?? payload.execution?.premium_band?.premium,
+    qty: nextBook?.contracts_remaining ?? nextBook?.contracts ?? size?.contracts,
+    reason: decision.reason,
+    signal_id: persistSignalId,
+    ts: payload.now || Date.now(),
+    embed,
   }).catch(() => {});
 
   return {

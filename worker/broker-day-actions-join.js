@@ -56,3 +56,22 @@ export function modelRowFromDayTradeAction(a) {
     note: a?.reason || `options_day_trade:${ev}`,
   };
 }
+
+export function modelRowFromIndexTrendAction(a) {
+  const ev = String(a?.event || "").toUpperCase();
+  const event_type = ev === "BUY" || ev === "DCA_ADD" ? "ENTRY" : (ev === "TRIM" ? "TRIM" : "EXIT");
+  const sym = String(a?.letf_ticker || a?.underlying || "").toUpperCase();
+  return {
+    mode: "trader",
+    ts: a?.ts,
+    event_type,
+    position_id: a?.signal_id || null,
+    ticker: sym,
+    qty: Number(a?.shares) || 0,
+    price: Number(a?.letf_price) || 0,
+    cash_delta: 0,
+    realized_pnl: 0,
+    instrument: "letf",
+    note: a?.reason || `index_trend_letf:${ev}`,
+  };
+}

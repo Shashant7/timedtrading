@@ -8,6 +8,7 @@ import {
   classifyIndexTrendPaperEvent,
   defaultIndexTrendPaperShares,
 } from "./index-trend-paper.js";
+import { paperEventToNotifType, wirePaperLaneNotify } from "./paper-lane-notify.js";
 
 const BOOK_TTL = 21 * 86400;
 const DEFAULT_PROFILE = "speculator";
@@ -142,7 +143,7 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     book,
     letfPrice: payload.letf_price,
     underlyingPrice: payload.underlying_price,
-    management: payload.management,
+    management: payload.management || book?.management || {},
     direction: payload.direction,
     activate: payload.activate !== false,
     now: payload.now || Date.now(),
@@ -150,13 +151,23 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
   });
 
   if (decision.nextBook) {
+    const mgmtSnap = payload.management && typeof payload.management === "object"
+      ? { ...payload.management }
+      : decision.nextBook.management || null;
+    const stampedBook = {
+      ...decision.nextBook,
+      letf_ticker: String(payload.letf_ticker || decision.nextBook.letf_ticker || "").toUpperCase() || null,
+      underlying: String(payload.underlying || payload.ticker || decision.nextBook.underlying || "").toUpperCase() || null,
+      management: mgmtSnap,
+    };
     await persistIndexTrendBook(KV, {
       bookKey,
-      book: decision.nextBook,
+      book: stampedBook,
       letfTicker: payload.letf_ticker,
       signalId: persistSignalId,
       now: payload.now || Date.now(),
     });
+    decision.nextBook = stampedBook;
   }
   if (!decision.event) {
     return {
@@ -172,7 +183,7 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     underlying: payload.underlying || payload.ticker,
     letfTicker: payload.letf_ticker,
     direction: payload.direction,
-    management: payload.management,
+    management: payload.management || book?.management || {},
     book: book || decision.nextBook,
     letfPrice: payload.letf_price,
     underlyingPrice: payload.underlying_price,
@@ -197,6 +208,20 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     reason: decision.reason || null,
   }).catch(() => {});
 
+  await wirePaperLaneNotify(env, {
+    engine: "index_trend_letf",
+    event: decision.event,
+    ticker: payload.underlying || payload.ticker,
+    vehicleTicker: payload.letf_ticker,
+    direction: payload.direction,
+    price: payload.letf_price,
+    qty: nextBook?.shares_remaining ?? nextBook?.shares,
+    reason: decision.reason,
+    signal_id: persistSignalId,
+    ts: payload.now || Date.now(),
+    embed,
+  }).catch(() => {});
+
   return {
     ok: !!discord?.ok,
     event: decision.event,
@@ -206,5 +231,6 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     embed,
     discord,
     book: nextBook,
+    notif_type: paperEventToNotifType(decision.event),
   };
 }

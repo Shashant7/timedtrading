@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extraActionFromLedger, modelRowFromDayTradeAction } from "./broker-day-actions-join.js";
+import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction } from "./broker-day-actions-join.js";
 
 describe("extraActionFromLedger", () => {
   it("surfaces reject reason on unmatched options SELL extras", () => {
@@ -48,5 +48,34 @@ describe("modelRowFromDayTradeAction", () => {
     expect(sell.event_type).toBe("EXIT");
     expect(sell.position_id).toBe("dt:QQQ:x");
     expect(sell.instrument).toBe("option");
+  });
+});
+
+describe("modelRowFromIndexTrendAction", () => {
+  it("maps paper BUY/TRIM onto account_ledger-shaped rows keyed by signal_id", () => {
+    const buy = modelRowFromIndexTrendAction({
+      ts: 10,
+      event: "BUY",
+      underlying: "SPY",
+      letf_ticker: "SPYU",
+      signal_id: "it:SPY:SPYU:LONG:2026-W35",
+      shares: 76,
+      letf_price: 34.5,
+    });
+    expect(buy.event_type).toBe("ENTRY");
+    expect(buy.position_id).toBe("it:SPY:SPYU:LONG:2026-W35");
+    expect(buy.ticker).toBe("SPYU");
+    expect(buy.instrument).toBe("letf");
+    const trim = modelRowFromIndexTrendAction({
+      ts: 20,
+      event: "TRIM",
+      underlying: "SPY",
+      letf_ticker: "SPYU",
+      signal_id: "it:SPY:SPYU:LONG:2026-W35",
+      shares: 57,
+      letf_price: 35.45,
+    });
+    expect(trim.event_type).toBe("TRIM");
+    expect(trim.qty).toBe(57);
   });
 });

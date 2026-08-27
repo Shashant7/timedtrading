@@ -492,18 +492,22 @@ function CIOWatchlist({
   };
   const [liveTraderTrades, setLiveTraderTrades] = useState([]);
   const [liveInvestorPositions, setLiveInvestorPositions] = useState([]);
+  const [livePaperTrades, setLivePaperTrades] = useState([]);
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [tR, iR] = await Promise.all([fetch(`${API_BASE}/timed/ledger/trades?mode=trader&status=open&limit=50`, {
+        const [tR, iR, pR] = await Promise.all([fetch(`${API_BASE}/timed/ledger/trades?mode=trader&status=open&limit=50`, {
           credentials: "include"
         }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/investor/positions`, {
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/trades?source=paper`, {
           credentials: "include"
         }).then(r => r.ok ? r.json() : null).catch(() => null)]);
         if (!alive) return;
         if (tR?.ok && Array.isArray(tR.trades)) setLiveTraderTrades(tR.trades);
         if (iR?.ok && Array.isArray(iR.positions)) setLiveInvestorPositions(iR.positions.filter(p => String(p?.status || "").toUpperCase() === "OPEN"));
+        if (pR?.ok && Array.isArray(pR.trades)) setLivePaperTrades(pR.trades);
       } catch (_) {}
     })();
     return () => {
@@ -599,6 +603,12 @@ function CIOWatchlist({
       ep: Number(p.avg_entry),
       cp: Number(((data || {})[p.ticker] || {}).price ?? ((data || {})[p.ticker] || {}).close ?? p.avg_entry),
       dir: "LONG"
+    })), ...livePaperTrades.map(t => ({
+      sym: String(t._vehicle_label || t.ticker || "").toUpperCase(),
+      mode: t._paper_lane === "index_swing" ? "index_swing" : "index_day_trade",
+      ep: Number(t.entry_price ?? t.entryPrice),
+      cp: Number(t.mark_price ?? t.current_price ?? t.entry_price ?? t.entryPrice),
+      dir: String(t.direction || "LONG").toUpperCase()
     }))];
     for (const p of allLive) {
       if (!Number.isFinite(p.ep) || !Number.isFinite(p.cp) || p.ep <= 0) continue;
@@ -626,6 +636,7 @@ function CIOWatchlist({
     counts.totalLive = allLive.length;
     counts.traderLive = liveTraderTrades.length;
     counts.investorLive = liveInvestorPositions.length;
+    counts.paperLive = livePaperTrades.length;
     watching.sort((a, b) => {
       const ra = Number(a.t?.rank_position) || Number(a.t?.rank_score) || 999;
       const rb = Number(b.t?.rank_position) || Number(b.t?.rank_score) || 999;
@@ -649,7 +660,7 @@ function CIOWatchlist({
       investorLive: liveInvestorPositions.length,
       plKnown
     };
-  }, [data, liveTraderTrades, liveInvestorPositions]);
+  }, [data, liveTraderTrades, liveInvestorPositions, livePaperTrades]);
   const learnings = useMemo(() => {
     const rows = summary?.breakdown?.bySetup;
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -2195,6 +2206,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   return h(ModelPerformanceApp);
 }) : h(ModelPerformanceApp);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787839375301:228893093
+// cache-bust:1787846872103:925093193
 
-// cache-bust:1787839375301:228893093
+// cache-bust:1787846872103:925093193

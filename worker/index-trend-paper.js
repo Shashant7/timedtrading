@@ -133,6 +133,7 @@ export function classifyIndexTrendPaperEvent({
         dca_count: 0,
         stop_underlying: stopUl,
         target_underlying: targetUl,
+        management: management && typeof management === "object" ? { ...management } : null,
       },
     };
   }

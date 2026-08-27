@@ -201,12 +201,15 @@ const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 function useTraderBook(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
   const [closedByTicker, setClosedByTicker] = useState(() => new Map());
+  const [paperTrades, setPaperTrades] = useState([]);
   const [tradesLoaded, setTradesLoaded] = useState(false);
   const refresh = useCallback(async () => {
     try {
-      const [posRes, d1Res] = await Promise.all([fetch(`${API_BASE}/timed/trades?source=positions`, {
+      const [posRes, d1Res, paperRes] = await Promise.all([fetch(`${API_BASE}/timed/trades?source=positions`, {
         cache: "no-store"
       }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/trades?source=d1`, {
+        cache: "no-store"
+      }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/trades?source=paper`, {
         cache: "no-store"
       }).then(r => r.ok ? r.json() : null).catch(() => null)]);
       const openMap = new Map();
@@ -238,6 +241,7 @@ function useTraderBook(enabled) {
       }
       setTradeByTicker(openMap);
       setClosedByTicker(closedMap);
+      setPaperTrades(Array.isArray(paperRes?.trades) ? paperRes.trades : []);
     } catch (_) {} finally {
       setTradesLoaded(true);
     }
@@ -251,6 +255,7 @@ function useTraderBook(enabled) {
   return {
     tradeByTicker,
     closedByTicker,
+    paperTrades,
     tradesLoaded
   };
 }
@@ -918,7 +923,17 @@ function ATCard({
           color: "var(--tt-up-soft, #38f2a1)"
         })
       }
-    }, t?._model_path === "long_term" ? "LONG TERM" : "SHORT TERM"), stageChip && h("span", {
+    }, t?._model_path === "long_term" ? "LONG TERM" : "SHORT TERM"), t?._vehicle_label && h("span", {
+      className: "ds-chip ds-chip--sm",
+      title: t?._paper_lane === "index_swing" ? "Index Swings LETF vehicle" : "Index day-trade option vehicle",
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        letterSpacing: "0.04em",
+        background: "rgba(250,204,21,0.10)",
+        border: "1px solid rgba(250,204,21,0.28)",
+        color: "#facc15"
+      }
+    }, String(t._vehicle_label).toUpperCase()), stageChip && h("span", {
       className: `ds-chip ds-chip--sm ${stageChip.cls}`,
       title: stageChip.title || undefined
     }, stageChip.label), ...patternChips.map(p => h("span", {
@@ -1536,6 +1551,7 @@ function ActiveTraderApp() {
   const {
     tradeByTicker,
     closedByTicker,
+    paperTrades,
     tradesLoaded
   } = useTraderBook(!!data);
   const {
@@ -1735,8 +1751,36 @@ function ActiveTraderApp() {
       });
       known.add(sym);
     });
+    (paperTrades || []).forEach(tr => {
+      const sym = String(tr?.ticker || "").toUpperCase();
+      const cardKey = String(tr?._card_key || `${sym}:paper:${tr?._paper_lane || "lane"}`);
+      if (!sym || known.has(cardKey)) return;
+      const stage = String(tr?.kanban_stage || "hold").toLowerCase();
+      const stub = {
+        ticker: sym,
+        kanban_stage: stage,
+        price: Number(tr?.mark_price ?? tr?.current_price ?? tr?.entry_price) || null,
+        has_open_position: true,
+        position_direction: tr?.direction || null,
+        _vehicle_label: tr?._vehicle_label || tr?._vehicle_ticker || null,
+        _paper_lane: tr?._paper_lane || null,
+        _card_key: cardKey
+      };
+      const eff = computeEffectiveStage(stub, tr);
+      injected.push({
+        ...stub,
+        kanban_stage: eff,
+        _openTrade: tr,
+        _effectiveKanbanStage: eff,
+        _rawKanbanStage: stage,
+        _trimSignalPending: hasTrimSignalPending(stub, tr),
+        _exitSignalPending: hasExitSignalPending(stub, tr),
+        _injectedOpenTrade: true
+      });
+      known.add(cardKey);
+    });
     return injected.length ? mapped.concat(injected) : mapped;
-  }, [data, tradeByTicker, closedByTicker]);
+  }, [data, tradeByTicker, closedByTicker, paperTrades]);
   const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker, closedByTicker), [allTickers, tradeByTicker, closedByTicker]);
   const modelLanes = useMemo(() => {
     const tagShort = list => (list || []).map(t => {
@@ -2231,6 +2275,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787839375301:228893093
+// cache-bust:1787846872103:925093193
 
-// cache-bust:1787839375301:228893093
+// cache-bust:1787846872103:925093193
