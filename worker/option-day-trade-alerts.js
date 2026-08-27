@@ -252,6 +252,7 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     signal_id: persistSignalId,
     ts: payload.now || Date.now(),
     embed,
+    book: nextBook || book,
   }).catch(() => {});
 
   return {

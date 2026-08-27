@@ -184,7 +184,7 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     letfTicker: payload.letf_ticker,
     direction: payload.direction,
     management: payload.management || book?.management || {},
-    book: book || decision.nextBook,
+    book: decision.nextBook || book,
     letfPrice: payload.letf_price,
     underlyingPrice: payload.underlying_price,
     reason: decision.reason,
@@ -220,6 +220,8 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     signal_id: persistSignalId,
     ts: payload.now || Date.now(),
     embed,
+    book: nextBook || book,
+    management: payload.management || book?.management || nextBook?.management,
   }).catch(() => {});
 
   return {
