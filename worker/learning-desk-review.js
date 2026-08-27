@@ -14,7 +14,7 @@
  * No new apply path. decideProposal() + model_config upserts only.
  */
 
-import { resolvePlay, PLAY_STATUS } from "./foundation/play-catalog.js";
+import { resolvePlay, PLAY_STATUS, isCalibrationPlay, CORE_PLAYS } from "./foundation/play-catalog.js";
 import {
   demotionProposalConfigKey,
   setupDemotionConfigKey,
@@ -121,6 +121,24 @@ export function deskTriageProposal(row, ctx = {}) {
         play_id: demotion.play_id,
       };
     }
+    if (isCalibrationPlay(demotion.play_id, demotion.direction)) {
+      if (normalizeConfigValue(live) === "blocked") {
+        return {
+          action: "restore",
+          desk: "cio",
+          confidence: "high",
+          reason: "calibration_family",
+          play_id: demotion.play_id,
+        };
+      }
+      return {
+        action: "reject",
+        desk: "cio",
+        confidence: "high",
+        reason: "calibration_family",
+        play_id: demotion.play_id,
+      };
+    }
   }
 
   if (key && configValuesEquivalent(live, proposed)) {
@@ -182,6 +200,15 @@ export function deskTriageProposal(row, ctx = {}) {
         desk: "cro",
         confidence: "high",
         reason: "workhorse_protected",
+        play_id: demotion.play_id,
+      };
+    }
+    if (demotion.play_id && isCalibrationPlay(demotion.play_id, demotion.direction)) {
+      return {
+        action: "reject",
+        desk: "cio",
+        confidence: "high",
+        reason: "calibration_family",
         play_id: demotion.play_id,
       };
     }
@@ -283,6 +310,29 @@ export async function loadPerSetupWindow(db, days, nowMs) {
     const [setup, direction] = key.split("|");
     return { setup, direction, stats: computeWindowStats(list) };
   }).filter((s) => s.stats.n >= 3);
+}
+
+export function planCalibrationRestores(daCfg = {}) {
+  const out = [];
+  for (const play of CORE_PLAYS) {
+    if (!isCalibrationPlay(play)) continue;
+    for (const dir of ["long", "short"]) {
+      const key = setupDemotionConfigKey(play.id, dir);
+      if (!key) continue;
+      // Partial daCfg must not hide a live blocked marker. If the key
+      // is missing, emit it and let readLive decide.
+      if (daCfg && Object.prototype.hasOwnProperty.call(daCfg, key)
+          && normalizeConfigValue(daCfg[key]) !== "blocked") {
+        continue;
+      }
+      out.push({
+        play_id: play.id,
+        config_key: key,
+        reason: "calibration_family",
+      });
+    }
+  }
+  return out;
 }
 
 export function planRecoveredRestores(perSetup30, daCfg = {}) {
@@ -408,7 +458,9 @@ export async function runLearningDeskReview(env, opts = {}) {
           env,
           restoreKey,
           `learning_desk_${verdict.desk}`,
-          `CIO restore ${verdict.play_id} 30d n=${verdict.n30} pnl=${verdict.pnl30}`,
+          verdict.reason === "calibration_family"
+            ? `CIO restore ${verdict.play_id} calibration family`
+            : `CIO restore ${verdict.play_id} 30d n=${verdict.n30} pnl=${verdict.pnl30}`,
         );
         restored.push({ config_key: restoreKey, play_id: verdict.play_id });
         decided.push({ id: row.id, config_key: row.config_key, ...verdict });
@@ -425,12 +477,13 @@ export async function runLearningDeskReview(env, opts = {}) {
     }
   }
 
-  // Restore recovered setups even when no pending demotion row exists.
+  // Restore recovered or calibration setups even when no pending row exists.
   if (!opts.dryRun) {
-    for (const r of planRecoveredRestores(perSetup30, {
-      ...daCfg,
-      // Re-read after proposal loop so a just-restored key is not double-written.
-    })) {
+    const extra = [
+      ...planRecoveredRestores(perSetup30, daCfg),
+      ...planCalibrationRestores(daCfg),
+    ];
+    for (const r of extra) {
       const live = await readLive(env, r.config_key);
       if (normalizeConfigValue(live) !== "blocked") continue;
       try {
@@ -438,7 +491,9 @@ export async function runLearningDeskReview(env, opts = {}) {
           env,
           r.config_key,
           "learning_desk_cio",
-          `CIO restore ${r.play_id} 30d n=${r.n} pnl=${r.pnl_usd}`,
+          r.reason === "calibration_family"
+            ? `CIO restore ${r.play_id} calibration family`
+            : `CIO restore ${r.play_id} 30d n=${r.n} pnl=${r.pnl_usd}`,
         );
         restored.push(r);
       } catch { /* best-effort */ }

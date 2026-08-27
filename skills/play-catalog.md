@@ -32,10 +32,10 @@ when the flag is on and no exact/`*` row matches. ATH `*` also requires
 `conviction>=4` (same as Prime). `min_rr` / `min_conviction` fail closed
 when the value is missing.
 
-**Cloud Pivot is now a catalog play** (`tt_cloud_pivot`, restricted).
-The live book writes `setup_name = TT Cloud Pivot`. The weekly governor
-and Loop 1 must see that id — leaving it off the catalog made August's
-bleeder invisible to demotion.
+**Cloud Pivot is a catalog play** (`tt_cloud_pivot`, restricted,
+role `calibration`). Loop 1 and Trade Review must see that id. The
+weekly governor must **not** auto-pause it — first print was 2026-08-24
+at paper size. Visible ≠ auto-demote.
 
 Paper families (Confirm-stack / Cloud Pivot / Continuation) still open a
 **0.1×** sibling ticket when FIRE + proposal are live and no core path is

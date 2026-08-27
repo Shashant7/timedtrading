@@ -5,6 +5,8 @@ import {
   isPlayPaused,
   isPlayRestricted,
   canonicalPlayId,
+  canAutoDemotePlay,
+  isCalibrationPlay,
   CORE_PLAYS,
 } from "./play-catalog.js";
 
@@ -51,5 +53,14 @@ describe("play catalog", () => {
     expect(ids.length).toBeLessThanOrEqual(16);
     expect(ids).toContain("tt_gap_reversal_long");
     expect(ids).toContain("tt_cloud_pivot");
+  });
+
+  it("keeps Cloud Pivot on the calibration path, not auto-demote", () => {
+    expect(resolvePlay("tt_cloud_pivot").role).toBe("calibration");
+    expect(isCalibrationPlay("TT Cloud Pivot")).toBe(true);
+    expect(canAutoDemotePlay("tt_cloud_pivot").ok).toBe(false);
+    expect(canAutoDemotePlay("tt_cloud_pivot").reason).toBe("calibration_family");
+    expect(canAutoDemotePlay("tt_ath_breakout").ok).toBe(true);
+    expect(canAutoDemotePlay("tt_gap_reversal_long").ok).toBe(false);
   });
 });
