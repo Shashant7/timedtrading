@@ -1247,7 +1247,7 @@ export default {
         ]);
         const RECOGNIZED = new Set([
           "equity_long", "long_call", "long_put", "vertical_spread",
-          "leaps", "straddle", "moonshot",
+          "leaps", "straddle", "moonshot", "index_trend_letf",
         ]);
         // 2026-07-22 — equity_long bumped from a 3/day + $300 preset that
         // was clearly copy-pasted from the options-moonshot rows below.
@@ -1266,6 +1266,7 @@ export default {
           leaps:           { enabled: false, daily_cap: 1, max_per_order_usd: 500, max_loss_per_order_usd: 500 },
           straddle:        { enabled: false, daily_cap: 1, max_per_order_usd: 300, max_loss_per_order_usd: 200 },
           moonshot:        { enabled: false, daily_cap: 1, max_per_order_usd: 100, max_loss_per_order_usd: 100 },
+          index_trend_letf: { enabled: false, daily_cap: 2, max_per_order_usd: 2000 },
         };
 
         const current = user.options_prefs?.vehicles || {};
