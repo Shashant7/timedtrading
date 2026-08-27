@@ -254,24 +254,82 @@ export function buildIndexTrendSignalEmbed({
   const letf = String(letfTicker || "").toUpperCase();
   const ul = String(underlying || "").toUpperCase();
   const dir = String(direction || "LONG").toUpperCase();
-  const mgmt = management || {};
+  const mgmt = management || book?.management || {};
   const pxLetf = round2(letfPrice);
   const pxUl = round2(underlyingPrice);
-  const title = `${ev} ${letf} · Index Trend (${ul})`;
+  const entry = round2(book?.entry_letf_price);
+  const sharesRem = Number(book?.shares_remaining);
+  const sharesOrig = Number(book?.shares);
+  const shares = (Number.isFinite(sharesRem) && sharesRem > 0)
+    ? sharesRem
+    : (Number.isFinite(sharesOrig) && sharesOrig > 0 ? sharesOrig : null);
+  const pnlPct = entry > 0 && pxLetf > 0
+    ? Math.round(((pxLetf - entry) / entry) * 10000) / 100
+    : null;
+  const isExit = ev === "EXIT" || ev === "STOP";
+  const isTrim = ev === "TRIM";
+  const isEntry = ev === "BUY" || ev === "DCA_ADD";
+
+  // Title mirrors Short Term Discord: horizon · event · vehicle · fill.
+  let title;
+  if (isExit) {
+    const pnlBit = pnlPct != null ? ` ${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%` : "";
+    title = `SHORT TERM · Exit: ${letf} ${dir} — ${ev === "STOP" ? "Stopped out" : "Closed"}${pnlBit}${pxLetf != null ? ` @ $${pxLetf.toFixed(2)}` : ""}`;
+  } else if (isTrim) {
+    title = `SHORT TERM · Trim: ${letf} ${dir}${pnlPct != null ? ` ${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%` : ""}${pxLetf != null ? ` @ $${pxLetf.toFixed(2)}` : ""}`;
+  } else {
+    title = `SHORT TERM · Entry: ${letf} ${dir}${pxLetf != null ? ` @ $${pxLetf.toFixed(2)}` : ""} · Index Swings (${ul})`;
+  }
+
   const lines = [
     `**${ev}** ${dir} trend on **${ul}** via **${letf}** (share order, not day-trade options).`,
-    pxLetf != null ? `LETF mark: $${pxLetf.toFixed(2)}` : null,
-    pxUl != null ? `${ul}: $${pxUl.toFixed(2)}` : null,
-    mgmt.stop_underlying ? `Stop (underlying): $${Number(mgmt.stop_underlying).toFixed(2)}` : null,
-    mgmt.target_underlying ? `Target (underlying): $${Number(mgmt.target_underlying).toFixed(2)}` : null,
     reason ? `Reason: ${String(reason).replace(/_/g, " ")}` : null,
-    book?.shares_remaining ? `Shares remaining: ${book.shares_remaining}` : null,
-    mgmt.exit_by ? `Exit doctrine: ${mgmt.exit_by}` : null,
   ].filter(Boolean);
+
+  const fields = [];
+  // Trade Summary — same skeleton as equity Short Term / day-trade exits.
+  if (isExit || isTrim) {
+    const bits = [
+      entry != null ? `Entry $${entry.toFixed(2)}` : null,
+      pxLetf != null ? `${isTrim ? "Fill" : "Exit"} $${pxLetf.toFixed(2)}` : null,
+      pnlPct != null ? `P&L ${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%` : null,
+      shares != null ? `Qty ${shares}` : null,
+    ].filter(Boolean);
+    if (bits.length) {
+      fields.push({ name: "Trade Summary", value: bits.join(" · "), inline: false });
+    }
+  } else if (isEntry) {
+    const bits = [
+      pxLetf != null ? `Entry $${pxLetf.toFixed(2)}` : null,
+      shares != null ? `Shares ${shares}` : null,
+      mgmt.stop_underlying ? `Stop (U/L) $${Number(mgmt.stop_underlying).toFixed(2)}` : null,
+      mgmt.target_underlying ? `Target (U/L) $${Number(mgmt.target_underlying).toFixed(2)}` : null,
+    ].filter(Boolean);
+    if (bits.length) {
+      fields.push({ name: "Trade Summary", value: bits.join(" · "), inline: false });
+    }
+  }
+
+  if (pxUl != null) fields.push({ name: ul, value: `$${pxUl.toFixed(2)}`, inline: true });
+  if (mgmt.stop_underlying) {
+    fields.push({ name: "Stop (underlying)", value: `$${Number(mgmt.stop_underlying).toFixed(2)}`, inline: true });
+  }
+  if (mgmt.target_underlying) {
+    fields.push({ name: "Target (underlying)", value: `$${Number(mgmt.target_underlying).toFixed(2)}`, inline: true });
+  }
+  if (mgmt.exit_by) {
+    fields.push({ name: "Exit doctrine", value: String(mgmt.exit_by).slice(0, 256), inline: false });
+  }
+  if (isTrim && shares != null) {
+    fields.push({ name: "Shares remaining", value: String(shares), inline: true });
+  }
+
   return {
-    title,
-    description: lines.join("\n"),
-    color: ev === "STOP" ? 0xef4444 : ev === "BUY" || ev === "DCA_ADD" ? 0x22c55e : 0xf59e0b,
+    title: title.slice(0, 250),
+    description: lines.join("\n").slice(0, 2048),
+    color: ev === "STOP" ? 0xef4444 : isEntry ? 0x22c55e : isExit ? (pnlPct != null && pnlPct < 0 ? 0xef4444 : 0x22c55e) : 0xf59e0b,
+    fields,
     timestamp: new Date(now).toISOString(),
+    footer: { text: "Timed Trading · Index Swings LETF · #trade-signals" },
   };
 }
