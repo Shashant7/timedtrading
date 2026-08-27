@@ -6,6 +6,26 @@
 
 ---
 
+## Cloud Pivot profit-lock never saw the live ticket [2026-08-27]
+
+**Symptom:** Operator unblocked the family (paper, 3 days). Closed
+losers were givebacks, not location misses: TJX +12.4% MFE then
+`sl_breached`; EXPE/DPZ same shape. Open XYZ/LRN were already below
+the 50% keep floor. No `tt_cloud_pivot_profit_lock` / magnet / ribbon
+exit has ever printed.
+
+**Cause:** `isTtCloudPivotTrade` used `tickerData.setup_name` (the
+current score). After a paper fill the card is usually ATH / Support
+Bounce / HTF Reclaim, so the family exit returned null. Profit-lock
+also sat behind `if (!c512) return null`. Live `getOpenPositionAsTrade`
+did not load `setup_name` / `entry_path`.
+
+**Fix:** identity is the executed ticket only. Hydrate path/setup from
+the trades row. Profit-lock runs before the 10m cloud is required.
+
+**Do not:** treat a missing 10m ripster print as "no Cloud Pivot
+management," or let the live card score overlay a paper ticket.
+
 ## Cloud Pivot auto-block was too blunt for a 3-day paper family [2026-08-27]
 
 **Symptom:** Operator said Cloud Pivot only started this week, at paper

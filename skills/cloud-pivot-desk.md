@@ -25,6 +25,11 @@ session. BUY in RTH opens a paper 0.1× sim ticket and the same 0.1×
 broker order so 5/12 / magnet exits can be followed. Canonical core
 paths stay full size.
 
+Live management must key off the **ticket** (`tt_cloud_pivot_long` /
+`TT Cloud Pivot`), not the current card score. Profit-lock (MFE ≥ 1.2%,
+keep 50% of peak) runs even when the 10m 5/12 print is missing — that
+is how TJX +12% MFE died at the stop.
+
 The 1H/4H 34/50 (then 72/89) magnet is the **last cover** once the
 live print has passed it — never show it as "toward." Next cover
 reuses the same Short Term / Long Term rail levels already on the

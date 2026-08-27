@@ -59,6 +59,11 @@ export function enrichLiveOpenPositionContext(openPositionContext, openTrade) {
   ctx.entryPath = ctx.entryPath || ctx.entry_path
     || openTrade.entryPath || openTrade.entry_path || null;
   ctx.entry_path = ctx.entryPath;
+  ctx.setup_name = ctx.setup_name || ctx.setupName
+    || openTrade.setup_name || openTrade.setupName || null;
+  ctx.setupName = ctx.setup_name;
+  ctx.slice_family = ctx.slice_family || ctx.entry_family
+    || openTrade.slice_family || openTrade.entry_family || null;
   ctx.__tradeRef = openTrade;
   return ctx;
 }

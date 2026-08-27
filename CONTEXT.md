@@ -664,6 +664,9 @@ playbook in `skills/security-auth-patterns.md`)**
   "learning is off."   Governor heal is plumbing only (no nightly
   `blocked` rewrite); CIO restores a setup when 30d n≥12 and PnL > 0.
   Catalog role `calibration` (Cloud Pivot) is refinement, not auto-pause.
+  Cloud Pivot live exits use the **ticket** (`entry_path` /
+  `setup_name`), never the current card score — otherwise profit-lock
+  no-ops after the tape rotates.
 - **Loops are ON in production** (Loop 1/2/3 since May; Trade Review
   since Aug 17; weekly governor default ON). A new live family that is
   not in `worker/foundation/play-catalog.js` is invisible to demotion —

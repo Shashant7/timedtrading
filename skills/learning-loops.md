@@ -75,7 +75,9 @@ approved).
    print was 2026-08-24 at 0.1× paper. Auto-demote after ~10 closed
    losers is too blunt — the open book was still green. Catalog role
    `calibration` keeps Loop 1 / Trade Review / profit-lock on and
-   keeps the governor off the pause button.
+   keeps the governor off the pause button. The first refinement is
+   making profit-lock see the ticket: live identity is `entry_path` /
+   `setup_name` on the trade, never the current card score.
 
 ## Learning desk (CIO / CRO / CTO)
 
