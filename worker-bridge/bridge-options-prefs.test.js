@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   applyOptionsStrategyPatch,
+  indexTrendLetfOn,
   optionsStrategiesOn,
+  pickIndexTrendLetfAccount,
   pickOptionsAccount,
 } from "./bridge-options-prefs.js";
 
@@ -40,6 +42,16 @@ describe("applyOptionsStrategyPatch", () => {
     expect(next.options_prefs.vehicles.long_call.enabled).toBe(true);
     expect(next.options_prefs.vehicles.long_put.enabled).toBe(false);
   });
+
+  it("index_trend_letf patch does not flip options master", () => {
+    const next = applyOptionsStrategyPatch(
+      { options_enabled: false, options_prefs: { vehicles: { long_call: { enabled: false } } } },
+      { vehicles: { index_trend_letf: { enabled: true } } },
+    );
+    expect(next.options_enabled).toBe(false);
+    expect(next.options_prefs.vehicles.index_trend_letf.enabled).toBe(true);
+    expect(next.options_prefs.vehicles.long_call.enabled).toBe(false);
+  });
 });
 
 describe("pickOptionsAccount", () => {
@@ -67,5 +79,28 @@ describe("pickOptionsAccount", () => {
     };
     expect(optionsStrategiesOn(viaPrefs)).toBe(true);
     expect(pickOptionsAccount([viaPrefs])?.user_id).toBe("a#webull#cash");
+  });
+});
+
+describe("pickIndexTrendLetfAccount", () => {
+  const roth = {
+    user_id: "a#webull#roth", status: "connected", broker_integration_enabled: true,
+    options_prefs: { vehicles: { index_trend_letf: { enabled: true } } },
+    webull_account_class: "ROTH_IRA",
+  };
+  const cash = {
+    user_id: "a#webull#cash", status: "connected", broker_integration_enabled: true,
+    options_prefs: { vehicles: { index_trend_letf: { enabled: false } } },
+    webull_account_class: "INDIVIDUAL_CASH",
+  };
+
+  it("returns the LETF-enabled account, preferring Roth", () => {
+    expect(indexTrendLetfOn(roth)).toBe(true);
+    expect(indexTrendLetfOn(cash)).toBe(false);
+    expect(pickIndexTrendLetfAccount([cash, roth])?.user_id).toBe("a#webull#roth");
+  });
+
+  it("returns null when no account opted in", () => {
+    expect(pickIndexTrendLetfAccount([cash])).toBeNull();
   });
 });

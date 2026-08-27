@@ -1247,7 +1247,7 @@ export default {
         ]);
         const RECOGNIZED = new Set([
           "equity_long", "long_call", "long_put", "vertical_spread",
-          "leaps", "straddle", "moonshot",
+          "leaps", "straddle", "moonshot", "index_trend_letf",
         ]);
         // 2026-07-22 — equity_long bumped from a 3/day + $300 preset that
         // was clearly copy-pasted from the options-moonshot rows below.
@@ -1266,6 +1266,7 @@ export default {
           leaps:           { enabled: false, daily_cap: 1, max_per_order_usd: 500, max_loss_per_order_usd: 500 },
           straddle:        { enabled: false, daily_cap: 1, max_per_order_usd: 300, max_loss_per_order_usd: 200 },
           moonshot:        { enabled: false, daily_cap: 1, max_per_order_usd: 100, max_loss_per_order_usd: 100 },
+          index_trend_letf: { enabled: false, daily_cap: 2, max_per_order_usd: 2000 },
         };
 
         const current = user.options_prefs?.vehicles || {};
@@ -1851,16 +1852,31 @@ export default {
 // so with no participants the behavior is exactly the legacy one.
 async function handleOrderWebhook(env, ctx, payload) {
   const owner = String(payload?.user_id || "").toLowerCase();
+  const vehicle = String(payload?.vehicle || "").toLowerCase();
   const fanoutOn = String(env?.BROKER_FANOUT_ENABLED || "").toLowerCase() === "true";
   if (payload?.broker_account_id) {
     return handleSingleAccountOrder(env, ctx, payload);
   }
+  const { pickIndexTrendLetfAccount, indexTrendLetfOn } = await import("./bridge-options-prefs.js");
   const participants = await listMirrorParticipants(env, owner).catch(() => []);
   const ownerAccounts = fanoutOn
     ? await resolveBridgeAccounts(env, owner, { enabledOnly: true })
     : [];
   const expandOwner = fanoutOn && ownerAccounts.length > 1;
   if (!expandOwner && !participants.length) {
+    if (vehicle === "index_trend_letf") {
+      const allOwner = await resolveBridgeAccounts(env, owner, { enabledOnly: true }).catch(() => []);
+      const picked = pickIndexTrendLetfAccount(allOwner, {
+        preferClass: env?.WEBULL_DEFAULT_ACCOUNT_CLASS || "ROTH_IRA",
+      });
+      if (picked) {
+        return handleSingleAccountOrder(env, ctx, {
+          ...payload,
+          user_id: picked.user_id,
+          broker_account_id: resolveBrokerAccountId(picked),
+        });
+      }
+    }
     return handleSingleAccountOrder(env, ctx, payload);
   }
   const results = [];
@@ -1904,12 +1920,18 @@ async function handleOrderWebhook(env, ctx, payload) {
     };
   };
   if (expandOwner) {
-    for (const acct of ownerAccounts) await dispatchOne(perAccountPayload(acct), acct);
+    const ownerPool = vehicle === "index_trend_letf"
+      ? ownerAccounts.filter((acct) => indexTrendLetfOn(acct))
+      : ownerAccounts;
+    for (const acct of ownerPool) await dispatchOne(perAccountPayload(acct), acct);
   } else {
     // Signal owner keeps the legacy single-account resolution.
     await dispatchOne({ ...payload }, null);
   }
-  for (const acct of participants) await dispatchOne(perAccountPayload(acct), acct);
+  for (const acct of participants) {
+    if (vehicle === "index_trend_letf" && !indexTrendLetfOn(acct)) continue;
+    await dispatchOne(perAccountPayload(acct), acct);
+  }
   return json({ ok: true, fanout: true, accounts: results.length, results }, 200);
 }
 

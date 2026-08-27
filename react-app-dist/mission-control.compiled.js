@@ -1374,6 +1374,11 @@ function VehicleTogglesCard({
         daily_cap: 1,
         max_per_order_usd: 100,
         max_loss_per_order_usd: 100
+      },
+      index_trend_letf: {
+        enabled: false,
+        daily_cap: 2,
+        max_per_order_usd: 2000
       }
     };
     const out = {};
@@ -1420,6 +1425,10 @@ function VehicleTogglesCard({
     key: "moonshot",
     label: "Moonshot",
     showLoss: true
+  }, {
+    key: "index_trend_letf",
+    label: "Index Trend LETF",
+    showLoss: false
   }];
   const setRow = (key, patch) => {
     setRows(prev => ({
@@ -2421,7 +2430,7 @@ function BridgeSection({
       style: {
         lineHeight: 1.5
       }
-    }, "When ON, the model's Trader-mode entries auto-route through the broker bridge as options plays (long call / put / vertical spread by default). Independent from the equity-trading toggle above \u2014 options have their own daily / per-order / per-loss caps because tail risk is different."), React.createElement("div", {
+    }, "Master switch for the operator mirror pipeline (index day-trade, index trend LETF, swing options). When OFF, the worker records mirror decisions but does not place orders \u2014 even if per-account vehicles below are enabled. Turn ON here, then enable vehicles per connected account above."), React.createElement("div", {
       className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"
     }, React.createElement("div", {
       className: "mc-kpi"
@@ -4192,6 +4201,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1787837055919:776230104
+// cache-bust:1787839375301:228893093
 
-// cache-bust:1787837055919:776230104
+// cache-bust:1787839375301:228893093

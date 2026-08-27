@@ -60,6 +60,7 @@ function humanizeReason(raw) {
   }
   if (/vehicle_long_call_disabled/.test(r)) return "Index-call mirroring is off — enable options on the account";
   if (/vehicle_long_put_disabled/.test(r)) return "Index-put mirroring is off — enable options on the account";
+  if (/vehicle_index_trend_letf_disabled/.test(r)) return "Index Swings (LETF) mirroring is off — enable LETF on the account";
   if (/flag_off|indices_paused/.test(r)) return "Index options auto-mirror is globally paused";
   if (/no_mirrored_entry|entry_fill_rejected|entry_fill_pending/.test(r)) return "The entry never mirrored, so this exit was skipped";
   if (/entry_already_mirrored/.test(r)) return "Already mirrored";
@@ -1628,6 +1629,10 @@ function accountOptionsOn(acct) {
   const v = acct?.options_prefs?.vehicles || {};
   return !!(v.long_call?.enabled || v.long_put?.enabled);
 }
+function accountLetfOn(acct) {
+  const v = acct?.options_prefs?.vehicles || {};
+  return v.index_trend_letf?.enabled === true;
+}
 function AccountCard({
   acct,
   onChanged
@@ -1636,6 +1641,7 @@ function AccountCard({
   const [msg, setMsg] = useState(null);
   const enabled = !!acct.broker_integration_enabled;
   const optionsOn = accountOptionsOn(acct);
+  const letfOn = accountLetfOn(acct);
   const callOn = acct?.options_prefs?.vehicles?.long_call?.enabled === true;
   const putOn = acct?.options_prefs?.vehicles?.long_put?.enabled === true;
   const call = async (path, body, okText) => {
@@ -1676,6 +1682,18 @@ function AccountCard({
         vehicles
       } : {})
     }, next ? "Options strategies enabled" : "Options strategies paused");
+  };
+  const setLetf = next => {
+    const warn = next ? "Enable Index Swings on this account? SPYU/SPXU share orders from the trend book will place here (days-to-weeks swing lane — not 0/1 DTE options)." : "Disable Index Swings on this account? No further SPYU/SPXU orders will be placed.";
+    if (!confirm(warn)) return;
+    call("/timed/broker/account/options", {
+      account_id: acct.user_id,
+      vehicles: {
+        index_trend_letf: {
+          enabled: next
+        }
+      }
+    }, next ? "Index Swings enabled" : "Index Swings paused");
   };
   return React.createElement("div", {
     className: "bc-acct-row"
@@ -1728,6 +1746,25 @@ function AccountCard({
     style: {
       left: optionsOn ? 22 : 3
     }
+  }))), React.createElement("div", {
+    className: "bc-acct-switch"
+  }, React.createElement("span", {
+    className: `bc-pill ${letfOn ? "p-mint" : "p-off"}`
+  }, React.createElement("span", {
+    className: "dot"
+  }), letfOn ? "LETF ON" : "LETF OFF"), React.createElement("button", {
+    className: "toggle",
+    disabled: busy || !enabled,
+    title: enabled ? letfOn ? "Disable Index Swings (SPYU/SPXU)" : "Enable Index Swings (SPYU/SPXU)" : "Turn on equity mirroring first",
+    style: {
+      background: letfOn ? "rgba(56,242,161,0.55)" : "rgba(255,255,255,0.12)"
+    },
+    onClick: () => setLetf(!letfOn)
+  }, React.createElement("span", {
+    className: "knob",
+    style: {
+      left: letfOn ? 22 : 3
+    }
   }))), optionsOn && React.createElement("div", {
     className: "bc-acct-vehicles"
   }, React.createElement("button", {
@@ -1764,7 +1801,16 @@ function AccountCard({
         confirmMaster: false
       });
     }
-  }, "Long put ", putOn ? "on" : "off")), msg && React.createElement("div", {
+  }, "Long put ", putOn ? "on" : "off")), letfOn && React.createElement("div", {
+    className: "bc-acct-vehicles"
+  }, React.createElement("span", {
+    className: `bc-btn bc-btn-sm bc-btn-primary`,
+    style: {
+      cursor: "default",
+      opacity: 0.95
+    },
+    title: "Index Swings \u2014 SPYU/SPXU share expression on the trend book"
+  }, "Index swings on")), msg && React.createElement("div", {
     className: msg.ok ? "msg-ok" : "msg-err",
     style: {
       gridColumn: "1 / -1"
@@ -2403,7 +2449,9 @@ function AccountPerformanceRow({
       className: `bc-pill ${on ? "p-ok" : "p-off"}`
     }, on ? "MIRROR ON" : "NOT MIRRORED"), React.createElement("span", {
       className: `bc-pill ${accountOptionsOn(a) ? "p-mint" : "p-off"}`
-    }, accountOptionsOn(a) ? "OPTIONS ON" : "OPTIONS OFF"))), React.createElement("div", {
+    }, accountOptionsOn(a) ? "OPTIONS ON" : "OPTIONS OFF"), React.createElement("span", {
+      className: `bc-pill ${accountLetfOn(a) ? "p-mint" : "p-off"}`
+    }, accountLetfOn(a) ? "LETF ON" : "LETF OFF"))), React.createElement("div", {
       className: "acct-perf-value"
     }, Number.isFinite(r.current) ? fmtUsd(r.current, {
       compact: true
@@ -2954,6 +3002,7 @@ function BrokerConnectionsApp({
   const hasAny = webullAccounts.length > 0 || otherAccounts.length > 0;
   const anyEnabled = (accounts || []).some(a => a.broker_integration_enabled === true);
   const anyOptions = (accounts || []).some(a => accountOptionsOn(a));
+  const anyLetf = (accounts || []).some(a => accountLetfOn(a));
   const marketOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : null;
   const totals = useMemo(() => {
     const accs = posData?.accounts || [];
@@ -3082,7 +3131,9 @@ function BrokerConnectionsApp({
     className: `bc-pill ${anyEnabled ? "p-mint" : "p-off"}`
   }, anyEnabled ? "MIRROR ACTIVE" : "MIRROR PAUSED"), hasAny && React.createElement("span", {
     className: `bc-pill ${anyOptions ? "p-mint" : "p-off"}`
-  }, anyOptions ? "OPTIONS ON" : "OPTIONS OFF"))), err && React.createElement("div", {
+  }, anyOptions ? "OPTIONS ON" : "OPTIONS OFF"), hasAny && React.createElement("span", {
+    className: `bc-pill ${anyLetf ? "p-mint" : "p-off"}`
+  }, anyLetf ? "LETF ON" : "LETF OFF"))), err && React.createElement("div", {
     className: "tt-card tt-card-pad",
     style: {
       borderColor: "rgba(245,158,11,0.35)",
@@ -3113,9 +3164,9 @@ function BrokerConnectionsApp({
     style: {
       fontSize: 12,
       marginTop: 4,
-      maxWidth: 620
+      maxWidth: 720
     }
-  }, "Equity mirror and options strategies are separate. Size follows each account's equity \u2014 there is no daily order cap."), React.createElement(FractionalSharesTip, null)), anyEnabled && React.createElement("button", {
+  }, "Equity mirror, options strategies, and Index Swings (LETF shares) are separate toggles per account. Size follows each account's equity \u2014 there is no daily order cap."), React.createElement(FractionalSharesTip, null)), anyEnabled && React.createElement("button", {
     className: "bc-btn bc-btn-sm bc-pause-all",
     disabled: busy,
     style: {
@@ -3271,6 +3322,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787837055919:776230104
+// cache-bust:1787839375301:228893093
 
-// cache-bust:1787837055919:776230104
+// cache-bust:1787839375301:228893093

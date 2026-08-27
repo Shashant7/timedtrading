@@ -29,6 +29,7 @@ const RECOGNIZED_VEHICLES = new Set([
   "leaps",
   "straddle",
   "moonshot",
+  "index_trend_letf",
 ]);
 const NAKED_SHORT_VEHICLES = new Set([
   "short_call",
