@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildIndexTrendSignalId,
+  buildIndexTrendSignalEmbed,
   classifyIndexTrendPaperEvent,
   computeUnderlyingR,
   defaultIndexTrendPaperShares,
@@ -98,5 +99,30 @@ describe("index-trend-paper", () => {
   it("sizes default paper shares from budget", () => {
     expect(defaultIndexTrendPaperShares(100, 2000)).toBe(20);
     expect(defaultIndexTrendPaperShares(0)).toBe(1);
+  });
+
+  it("exit Discord embed includes Trade Summary with entry and PnL", () => {
+    const emb = buildIndexTrendSignalEmbed({
+      event: "EXIT",
+      underlying: "SPY",
+      letfTicker: "SPYU",
+      direction: "LONG",
+      letfPrice: 35.55,
+      underlyingPrice: 770,
+      reason: "target_deadline",
+      book: {
+        entry_letf_price: 34.5,
+        shares_remaining: 43,
+        stop_underlying: 764.77,
+        target_underlying: 791.08,
+      },
+      management: { stop_underlying: 764.77, target_underlying: 791.08, exit_by: "Month-end" },
+    });
+    expect(emb.title).toMatch(/SHORT TERM · Exit: SPYU LONG/);
+    expect(emb.title).toMatch(/\+/);
+    const summary = (emb.fields || []).find((f) => f.name === "Trade Summary");
+    expect(summary?.value).toContain("Entry $34.50");
+    expect(summary?.value).toContain("Exit $35.55");
+    expect(summary?.value).toMatch(/P&L \+/);
   });
 });
