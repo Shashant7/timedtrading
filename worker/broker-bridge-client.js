@@ -59,15 +59,24 @@ export function resolveTraderEquityEthMirror(order, now = new Date()) {
   const isReducer = side === "trim" || side === "exit" || side === "sell" || side === "close";
   const slack = isReducer ? 0.03 : 0.015;
   const limit = Math.round(px * (isReducer ? (1 - slack) : (1 + slack)) * 100) / 100;
-  return {
-    skip: false,
-    fields: {
-      order_kind: "limit",
-      limit_price: limit,
-      tif: "GTC",
-      support_trading_session: "ALL",
-    },
+  const fields = {
+    order_kind: "limit",
+    limit_price: limit,
+    tif: "GTC",
+    support_trading_session: "ALL",
   };
+  // Webull fills fractional equity only in RTH. Floor 1.359 → 1 so the
+  // AH trim still places; a leftover under 1 share waits for the open.
+  const qty = Number(order?.qty);
+  if (Number.isFinite(qty) && qty > 0) {
+    const whole = Math.floor(qty + 1e-9);
+    if (whole >= 1 && Math.abs(qty - whole) > 1e-6) {
+      fields.qty = whole;
+    } else if (whole < 1) {
+      return { skip: true, reason: "fractional_trim_deferred_to_rth" };
+    }
+  }
+  return { skip: false, fields };
 }
 
 async function hmacSign(key, payload) {

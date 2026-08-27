@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { classifyWebullFractError, roundToWholeShares } from "./bridge-webull-fract.js";
+import {
+  classifyWebullFractError,
+  roundToWholeShares,
+  adaptWebullEquityQtyForSession,
+  ensureWebullEthOrderFields,
+  isNyRegularSession,
+} from "./bridge-webull-fract.js";
 
 describe("classifyWebullFractError — live HALO/RPG/RTX repro", () => {
   it("detects the exact error_code from the live HALO 2026-07-22 response", () => {
@@ -69,5 +75,57 @@ describe("roundToWholeShares", () => {
   it("passes through when already whole", () => {
     expect(roundToWholeShares(7)).toBe(7);
     expect(roundToWholeShares(100)).toBe(100);
+  });
+});
+
+describe("adaptWebullEquityQtyForSession", () => {
+  const ah = new Date("2026-08-27T16:53:00-04:00");
+  const rth = new Date("2026-08-27T14:00:00-04:00");
+
+  it("floors a fractional AH trim so 1.359 TSLA still sells 1 share", () => {
+    const r = adaptWebullEquityQtyForSession({ qty: 1.359, session: "ALL", now: ah });
+    expect(r).toMatchObject({ qty: 1, adapted: true, deferred: false });
+  });
+
+  it("defers a leftover under 1 share until RTH", () => {
+    const r = adaptWebullEquityQtyForSession({ qty: 0.42, session: "ALL", now: ah });
+    expect(r.deferred).toBe(true);
+    expect(r.qty).toBe(0);
+    expect(r.reason).toBe("fractional_trim_deferred_to_rth");
+  });
+
+  it("leaves fractionals alone during RTH with CORE session", () => {
+    const r = adaptWebullEquityQtyForSession({ qty: 1.359, session: "CORE", now: rth });
+    expect(r).toMatchObject({ qty: 1.359, adapted: false, deferred: false });
+  });
+
+  it("floors when the clock is after 16:00 ET even if session was omitted", () => {
+    const r = adaptWebullEquityQtyForSession({ qty: 1.359, now: ah });
+    expect(r.qty).toBe(1);
+    expect(r.adapted).toBe(true);
+  });
+});
+
+describe("ensureWebullEthOrderFields", () => {
+  const ah = new Date("2026-08-27T16:14:00-04:00");
+
+  it("fills LIMIT+ALL+GTC for an AH sell missing session fields", () => {
+    const r = ensureWebullEthOrderFields({ side: "trim", entry: 354.66, qty: 1 }, ah);
+    expect(r.order_type).toBe("limit");
+    expect(r.support_trading_session).toBe("ALL");
+    expect(r.tif).toBe("GTC");
+    expect(r.limit_price).toBeLessThan(354.66);
+  });
+
+  it("does not rewrite during RTH", () => {
+    const order = { side: "trim", entry: 354.66, qty: 1 };
+    expect(ensureWebullEthOrderFields(order, new Date("2026-08-27T14:00:00-04:00"))).toBe(order);
+  });
+});
+
+describe("isNyRegularSession", () => {
+  it("is open at 2pm ET weekday and closed at 4:14pm ET", () => {
+    expect(isNyRegularSession(new Date("2026-08-27T14:00:00-04:00"))).toBe(true);
+    expect(isNyRegularSession(new Date("2026-08-27T16:14:00-04:00"))).toBe(false);
   });
 });
