@@ -51,8 +51,9 @@ const CASHTAG_RE = /\$([A-Z][A-Z0-9]{0,4}(?:\.[A-Z])?)\b/g;
 // matches a 2–5 char uppercase token wrapped in parens — very high-signal
 // in financial publication prose and almost never a false positive.
 const PAREN_TICKER_RE = /\(([A-Z][A-Z0-9]{1,4})\)/g;
-// FSD prose often writes "^SPX", "SPX", or "US500" without a cashtag.
+// FSD prose often writes "^SPX", "SPX", "US500", or "S&P 500" without a cashtag.
 const INDEX_MENTION_RE = /\^?(SPX500|US500|SPX)\b/gi;
+const SPX_PROSE_RE = /\bS&P\s*500\b/gi;
 
 // 2026-06-11 — SPX is a cash index (removed from the tradable universe).
 // Research desk mentions still matter for the instruments we score/trade.
@@ -110,7 +111,9 @@ export function publicationMentionsTicker(title, excerpt, ticker) {
   const indexSources = Object.entries(RESEARCH_DESK_INDEX_ALIASES)
     .filter(([, targets]) => targets.includes(sym))
     .map(([src]) => src);
-  return indexSources.some((src) => textMentionsIndexToken(blob, src));
+  if (indexSources.some((src) => textMentionsIndexToken(blob, src))) return true;
+  if (indexSources.length > 0 && SPX_PROSE_RE.test(blob)) return true;
+  return false;
 }
 
 export function extractCashtagsFromText(text) {
@@ -135,6 +138,8 @@ export function extractCashtagsFromText(text) {
     const raw = String(m[1] || "").toUpperCase();
     push(raw === "SPX500" ? "SPX500" : raw === "US500" ? "US500" : "SPX");
   }
+  SPX_PROSE_RE.lastIndex = 0;
+  if (SPX_PROSE_RE.test(text)) push("SPX");
   return expandResearchDeskTickerTags(out);
 }
 

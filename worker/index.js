@@ -4849,6 +4849,11 @@ async function forceRescoreSingleTicker(env, ticker) {
     }
   } catch (_) { /* harmonic must never break rescore */ }
   try {
+    const { loadFsdMacroContext } = await import("./cro/cro-apply.js");
+    const fsdMacro = await loadFsdMacroContext(env);
+    if (fsdMacro) tickerData.fsd_macro = fsdMacro;
+  } catch (_) { /* best-effort */ }
+  try {
     const _rawConf = _scoreRootConfluence(tickerData);
     tickerData.timing_overlay = computeTimingOverlay(tickerData, _rawConf);
     tickerData.confluence_verdict = applyTimingOverlayToConfluence(_rawConf, tickerData.timing_overlay, tickerData);
@@ -94901,13 +94906,32 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             tickerForMomentum._index_quartet = quartetState;
             if (data) data._index_quartet = quartetState;
           } catch (_) { /* best-effort */ }
+          let fsdMacro = null;
+          try {
+            const { loadFsdMacroContext } = await import("./cro/cro-apply.js");
+            fsdMacro = await loadFsdMacroContext(env);
+            if (fsdMacro) {
+              tickerForMomentum.fsd_macro = fsdMacro;
+              if (data) data.fsd_macro = fsdMacro;
+            }
+          } catch (_) { /* best-effort */ }
           // 2026-05-30 — Compute confluence NOW that VP + quartet are
           // injected, so L4 ICT picks up VP zone and L5 Carter picks up
           // SMT bonus.
           try { confluence = _scoreRootConfluence(data); } catch (_) {}
+          if (fsdMacro && data) {
+            try {
+              const overlay = computeTimingOverlay(data, confluence);
+              data.timing_overlay = overlay;
+              if (confluence) {
+                confluence = applyTimingOverlayToConfluence(confluence, overlay, data);
+              }
+            } catch (_) { /* best-effort */ }
+          }
           let ladder = _buildOptionsLadder(ladderInput, {
             profile, account_value: accountValue, chain, confluence, themes,
             tickerData: tickerForMomentum,
+            fsd_macro: fsdMacro,
             lotto_max_loss_usd: Number(env?.CONVEXITY_LOTTO_MAX_LOSS_USD) || 50,
             leap_chain: ladderInput?._leap_chain || null,
           });
@@ -95100,6 +95124,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 marketOpen: _cxMarketOpen,
               });
               if (!Number.isFinite(Number(ladderInput?.price))) return note("no_price");
+              if (_optsFsdMacro && !t.fsd_macro) t.fsd_macro = _optsFsdMacro;
               let confluence = null;
               try { confluence = _scoreRootConfluence(t); } catch (_) {}
               let themes = [];
@@ -95110,6 +95135,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 themes,
                 tickerData: t,
                 lotto_max_loss_usd: _lottoMax,
+                fsd_macro: t.fsd_macro || _optsFsdMacro || null,
               });
               const extracted = _extractConvexityPlayFromLadder(ladder);
               if (!extracted?.play) {
@@ -95254,6 +95280,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             } catch (_) { return false; }
           })();
           const _optionsPlaysMod = await import("./options-plays.js");
+          let _optsFsdMacro = null;
+          try {
+            const { loadFsdMacroContext } = await import("./cro/cro-apply.js");
+            _optsFsdMacro = await loadFsdMacroContext(env);
+          } catch (_) { /* best-effort */ }
           const _flattenOptionsTickers = (all) => {
             if (Array.isArray(all?.tickers)) return all.tickers;
             if (Array.isArray(all)) return all;
@@ -95281,6 +95312,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // signals but SKIPS the D1 mark-recording so mark cadence stays on
             // the */5 tick — the minute lane is about signal latency, not marks.
             const _dtDispatchOnly = !!_dtSectionOpts.dispatchOnly;
+            let _dtFsdMacro = _dtSectionOpts.fsdMacro || null;
+            if (!_dtFsdMacro) {
+              try {
+                const { loadFsdMacroContext } = await import("./cro/cro-apply.js");
+                _dtFsdMacro = await loadFsdMacroContext(env);
+              } catch (_) { /* best-effort */ }
+            }
             const _dtTickers = Array.from(_optionsPlaysMod.DAY_TRADE_TICKERS);
             const _pickDtExp = _optionsPlaysMod.pickDayTradeExpiration;
             const _dtExpiration = _pickDtExp(Date.now(), {
@@ -95328,6 +95366,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 const _dtContract = await buildTraderPredictionContract(env, _dtSym);
                 if (!_dtContract) continue;
                 const _dtTicker = tickers.find(t => String(t?.ticker || "").toUpperCase() === _dtSym) || {};
+                if (_dtFsdMacro && !_dtTicker.fsd_macro) _dtTicker.fsd_macro = _dtFsdMacro;
                 const _dtAtrDay = Number(_dtTicker?.atr_levels?.atr_day) || 0;
                 const _liveSpot = _resolveSpot(pricesMap, _dtSym, { marketOpen });
                 const _dtPrice = _liveSpot > 0
@@ -95362,6 +95401,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   verdict: _dtVerdict,
                   profile,
                   chain: _dtChainBySym[_dtSym] || null,
+                  fsd_macro: _dtTicker.fsd_macro || _dtFsdMacro || null,
                 };
                 const _dtPlay = _buildDayTrade(_dtCtx);
                 if (!_dtPlay) {
@@ -95748,7 +95788,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const _dtPricesRawX = await KV.get("timed:prices").catch(() => null);
             const _dtPricesMapX = _dtPricesRawX ? (JSON.parse(_dtPricesRawX)?.prices || {}) : {};
             const _dtMarketOpenX = (typeof isNyRegularMarketOpen === "function") ? isNyRegularMarketOpen() : true;
-            const dtSection = await _buildDayTradeSection(tickersDt, _dtPricesMapX, _dtMarketOpenX, { dispatchOnly: true });
+            const dtSection = await _buildDayTradeSection(tickersDt, _dtPricesMapX, _dtMarketOpenX, { dispatchOnly: true, fsdMacro: _optsFsdMacro });
             return sendJSON({ ok: true, dt_only: true, ...dtSection, generated_at: Date.now() }, 200, corsHeaders(env, req));
           }
           if (!_bypassCache) {
@@ -95760,7 +95800,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const _dtPricesRaw = await KV.get("timed:prices").catch(() => null);
               const _dtPricesMap = _dtPricesRaw ? (JSON.parse(_dtPricesRaw)?.prices || {}) : {};
               const _dtMarketOpen = (typeof isNyRegularMarketOpen === "function") ? isNyRegularMarketOpen() : true;
-              const dayTrade = await _buildDayTradeSection(tickersSnap, _dtPricesMap, _dtMarketOpen);
+              const dayTrade = await _buildDayTradeSection(tickersSnap, _dtPricesMap, _dtMarketOpen, { fsdMacro: _optsFsdMacro });
               const filteredPlays = _filterShortDteIndexPlays(cached.plays, _dtPricesMap, _dtMarketOpen);
               return sendJSON({
                 ...cached,
@@ -95828,11 +95868,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 marketOpen: _allMarketOpen,
               });
               if (!Number.isFinite(Number(ladderInput?.price))) return null;
+              if (_optsFsdMacro && !t.fsd_macro) t.fsd_macro = _optsFsdMacro;
               let confluence = null;
               try { confluence = _scoreRootConfluence(t); } catch (_) {}
               let themes = [];
               try { themes = _getThemesForTicker(sym); } catch (_) {}
-              const ladder = _buildOptionsLadder(ladderInput, { profile, confluence, themes });
+              const ladder = _buildOptionsLadder(ladderInput, {
+                profile,
+                confluence,
+                themes,
+                fsd_macro: t.fsd_macro || _optsFsdMacro || null,
+              });
               if (!ladder || !ladder.primary) return null;
               return {
                 ticker: sym,
@@ -95935,7 +95981,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             day_trade_suppressed: _dtSuppressed,
             day_trade_expiration: _dtExpiration,
             day_trade_count: _dtCount,
-          } = await _buildDayTradeSection(tickers, _dtPricesMap, _dtMarketOpen);
+          } = await _buildDayTradeSection(tickers, _dtPricesMap, _dtMarketOpen, { fsdMacro: _optsFsdMacro });
           const filteredPlays = _filterShortDteIndexPlays(plays, _dtPricesMap, _dtMarketOpen);
           const payload = {
             ok: true,
@@ -107877,6 +107923,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             } catch (_) {}
 
+            // FSD macro rally context (Tom Lee / Newton month-end targets) —
+            // stamped on every timed:latest snapshot so day-trade, options,
+            // and root L1 confluence see the desk overlay without waiting for
+            // an on-demand /timed/options/ticker hit.
+            let fsdMacroContext = null;
+            try {
+              const { loadFsdMacroContext } = await import("./cro/cro-apply.js");
+              fsdMacroContext = await loadFsdMacroContext(env);
+            } catch (_) {}
+            env._fsdMacroContext = fsdMacroContext;
+
             // 2026-06-09 (P1.9) — Preload recent LIVE CIO decisions for
             // Layer 5 (self-accuracy). This array was hardcoded [] in
             // production since Phase 5 shipped — the CIO's documented
@@ -108988,6 +109045,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
             // ── Timing overlay (extension / TD9 / Markov / VIX orchestration) ──
             try {
+              if (env._fsdMacroContext) result.fsd_macro = env._fsdMacroContext;
               const _rawConf = _scoreRootConfluence(result);
               result.timing_overlay = computeTimingOverlay(result, _rawConf);
               result.confluence_verdict = applyTimingOverlayToConfluence(_rawConf, result.timing_overlay, result);

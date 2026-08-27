@@ -26,7 +26,7 @@ import { loadPublicationText, markPublicationExtracted } from "./fsd-ingestion.j
 const PROPOSALS_TABLE = "cro_playbook_proposals";
 const EXTRACTOR_TIMEOUT_MS = 45_000;     // long-form synthesis can take 20-30s
 const DEFAULT_MODEL = "gpt-4o-mini";
-const MAX_INPUT_CHARS = 20_000;           // hard cap on text shipped to LLM
+const MAX_INPUT_CHARS = 64_000;           // full Macro Minute transcripts + tables
 const MAX_COMPLETION_TOKENS = 3000;
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -93,7 +93,8 @@ function buildExtractionPrompt(text, playbook) {
       "• EXCEPTION — any 'Sector Allocation' monthly update MUST be classification='structural' with populated sector_stance_changes[] (and theme_stance_changes[] when the 15% sleeve rotates). Extract model weights and strategist Overweight/Neutral/Underweight ratings into sector_stance_changes.",
       "• tactical_signals_add must be COMPLETE — replace, not extend. The next apply replaces the whole TACTICAL_SIGNALS array.",
       "• Every tactical signal MUST include affected_tier1_themes (from the theme list above) OR affected_sectors_overweight (from the sector list). Empty for both is allowed only for index-level signals (e.g. an SPX-only observation).",
-      "• If the publication includes a VIDEO TRANSCRIPT section, that is Tom Lee's spoken Macro Minute (the night take on the next session). Treat it as primary over the short HTML blurb. Extract calendar catalysts (CPI, PPI, NFP, FOMC, earnings, policy), index targets, and sector/theme calls with high confidence.",
+      "• If the publication raises the S&P 500 / SPX target above the active playbook aspirational (e.g. 7,900–8,000 by month-end), populate strategy_phase_revision with updated spx_targets { base_case, aspirational, near_term_high } AND add a tactical signal with direction bullish_target (NOT bullish_stretched — targets are destinations, not stretch warnings).",
+      "• For index-level upside targets with a calendar deadline (month-end, year-end), use direction bullish_target and horizon tactical. Reserve bullish_stretched for 'extended / do not chase' reads only.",
     ].join("\n"),
     user: [
       "ACTIVE PLAYBOOK (for taxonomy reference only — do not echo back):",
@@ -123,7 +124,7 @@ function buildExtractionPrompt(text, playbook) {
       "    {",
       '      "signal": "<lowercase_snake_case unique id, e.g. rsp_spy_breadth_breakout>",',
       '      "pair": "<RSP/SPY, IGV/SMH, XLI/SPY, MAGS, ^SPX, BTCUSD vs ^SPX, etc.>",',
-      '      "direction": "<favor_a_over_b | caution_short_term | bullish_stretched | favor_industrials_into_broadening | ...>",',
+      '      "direction": "<favor_a_over_b | bullish_target | fsd_rally_window | buy_the_dip_rally | caution_short_term | bullish_stretched | ...>",',
       '      "horizon": "tactical" | "intermediate",',
       '      "evidence": "<1-line summary of the technical read (TD setup, MACD, trendline, DeMark, volume)>",',
       '      "playbook_action": "<2-3 sentences: what the desk should do with this signal>",',
@@ -159,7 +160,7 @@ function buildExtractionPrompt(text, playbook) {
       "  ],",
       "  // Populate ONLY if classification == 'structural'. Leave null/[] otherwise.",
       '  "strategy_headline_revision": "<full new STRATEGY_HEADLINE prose, ≤600 chars> | null",',
-      '  "strategy_phase_revision": null | { "label": "...", "tactical_overlay": "..." },',
+      '  "strategy_phase_revision": null | { "label": "...", "tactical_overlay": "...", "spx_targets": { "base_case": 7300, "aspirational": 8000, "near_term_high": 8000 } },',
       '  "sector_stance_changes": [',
       "    { \"sector\": \"...\", \"new_stance\": \"overweight|neutral|underweight\", \"new_multiplier\": <playbook tilt ONLY: 0.85–1.25 e.g. 1.15 for OW, 1.00 for N, 0.85 for UW — NOT model weight % or delta>, \"rationale_short\": \"...\" }",
       "  ],",

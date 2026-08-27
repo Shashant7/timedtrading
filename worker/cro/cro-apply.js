@@ -29,6 +29,11 @@
 
 import { getProposal, markProposalApplied } from "./fsd-extractor.js";
 import { markPublicationApplied } from "./fsd-ingestion.js";
+import {
+  normalizeTacticalSignalDirections,
+  parseMacroContextFromOverlay,
+  mergeFsdMacroContexts,
+} from "./fsd-macro-context.js";
 import { stampOverlayProvenance } from "../overlay-provenance.js";
 
 const OVERRIDE_KV_KEY = "cro:tactical_overrides";
@@ -98,9 +103,9 @@ function proposalToOverrideBlob(proposal, { proposalId, pubId }) {
       ? String(proposal.one_line_phase_tactical_overlay).slice(0, 200)
       : "CRO tactical overlay (auto-applied)",
     tactical_overlay: proposal?.one_line_phase_tactical_overlay || null,
-    tactical_signals: Array.isArray(proposal?.tactical_signals_add)
-      ? proposal.tactical_signals_add
-      : [],
+    tactical_signals: normalizeTacticalSignalDirections(
+      Array.isArray(proposal?.tactical_signals_add) ? proposal.tactical_signals_add : [],
+    ),
     theme_notes: Array.isArray(proposal?.theme_playbook_updates)
       ? proposal.theme_playbook_updates
       : [],
@@ -119,6 +124,7 @@ function proposalToOverrideBlob(proposal, { proposalId, pubId }) {
     education_add: Array.isArray(proposal?.education_snippets_add)
       ? proposal.education_snippets_add
       : [],
+    phase_revision: proposal?.strategy_phase_revision || null,
     structural_pending: proposal?.classification === "structural"
       ? {
           headline_revision: proposal.strategy_headline_revision || null,
@@ -195,10 +201,16 @@ async function mergeWithPreviousOverride(env, blob, proposal) {
  * @param options { autoApproved: bool, decidedBy: string }
  * @returns { ok, applied_blob? , error_kind?, hint? }
  */
-export async function applyProposal(env, proposalId, { autoApproved = false, decidedBy = "operator" } = {}) {
+export async function applyProposal(env, proposalId, { autoApproved = false, decidedBy = "operator", forceRehydrate = false } = {}) {
   const row = await getProposal(env, proposalId);
   if (!row) return { ok: false, error_kind: "proposal_not_found", hint: proposalId };
-  if (row.status === "applied") return { ok: false, error_kind: "already_applied" };
+  if (row.status === "applied" && !forceRehydrate) {
+    const existing = await loadTacticalOverrideBlob(env);
+    if (existing && String(existing.proposal_id) === String(proposalId)) {
+      return { ok: false, error_kind: "already_applied" };
+    }
+    // D1 says applied but KV missing or stale — rehydrate below.
+  }
 
   let blob = proposalToOverrideBlob(row.proposal, { proposalId, pubId: row.pub_id });
   blob = await mergeWithPreviousOverride(env, blob, row.proposal);
@@ -360,4 +372,102 @@ export async function isTrustedFsdAutoApplyEnabled(env) {
     if (v === false || String(v).toLowerCase() === "false" || String(v) === "0") return false;
     return true;
   } catch (_) { return true; }
+}
+
+/**
+ * Rehydrate cro:tactical_overrides from the latest applied D1 proposal when KV
+ * is missing (observed after deploys / manual KV clears).
+ */
+export async function healTacticalOverrideFromD1(env) {
+  const existing = await loadTacticalOverrideBlob(env);
+  if (existing) return { ok: true, healed: false, reason: "kv_present", blob: existing };
+
+  const db = env?.DB;
+  if (!db) return { ok: false, reason: "no_db" };
+
+  let row = null;
+  try {
+    row = await db.prepare(`
+      SELECT proposal_id, pub_id, proposal_json, applied_at
+        FROM cro_playbook_proposals
+       WHERE status = 'applied'
+       ORDER BY applied_at DESC
+       LIMIT 1
+    `).first();
+  } catch (e) {
+    return { ok: false, reason: "d1_query_failed", hint: String(e?.message || e).slice(0, 120) };
+  }
+  if (!row?.proposal_id) return { ok: false, reason: "no_applied_proposal" };
+
+  let proposal = null;
+  try {
+    proposal = typeof row.proposal_json === "string" ? JSON.parse(row.proposal_json) : row.proposal_json;
+  } catch (_) {
+    const full = await getProposal(env, row.proposal_id);
+    proposal = full?.proposal || null;
+  }
+  if (!proposal) return { ok: false, reason: "proposal_parse_failed" };
+
+  const blob = proposalToOverrideBlob(proposal, {
+    proposalId: row.proposal_id,
+    pubId: row.pub_id,
+  });
+  blob.source = "cro_rehydrate";
+  blob.applied_at = Number(row.applied_at) || Date.now();
+
+  const w = await writeTacticalOverrideBlob(env, blob);
+  if (!w.ok) return { ok: false, reason: w.error_kind || "kv_write_failed" };
+  return { ok: true, healed: true, proposal_id: row.proposal_id, blob };
+}
+
+/** Load parsed FSD macro rally context (KV-aware, auto-heals from D1). */
+export async function loadFsdMacroContext(env) {
+  let override = await loadTacticalOverrideBlob(env);
+  if (!override) {
+    const healed = await healTacticalOverrideFromD1(env);
+    if (healed.healed) override = healed.blob;
+  }
+  const primary = parseMacroContextFromOverlay(override);
+
+  const db = env?.DB;
+  if (!db) return primary;
+
+  let rows = [];
+  try {
+    const res = await db.prepare(`
+      SELECT proposal_id, pub_id, proposal_json, applied_at
+        FROM cro_playbook_proposals
+       WHERE status = 'applied'
+       ORDER BY applied_at DESC
+       LIMIT 12
+    `).all();
+    rows = res?.results || [];
+  } catch (_) {
+    return primary;
+  }
+
+  const supplemental = [];
+  for (const row of rows) {
+    if (override?.proposal_id && row.proposal_id === override.proposal_id) continue;
+    let proposal = null;
+    try {
+      proposal = typeof row.proposal_json === "string"
+        ? JSON.parse(row.proposal_json)
+        : row.proposal_json;
+    } catch (_) { continue; }
+    if (!proposal) continue;
+    const blob = proposalToOverrideBlob(proposal, {
+      proposalId: row.proposal_id,
+      pubId: row.pub_id,
+    });
+    blob.applied_at = Number(row.applied_at) || blob.applied_at;
+    const ctx = parseMacroContextFromOverlay(blob);
+    if (ctx?.spx_target || ctx?.target_month_end
+        || ctx?.signals?.some((s) => String(s?.signal || "").includes("spx_target"))) {
+      supplemental.push(ctx);
+    }
+  }
+
+  if (!supplemental.length) return primary;
+  return mergeFsdMacroContexts(primary, ...supplemental);
 }

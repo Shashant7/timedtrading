@@ -299,6 +299,13 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
     summary.errors.push(`schema_ensure_failed: ${String(e?.message || e).slice(0, 200)}`);
   }
 
+  try {
+    const { healTacticalOverrideFromD1 } = await import("./cro-apply.js");
+    summary.tactical_heal = await healTacticalOverrideFromD1(env);
+  } catch (e) {
+    summary.errors.push(`tactical_heal_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
   const fsdEnabled = await isFSDIngestionEnabled(env);
   if (!fsdEnabled) {
     summary.fsd_ingestion = { ok: true, skipped: "fsd_ingestion_disabled_in_model_config" };
@@ -447,6 +454,13 @@ export async function runCROFullCycle(env, { force = false } = {}) {
     await ensureCTOSchema(env);
   } catch (e) {
     summary.errors.push(`schema_ensure_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
+  try {
+    const { healTacticalOverrideFromD1 } = await import("./cro-apply.js");
+    summary.tactical_heal = await healTacticalOverrideFromD1(env);
+  } catch (e) {
+    summary.errors.push(`tactical_heal_failed: ${String(e?.message || e).slice(0, 200)}`);
   }
 
   // 1. CTO universe rollup — daily pass over scored universe (24h cache on

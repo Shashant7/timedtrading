@@ -82,6 +82,14 @@ function scoreL1_Macro(t) {
   // Tom Lee / FSD playbook layer. Prefers a baked-in __strategy_stance on
   // the ticker (from scoring cron) but falls back to inline computation
   // via getStrategyForTicker — sector + theme tilts + SMID bump.
+  const fsdMacro = t?.fsd_macro;
+  if (fsdMacro?.rally_active) {
+    const spx = fsdMacro.spx_target;
+    const evidence = spx
+      ? `FSD rally window (SPX ${spx.low?.toLocaleString?.() || spx.low}–${spx.high?.toLocaleString?.() || spx.high})`
+      : "FSD macro rally window (crypto/index leadership)";
+    return { side: "LONG", strength: 0.55, evidence };
+  }
   let ss = t?._strategy_stance || t?.strategy_stance || null;
   if (!ss) {
     try {
