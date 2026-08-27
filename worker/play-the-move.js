@@ -23,6 +23,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { lookupLETF, shouldActivateMoonshot } from "./options-plays.js";
+import {
+  pickPreferredLetfTicker,
+  scoreLetfSuitability,
+  resolvePlayPrefs,
+  TREND_LETF_PLAY_PREFS,
+} from "./letf-vehicles.js";
+
+export { TREND_LETF_PLAY_PREFS, resolvePlayPrefs };
 
 /** Canonical play vehicles the model may shoot (user-facing pref + scorecard). */
 export const PLAY_VEHICLES = Object.freeze(["shares", "letf", "options"]);
@@ -116,10 +124,15 @@ export function buildVehicleMenu(p = {}) {
   const mode = String(p.mode || "trader").toLowerCase();
   if (!ticker || !(price > 0)) return null;
 
-  const allowed = resolveAllowedPlayVehicles(p.playPrefs || p.prefs || t._play_prefs || {});
+  const holdIntent = String(t.hold_intent || t.horizon_bucket || "SWING").toUpperCase();
+  const allowed = resolveAllowedPlayVehicles(
+    resolvePlayPrefs({ playPrefs: p.playPrefs, prefs: p.prefs, mode, tickerData: t, hold_intent: holdIntent }),
+  );
+  const passiveProfile = allowed.length === 2
+    && allowed.includes("letf")
+    && !allowed.includes("options");
   const sgn = direction === "LONG" ? 1 : -1;
   const expectedMovePct = tp > 0 ? Math.round(((tp - price) / price) * sgn * 1000) / 10 : null;
-  const holdIntent = String(t.hold_intent || t.horizon_bucket || "SWING").toUpperCase();
   const completion = Number(t.completion);
   const entries = [];
 
@@ -181,30 +194,36 @@ export function buildVehicleMenu(p = {}) {
   {
     const themes = (t.themes || []).map((x) => (typeof x === "string" ? x : x?.theme)).filter(Boolean);
     const letf = lookupLETF(ticker, themes);
-    const letfTicker = letf ? (direction === "LONG" ? letf.long : letf.short) : null;
-    if (letf && letfTicker) {
-      let score = 45;
-      const reasons = [`${letf.factor}x exposure via ${letfTicker} (${letf.note})`];
-      const htf = Number(t.htf_score) || 0;
-      const aligned = String(t.state || "") === (direction === "LONG" ? "HTF_BULL_LTF_BULL" : "HTF_BEAR_LTF_BEAR");
-      if (Math.abs(htf) >= 15 && aligned) {
-        score += 15;
-        reasons.push("strong aligned trend — daily-reset compounding works FOR the position");
-      }
-      if (holdIntent === "POSITION") {
-        score -= 12;
-        reasons.push("long holds suffer daily-reset decay in chop");
-      } else {
-        reasons.push("daily-reset decay: not a buy-and-forget instrument");
-      }
-      entries.push({
-        vehicle: "letf",
-        letf_ticker: letfTicker,
-        factor: letf.factor,
-        label: `${direction === "LONG" ? "Buy" : "Buy"} ${letfTicker} (${letf.factor}x ${direction === "LONG" ? "bull" : "bear"})`,
-        suitability: clampScore(score),
-        reasons,
+    const fsdMacro = t.fsd_macro || t.timing_overlay?.fsd_macro || p.fsd_macro || null;
+    const confluence = t.confluence_verdict || t._confluence || null;
+    const horizonCtx = {
+      direction,
+      letfEntry: letf,
+      tickerData: t,
+      confluence,
+      fsdMacro,
+      expectedMovePct,
+      holdIntent,
+      passiveProfile,
+    };
+    if (letf) {
+      const letfTicker = pickPreferredLetfTicker(letf, direction, {
+        fsdMacro,
+        horizon: expectedMovePct != null && Math.abs(expectedMovePct) < 3 ? "day_trade" : "swing_trend",
+        timing: confluence?.timing || t.timing_overlay,
       });
+      if (letfTicker) {
+        const scored = scoreLetfSuitability({ ...horizonCtx, letfTicker });
+        entries.push({
+          vehicle: "letf",
+          letf_ticker: letfTicker,
+          factor: scored.factor,
+          horizon: scored.horizon,
+          label: `${direction === "LONG" ? "Buy" : "Buy"} ${letfTicker} (${scored.factor}× ${direction === "LONG" ? "bull" : "bear"})`,
+          suitability: scored.score,
+          reasons: scored.reasons,
+        });
+      }
     }
   }
 
@@ -268,10 +287,16 @@ export function buildVehicleMenu(p = {}) {
   });
   const pool = candidates.length ? candidates : entries.filter((e) => e.vehicle === "shares");
 
-  // ── The engine's pick — highest suitability, shares wins ties ────────────
-  const ranked = [...pool].sort((a, b) =>
-    (b.suitability - a.suitability) || (a.vehicle === "shares" ? -1 : 1),
-  );
+  // ── The engine's pick — highest suitability; passive LETF profile wins ties over shares
+  const ranked = [...pool].sort((a, b) => {
+    const diff = b.suitability - a.suitability;
+    if (diff !== 0) return diff;
+    if (passiveProfile) {
+      if (a.vehicle === "letf") return -1;
+      if (b.vehicle === "letf") return 1;
+    }
+    return a.vehicle === "shares" ? -1 : 1;
+  });
   const pick = ranked[0];
   const playVehicle = normalizePlayVehicle(pick.vehicle) || "shares";
 

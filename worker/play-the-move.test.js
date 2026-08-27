@@ -80,6 +80,23 @@ describe("buildVehicleMenu", () => {
     expect(letf.letf_ticker).toBe("SQQQ");
   });
 
+  it("passiveLetf pref prefers LETF over options on aligned trend", () => {
+    const menu = buildVehicleMenu(bigMoveInput({
+      playPrefs: { allowed_vehicles: ["letf", "shares"] },
+      tickerData: {
+        htf_score: 22,
+        state: "HTF_BULL_LTF_BULL",
+        hold_intent: "SWING",
+        fsd_macro: { rally_active: true },
+        confluence_verdict: { mode: "RIDE", timing: { signals: ["fsd_rally_window"] } },
+        themes: [],
+      },
+    }));
+    expect(menu.allowed_vehicles).toEqual(["letf", "shares"]);
+    expect(menu.pick.play_vehicle).toBe("letf");
+    expect(menu.pick.letf_ticker).toBe("TQQQ");
+  });
+
   it("adds the covered-call income angle in investor mode with a late move", () => {
     const menu = buildVehicleMenu(bigMoveInput({
       mode: "investor",

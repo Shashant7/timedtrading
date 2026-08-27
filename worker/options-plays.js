@@ -41,6 +41,10 @@ import {
   isFsdDipBuySetup,
   pickMonthEndRallyExpiration,
 } from "./cro/fsd-macro-context.js";
+import {
+  getLetfFactor,
+  pickPreferredLetfTicker,
+} from "./letf-vehicles.js";
 
 // ── Leveraged-ETF map ──────────────────────────────────────────────────────
 // Per-direction LETF lookup so the ladder can include "no-options leverage"
@@ -127,15 +131,7 @@ export function lookupLETF(ticker, themes = []) {
 }
 
 /** FSD month-end rally window: prefer 4× SPYU over 3× SPXL on index proxies. */
-export function pickPreferredLetfTicker(letfEntry, direction, fsdMacro = null) {
-  if (!letfEntry) return null;
-  const sideKey = direction === "SHORT" ? "short" : "long";
-  const primary = letfEntry[sideKey];
-  if (direction !== "LONG" || !fsdMacro?.rally_active) return primary;
-  const alts = Array.isArray(letfEntry.long_alts) ? letfEntry.long_alts : [];
-  if (alts.includes("SPYU")) return "SPYU";
-  return primary;
-}
+export { pickPreferredLetfTicker, getLetfFactor } from "./letf-vehicles.js";
 
 // ── Risk profiles ──────────────────────────────────────────────────────────
 // Order matters: index = how aggressive the user is. Used to rank ladder.
@@ -2645,11 +2641,14 @@ export function buildLeveragedETFPlay(ctx) {
   const { ticker, price, sl, tp1, direction, dollars_at_risk, themes, fsd_macro: fsdMacro } = ctx;
   const letf = lookupLETF(ticker, themes);
   if (!letf) return null;
-  const letfTicker = pickPreferredLetfTicker(letf, direction, fsdMacro);
+  const letfTicker = pickPreferredLetfTicker(letf, direction, {
+    fsdMacro,
+    horizon: "swing_trend",
+  });
   if (!letfTicker) {
     return null;
   }
-  const factor = letfTicker === "SPYU" ? 4 : (Number(letf.factor) || 2);
+  const factor = getLetfFactor(letfTicker, letf);
   // SL/TP geometry translates by factor (approximately, with daily-reset
   // decay above 3% moves — flag in notes).
   const underlyingPctMove = direction === "SHORT"

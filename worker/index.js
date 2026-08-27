@@ -95280,6 +95280,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             } catch (_) { return false; }
           })();
           const _optionsPlaysMod = await import("./options-plays.js");
+          const _indexTrendMod = await import("./index-trend-letf.js");
           let _optsFsdMacro = null;
           try {
             const { loadFsdMacroContext } = await import("./cro/cro-apply.js");
@@ -95774,6 +95775,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               day_trade_generated_at: Date.now(),
             };
           };
+          const _buildIndexTrendSection = (tickers, pricesMap, fsdMacro) => {
+            try {
+              const flat = _flattenOptionsTickers(tickers);
+              return _indexTrendMod.buildIndexTrendSection(flat, {
+                pricesMap: pricesMap || {},
+                fsdMacro: fsdMacro || null,
+                scoreConfluence: (row) => {
+                  try { return _scoreRootConfluence(row); } catch (_) {
+                    return row?.confluence_verdict || null;
+                  }
+                },
+              });
+            } catch (_) {
+              return {
+                index_trend_plays: [],
+                index_trend_suppressed: [],
+                index_trend_count: 0,
+                index_trend_generated_at: Date.now(),
+              };
+            }
+          };
           if (_dtOnly) {
             // Lean */1 dispatch lane — internal cron only. Advance the paper
             // book + fire trim/exit/stop signals for the 4 index tickers
@@ -95801,12 +95823,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const _dtPricesMap = _dtPricesRaw ? (JSON.parse(_dtPricesRaw)?.prices || {}) : {};
               const _dtMarketOpen = (typeof isNyRegularMarketOpen === "function") ? isNyRegularMarketOpen() : true;
               const dayTrade = await _buildDayTradeSection(tickersSnap, _dtPricesMap, _dtMarketOpen, { fsdMacro: _optsFsdMacro });
+              const indexTrend = _buildIndexTrendSection(tickersSnap, _dtPricesMap, _optsFsdMacro);
               const filteredPlays = _filterShortDteIndexPlays(cached.plays, _dtPricesMap, _dtMarketOpen);
               return sendJSON({
                 ...cached,
                 plays: filteredPlays,
                 count: filteredPlays.length,
                 ...dayTrade,
+                ...indexTrend,
                 generated_at: Date.now(),
                 _cache: "hit",
               }, 200, corsHeaders(env, req));
@@ -95982,6 +96006,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             day_trade_expiration: _dtExpiration,
             day_trade_count: _dtCount,
           } = await _buildDayTradeSection(tickers, _dtPricesMap, _dtMarketOpen, { fsdMacro: _optsFsdMacro });
+          const _indexTrendSection = _buildIndexTrendSection(tickers, _dtPricesMap, _optsFsdMacro);
           const filteredPlays = _filterShortDteIndexPlays(plays, _dtPricesMap, _dtMarketOpen);
           const payload = {
             ok: true,
@@ -95996,6 +96021,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             day_trade_plays: _dtPlays,
             day_trade_expiration: _dtExpiration,
             day_trade_suppressed: _dtSuppressed,
+            // Index trend / swing LETF (SPYU/SPXU) — orthogonal to day-trade options.
+            ..._indexTrendSection,
             // 2026-06-10 — conviction-floor observability: how many
             // weak-fusion (<40) candidates were dropped from the front
             // page this build.

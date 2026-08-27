@@ -681,7 +681,8 @@ describe("shouldAllowIndexDirectional — FSD rally dip buy", () => {
 describe("pickPreferredLetfTicker", () => {
   it("prefers SPYU during FSD rally window on SPY", () => {
     const letf = lookupLETF("SPY");
-    expect(pickPreferredLetfTicker(letf, "LONG", { rally_active: true })).toBe("SPYU");
+    expect(pickPreferredLetfTicker(letf, "LONG", { fsdMacro: { rally_active: true }, horizon: "swing_trend" })).toBe("SPYU");
+    expect(pickPreferredLetfTicker(letf, "LONG", { fsdMacro: { rally_active: true }, horizon: "day_trade" })).toBe("SPXL");
     expect(pickPreferredLetfTicker(letf, "LONG", null)).toBe("SPXL");
   });
 });
