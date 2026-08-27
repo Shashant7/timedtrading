@@ -7,6 +7,7 @@ import {
   scoreLetfSuitability,
   resolvePlayPrefs,
   TREND_LETF_PLAY_PREFS,
+  DEFAULT_PLAY_PREFS,
 } from "./letf-vehicles.js";
 
 const SPY_LETF = {
@@ -76,7 +77,8 @@ describe("letf-vehicles", () => {
     expect(s.horizon).toBe("swing_trend");
   });
 
-  it("resolvePlayPrefs returns trend LETF prefs for investor mode", () => {
-    expect(resolvePlayPrefs({ mode: "investor" })).toEqual(TREND_LETF_PLAY_PREFS);
+  it("resolvePlayPrefs returns trend LETF prefs only when explicitly requested", () => {
+    expect(resolvePlayPrefs({ mode: "investor" })).toEqual(DEFAULT_PLAY_PREFS);
+    expect(resolvePlayPrefs({ passiveLetf: true })).toEqual(TREND_LETF_PLAY_PREFS);
   });
 });

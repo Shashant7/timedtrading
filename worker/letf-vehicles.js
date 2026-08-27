@@ -224,9 +224,8 @@ export function scoreLetfSuitability({
 export function resolvePlayPrefs(input = {}) {
   if (input.playPrefs?.allowed_vehicles) return input.playPrefs;
   if (input.prefs?.allowed_vehicles) return input.prefs;
-  const mode = String(input.mode || "").toLowerCase();
-  const hold = String(input.tickerData?.hold_intent || input.hold_intent || "").toUpperCase();
-  if (mode === "investor" || hold === "POSITION" || input.passiveLetf) {
+  // Explicit passive/trend profile only — never strip options from investor mode globally.
+  if (input.passiveLetf || input.trendLetfOnly) {
     return TREND_LETF_PLAY_PREFS;
   }
   return DEFAULT_PLAY_PREFS;

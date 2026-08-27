@@ -80,9 +80,9 @@ describe("buildVehicleMenu", () => {
     expect(letf.letf_ticker).toBe("SQQQ");
   });
 
-  it("investor mode prefers LETF over options on aligned trend", () => {
+  it("passiveLetf pref prefers LETF over options on aligned trend", () => {
     const menu = buildVehicleMenu(bigMoveInput({
-      mode: "investor",
+      playPrefs: { allowed_vehicles: ["letf", "shares"] },
       tickerData: {
         htf_score: 22,
         state: "HTF_BULL_LTF_BULL",

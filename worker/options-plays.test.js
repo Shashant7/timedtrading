@@ -29,7 +29,6 @@ import {
   optionsPlayEmailHtml,
   buildOptionsLadder,
   buildDayTradePlay,
-  buildDayTradeLetfPlay,
   explainDayTradeSuppression,
   summarizeDayTradeGamePlan,
   pickExpirationForProfile,
@@ -546,34 +545,6 @@ describe("index ETF profile alignment", () => {
       profile: "speculator",
       expiration: { iso: "2026-06-06", dte: 0, label: "0DTE" },
     })).toBeNull();
-  });
-
-  it("buildDayTradeLetfPlay maps SPY day lean to SPXL/SPYU vehicle", () => {
-    const play = buildDayTradeLetfPlay({
-      ticker: "SPY",
-      price: 550,
-      direction: "LONG",
-      dayLean: "LONG",
-      dayLeanConviction: "high",
-      verdict: { mode: "WAIT", side: "NEUTRAL" },
-      fsd_macro: { rally_active: true },
-    });
-    expect(play).not.toBeNull();
-    expect(play._day_trade_vehicle).toBe("letf");
-    expect(["SPXL", "SPYU"]).toContain(play.letf_ticker);
-    expect(play.direction).toBe("LONG");
-  });
-
-  it("buildDayTradeLetfPlay maps QQQ lean to TQQQ", () => {
-    const play = buildDayTradeLetfPlay({
-      ticker: "QQQ",
-      price: 480,
-      direction: "LONG",
-      dayLean: "LONG",
-      dayLeanConviction: "medium",
-      verdict: { mode: "RIDE", side: "LONG" },
-    });
-    expect(play?.letf_ticker).toBe("TQQQ");
   });
 
   it("attachIndexDayTradeFallback skips WAIT mismatch", () => {
