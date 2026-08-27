@@ -345,7 +345,7 @@ describe("Today strips — published stamp + lotto earnings play", () => {
     const strip = document.getElementById("index-trend-plays");
     expect(strip).toBeTruthy();
     const text = strip.textContent || "";
-    expect(text).toContain("INDEX TREND");
+    expect(text).toContain("Index Swings");
     expect(text).toContain("SPYU");
     expect(text).toContain("628.50");
     expect(text).toContain("not day-trade options");
