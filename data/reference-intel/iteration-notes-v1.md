@@ -1,6 +1,6 @@
 # Iteration Notes v1
 
-Generated: 2026-08-26T20:03:43.017252+00:00
+Generated: 2026-08-27T17:38:16.578968+00:00
 
 ## Window
 - Dates: 2025-07-31 → 2025-08-01
