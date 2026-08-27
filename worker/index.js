@@ -95325,9 +95325,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               forceTomorrow: true,
             });
             const _buildDayTrade = _optionsPlaysMod.buildDayTradePlay;
+            const _buildDayTradeLetf = _optionsPlaysMod.buildDayTradeLetfPlay;
             const _validateDayTrade = _optionsPlaysMod.validateDayTradePlay;
             const _resolveSpot = _optionsPlaysMod.resolveDayTradeSpot;
             const _dtPlays = [];
+            const _dtLetfPlays = [];
             const _dtSuppressed = [];
             // Session + 14d option marks → trough/peak clock (best-effort).
             let _dtMarksByOcc = {};
@@ -95402,7 +95404,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   profile,
                   chain: _dtChainBySym[_dtSym] || null,
                   fsd_macro: _dtTicker.fsd_macro || _dtFsdMacro || null,
+                  gamePlan: _dtGp,
                 };
+                if (_buildDayTradeLetf) {
+                  try {
+                    const _dtLetf = _buildDayTradeLetf(_dtCtx);
+                    if (_dtLetf) {
+                      _dtLetfPlays.push({
+                        ticker: _dtSym,
+                        price: _dtPrice,
+                        direction: _dtLetf.direction || null,
+                        letf_ticker: _dtLetf.letf_ticker,
+                        factor: _dtLetf.factor,
+                        play: _dtLetf,
+                        day_lean: _dtLean || null,
+                        day_lean_conviction: _dtLeanConv || null,
+                        confluence_mode: _dtVerdict?.mode || null,
+                      });
+                    }
+                  } catch (_) { /* LETF day-trade is best-effort */ }
+                }
                 const _dtPlay = _buildDayTrade(_dtCtx);
                 if (!_dtPlay) {
                   const _suppress = _optionsPlaysMod.explainDayTradeSuppression
@@ -95765,9 +95786,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
             return {
               day_trade_plays: _dtPlays,
+              day_trade_letf_plays: _dtLetfPlays,
               day_trade_suppressed: _dtSuppressed,
               day_trade_expiration: _dtExpiration,
               day_trade_count: _dtPlays.length,
+              day_trade_letf_count: _dtLetfPlays.length,
               // Day-trade cards are rebuilt on every request (cache hit
               // included), so they carry their own stamp — the strip head
               // must not inherit the swing payload's cache age.

@@ -41,6 +41,10 @@ import {
   isFsdDipBuySetup,
   pickMonthEndRallyExpiration,
 } from "./cro/fsd-macro-context.js";
+import {
+  getLetfFactor,
+  pickPreferredLetfTicker,
+} from "./letf-vehicles.js";
 
 // ── Leveraged-ETF map ──────────────────────────────────────────────────────
 // Per-direction LETF lookup so the ladder can include "no-options leverage"
@@ -127,15 +131,7 @@ export function lookupLETF(ticker, themes = []) {
 }
 
 /** FSD month-end rally window: prefer 4× SPYU over 3× SPXL on index proxies. */
-export function pickPreferredLetfTicker(letfEntry, direction, fsdMacro = null) {
-  if (!letfEntry) return null;
-  const sideKey = direction === "SHORT" ? "short" : "long";
-  const primary = letfEntry[sideKey];
-  if (direction !== "LONG" || !fsdMacro?.rally_active) return primary;
-  const alts = Array.isArray(letfEntry.long_alts) ? letfEntry.long_alts : [];
-  if (alts.includes("SPYU")) return "SPYU";
-  return primary;
-}
+export { pickPreferredLetfTicker, getLetfFactor } from "./letf-vehicles.js";
 
 // ── Risk profiles ──────────────────────────────────────────────────────────
 // Order matters: index = how aggressive the user is. Used to rank ladder.
@@ -2645,11 +2641,14 @@ export function buildLeveragedETFPlay(ctx) {
   const { ticker, price, sl, tp1, direction, dollars_at_risk, themes, fsd_macro: fsdMacro } = ctx;
   const letf = lookupLETF(ticker, themes);
   if (!letf) return null;
-  const letfTicker = pickPreferredLetfTicker(letf, direction, fsdMacro);
+  const letfTicker = pickPreferredLetfTicker(letf, direction, {
+    fsdMacro,
+    horizon: "swing_trend",
+  });
   if (!letfTicker) {
     return null;
   }
-  const factor = letfTicker === "SPYU" ? 4 : (Number(letf.factor) || 2);
+  const factor = getLetfFactor(letfTicker, letf);
   // SL/TP geometry translates by factor (approximately, with daily-reset
   // decay above 3% moves — flag in notes).
   const underlyingPctMove = direction === "SHORT"
@@ -2929,6 +2928,90 @@ export function buildDayTradePlay(ctx) {
     ],
     _day_trade: true,
     _day_trade_flavor: "straddle",
+  };
+}
+
+/**
+ * Index day-trade LETF expression — parallel to buildDayTradePlay options.
+ * Same lean / confluence gates; buys SPXL/SPYU (long) or SPXS/SPXU (short)
+ * for traders who want defined share orders without 0/1 DTE theta.
+ */
+export function buildDayTradeLetfPlay(ctx) {
+  const ticker = String(ctx?.ticker || "").toUpperCase();
+  if (!isDayTradeTicker(ticker)) return null;
+  const price = Number(ctx?.price);
+  if (!Number.isFinite(price) || price <= 0) return null;
+
+  const themes = ctx?.themes || [];
+  const letf = lookupLETF(ticker, themes);
+  if (!letf) return null;
+
+  const verdictMode = ctx?.verdict?.mode || "UNKNOWN";
+  const verdictSide = ctx?.verdict?.side || "";
+  const direction = String(ctx?.direction || "").toUpperCase();
+  const fsdMacro = ctx?.fsd_macro || ctx?.verdict?.timing?.fsd_macro || null;
+  const dayLean = String(ctx?.dayLean || "").toUpperCase();
+  const dayLeanConv = String(ctx?.dayLeanConviction || "").toLowerCase();
+  const leanActionable = (dayLean === "LONG" || dayLean === "SHORT")
+    && (dayLeanConv === "medium" || dayLeanConv === "high");
+
+  const align = shouldAllowIndexDirectional({
+    verdictMode,
+    verdictSide,
+    direction,
+    effectiveDirection: direction,
+    confluence: ctx?.verdict,
+    timingOverlay: ctx?.verdict?.timing,
+  });
+
+  let contractDir = align.contractDir || direction;
+  if (leanActionable) contractDir = dayLean;
+  if (!contractDir || (contractDir !== "LONG" && contractDir !== "SHORT")) {
+    if (!leanActionable && !align.allow) return null;
+    contractDir = align.contractDir || (verdictSide === "SHORT" ? "SHORT" : "LONG");
+  }
+
+  const letfTicker = pickPreferredLetfTicker(letf, contractDir, {
+    fsdMacro,
+    horizon: "day_trade",
+    timing: ctx?.verdict?.timing,
+  });
+  if (!letfTicker) return null;
+
+  const factor = getLetfFactor(letfTicker, letf);
+  const gp = ctx?.gamePlan || null;
+  const bullTarget = Number(gp?.bull_target ?? gp?.bullTarget);
+  const bearTarget = Number(gp?.bear_target ?? gp?.bearTarget);
+  const target = contractDir === "LONG"
+    ? (Number.isFinite(bullTarget) && bullTarget > price ? bullTarget : price * 1.008)
+    : (Number.isFinite(bearTarget) && bearTarget < price ? bearTarget : price * 0.992);
+
+  return {
+    archetype: "day_trade_letf",
+    label: contractDir === "LONG"
+      ? `Day-Trade Long · ${letfTicker} (${factor}×)`
+      : `Day-Trade Inverse · ${letfTicker} (${factor}×)`,
+    rationale: contractDir === "LONG"
+      ? `Bullish day expression on ${ticker} via ${letfTicker}: same-session trend capture without option theta. Plan: enter on lean/confluence, trim into ${target.toFixed(2)} target zone, flat by 15:45 ET unless overnight R:R still works.`
+      : `Bearish day expression on ${ticker} via ${letfTicker}: inverse LETF for faster downside capture than shorting shares. Plan: trim into weakness, flat by 15:45 ET.`,
+    legs: [{ action: "BUY", instrument: "ETF", ticker: letfTicker, qty: 1 }],
+    underlying: ticker,
+    letf_ticker: letfTicker,
+    factor,
+    contracts: 1,
+    direction: contractDir,
+    target_underlying: Math.round(target * 100) / 100,
+    max_loss_label: "Underlying stop / time stop (no fixed option premium cap)",
+    notes: [
+      `${factor}× daily-reset — decay accelerates in lunch chop; best windows 9:45–11 AM and 2:30–3:45 PM ET`,
+      "Swing continuation: if the move extends, this day-trade can hand off to the swing LETF tier on the same ticker",
+      leanActionable ? `Day lean ${dayLean} (${dayLeanConv}) drives direction` : `Confluence gate: ${align.reason || verdictMode}`,
+    ],
+    _day_trade: true,
+    _day_trade_vehicle: "letf",
+    _day_trade_flavor: contractDir === "LONG" ? "letf_long" : "letf_short",
+    _day_trade_flavor_source: leanActionable ? "day_lean" : (align.reason || "confluence"),
+    _day_trade_lean: dayLean || null,
   };
 }
 

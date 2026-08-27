@@ -26,6 +26,7 @@
 
 import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { SECTOR_MAP } from "../sector-mapping.js";
+import { EXECUTION_LETF_SYMBOLS } from "../letf-vehicles.js";
 import { reconcileDailyChange } from "./prev-close-reconcile.js";
 import { loadCalendar, isNyRegularMarketOpen as calIsNyOpen } from "../market-calendar.js";
 import {
@@ -119,7 +120,12 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           const u = await kvGetJSON(KV, "timed:tickers");
           if (Array.isArray(u)) universeTickers = u.map((t) => String(t).toUpperCase()).filter(Boolean);
         } catch (_) { /* universe list optional — static map still covers the core */ }
-        const allTickers = [...new Set([...Object.keys(SECTOR_MAP), ...universeTickers, ...userAddedForPriceFeed])];
+        const allTickers = [...new Set([
+          ...Object.keys(SECTOR_MAP),
+          ...universeTickers,
+          ...userAddedForPriceFeed,
+          ...EXECUTION_LETF_SYMBOLS,
+        ])];
 
         // ── Lightweight mode: overlay TV futures + crypto onto existing prices ──
         // Runs during 2-8 AM UTC when stocks aren't actively trading.
@@ -396,6 +402,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               ...Object.keys(SECTOR_MAP),
               ...universeTickers,
               ...userAddedForPriceFeed,
+              ...EXECUTION_LETF_SYMBOLS,
             ])];
             const snapResult = await deps.dataFetchSnapshots(env, allTickersForSnap);
             const snapshots = snapResult.snapshots || {};
