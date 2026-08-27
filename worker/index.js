@@ -819,10 +819,13 @@ import {
 import {
   maybeNotifyIndexTrendPaperEvent as _itNotifyPaper,
   loadIndexTrendBook as _itLoadBook,
+  readIndexTrendActions as _itReadActions,
 } from "./index-trend-alerts.js";
+import { paperEventToNotifType } from "./paper-lane-notify.js";
+import { listOpenPaperLaneTrades, loadOpenIndexTrendBookForUnderlying } from "./paper-lane-positions.js";
 import { buildIndexTrendSignalId as _itBuildSignalId } from "./index-trend-paper.js";
 import { buildDayTradePositionMgmtLine as _optDtPositionMgmtLine } from "./option-day-trade-plan.js";
-import { extraActionFromLedger, modelRowFromDayTradeAction } from "./broker-day-actions-join.js";
+import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction } from "./broker-day-actions-join.js";
 import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
@@ -40364,6 +40367,10 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
     const dtRows = await _optDtReadActions(env, sinceMs);
     for (const a of dtRows) modelRows.push(modelRowFromDayTradeAction(a));
   } catch (_) { /* paper DT ring is optional */ }
+  try {
+    const itRows = await _itReadActions(env, sinceMs);
+    for (const a of itRows) modelRows.push(modelRowFromIndexTrendAction(a));
+  } catch (_) { /* paper index trend ring is optional */ }
   // 2. Mothership forward/skip records (client ring).
   let ring = [];
   try {
@@ -88768,6 +88775,8 @@ export default {
         if (useD1) {
           if (source === "positions") {
             d1Trades = await d1GetAllPositionsAsTrades(env);
+          } else if (source === "paper") {
+            d1Trades = await listOpenPaperLaneTrades(env);
           } else if (source === "promoted") {
             const promoted = await d1GetPromotedTrades(env, promotedDatasetId);
             d1Trades = promoted.trades;
@@ -95608,7 +95617,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       if (!ev?.event) return;
                       d1InsertNotification(env, {
                         email: null,
-                        type: "options_day_trade",
+                        type: paperEventToNotifType(ev.event),
                         title: ev.embed?.title || `${ev.event} ${_dtSym} day-trade`,
                         body: String(ev.embed?.description || ev.event).replace(/\*/g, "").slice(0, 280),
                         link: "/today.html",
@@ -95709,8 +95718,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       strike: _dtOpenBook.strike,
                       expiration: _dtOpenBook.expiration,
                       entry_premium: _dtOpenBook.entry_premium,
-                      last_premium: _dtOpenBook.last_premium,
-                      peak_premium: _dtOpenBook.peak_premium,
+                      last_premium: (Number(_clockPrem) > 0 ? Number(_clockPrem) : _dtOpenBook.last_premium),
+                      peak_premium: Math.max(
+                        Number(_dtOpenBook.peak_premium) || 0,
+                        Number(_clockPrem) > 0 ? Number(_clockPrem) : 0,
+                      ) || _dtOpenBook.peak_premium,
                       contracts: _dtOpenBook.contracts,
                       contracts_remaining: _dtOpenBook.contracts_remaining,
                       size_label: _dtOpenBook.size_label,
@@ -95736,9 +95748,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         management: _dtMgmt,
                         bracket: _dtBracket,
                       }),
-                      pnl_pct: (Number(_dtOpenBook.entry_premium) > 0 && Number(_dtOpenBook.last_premium) > 0)
-                        ? Math.round(((Number(_dtOpenBook.last_premium) - Number(_dtOpenBook.entry_premium)) / Number(_dtOpenBook.entry_premium)) * 1000) / 10
-                        : null,
+                      pnl_pct: (() => {
+                        const ep = Number(_dtOpenBook.entry_premium);
+                        const lp = Number(_clockPrem) > 0 ? Number(_clockPrem) : Number(_dtOpenBook.last_premium);
+                        return ep > 0 && lp > 0
+                          ? Math.round(((lp - ep) / ep) * 1000) / 10
+                          : null;
+                      })(),
                     };
                   })() : null,
                 });
@@ -95804,16 +95820,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 const playRow = (section.index_trend_plays || []).find(
                   (p) => String(p?.ticker || "").toUpperCase() === _itSym,
                 ) || null;
-                const letfTicker = String(playRow?.letf_ticker || playRow?.play?.letf_ticker || "").toUpperCase();
+                let letfTicker = String(playRow?.letf_ticker || playRow?.play?.letf_ticker || "").toUpperCase();
                 const direction = playRow?.direction || playRow?.play?.direction || "LONG";
-                const signalId = playRow && letfTicker
+                let signalId = playRow && letfTicker
                   ? _itBuildSignalId(_itSym, letfTicker, direction)
                   : null;
-                const loaded = await _itLoadBook(env, { signal_id: signalId, letf_ticker: letfTicker || null });
-                const openBook = loaded.book
+                let loaded = await _itLoadBook(env, { signal_id: signalId, letf_ticker: letfTicker || null });
+                let openBook = loaded.book
                   && (loaded.book.status === "open" || loaded.book.status === "trimmed")
                   ? loaded.book
                   : null;
+                if (!openBook) {
+                  const carryLoaded = await loadOpenIndexTrendBookForUnderlying(env, _itSym);
+                  if (carryLoaded?.book && (carryLoaded.book.status === "open" || carryLoaded.book.status === "trimmed")) {
+                    loaded = carryLoaded;
+                    openBook = carryLoaded.book;
+                    letfTicker = String(carryLoaded.letf_ticker || openBook?.letf_ticker || letfTicker || "").toUpperCase();
+                    signalId = loaded.signal_id || (letfTicker
+                      ? _itBuildSignalId(_itSym, letfTicker, openBook?.direction || direction)
+                      : signalId);
+                  }
+                }
                 if (!playRow && !openBook) continue;
 
                 const _itLetf = letfTicker || String(openBook?.letf_ticker || "").toUpperCase();
@@ -95845,7 +95872,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     if (ev?.event) {
                       d1InsertNotification(env, {
                         email: null,
-                        type: "index_trend_letf",
+                        type: paperEventToNotifType(ev.event),
                         title: ev.embed?.title || `${ev.event} ${_itLetf} index trend`,
                         body: String(ev.embed?.description || ev.event).replace(/\*/g, "").slice(0, 280),
                         link: "/today.html",
@@ -95877,13 +95904,25 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   }
                 }
 
-                if (!playRow) continue;
                 const _itLive = _itBookAfter
                   && (_itBookAfter.status === "open" || _itBookAfter.status === "trimmed")
                   ? _itBookAfter
                   : null;
+                const baseRow = playRow || {
+                  ticker: _itSym,
+                  price: ulPx,
+                  direction: _itDir,
+                  letf_ticker: _itLetf,
+                  carry_only: true,
+                  play: _itMgmt ? {
+                    management: _itMgmt,
+                    letf_ticker: _itLetf,
+                    direction: _itDir,
+                    _index_trend: true,
+                  } : null,
+                };
                 playsOut.push({
-                  ...playRow,
+                  ...baseRow,
                   signal_id: _itSid || signalId,
                   position: _itLive ? {
                     signal_id: _itSid || signalId,
@@ -95892,14 +95931,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     letf_ticker: _itLetf,
                     entry_letf_price: _itLive.entry_letf_price,
                     entry_underlying_price: _itLive.entry_underlying_price,
-                    last_letf_price: _itLive.last_letf_price,
-                    last_underlying_price: _itLive.last_underlying_price,
+                    last_letf_price: letfPx > 0 ? letfPx : _itLive.last_letf_price,
+                    last_underlying_price: ulPx > 0 ? ulPx : _itLive.last_underlying_price,
+                    peak_underlying_r: _itLive.peak_underlying_r,
                     shares: _itLive.shares,
                     shares_remaining: _itLive.shares_remaining,
                     stop_underlying: _itLive.stop_underlying || _itMgmt?.stop_underlying,
                     target_underlying: _itLive.target_underlying || _itMgmt?.target_underlying,
                     trims_fired: _itLive.trims_fired || [],
                     entry_ts: _itLive.entry_ts,
+                    management: _itLive.management || _itMgmt,
                   } : null,
                 });
               }

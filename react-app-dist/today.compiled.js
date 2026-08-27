@@ -1183,6 +1183,92 @@ function indexTrendPlanFacts({
   });
   return cells;
 }
+function indexTrendPositionFacts({
+  pos,
+  mgmt,
+  letfTicker,
+  factor
+}) {
+  const letf = String(letfTicker || pos?.letf_ticker || "").toUpperCase();
+  const cells = [];
+  const entry = Number(pos?.entry_letf_price);
+  const live = Number(pos?.last_letf_price);
+  const entryUl = Number(pos?.entry_underlying_price);
+  const liveUl = Number(pos?.last_underlying_price);
+  const shares = Number(pos?.shares_remaining ?? pos?.shares);
+  const pnl = indexTrendPositionPnl(pos);
+  if (letf) cells.push({
+    k: "VEHICLE",
+    v: factor > 1 ? `${letf} ${factor}×` : letf,
+    tone: ""
+  });
+  if (entry > 0) cells.push({
+    k: "ENTRY",
+    v: `$${entry.toFixed(2)}`,
+    tone: ""
+  });
+  if (live > 0) cells.push({
+    k: "LIVE",
+    v: `$${live.toFixed(2)}`,
+    tone: "live"
+  });
+  if (entryUl > 0) cells.push({
+    k: "UL ENTRY",
+    v: `$${entryUl.toFixed(2)}`,
+    tone: ""
+  });
+  if (liveUl > 0) cells.push({
+    k: "UL LIVE",
+    v: `$${liveUl.toFixed(2)}`,
+    tone: "live"
+  });
+  if (shares > 0) cells.push({
+    k: "SHARES",
+    v: String(shares),
+    tone: ""
+  });
+  if (pnl != null) cells.push({
+    k: "P&L",
+    v: `${pnl >= 0 ? "+" : ""}${pnl.toFixed(1)}%`,
+    tone: pnl >= 0 ? "trim" : "exit"
+  });
+  const stop = Number(pos?.stop_underlying ?? mgmt?.stop_underlying);
+  const target = Number(pos?.target_underlying ?? mgmt?.target_underlying);
+  if (stop > 0) cells.push({
+    k: "STOP U/L",
+    v: `$${stop.toFixed(2)}`,
+    tone: "exit"
+  });
+  if (target > 0) cells.push({
+    k: "TARGET U/L",
+    v: `$${target.toFixed(2)}`,
+    tone: "trim"
+  });
+  const trims = Array.isArray(pos?.trims_fired) ? pos.trims_fired : [];
+  if (trims.length) cells.push({
+    k: "TRIMMED",
+    v: trims.map(r => `+${r}R`).join(", "),
+    tone: "trim",
+    full: true
+  });
+  return cells;
+}
+function indexTrendPositionMgmtLine(pos, mgmt, opts = {}) {
+  const ul = String(opts.underlying || "").toUpperCase();
+  const ladder = Array.isArray(mgmt?.trim_ladder) ? mgmt.trim_ladder : [];
+  const trimSteps = ladder.filter(s => s?.at_r).map(s => s.label || `Trim at +${s.at_r}R`).slice(0, 2);
+  const bits = [];
+  if (trimSteps.length) bits.push(trimSteps.join("; "));
+  if (mgmt?.exit_by) bits.push(`Exit: ${mgmt.exit_by}.`);
+  if (mgmt?.dca_on_dip) bits.push("DCA adds allowed on compression dips while macro rally active.");
+  if (pos?.carry_only || opts.carryOnly) bits.push("Open book — signal gates off; managing existing position.");
+  if (ul && bits.length) return bits.join(" ");
+  return bits.join(" ");
+}
+function indexTrendPositionOpen(pos) {
+  const st = String(pos?.status || "").toLowerCase();
+  return !!pos && (st === "open" || st === "trimmed") && Number(pos?.shares_remaining ?? pos?.shares) > 0;
+}
 function indexTrendPositionPnl(pos) {
   const entry = Number(pos?.entry_letf_price);
   const live = Number(pos?.last_letf_price);
@@ -3109,7 +3195,7 @@ function IndexTrendLetfStrip({
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
     role: "list"
-  }, plays.map(p => {
+  }, plays.flatMap(p => {
     const sym = String(p.ticker || "").toUpperCase();
     const liveT = data && data[sym] ? data[sym] : {};
     const livePrice = tickerHeadlinePrice(liveT, p.price);
@@ -3123,9 +3209,9 @@ function IndexTrendLetfStrip({
     } catch (_) {}
     const quoteDir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
     const play = p.play || {};
-    const mgmt = play.management || {};
-    const letf = String(p.letf_ticker || play.letf_ticker || "").toUpperCase();
-    const direction = p.direction || play.direction || "LONG";
+    const mgmt = play.management || p.position?.management || {};
+    const letf = String(p.letf_ticker || play.letf_ticker || p.position?.letf_ticker || "").toUpperCase();
+    const direction = p.direction || play.direction || p.position?.direction || "LONG";
     const mode = String(p.confluence_mode || "").toUpperCase();
     const copy = indexTrendPlanCopy({
       ticker: sym,
@@ -3134,15 +3220,31 @@ function IndexTrendLetfStrip({
       direction,
       mode
     });
-    const pos = p.position && (p.position.status === "open" || p.position.status === "trimmed") ? p.position : null;
+    const pos = indexTrendPositionOpen(p.position) ? p.position : null;
     const posPnl = pos ? indexTrendPositionPnl(pos) : null;
-    const chipRow = [indexTrendActionChip(direction, copy.punch)];
-    const modeChip = confluenceModeChip(mode, p.confluence_summary || "Model confluence");
-    if (modeChip) chipRow.push(modeChip);
-    const letfChip = indexTrendLetfChip(letf, p.factor);
-    if (letfChip) chipRow.push(letfChip);
+    const carryOnly = !!p.carry_only;
+    const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
+    const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
+    const itSide = direction === "SHORT" ? "SHORT" : "LONG";
+    const zm = buildIndexStripZoneModel({
+      zone: p.zone,
+      liveT,
+      trackPrice,
+      stop: mgmt.stop_underlying || pos?.stop_underlying,
+      target: mgmt.target_underlying || pos?.target_underlying,
+      direction: itSide,
+      VU
+    });
+    const zoneOpts = {
+      compact: true,
+      planLabel: pos ? "Position plan" : "Swing plan",
+      trackTitle: itSide === "SHORT" ? "Inverse path — invalidation above, first target below." : "Long path — invalidation below, first target above."
+    };
+    const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, zoneOpts) : null;
+    const cards = [];
     if (pos) {
-      chipRow.unshift(h("span", {
+      const shares = Number(pos.shares_remaining ?? pos.shares) || 0;
+      const heldChip = h("span", {
         key: "held",
         className: "ds-chip ds-chip--sm " + (posPnl != null && posPnl < 0 ? "ds-chip--dn" : "ds-chip--up"),
         style: {
@@ -3150,69 +3252,108 @@ function IndexTrendLetfStrip({
           fontWeight: 800
         },
         title: `Open paper position on ${letf}`
-      }, posPnl != null ? `HELD ${posPnl >= 0 ? "+" : ""}${posPnl.toFixed(1)}%` : "HELD"));
+      }, posPnl != null ? `HELD ${posPnl >= 0 ? "+" : ""}${posPnl.toFixed(1)}%` : "HELD");
+      const posPunch = `HOLDING ${letf || sym} on ${sym} — ${shares} share${shares === 1 ? "" : "s"}`;
+      const posFacts = indexTrendPositionFacts({
+        pos,
+        mgmt,
+        letfTicker: letf,
+        factor: p.factor
+      });
+      const posMgmtLine = indexTrendPositionMgmtLine(pos, mgmt, {
+        underlying: sym,
+        carryOnly
+      });
+      cards.push(h("div", {
+        key: sym + ":pos",
+        className: "tt-strip-card tt-strip-card--position",
+        role: "listitem"
+      }, LaneCard?.create ? LaneCard.create({
+        sym,
+        ticker: liveT,
+        button: {
+          onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
+          title: `${sym} — open index swing position`,
+          style: {
+            textAlign: "left"
+          }
+        },
+        chipRow: [heldChip, indexTrendLetfChip(letf, p.factor)].filter(Boolean),
+        mtfBelow: true,
+        quote: {
+          price: livePrice,
+          dayPct,
+          dayChg,
+          dir: quoteDir,
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
+        },
+        sparkSvg,
+        midBody,
+        metrics: [],
+        isSaved,
+        onToggleSaved
+      }) : h("div", null, sym), h("div", {
+        className: "tt-strip-card__foot"
+      }, h("div", {
+        className: "tt-dt-plan"
+      }, h("p", {
+        className: "tt-dt-plan__punch"
+      }, posPunch), stripFactStack(posFacts), posMgmtLine ? h("p", {
+        className: "tt-dt-plan__mgmt"
+      }, posMgmtLine) : null))));
     }
-    const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
-    const itSide = direction === "SHORT" ? "SHORT" : "LONG";
-    const zm = buildIndexStripZoneModel({
-      zone: p.zone,
-      liveT,
-      trackPrice,
-      stop: mgmt.stop_underlying,
-      target: mgmt.target_underlying,
-      direction: itSide,
-      VU
-    });
-    const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
-      compact: true,
-      planLabel: "Swing plan",
-      trackTitle: itSide === "SHORT" ? "Inverse path — invalidation above, first target below." : "Long path — invalidation below, first target above."
-    }) : null;
-    const factCells = indexTrendPlanFacts({
-      letfTicker: letf,
-      factor: p.factor,
-      stop: mgmt.stop_underlying,
-      target: mgmt.target_underlying,
-      suitability: p.suitability,
-      dcaOnDip: mgmt.dca_on_dip,
-      exitBy: mgmt.exit_by
-    });
-    const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
-    return h("div", {
-      key: sym,
-      className: "tt-strip-card" + (pos ? " tt-strip-card--position" : ""),
-      role: "listitem"
-    }, LaneCard?.create ? LaneCard.create({
-      sym,
-      ticker: liveT,
-      button: {
-        onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
-        title: `${sym} — open index swing plan`,
-        style: {
-          textAlign: "left"
-        }
-      },
-      chipRow,
-      mtfBelow: true,
-      quote: {
-        price: livePrice,
-        dayPct,
-        dayChg,
-        dir: quoteDir,
-        extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
-      },
-      sparkSvg,
-      midBody,
-      metrics: [],
-      isSaved,
-      onToggleSaved
-    }) : h("div", null, sym), h("div", {
-      className: "tt-strip-card__foot"
-    }, h("div", {
-      className: "tt-dt-plan"
-    }, h("p", {
-      className: "tt-dt-plan__punch"
-    }, copy.punch), stripFactStack(factCells))));
+    if (!carryOnly) {
+      const chipRow = [indexTrendActionChip(direction, copy.punch)];
+      const modeChip = confluenceModeChip(mode, p.confluence_summary || "Model confluence");
+      if (modeChip) chipRow.push(modeChip);
+      const letfChip = indexTrendLetfChip(letf, p.factor);
+      if (letfChip) chipRow.push(letfChip);
+      const factCells = indexTrendPlanFacts({
+        letfTicker: letf,
+        factor: p.factor,
+        stop: mgmt.stop_underlying,
+        target: mgmt.target_underlying,
+        suitability: p.suitability,
+        dcaOnDip: mgmt.dca_on_dip,
+        exitBy: mgmt.exit_by
+      });
+      cards.push(h("div", {
+        key: sym + ":sig",
+        className: "tt-strip-card",
+        role: "listitem"
+      }, LaneCard?.create ? LaneCard.create({
+        sym,
+        ticker: liveT,
+        button: {
+          onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
+          title: `${sym} — open index swing plan`,
+          style: {
+            textAlign: "left"
+          }
+        },
+        chipRow,
+        mtfBelow: true,
+        quote: {
+          price: livePrice,
+          dayPct,
+          dayChg,
+          dir: quoteDir,
+          extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
+        },
+        sparkSvg,
+        midBody: pos ? null : midBody,
+        metrics: [],
+        isSaved,
+        onToggleSaved
+      }) : h("div", null, sym), h("div", {
+        className: "tt-strip-card__foot"
+      }, h("div", {
+        className: "tt-dt-plan"
+      }, h("p", {
+        className: "tt-dt-plan__punch"
+      }, copy.punch), stripFactStack(factCells)))));
+    }
+    return cards;
   }))));
 }
 function computeOpenPositionPnlPct(tr, livePx) {
@@ -9499,6 +9640,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787839375301:228893093
+// cache-bust:1787846872103:925093193
 
-// cache-bust:1787839375301:228893093
+// cache-bust:1787846872103:925093193

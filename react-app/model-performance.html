@@ -1062,17 +1062,20 @@
         // investor positions so the board reflects BOTH modes.
         const [liveTraderTrades, setLiveTraderTrades] = useState([]);
         const [liveInvestorPositions, setLiveInvestorPositions] = useState([]);
+        const [livePaperTrades, setLivePaperTrades] = useState([]);
         useEffect(() => {
           let alive = true;
           (async () => {
             try {
-              const [tR, iR] = await Promise.all([
+              const [tR, iR, pR] = await Promise.all([
                 fetch(`${API_BASE}/timed/ledger/trades?mode=trader&status=open&limit=50`, { credentials: "include" }).then(r => r.ok ? r.json() : null).catch(() => null),
                 fetch(`${API_BASE}/timed/investor/positions`, { credentials: "include" }).then(r => r.ok ? r.json() : null).catch(() => null),
+                fetch(`${API_BASE}/timed/trades?source=paper`, { credentials: "include" }).then(r => r.ok ? r.json() : null).catch(() => null),
               ]);
               if (!alive) return;
               if (tR?.ok && Array.isArray(tR.trades)) setLiveTraderTrades(tR.trades);
               if (iR?.ok && Array.isArray(iR.positions)) setLiveInvestorPositions(iR.positions.filter(p => String(p?.status || "").toUpperCase() === "OPEN"));
+              if (pR?.ok && Array.isArray(pR.trades)) setLivePaperTrades(pR.trades);
             } catch (_) {}
           })();
           return () => { alive = false; };
@@ -1157,6 +1160,13 @@
               cp: Number(((data || {})[p.ticker] || {}).price ?? ((data || {})[p.ticker] || {}).close ?? p.avg_entry),
               dir: "LONG",
             })),
+            ...livePaperTrades.map((t) => ({
+              sym: String(t._vehicle_label || t.ticker || "").toUpperCase(),
+              mode: t._paper_lane === "index_swing" ? "index_swing" : "index_day_trade",
+              ep: Number(t.entry_price ?? t.entryPrice),
+              cp: Number(t.mark_price ?? t.current_price ?? t.entry_price ?? t.entryPrice),
+              dir: String(t.direction || "LONG").toUpperCase(),
+            })),
           ];
           for (const p of allLive) {
             if (!Number.isFinite(p.ep) || !Number.isFinite(p.cp) || p.ep <= 0) continue;
@@ -1179,6 +1189,7 @@
           counts.totalLive = allLive.length;
           counts.traderLive = liveTraderTrades.length;
           counts.investorLive = liveInvestorPositions.length;
+          counts.paperLive = livePaperTrades.length;
           // Top watching by rank (or score fallback).
           watching.sort((a, b) => {
             const ra = Number(a.t?.rank_position) || Number(a.t?.rank_score) || 999;
@@ -1212,7 +1223,7 @@
             investorLive: liveInvestorPositions.length,
             plKnown,
           };
-        }, [data, liveTraderTrades, liveInvestorPositions]);
+        }, [data, liveTraderTrades, liveInvestorPositions, livePaperTrades]);
 
         // ── 2. What the model has learned (top + bottom setups) ──
         const learnings = useMemo(() => {
