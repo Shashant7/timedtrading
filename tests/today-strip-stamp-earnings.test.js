@@ -167,6 +167,28 @@ const DAY_TRADE_PLAY_HELD = {
   },
 };
 
+const INDEX_TREND_PLAY = {
+  ticker: "SPY",
+  price: 640,
+  direction: "LONG",
+  letf_ticker: "SPYU",
+  factor: 4,
+  suitability: 78,
+  confluence_mode: "RIDE",
+  play: {
+    label: "Index Trend · SPYU (4× long)",
+    rationale: "Swing/trend expression on SPY via SPYU — share order, not a day-trade option.",
+    letf_ticker: "SPYU",
+    management: {
+      stop_underlying: 628.5,
+      target_underlying: 651.0,
+      trim_ladder: [{ at_r: 1, label: "Trim 25% at +1R" }],
+      dca_on_dip: true,
+      exit_by: "Month-end target or invalidation",
+    },
+  },
+};
+
 function loadScript(relPath) {
   const src = readFileSync(join(ROOT, relPath), "utf8");
   // eslint-disable-next-line no-eval
@@ -192,6 +214,10 @@ function mockFetch() {
           day_trade_suppressed: [],
           day_trade_count: 2,
           day_trade_generated_at: PUBLISHED_AT,
+          index_trend_plays: [INDEX_TREND_PLAY],
+          index_trend_suppressed: [],
+          index_trend_count: 1,
+          index_trend_generated_at: PUBLISHED_AT,
           generated_at: PUBLISHED_AT,
         }),
       };
@@ -258,9 +284,9 @@ describe("Today strips — published stamp + lotto earnings play", () => {
     console.error = origError;
   });
 
-  it("stamps both fast strips with a published time", () => {
+  it("stamps fast strips with a published time (incl. index trend)", () => {
     const stamps = [...document.querySelectorAll(".tt-strip-stamp")];
-    expect(stamps.length).toBeGreaterThanOrEqual(2);
+    expect(stamps.length).toBeGreaterThanOrEqual(3);
     for (const el of stamps) {
       expect(el.textContent).toMatch(/^Published \d{1,2}:\d{2} (AM|PM) ET · (just now|\d+m ago)/);
       expect(el.classList.contains("tt-strip-stamp--stale")).toBe(false);
@@ -313,6 +339,17 @@ describe("Today strips — published stamp + lotto earnings play", () => {
     expect(posCard.textContent).toContain("$1.80");
     expect(posCard.textContent).toContain("15:45");
     expect(posCard.textContent).not.toContain("Managing to the model stop");
+  });
+
+  it("renders the index trend LETF strip with vehicle and management facts", () => {
+    const strip = document.getElementById("index-trend-plays");
+    expect(strip).toBeTruthy();
+    const text = strip.textContent || "";
+    expect(text).toContain("INDEX TREND");
+    expect(text).toContain("SPYU");
+    expect(text).toContain("628.50");
+    expect(text).toContain("not day-trade options");
+    expect(text).not.toMatch(/0DTE/);
   });
 
   it("shows a brief why on a non-earnings lotto and never labels it 0 DTE", () => {

@@ -77,6 +77,7 @@ const VEHICLE_DEFAULTS = {
   leaps:           { enabled: false, daily_cap: 1, max_per_order_usd: 500, max_loss_per_order_usd: 500 },
   straddle:        { enabled: false, daily_cap: 1, max_per_order_usd: 300, max_loss_per_order_usd: 200 },
   moonshot:        { enabled: false, daily_cap: 1, max_per_order_usd: 100, max_loss_per_order_usd: 100 },
+  index_trend_letf: { enabled: false, daily_cap: 2, max_per_order_usd: 2000 },
 };
 
 // "Small account" defaults — exactly what's above. The button in
@@ -159,6 +160,7 @@ export function archetypeToVehicleKey(archetype) {
   if (a === "day_trade_put")               return "long_put";
   if (a === "vertical_spread")             return "vertical_spread";
   if (a === "long_straddle" || a === "long_strangle") return "straddle";
+  if (a === "index_trend_letf") return "index_trend_letf";
   return null;
 }
 

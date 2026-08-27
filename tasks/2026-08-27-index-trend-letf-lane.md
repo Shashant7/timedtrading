@@ -30,7 +30,8 @@ Signal always on underlying (SPY/QQQ/IWM/DIA). LETF symbols are quote-only
 - Add-on-dip: FSD rally + compression → `dca_add` signal
 - Exit: month-end target deadline, macro invalidation, or ST flip
 
-## Out of scope (this pass)
-- Separate KV paper book for index trend (uses advisory play + model_play path)
-- Today UI strip for `index_trend_plays` (API ready first)
-- Broker mirror for LETF index trend (shares path exists via play-the-move)
+## Completed (2026-08-27 follow-up)
+- KV paper book (`timed:idx-trend-book:*`, carry, actions ring)
+- Today UI strip (`IndexTrendLetfStrip`) + right-rail panel
+- Broker mirror via `/bridge/order` on LETF ticker (`index_trend_letf` vehicle)
+- */15 cron dispatch (`it_only=1`) during RTH
