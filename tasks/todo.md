@@ -22,11 +22,10 @@
 
 ### Active
 - [x] **Index trend LETF lane (2026-08-27).** Split day-trade options from
-      swing/trend SPYU/SPXU share expressions. Removed `day_trade_letf_plays`;
-      new `index_trend_plays` on `/timed/options/all` with trim/DCA/management
-      doctrine. Day trades stay 0/1 DTE options only. Spec:
-      `tasks/2026-08-27-index-trend-letf-lane.md`. Follow-up to merged #1362;
-      branch `cursor/index-trend-letf-df0c`.
+      swing/trend SPYU/SPXU share expressions. API + paper book + mirror +
+      Today strip + right-rail panel. Spec:
+      `tasks/2026-08-27-index-trend-letf-lane.md`. Branch:
+      `cursor/index-trend-complete-df0c`.
 - [x] **Day-trade STOP OUT Discord embed (2026-08-26).** STOP/EXIT alerts reused
       the full entry playbook (Setup/Trigger/Entry/Bracket BUY limit) so a stop-out
       read like a new entry. Embed now shows Exit/Why, fill recap, and planned

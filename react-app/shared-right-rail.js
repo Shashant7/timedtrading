@@ -1805,11 +1805,13 @@
          we show the suppression reason inline instead of showing
          nothing — explicit absence is better than silent absence. */
       const [dayTradeData, setDayTradeData] = useState(null);
+      const [indexTrendData, setIndexTrendData] = useState(null);
       useEffect(() => {
         const sym = String(tickerSymbol || "").toUpperCase();
         const _DT_TICKERS = new Set(["SPY", "QQQ", "IWM", "DIA"]);
         if (!sym || !_DT_TICKERS.has(sym)) {
           setDayTradeData(null);
+          setIndexTrendData(null);
           return;
         }
         let cancelled = false;
@@ -1826,6 +1828,12 @@
               play: _live || null,
               suppressed: _suppressed || null,
               expiration: j.day_trade_expiration || null,
+            });
+            const _itLive = (j.index_trend_plays || []).find(p => String(p?.ticker || "").toUpperCase() === sym);
+            const _itSuppressed = (j.index_trend_suppressed || []).find(s => String(s?.ticker || "").toUpperCase() === sym);
+            setIndexTrendData({
+              play: _itLive || null,
+              suppressed: _itSuppressed || null,
             });
           } catch (_) { /* best-effort */ }
         })();
@@ -2051,6 +2059,53 @@
           ),
           (suppressed.strike && suppressed.spot) && h("div", { style: { fontSize: 11, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", marginTop: 6 } },
             `Last considered strike $${suppressed.strike}, spot $${Number(suppressed.spot).toFixed(2)} — re-check after next /options/all refresh.`),
+        );
+      })();
+
+      const _indexTrendPanel = (() => {
+        if (!indexTrendData) return null;
+        const { play, suppressed } = indexTrendData;
+        if (!play && !suppressed) return null;
+        const headerColor = "#60a5fa";
+        if (play) {
+          const letf = String(play.letf_ticker || play.play?.letf_ticker || "").toUpperCase();
+          const mgmt = play.play?.management || {};
+          const dir = String(play.direction || play.play?.direction || "LONG").toUpperCase();
+          const dirColor = dir === "SHORT" ? "#f87171" : "#34d399";
+          return h(Panel, {
+            title: `INDEX TREND · ${letf || "LETF"}`,
+            color: headerColor,
+            action: h("span", {
+              style: { display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 999, background: `${dirColor}22`, color: dirColor, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", border: `1px solid ${dirColor}55` },
+            }, dir === "SHORT" ? "INVERSE" : "LONG"),
+          },
+            h("div", { style: { fontSize: 14, fontWeight: 700, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text)", marginBottom: 4 } },
+              play.play?.label || `Trend via ${letf} on ${play.ticker}`),
+            h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", marginBottom: 8 } },
+              `Underlying $${Number(play.price || 0).toFixed(2)} · ${play.factor || "?"}× LETF shares (not 0/1 DTE options)`),
+            h("div", { style: { fontSize: 11, color: "var(--ds-text-body)", lineHeight: 1.55, marginBottom: 8 } },
+              play.play?.rationale || ""),
+            h("div", { style: { fontSize: 11, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-muted)" } },
+              mgmt.stop_underlying ? `Stop $${Number(mgmt.stop_underlying).toFixed(2)}` : null,
+              mgmt.target_underlying ? ` · Target $${Number(mgmt.target_underlying).toFixed(2)}` : null,
+              mgmt.exit_by ? ` · ${mgmt.exit_by}` : null,
+            ),
+            play.position && h("div", { style: { fontSize: 11, color: "var(--ds-text-faint)", marginTop: 8 } },
+              `Paper book: ${play.position.shares_remaining || play.position.shares || "?"} shares on ${letf}`),
+          );
+        }
+        return h(Panel, {
+          title: "INDEX TREND",
+          color: "#6E867D",
+          action: h("span", {
+            style: { padding: "2px 8px", borderRadius: 999, background: "rgba(107,114,128,0.18)", color: "#8AA39A", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", border: "1px solid rgba(107,114,128,0.45)" },
+          }, "SUPPRESSED"),
+        },
+          h("div", { style: { fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.55 } },
+            "No index trend LETF play for this ticker. Reason: ",
+            h("strong", { style: { color: "var(--ds-text)" } }, String(suppressed.reason || "unknown").replace(/_/g, " ")),
+            ".",
+          ),
         );
       })();
 
@@ -2770,6 +2825,7 @@
         ),
 
         _dayTradePanel,
+        _indexTrendPanel,
 
         // Strategy Ladder — open alternates after Primary Play.
         // 2026-07-22: break each play into plain-English blocks so a new
