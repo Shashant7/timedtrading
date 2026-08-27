@@ -657,9 +657,12 @@ playbook in `skills/security-auth-patterns.md`)**
   clamped ±10% when `COO_AUTO_APPLY_TIER1=true`; tier-2 (flag flips,
   bans, big moves) ALWAYS waits for the operator
   (`POST /timed/admin/learning/proposals/decide`). Don't add new bespoke
-  apply paths. Nightly `processProposals` marks pending rows
-  `already_in_effect` when live `model_config` already matches — do not
-  treat a long pending queue as "learning is off."
+  apply paths. The hourly learning desk (CIO/CRO/CTO) decides
+  high-confidence rows; only mixed/low-confidence items stay pending.
+  Nightly `processProposals` still marks `already_in_effect` when live
+  `model_config` already matches — do not treat a long pending queue as
+  "learning is off." Governor heal is plumbing only (no nightly
+  `blocked` rewrite); CIO restores a setup when 30d n≥12 and PnL > 0.
 - **Loops are ON in production** (Loop 1/2/3 since May; Trade Review
   since Aug 17; weekly governor default ON). A new live family that is
   not in `worker/foundation/play-catalog.js` is invisible to demotion —

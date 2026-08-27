@@ -15,6 +15,9 @@ import {
   mergeEnforceDemotionPaths,
   setupDemotionConfigKey,
 } from "../pipeline/setup-demotion.js";
+import { resolvePlay } from "../foundation/play-catalog.js";
+import { isPlayRecovered30d, loadPerSetupWindow, planRecoveredRestores } from "../learning-desk-review.js";
+import { normalizeConfigValue } from "../learning-proposals.js";
 import { loadFamilyAttribution } from "./family-attribution.js";
 
 const DAY_MS = 86400000;
@@ -194,11 +197,23 @@ export async function runWeeklyGovernor(env, opts = {}) {
     .catch((e) => ({ ok: false, error: String(e?.message || e) }));
 
   const perSetup = scorecard?.per_setup || scorecard?.perSetup || [];
+  let perSetup30 = scorecard?.per_setup_d30 || [];
+  if (!perSetup30.length && db) {
+    try {
+      perSetup30 = await loadPerSetupWindow(db, 30, now);
+    } catch { perSetup30 = []; }
+  }
   const mildCandidates = findDemotionCandidates(perSetup, { minN: 10, maxPf: 0.8 });
-  const severe = planSevereDemotions(perSetup, {
+  const severeAll = planSevereDemotions(perSetup, {
     minN: cfg.severeMinN,
     maxPf: cfg.severeMaxPf,
     allowPaths: SEVERE_BLEEDER_PATHS,
+  });
+  // 90d can still look like a bleeder after a 30d recovery (Support Bounce).
+  // Do not re-block a setup the CIO just restored.
+  const severe = severeAll.filter((s) => {
+    const path = s.path || resolvePlay(s.setup, s.direction)?.id;
+    return !path || !isPlayRecovered30d(perSetup30, path, s.direction);
   });
 
   const actions = [];
@@ -285,6 +300,34 @@ export async function runWeeklyGovernor(env, opts = {}) {
       } else {
         actions.push({ type: "auto_demote_dry_run", ...s });
       }
+    }
+  }
+
+  // 2b) CIO restore: 30d recovered setups stay allowed even if they remain
+  //     on SEVERE_BLEEDER_PATHS (auto-demote still fires if 30d turns red).
+  const restores = planRecoveredRestores(perSetup30, {});
+  for (const r of restores) {
+    if (!r.config_key) continue;
+    if (opts.dryRun) {
+      actions.push({ type: "cio_restore_dry_run", ...r });
+      continue;
+    }
+    if (!db) break;
+    try {
+      const live = await db.prepare(
+        `SELECT config_value FROM model_config WHERE config_key = ?1`,
+      ).bind(r.config_key).first();
+      if (normalizeConfigValue(live?.config_value) !== "blocked") continue;
+      await upsertModelConfig(db, {
+        config_key: r.config_key,
+        config_value: JSON.stringify("allowed"),
+        description: `CIO restore ${r.play_id} 30d n=${r.n} pnl=${r.pnl_usd}`,
+        updated_at: now,
+        updated_by: "weekly_governor_cio_restore",
+      });
+      applied.push({ type: "cio_restore", ...r });
+    } catch (e) {
+      actions.push({ type: "cio_restore_error", key: r.config_key, error: String(e?.message || e) });
     }
   }
 
@@ -377,6 +420,8 @@ export async function runWeeklyGovernor(env, opts = {}) {
       if (!key) continue;
       const alreadySevere = severe.some((s) => s.config_key === key);
       if (alreadySevere) continue;
+      const play = resolvePlay(cand.setup, cand.direction);
+      if (play?.id && isPlayRecovered30d(perSetup30, play.id, cand.direction)) continue;
       try {
         await opts.submitProposal({
           source: "weekly_governor",
@@ -421,6 +466,7 @@ export async function runWeeklyGovernor(env, opts = {}) {
       beats_baseline_capture: family.beats_baseline_capture,
     } : { ok: false, error: family?.error || "unavailable" },
     severe_demotions: severe,
+    cio_restores: restores,
     mild_demotion_candidates: mildCandidates.slice(0, 10),
     actions,
     applied,

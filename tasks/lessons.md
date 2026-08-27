@@ -6,6 +6,29 @@
 
 ---
 
+## Learning proposals were stale; heal kept killing Support Bounce [2026-08-27]
+
+**Symptom:** Operator asked if pending `learning_proposals` were fresh.
+Most were meant to be rejected. Support Bounce should be re-enabled.
+CIO/CRO/CTO should review frequently and only escalate low-confidence
+items.
+
+**Why the queue looked dirty:** last human decide was 2026-06-26. ATH /
+Support Bounce / Gap Reversal / mangled `TT Tt …` / recycled discovery
+notes sat pending after the live value was already written. 30d Support
+Bounce was +$312 (n=20) while the nightly heal re-wrote `blocked` for
+every `SEVERE_BLEEDER_PATHS` entry.
+
+**Fix:** `worker/learning-desk-review.js` (hourly + 22:00). Heal no
+longer writes `blocked`. CIO restore when 30d n≥12 and PnL > 0. Keep
+ATH blocked. Approve `block_widen` when WoW is red.
+
+**Do not:** leave restore as a human-only tier-2 forever, or remove
+Support Bounce from `SEVERE_BLEEDER_PATHS` (auto-demote must still
+fire if 30d turns red). Nightly `processProposals` must not Discord
+`already_in_effect` acks as "tier-1 applies" — that is how Support
+Bounce looked freshly blocked at 6:01 PM ET after the queue cleanup.
+
 ## ST EXIT rejected on accounts that never opened the trade [2026-08-27]
 
 **Symptom:** Broker timeline after the close showed EXPE EXIT REJECTED

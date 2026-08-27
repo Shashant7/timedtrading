@@ -50,7 +50,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | **Cloud Pivot desk / "be the minions" / weekend 10m+1H stare** | [cloud-pivot-desk.md](cloud-pivot-desk.md) |
 | **Paper experiment timing / best session for MFE vs MAE / family clock scan / core vs experiment book autopsy** | [program-timing.md](program-timing.md) |
 | **Core play catalog / Gap Reversal Long vs tt_gap_reversal_long / pause bleeders** | [play-catalog.md](play-catalog.md) |
-| **Self-learning loops / why WR is bad while flags are ON / learning_proposals queue** | [learning-loops.md](learning-loops.md) |
+| **Self-learning loops / why WR is bad while flags are ON / learning_proposals queue / CIO desk** | [learning-loops.md](learning-loops.md) |
 
 ## When to ADD a new skill
 

@@ -26,6 +26,23 @@ export function setupGroupKey(row) {
   return id || String(row?.setup_name || "unknown");
 }
 
+/** Per setup × direction stats. Used for both 90d and 30d windows. */
+export function groupTradesBySetup(rows, minN = 3) {
+  const bySetup = new Map();
+  for (const r of rows || []) {
+    const key = `${setupGroupKey(r)}|${r.direction || "?"}`;
+    if (!bySetup.has(key)) bySetup.set(key, []);
+    bySetup.get(key).push(r);
+  }
+  return [...bySetup.entries()]
+    .map(([key, list]) => {
+      const [setup, direction] = key.split("|");
+      return { setup, direction, stats: computeWindowStats(list) };
+    })
+    .filter((s) => s.stats.n >= minN)
+    .sort((a, b) => (b.stats.pnl_usd || 0) - (a.stats.pnl_usd || 0));
+}
+
 const DAY_MS = 86400000;
 
 /**
@@ -147,20 +164,9 @@ export async function buildEdgeScorecard(env, opts = {}) {
     d90: computeWindowStats(rows),
   };
 
-  // Per setup × direction over 90d.
-  const bySetup = new Map();
-  for (const r of rows) {
-    const key = `${setupGroupKey(r)}|${r.direction || "?"}`;
-    if (!bySetup.has(key)) bySetup.set(key, []);
-    bySetup.get(key).push(r);
-  }
-  const perSetup = [...bySetup.entries()]
-    .map(([key, list]) => {
-      const [setup, direction] = key.split("|");
-      return { setup, direction, stats: computeWindowStats(list) };
-    })
-    .filter((s) => s.stats.n >= 3)
-    .sort((a, b) => (b.stats.pnl_usd || 0) - (a.stats.pnl_usd || 0));
+  const rows30 = inWindow(30);
+  const perSetup = groupTradesBySetup(rows);
+  const perSetupD30 = groupTradesBySetup(rows30);
 
   // Exit-reason aggregates (where the money actually comes from / leaks).
   const byExit = new Map();
@@ -205,6 +211,7 @@ export async function buildEdgeScorecard(env, opts = {}) {
     computed_at: now,
     windows,
     per_setup: perSetup.slice(0, 30),
+    per_setup_d30: perSetupD30.slice(0, 30),
     per_exit_reason: perExitReason.slice(0, 20),
     spy_baseline: spyBaseline,
     signal_groups: signalGroups,
