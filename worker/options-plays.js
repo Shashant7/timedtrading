@@ -1008,6 +1008,23 @@ export function shouldAllowIndexDirectional({
   const side = String(verdictSide || "NEUTRAL").toUpperCase();
   const timing = timingOverlay || confluence?.timing || null;
 
+  const fsdMacro = timing?.fsd_macro || confluence?.fsd_macro || null;
+  const fsdDipBuy = fsdMacro?.rally_active && contractDir === "LONG" && (
+    timing?.call_opportunity
+    || timing?.signals?.includes?.("fsd_rally_dip_buy")
+    || timing?.add_on_dips
+  );
+  if (fsdDipBuy && (mode === "WAIT" || side === "NEUTRAL" || side === "SHORT")) {
+    return {
+      allow: true,
+      reason: "fsd_rally_dip_buy",
+      contractDir: "LONG",
+      side: "LONG",
+      timing_override: true,
+      fsd_macro: true,
+    };
+  }
+
   // Compression timing: bounce calls at support even when the swing contract is
   // SHORT/neutral — layer fusion WAIT + compression stack (signal split).
   if (timing?.call_opportunity && (contractDir === "LONG" || timing?.add_on_dips)) {
@@ -1040,23 +1057,6 @@ export function shouldAllowIndexDirectional({
   }
   if (timing?.short_opportunity && contractDir === "SHORT" && mode === "FADE") {
     return { allow: true, reason: "extension_fade_short", contractDir, side: "SHORT" };
-  }
-
-  const fsdMacro = timing?.fsd_macro || confluence?.fsd_macro || null;
-  const fsdDipBuy = fsdMacro?.rally_active && contractDir === "LONG" && (
-    timing?.call_opportunity
-    || timing?.signals?.includes?.("fsd_rally_dip_buy")
-    || timing?.add_on_dips
-  );
-  if (fsdDipBuy && (mode === "WAIT" || side === "NEUTRAL" || side === "SHORT")) {
-    return {
-      allow: true,
-      reason: "fsd_rally_dip_buy",
-      contractDir: "LONG",
-      side: "LONG",
-      timing_override: true,
-      fsd_macro: true,
-    };
   }
 
   if (mode === "WAIT") {
