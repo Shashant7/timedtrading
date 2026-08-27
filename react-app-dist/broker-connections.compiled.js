@@ -97,7 +97,7 @@ function humanizeReason(raw) {
   }
   if (/below_min_share_price/.test(r)) return "Order too small for one share at the limit";
   if (/mirror_suppressed/.test(r)) return "Mirroring suppressed after repeated drift — needs review";
-  if (/no_manifest_for_trade/.test(r)) return "No tracked entry for this trade on the account";
+  if (/no_manifest_for_trade/.test(r)) return "This trade never opened on the broker — nothing to sell";
   if (/reducer_blocked_by_sync_state:(\w+)/.test(r)) return "Sell blocked — position not in sync (" + r.match(/reducer_blocked_by_sync_state:(\w+)/)[1].replace(/_/g, " ") + ")";
   if (/closer_blocked_by_sync_state/.test(r)) return "Close blocked — position not in sync";
   if (/nothing_to_reduce|reducer_qty_rounded_to_zero/.test(r)) return "Nothing to sell on this account";
@@ -3328,6 +3328,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787864783264:581265804
+// cache-bust:1787866928806:167592496
 
-// cache-bust:1787864783264:581265804
+// cache-bust:1787866928806:167592496

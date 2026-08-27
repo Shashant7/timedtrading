@@ -109,6 +109,27 @@ describe("forwardOrderToBridge — transport (CF 1042 / 404 fix)", () => {
     expect(captured.sig.length).toBeGreaterThan(0);
   });
 
+  it("stamps pending on the ring before the bridge fetch returns", async () => {
+    let pendingSeen = false;
+    const env = {
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      BROKER_BRIDGE_URL: "https://tt-broker-bridge.example.workers.dev",
+      KV_TIMED: makeKv(),
+      BROKER_BRIDGE: {
+        fetch: async () => {
+          const ring = await readClientRing(env);
+          pendingSeen = ring[0]?.status === "pending";
+          return new Response(JSON.stringify({ ok: true, order_id: "WB-1" }), { status: 200 });
+        },
+      },
+    };
+    await forwardOrderToBridge(env, ORDER);
+    expect(pendingSeen).toBe(true);
+    const ring = await readClientRing(env);
+    expect(ring).toHaveLength(1);
+    expect(ring[0].status).toBe("ok");
+  });
+
   it("records the dispatch to the KV client ring with the transport tag", async () => {
     const env = {
       BROKER_BRIDGE_HMAC_KEY: "secret",
