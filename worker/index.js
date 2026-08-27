@@ -1163,6 +1163,11 @@ import {
   listProposals as _learnListProposals,
 } from "./learning-proposals.js";
 import {
+  runLearningDeskCron as _runLearningDeskCron,
+  formatLearningDeskDiscord as _formatLearningDeskDiscord,
+  LEARNING_DESK_KV as _LEARNING_DESK_KV,
+} from "./learning-desk-review.js";
+import {
   evaluateCioAuthority as _cioEvaluateAuthority,
   readCioAuthority as _cioReadAuthority,
 } from "./cio/cio-authority.js";
@@ -2116,6 +2121,8 @@ const ROUTES = [
   ["GET", "/timed/admin/ai-cio/authority", "GET /timed/admin/ai-cio/authority"],
   ["GET", "/timed/admin/learning/proposals", "GET /timed/admin/learning/proposals"],
   ["POST", "/timed/admin/learning/proposals/decide", "POST /timed/admin/learning/proposals/decide"],
+  ["GET", "/timed/admin/learning/desk", "GET /timed/admin/learning/desk"],
+  ["POST", "/timed/admin/learning/desk/run", "POST /timed/admin/learning/desk/run"],
   // 2026-05-28 — Operator-facing go-live readiness dashboard.
   // Returns the current values for each shadow→live gate so the
   // operator can poll at any time without re-running ad-hoc SQL.
@@ -67967,6 +67974,29 @@ export default {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
+      if (routeKey === "GET /timed/admin/learning/desk") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const cached = await kvGetJSON(env?.KV_TIMED || env?.KV, _LEARNING_DESK_KV);
+          if (!cached) {
+            return sendJSON({ ok: false, error_kind: "not_generated_yet", hint: "Hourly on tt-research; POST /timed/admin/learning/desk/run to review now." }, 200, corsHeaders(env, req));
+          }
+          return sendJSON(cached, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/learning/desk/run") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const result = await _runLearningDeskCron(env);
+          return sendJSON(result, result.ok ? 200 : 503, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
 
       // ──────────────────────────────────────────────────────────────────
       // POST /timed/admin/ai-cio/operator-task
@@ -104359,6 +104389,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && _utcH === 20 && _utcM === 45) vc.add("45 20 * * 1-5");
     }
     if (_isHourly) {
+      // CIO / CRO / CTO desk — hourly triage of learning_proposals.
+      // Skip 22:00 UTC so the nightly scorecard + governor run first.
+      if (_utcH !== 22) {
+        ctx.waitUntil((async () => {
+          try {
+            const desk = await _runLearningDeskCron(env);
+            console.log(`[LEARNING_DESK hourly] scanned=${desk.scanned ?? 0} decided=${(desk.decided || []).length} escalated=${(desk.escalated || []).length} restored=${(desk.restored || []).length}`);
+            const body = _formatLearningDeskDiscord(desk);
+            if (body) {
+              notifyDiscord(env, {
+                title: "Learning desk",
+                description: body,
+                color: (desk.escalated || []).length ? 0xf59e0b : 0x14b8a6,
+              }).catch(() => {});
+            }
+            recordCronSuccess(env, "learning_desk").catch(() => {});
+          } catch (e) {
+            console.error("[LEARNING_DESK hourly] threw:", String(e?.message || e).slice(0, 200));
+            recordCronFailure(env, { op: "learning_desk", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+          }
+        })());
+      }
       /* Phase C — Stage 0d (2026-05-02) — Loop 2 pulse + breaker.
          Runs every hour during the trading day. Computes the pulse from
          the most recent N closed trades and decides whether to trip the
@@ -106346,12 +106398,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           if (card?.ok && _esKv) {
             await kvPutJSON(_esKv, "timed:edge:scorecard", card);
             console.log(`[EDGE_SCORECARD nightly] d30: n=${card.windows?.d30?.n} wr=${card.windows?.d30?.win_rate_pct}% pf=${card.windows?.d30?.profit_factor} pnl=$${card.windows?.d30?.pnl_usd} · flags: ${(card.flags || []).join(" | ")}`);
+            const { recovered30d } = await import("./learning-desk-review.js");
+            const { demotionProposalConfigKey } = await import("./pipeline/setup-demotion.js");
+            const _recoveredKeys = new Set(
+              (card.per_setup_d30 || [])
+                .filter((s) => recovered30d(s.stats))
+                .map((s) => demotionProposalConfigKey(s.setup, s.direction))
+                .filter(Boolean),
+            );
             for (const cand of (card.demotion_candidates || []).slice(0, 5)) {
               // Canonical key via the same mapper checkSetupDemotion() reads —
               // raw setup_name strings produced inert keys ("TT Tt Ath Breakout").
-              const { demotionProposalConfigKey } = await import("./pipeline/setup-demotion.js");
               const _demotionKey = demotionProposalConfigKey(cand.setup, cand.direction)
                 || `deep_audit_setup_demotion_${cand.setup}_${String(cand.direction || "").toLowerCase()}`;
+              if (_recoveredKeys.has(_demotionKey)) continue;
               await _learnSubmitProposal(env, {
                 source: "edge_scorecard",
                 tier: "tier2",
@@ -106421,6 +106481,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         } catch (e) {
           console.error("[CIO_AUTHORITY nightly] threw:", String(e?.message || e).slice(0, 200));
           recordCronFailure(env, { op: "cio_authority_eval", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+        }
+        try {
+          const desk = await _runLearningDeskCron(env, {
+            daCfg: env._deepAuditConfig,
+          });
+          console.log(`[LEARNING_DESK nightly] scanned=${desk.scanned ?? 0} decided=${(desk.decided || []).length} escalated=${(desk.escalated || []).length} restored=${(desk.restored || []).length}`);
+          const deskBody = _formatLearningDeskDiscord(desk);
+          if (deskBody) {
+            notifyDiscord(env, {
+              title: "Learning desk",
+              description: deskBody,
+              color: (desk.escalated || []).length ? 0xf59e0b : 0x14b8a6,
+            }).catch(() => {});
+          }
+          recordCronSuccess(env, "learning_desk").catch(() => {});
+        } catch (e) {
+          console.error("[LEARNING_DESK nightly] threw:", String(e?.message || e).slice(0, 200));
+          recordCronFailure(env, { op: "learning_desk", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
         try {
           const bus = await _learnProcessProposals(env);

@@ -21,7 +21,13 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-- [ ] **Learning-loop evolution (2026-08-27).** Last month of merges was
+- [x] **Learning desk review (2026-08-27).** Pending `learning_proposals`
+      are mostly stale / already-in-effect / workhorse blocks. CIO/CRO/CTO
+      desk triages hourly: auto-ack, auto-reject, auto-approve protective
+      widen-block, restore Support Bounce (30d +$312). Heal no longer
+      re-writes `blocked` every night. Branch:
+      `cursor/learning-desk-review-df0c`.
+- [x] **Learning-loop evolution (2026-08-27).** Last month of merges was
       mostly product (index vehicles, broker, Today). Loops 1–3, Trade
       Review, and the weekly governor are already ON. Cloud Pivot was a
       live bleeder the catalog/governor could not see; Loop 1 combos were

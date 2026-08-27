@@ -42,9 +42,10 @@ closed trade
   → Loop 1 KV scorecards (phase-c:scorecards)
   → Trade Review rows (trade_reviews)
   → nightly edge scorecard (timed:edge:scorecard)
-  → weekly governor (heal / auto-demote / widen-block)
+  → weekly governor (heal plumbing / auto-demote / CIO restore)
   → submitProposal() → learning_proposals
-  → processProposals() (tier-1 auto / tier-2 operator)
+  → learning desk (hourly CIO/CRO/CTO triage)
+  → processProposals() (tier-1 auto / leftover pending only)
   → model_config → qualifiesForEnter / tt-core-entry
 ```
 
@@ -61,12 +62,33 @@ approved).
 2. **Loop 1 too sparse.** Combo = setup × regime × personality × side.
    Exact keys rarely reach min samples. Use the setup rollup.
 3. **Queue rot.** Edge scorecard re-proposes blocks that the governor
-   already wrote. Nightly `processProposals` now marks those
-   `already_in_effect` so the operator queue is only real decisions.
+   already wrote. The hourly **learning desk** acks those
+   (`already_in_effect`) so the operator queue is only low-confidence
+   / debatable rows.
 4. **Trade Review C-grades do not mutate.** Most Aug reviews are C /
    LOCATION_WRONG or PREMATURE_*. Those never reach `learning_proposals`.
-5. **Governor does not un-block.** Support Bounce is still demoted even
-   though 30d PnL is positive. Restore is still a tier-2 human decision.
+5. **Heal used to re-block recovered setups.** Nightly heal now writes
+   `enforce_paths` only. CIO restore writes `allowed` when 30d n≥12 and
+   PnL > 0 (Support Bounce 2026-08-27: 20 / +$312). Auto-demote still
+   fires if 30d turns red again.
+
+## Learning desk (CIO / CRO / CTO)
+
+`worker/learning-desk-review.js` reviews pending `learning_proposals`
+every hour on tt-research and again at 22:00 UTC **before**
+`processProposals`. High-confidence verdicts execute on the existing
+bus (`decideProposal` + demotion upsert). Only low-confidence rows
+stay pending.
+
+| Desk | High-confidence action |
+|---|---|
+| CTO | Ack already-live values. Reject mangled `TT Tt …` keys and recycled discovery notes. |
+| CRO | Reject / restore workhorse demotions (Gap Reversal). Approve `block_widen` when WoW is red. |
+| CIO | Restore a setup when 30d n≥12 and PnL > 0. Ack a block that is still severe. Escalate mixed windows. |
+| COO | Nightly tier-1 apply of whatever is still pending and auto-eligible. |
+
+KV report: `timed:learning-desk:latest`.
+Admin: `GET /timed/admin/learning/desk`, `POST /timed/admin/learning/desk/run`.
 
 ## Operator queue
 
@@ -76,14 +98,17 @@ approved).
              FROM learning_proposals WHERE status='pending' ORDER BY created_at DESC;"
 ```
 
-Decide via `POST /timed/admin/learning/proposals/decide` — never a
-direct `model_config` write unless you are healing a mangled key.
+Decide leftover escalations via `POST /timed/admin/learning/proposals/decide`.
+Do not hand-write `model_config` unless healing a mangled key. To restore
+Support Bounce immediately after deploy, either POST the desk run or
+upsert `deep_audit_setup_demotion_TT Support Bounce_long` = `"allowed"`.
 
 ## Verify
 
 - Loop 1 rollup: `npx vitest run worker/phase-c-loops.test.js`
 - Catalog + Cloud Pivot: `npx vitest run worker/foundation/play-catalog.test.js worker/pipeline/setup-demotion.test.js`
 - Bus hygiene: `npx vitest run worker/learning-proposals.test.js`
+- Desk + heal: `npx vitest run worker/learning-desk-review.test.js worker/pipeline/setup-demotion.test.js worker/trust-spine/weekly-governor.test.js`
 - Entry explain: `GET /timed/admin/entry-explain?ticker=...` shows
   `loop1_enabled`, `loop1_combos_with_opinion`, and the combo advisory.
 

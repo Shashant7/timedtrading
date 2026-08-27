@@ -6,6 +6,7 @@ import {
   findDemotionCandidates,
   deriveEdgeFlags,
   setupGroupKey,
+  groupTradesBySetup,
 } from "./edge-scorecard.js";
 
 const W = (pnl, pct = 1) => ({ status: "WIN", pnl, pnl_pct: pct });
@@ -38,6 +39,21 @@ describe("setupGroupKey", () => {
   it("collapses Cloud Pivot display name and path onto one id", () => {
     expect(setupGroupKey({ setup_name: "TT Cloud Pivot", direction: "LONG" })).toBe("tt_cloud_pivot");
     expect(setupGroupKey({ entry_path: "tt_cloud_pivot", setup_name: "Cloud Pivot" })).toBe("tt_cloud_pivot");
+  });
+});
+
+describe("groupTradesBySetup", () => {
+  it("groups 30d vs 90d independently", () => {
+    const rows = [
+      { setup_name: "TT Support Bounce", direction: "LONG", status: "WIN", pnl: 50, pnl_pct: 1 },
+      { setup_name: "TT Support Bounce", direction: "LONG", status: "WIN", pnl: 40, pnl_pct: 1 },
+      { setup_name: "TT Support Bounce", direction: "LONG", status: "WIN", pnl: 30, pnl_pct: 1 },
+      { setup_name: "tt_cloud_pivot", direction: "LONG", status: "LOSS", pnl: -20, pnl_pct: -1 },
+    ];
+    const grouped = groupTradesBySetup(rows);
+    const sb = grouped.find((s) => s.setup === "tt_n_test_support");
+    expect(sb.stats.n).toBe(3);
+    expect(sb.stats.pnl_usd).toBe(120);
   });
 });
 

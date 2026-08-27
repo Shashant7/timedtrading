@@ -168,16 +168,21 @@ export function buildDemotionHealUpserts(opts = {}) {
       updated_by: opts.updatedBy || "weekly_governor_heal",
     },
   ];
-  for (const path of paths) {
-    const key = setupDemotionConfigKey(path, direction);
-    if (!key) continue;
-    rows.push({
-      config_key: key,
-      config_value: JSON.stringify("blocked"),
-      description: `Auto-demote ${path} ${direction} (severe bleeder heal)`,
-      updated_at: now,
-      updated_by: opts.updatedBy || "weekly_governor_heal",
-    });
+  // 2026-08-27 — heal is plumbing only. Writing `blocked` here re-paused
+  // Support Bounce every night after 30d had already recovered (+$312).
+  // Auto-demote still writes blocked when PF is catastrophic.
+  if (opts.writeBlockedMarkers === true) {
+    for (const path of paths) {
+      const key = setupDemotionConfigKey(path, direction);
+      if (!key) continue;
+      rows.push({
+        config_key: key,
+        config_value: JSON.stringify("blocked"),
+        description: `Auto-demote ${path} ${direction} (severe bleeder heal)`,
+        updated_at: now,
+        updated_by: opts.updatedBy || "weekly_governor_heal",
+      });
+    }
   }
   return { enforce, rows };
 }

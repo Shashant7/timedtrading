@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { compareWowPnl, planSevereDemotions, loadWeeklyGovernorConfig, canPromoteWidenLevers } from "./weekly-governor.js";
 import { buildFamilyAttributionReport, mfeKeepRate, isConfirmStackDecision } from "./family-attribution.js";
+import { isPlayRecovered30d } from "../learning-desk-review.js";
 
 describe("weekly governor pure helpers", () => {
   it("flags WoW regression", () => {
@@ -19,6 +20,14 @@ describe("weekly governor pure helpers", () => {
     expect(severe).toHaveLength(1);
     expect(severe[0].path).toBe("tt_ath_breakout");
     expect(severe[0].action).toBe("auto_demote_blocked");
+  });
+
+  it("does not treat a 30d-recovered setup as still severe in isolation", () => {
+    expect(isPlayRecovered30d(
+      [{ setup: "tt_n_test_support", direction: "long", stats: { n: 20, pnl_usd: 312 } }],
+      "tt_n_test_support",
+      "long",
+    )).toBe(true);
   });
 
   it("can auto-demote Cloud Pivot once it is a catalog severe path", () => {

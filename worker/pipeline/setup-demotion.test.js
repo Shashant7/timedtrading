@@ -50,7 +50,7 @@ describe("setup-demotion heal (2026-07-23)", () => {
     expect(checkSetupDemotion("tt_n_test_support", "long", daCfg, "SPY").blocked).toBe(true);
   });
 
-  it("buildDemotionHealUpserts expands enforce_paths and writes blocked markers", () => {
+  it("buildDemotionHealUpserts expands enforce_paths and does not re-block", () => {
     const { enforce, rows } = buildDemotionHealUpserts({
       existingEnforcePaths: "tt_n_test_support",
       paths: ["tt_ath_breakout", "tt_n_test_support", "tt_range_reversal_long"],
@@ -58,7 +58,13 @@ describe("setup-demotion heal (2026-07-23)", () => {
     });
     expect(enforce).toContain("tt_ath_breakout");
     expect(enforce).toContain("tt_range_reversal_long");
-    expect(rows.some((r) => r.config_key.includes("TT ATH Breakout"))).toBe(true);
+    expect(rows.some((r) => r.config_key.includes("TT ATH Breakout"))).toBe(false);
+    const withMarkers = buildDemotionHealUpserts({
+      paths: ["tt_ath_breakout"],
+      writeBlockedMarkers: true,
+      now: 1,
+    });
+    expect(withMarkers.rows.some((r) => r.config_key.includes("TT ATH Breakout"))).toBe(true);
     expect(mergeEnforceDemotionPaths("tt_a", ["tt_b", "tt_a"])).toBe("tt_a,tt_b");
   });
 

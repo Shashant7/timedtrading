@@ -147,12 +147,13 @@ C / LOCATION_WRONG is the modal August review. `shouldAutoApplyReview`
 correctly refuses to auto-mutate on a C. Nothing else aggregates those
 C's into a setup-level proposal. The reviews are a diary, not a loop.
 
-### 4e. Governor does not restore
+### 4e. Governor used to not restore (fixed 2026-08-27 desk)
 
-Support Bounce 30d is +$312 at 30% WR (fat winners). It stays blocked
-because heal re-writes the Aug 19 severe list every night. That is
-capital protection, not adaptation. Un-block is still a tier-2 human
-call — and it should stay that way until 90d PF > 1.
+Support Bounce 30d is +$312 at 30% WR (fat winners). Heal used to
+re-write `blocked` for the Aug 19 severe list every night. Heal is now
+plumbing only; the learning desk / governor CIO restore writes
+`allowed` when 30d n≥12 and PnL > 0. ATH stays blocked (30d −$586).
+Un-block is no longer a human-only tier-2.
 
 ### 4f. Yesterday's plan repeated the pattern
 
