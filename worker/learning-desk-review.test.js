@@ -3,6 +3,7 @@ import {
   deskTriageProposal,
   parseDemotionKey,
   planRecoveredRestores,
+  planCalibrationRestores,
   formatLearningDeskDiscord,
 } from "./learning-desk-review.js";
 
@@ -46,6 +47,22 @@ describe("deskTriageProposal", () => {
       },
     );
     expect(v).toMatchObject({ action: "restore", desk: "cio", reason: "setup_recovered_30d" });
+  });
+
+  it("CIO restores a calibration family that was bluntly blocked", () => {
+    const v = deskTriageProposal(
+      { config_key: "deep_audit_setup_demotion_TT Cloud Pivot_long", proposed_value: "blocked" },
+      { liveValue: "blocked", now: NOW },
+    );
+    expect(v).toMatchObject({ action: "restore", desk: "cio", reason: "calibration_family" });
+  });
+
+  it("CIO rejects a calibration proposed_block that is not already live-blocked", () => {
+    const v = deskTriageProposal(
+      { config_key: "deep_audit_setup_demotion_TT Cloud Pivot_long", proposed_value: "blocked" },
+      { liveValue: null, now: NOW },
+    );
+    expect(v).toMatchObject({ action: "reject", desk: "cio", reason: "calibration_family" });
   });
 
   it("CRO restores a workhorse that is already blocked", () => {
@@ -123,6 +140,20 @@ describe("planRecoveredRestores", () => {
     );
     expect(out).toHaveLength(1);
     expect(out[0].play_id).toBe("tt_n_test_support");
+  });
+
+  it("lists Cloud Pivot when it is currently blocked", () => {
+    const out = planCalibrationRestores({
+      "deep_audit_setup_demotion_TT Cloud Pivot_long": "blocked",
+    });
+    expect(out.some((r) => r.play_id === "tt_cloud_pivot")).toBe(true);
+  });
+
+  it("still lists Cloud Pivot when daCfg is a partial cache without that key", () => {
+    const out = planCalibrationRestores({
+      deep_audit_setup_demotion_enforce_paths: "tt_ath_breakout",
+    });
+    expect(out.some((r) => r.config_key === "deep_audit_setup_demotion_TT Cloud Pivot_long")).toBe(true);
   });
 });
 

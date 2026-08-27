@@ -15,8 +15,8 @@ import {
   mergeEnforceDemotionPaths,
   setupDemotionConfigKey,
 } from "../pipeline/setup-demotion.js";
-import { resolvePlay } from "../foundation/play-catalog.js";
-import { isPlayRecovered30d, loadPerSetupWindow, planRecoveredRestores } from "../learning-desk-review.js";
+import { canAutoDemotePlay, isCalibrationPlay, resolvePlay } from "../foundation/play-catalog.js";
+import { isPlayRecovered30d, loadPerSetupWindow, planCalibrationRestores, planRecoveredRestores } from "../learning-desk-review.js";
 import { normalizeConfigValue } from "../learning-proposals.js";
 import { loadFamilyAttribution } from "./family-attribution.js";
 
@@ -114,6 +114,7 @@ export function planSevereDemotions(perSetup, opts = {}) {
     }
     if (path && !allowPaths.has(path)) continue;
     if (!path && !allowPaths.size) continue;
+    if (!canAutoDemotePlay(path || s.setup, s.direction).ok) continue;
     out.push({
       setup: s.setup,
       direction: String(s.direction || "long").toLowerCase(),
@@ -305,7 +306,10 @@ export async function runWeeklyGovernor(env, opts = {}) {
 
   // 2b) CIO restore: 30d recovered setups stay allowed even if they remain
   //     on SEVERE_BLEEDER_PATHS (auto-demote still fires if 30d turns red).
-  const restores = planRecoveredRestores(perSetup30, {});
+  const restores = [
+    ...planRecoveredRestores(perSetup30, {}),
+    ...planCalibrationRestores({}),
+  ];
   for (const r of restores) {
     if (!r.config_key) continue;
     if (opts.dryRun) {
@@ -321,7 +325,9 @@ export async function runWeeklyGovernor(env, opts = {}) {
       await upsertModelConfig(db, {
         config_key: r.config_key,
         config_value: JSON.stringify("allowed"),
-        description: `CIO restore ${r.play_id} 30d n=${r.n} pnl=${r.pnl_usd}`,
+        description: r.reason === "calibration_family"
+          ? `CIO restore ${r.play_id} calibration family`
+          : `CIO restore ${r.play_id} 30d n=${r.n} pnl=${r.pnl_usd}`,
         updated_at: now,
         updated_by: "weekly_governor_cio_restore",
       });
@@ -422,6 +428,7 @@ export async function runWeeklyGovernor(env, opts = {}) {
       if (alreadySevere) continue;
       const play = resolvePlay(cand.setup, cand.direction);
       if (play?.id && isPlayRecovered30d(perSetup30, play.id, cand.direction)) continue;
+      if (isCalibrationPlay(play || cand.setup, cand.direction)) continue;
       try {
         await opts.submitProposal({
           source: "weekly_governor",

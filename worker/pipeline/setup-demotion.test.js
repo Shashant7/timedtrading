@@ -68,8 +68,8 @@ describe("setup-demotion heal (2026-07-23)", () => {
     expect(mergeEnforceDemotionPaths("tt_a", ["tt_b", "tt_a"])).toBe("tt_a,tt_b");
   });
 
-  it("maps Cloud Pivot onto the governor severe list", () => {
-    expect(SEVERE_BLEEDER_PATHS).toContain("tt_cloud_pivot");
+  it("maps Cloud Pivot keys but does not auto-demote the family", () => {
+    expect(SEVERE_BLEEDER_PATHS).not.toContain("tt_cloud_pivot");
     expect(setupDemotionConfigKey("tt_cloud_pivot", "long"))
       .toBe("deep_audit_setup_demotion_TT Cloud Pivot_long");
     expect(demotionProposalConfigKey("TT Cloud Pivot", "LONG"))

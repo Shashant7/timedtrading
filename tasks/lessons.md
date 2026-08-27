@@ -6,6 +6,22 @@
 
 ---
 
+## Cloud Pivot auto-block was too blunt for a 3-day paper family [2026-08-27]
+
+**Symptom:** Operator said Cloud Pivot only started this week, at paper
+quantity, and deserves refinement rather than a block.
+
+**Live book:** first print 2026-08-24. Closed losers were tiny
+(fractions of a share). Most open names were still green. Governor
+auto-demoted on 90d PF 0.01 / n=10 the same night the family was added
+to `SEVERE_BLEEDER_PATHS`.
+
+**Fix:** role `calibration`; drop from the severe list; desk restores
+if someone writes `blocked` anyway. Loop 1 + Trade Review + profit-lock
+stay on.
+
+**Do not:** treat a new paper family like ATH Breakout.
+
 ## Learning proposals were stale; heal kept killing Support Bounce [2026-08-27]
 
 **Symptom:** Operator asked if pending `learning_proposals` were fresh.

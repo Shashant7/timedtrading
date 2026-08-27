@@ -20,7 +20,6 @@ export const SEVERE_BLEEDER_PATHS = Object.freeze([
   "tt_ath_breakout",
   "tt_n_test_support",
   "tt_range_reversal_long",
-  "tt_cloud_pivot",
 ]);
 
 export function setupDemotionConfigKey(path, direction) {

@@ -106466,6 +106466,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             await kvPutJSON(_esKv, "timed:edge:scorecard", card);
             console.log(`[EDGE_SCORECARD nightly] d30: n=${card.windows?.d30?.n} wr=${card.windows?.d30?.win_rate_pct}% pf=${card.windows?.d30?.profit_factor} pnl=$${card.windows?.d30?.pnl_usd} · flags: ${(card.flags || []).join(" | ")}`);
             const { recovered30d } = await import("./learning-desk-review.js");
+            const { isCalibrationPlay } = await import("./foundation/play-catalog.js");
             const { demotionProposalConfigKey } = await import("./pipeline/setup-demotion.js");
             const _recoveredKeys = new Set(
               (card.per_setup_d30 || [])
@@ -106479,6 +106480,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const _demotionKey = demotionProposalConfigKey(cand.setup, cand.direction)
                 || `deep_audit_setup_demotion_${cand.setup}_${String(cand.direction || "").toLowerCase()}`;
               if (_recoveredKeys.has(_demotionKey)) continue;
+              if (isCalibrationPlay(cand.setup, cand.direction)) continue;
               await _learnSubmitProposal(env, {
                 source: "edge_scorecard",
                 tier: "tier2",

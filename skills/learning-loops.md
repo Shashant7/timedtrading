@@ -71,6 +71,11 @@ approved).
    `enforce_paths` only. CIO restore writes `allowed` when 30d n≥12 and
    PnL > 0 (Support Bounce 2026-08-27: 20 / +$312). Auto-demote still
    fires if 30d turns red again.
+6. **New paper families are not mature bleeders.** Cloud Pivot's first
+   print was 2026-08-24 at 0.1× paper. Auto-demote after ~10 closed
+   losers is too blunt — the open book was still green. Catalog role
+   `calibration` keeps Loop 1 / Trade Review / profit-lock on and
+   keeps the governor off the pause button.
 
 ## Learning desk (CIO / CRO / CTO)
 
@@ -84,7 +89,7 @@ stay pending.
 |---|---|
 | CTO | Ack already-live values. Reject mangled `TT Tt …` keys and recycled discovery notes (digit-stripped templates; ignore restamped `created_at`). |
 | CRO | Reject / restore workhorse demotions (Gap Reversal). Approve `block_widen` when WoW is red. |
-| CIO | Restore a setup when 30d n≥12 and PnL > 0. Ack a block that is still severe. Escalate mixed windows. |
+| CIO | Restore a setup when 30d n≥12 and PnL > 0. Restore a `calibration` family (Cloud Pivot) if someone wrote `blocked`. Ack a mature bleeder that is still severe. Escalate mixed windows. |
 | COO | Nightly tier-1 apply of whatever is still pending and auto-eligible. |
 
 KV report: `timed:learning-desk:latest`.
@@ -100,8 +105,9 @@ Admin: `GET /timed/admin/learning/desk`, `POST /timed/admin/learning/desk/run`.
 
 Decide leftover escalations via `POST /timed/admin/learning/proposals/decide`.
 Do not hand-write `model_config` unless healing a mangled key. To restore
-Support Bounce immediately after deploy, either POST the desk run or
-upsert `deep_audit_setup_demotion_TT Support Bounce_long` = `"allowed"`.
+Support Bounce or Cloud Pivot immediately after deploy, either POST the
+desk run or upsert the matching `deep_audit_setup_demotion_*` key to
+`"allowed"`.
 
 ## Verify
 

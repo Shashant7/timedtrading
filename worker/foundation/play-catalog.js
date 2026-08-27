@@ -132,14 +132,15 @@ export const CORE_PLAYS = Object.freeze([
       "tt atl breakdown",
     ],
   }),
-  // Promoted from the 0.1× paper family into the live book (Aug 2026).
-  // 30d: 3W/8L, −$140 — governor + Loop 1 must be able to see this id.
+  // Paper-sized family (first print 2026-08-24). Loop 1 + Trade Review
+  // must see this id. Auto-demote must not — three days of 0.1× paper
+  // is refinement, not a pause.
   play({
     id: "tt_cloud_pivot",
     label: "Cloud Pivot",
     direction: "LONG",
     status: PLAY_STATUS.RESTRICTED,
-    role: "live_family",
+    role: "calibration",
     demotion_label: "TT Cloud Pivot",
     aliases: [
       "cloud pivot",
@@ -265,6 +266,26 @@ export function isPlayPaused(raw, direction = null) {
 
 export function isPlayRestricted(raw, direction = null) {
   return resolvePlay(raw, direction)?.status === PLAY_STATUS.RESTRICTED;
+}
+
+/** Roles the weekly governor may not auto-pause. */
+export const NO_AUTO_DEMOTE_ROLES = Object.freeze(["workhorse", "calibration", "live_family"]);
+
+export function isCalibrationPlay(raw, direction = null) {
+  const play = typeof raw === "object" && raw?.id ? raw : resolvePlay(raw, direction);
+  return play?.role === "calibration" || play?.role === "live_family";
+}
+
+/**
+ * Auto-demote is for mature bleeders (ATH, Range Reversal).
+ * A new paper family stays on the refinement path.
+ */
+export function canAutoDemotePlay(raw, direction = null) {
+  const play = typeof raw === "object" && raw?.id ? raw : resolvePlay(raw, direction);
+  if (!play) return { ok: false, reason: "unknown_play" };
+  if (play.role === "workhorse") return { ok: false, reason: "workhorse_protected" };
+  if (isCalibrationPlay(play)) return { ok: false, reason: "calibration_family" };
+  return { ok: true, reason: "mature_bleeder" };
 }
 
 /** Prefer stamped path, then setup_name — both resolve to the same id. */

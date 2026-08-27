@@ -661,8 +661,9 @@ playbook in `skills/security-auth-patterns.md`)**
   high-confidence rows; only mixed/low-confidence items stay pending.
   Nightly `processProposals` still marks `already_in_effect` when live
   `model_config` already matches — do not treat a long pending queue as
-  "learning is off." Governor heal is plumbing only (no nightly
+  "learning is off."   Governor heal is plumbing only (no nightly
   `blocked` rewrite); CIO restores a setup when 30d n≥12 and PnL > 0.
+  Catalog role `calibration` (Cloud Pivot) is refinement, not auto-pause.
 - **Loops are ON in production** (Loop 1/2/3 since May; Trade Review
   since Aug 17; weekly governor default ON). A new live family that is
   not in `worker/foundation/play-catalog.js` is invisible to demotion —
@@ -930,7 +931,7 @@ playbook in `skills/security-auth-patterns.md`)**
 
 **Setup names (memorize)**
 - One catalog (`worker/foundation/play-catalog.js`): `Gap Reversal Long` and `tt_gap_reversal_long` are the same play. Do not split setup_name vs entry_path.
-- LONG: `tt_gap_reversal_long` (workhorse, live), `tt_pullback`, `tt_ath_breakout` (restricted), `tt_cloud_pivot` (restricted; live book + 0.1× paper sibling `tt_cloud_pivot_long`), `tt_range_reversal_long` (**paused**), `tt_n_test_support` (restricted), `tt_momentum`
+- LONG: `tt_gap_reversal_long` (workhorse, live), `tt_pullback`, `tt_ath_breakout` (restricted), `tt_cloud_pivot` (restricted, **calibration** — refine, do not auto-pause; 0.1× paper sibling `tt_cloud_pivot_long`), `tt_range_reversal_long` (**paused**), `tt_n_test_support` (restricted), `tt_momentum`
 - Admission wildcard default ON (`deep_audit_ja_grade_wildcard`) so empty-grade bleeders do not default-allow. Restricted plays fail closed when wildcard is on and no matrix/`*` row matches. ATH `*` requires conviction>=4; index swing has a Prime-bar `*` row. New live families must be added to the catalog or the weekly governor cannot demote them.
 - SHORT: `tt_gap_reversal_short` (bear-regime only; **do not** open up in bull tape), `tt_atl_breakdown` (restricted), `tt_n_test_resistance` (restricted), `tt_range_reversal_short` (**paused**)
 - Grades: Prime / Confirmed / Speculative. Speculative is generally blocked.
