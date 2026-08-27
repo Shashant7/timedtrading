@@ -816,6 +816,11 @@ import {
   loadDayTradeBook as _optDtLoadBook,
   readDayTradeActions as _optDtReadActions,
 } from "./option-day-trade-alerts.js";
+import {
+  maybeNotifyIndexTrendPaperEvent as _itNotifyPaper,
+  loadIndexTrendBook as _itLoadBook,
+} from "./index-trend-alerts.js";
+import { buildIndexTrendSignalId as _itBuildSignalId } from "./index-trend-paper.js";
 import { buildDayTradePositionMgmtLine as _optDtPositionMgmtLine } from "./option-day-trade-plan.js";
 import { extraActionFromLedger, modelRowFromDayTradeAction } from "./broker-day-actions-join.js";
 import {
@@ -95266,6 +95271,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // the */1 cron can advance the paper book + fire trim/exit/stop
           // signals near-real-time without re-running the 20-ticker swing scan.
           const _dtOnly = String(url.searchParams.get("dt_only") || "0") === "1";
+          const _itOnly = String(url.searchParams.get("it_only") || "0") === "1";
           // Paper-book mutation + Discord/broker dispatch is a SIDE EFFECT that
           // must be driven only by the internal */5 cron self-dispatch (which
           // carries the API key), never by an organic page load. Otherwise a
@@ -95775,10 +95781,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               day_trade_generated_at: Date.now(),
             };
           };
-          const _buildIndexTrendSection = (tickers, pricesMap, fsdMacro) => {
+          const _buildIndexTrendSection = async (tickers, pricesMap, fsdMacro, _itSectionOpts = {}) => {
             try {
               const flat = _flattenOptionsTickers(tickers);
-              return _indexTrendMod.buildIndexTrendSection(flat, {
+              const section = _indexTrendMod.buildIndexTrendSection(flat, {
                 pricesMap: pricesMap || {},
                 fsdMacro: fsdMacro || null,
                 scoreConfluence: (row) => {
@@ -95787,6 +95793,117 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   }
                 },
               });
+              const playsOut = [];
+              const pm = pricesMap || {};
+              for (const _itSym of _indexTrendMod.INDEX_TREND_TICKERS) {
+                const playRow = (section.index_trend_plays || []).find(
+                  (p) => String(p?.ticker || "").toUpperCase() === _itSym,
+                ) || null;
+                const letfTicker = String(playRow?.letf_ticker || playRow?.play?.letf_ticker || "").toUpperCase();
+                const direction = playRow?.direction || playRow?.play?.direction || "LONG";
+                const signalId = playRow && letfTicker
+                  ? _itBuildSignalId(_itSym, letfTicker, direction)
+                  : null;
+                const loaded = await _itLoadBook(env, { signal_id: signalId, letf_ticker: letfTicker || null });
+                const openBook = loaded.book
+                  && (loaded.book.status === "open" || loaded.book.status === "trimmed")
+                  ? loaded.book
+                  : null;
+                if (!playRow && !openBook) continue;
+
+                const _itLetf = letfTicker || String(openBook?.letf_ticker || "").toUpperCase();
+                const ulPx = Number(pm[_itSym]?.p) || Number(playRow?.price) || Number(openBook?.last_underlying_price) || 0;
+                const letfPx = Number(pm[_itLetf]?.p) || Number(openBook?.last_letf_price) || 0;
+                const _itMgmt = playRow?.play?.management || openBook?.management || null;
+                const _itDir = playRow?.direction || openBook?.direction || "LONG";
+                const _itSid = loaded.signal_id || signalId;
+
+                let _itBookAfter = openBook;
+                if (_dtDispatchAllowed) {
+                  try {
+                    const ev = await _itNotifyPaper(env, {
+                      profile,
+                      signal_id: _itSid,
+                      underlying: _itSym,
+                      ticker: _itSym,
+                      letf_ticker: _itLetf,
+                      direction: _itDir,
+                      underlying_price: ulPx,
+                      letf_price: letfPx,
+                      management: _itMgmt,
+                      play: playRow?.play || null,
+                      activate: !!playRow,
+                      now: Date.now(),
+                      loadedBook: loaded,
+                    });
+                    if (ev?.book) _itBookAfter = ev.book;
+                    if (ev?.event) {
+                      d1InsertNotification(env, {
+                        email: null,
+                        type: "index_trend_letf",
+                        title: ev.embed?.title || `${ev.event} ${_itLetf} index trend`,
+                        body: String(ev.embed?.description || ev.event).replace(/\*/g, "").slice(0, 280),
+                        link: "/today.html",
+                        alert_class: "trade_signal",
+                        severity: ev.event === "STOP" ? "high" : "info",
+                        engine: "index_trend_letf",
+                        exec_state: ev.event,
+                      }).catch(() => {});
+                      queueBackground((async () => {
+                        try {
+                          const { maybeAutoMirrorIndexTrendEvent } = await import("./index-trend-auto-mirror.js");
+                          await maybeAutoMirrorIndexTrendEvent(env, {
+                            event: ev.event,
+                            reason: ev.reason,
+                            signal_id: _itSid,
+                            underlying: _itSym,
+                            letf_ticker: _itLetf,
+                            direction: _itDir,
+                            letf_price: letfPx,
+                            management: _itMgmt,
+                            play: playRow?.play || null,
+                            book: ev.book,
+                          });
+                        } catch (_) { /* never block index trend mirror */ }
+                      })());
+                    }
+                  } catch (_itErr) {
+                    console.warn(`[INDEX-TREND] ${_itSym}:`, String(_itErr?.message || _itErr).slice(0, 120));
+                  }
+                }
+
+                if (!playRow) continue;
+                const _itLive = _itBookAfter
+                  && (_itBookAfter.status === "open" || _itBookAfter.status === "trimmed")
+                  ? _itBookAfter
+                  : null;
+                playsOut.push({
+                  ...playRow,
+                  signal_id: _itSid || signalId,
+                  position: _itLive ? {
+                    signal_id: _itSid || signalId,
+                    status: _itLive.status,
+                    direction: _itLive.direction || _itDir,
+                    letf_ticker: _itLetf,
+                    entry_letf_price: _itLive.entry_letf_price,
+                    entry_underlying_price: _itLive.entry_underlying_price,
+                    last_letf_price: _itLive.last_letf_price,
+                    last_underlying_price: _itLive.last_underlying_price,
+                    shares: _itLive.shares,
+                    shares_remaining: _itLive.shares_remaining,
+                    stop_underlying: _itLive.stop_underlying || _itMgmt?.stop_underlying,
+                    target_underlying: _itLive.target_underlying || _itMgmt?.target_underlying,
+                    trims_fired: _itLive.trims_fired || [],
+                    entry_ts: _itLive.entry_ts,
+                  } : null,
+                });
+              }
+              return {
+                ...section,
+                index_trend_plays: playsOut.length ? playsOut : section.index_trend_plays,
+                index_trend_count: playsOut.length ? playsOut.length : section.index_trend_count,
+                index_trend_generated_at: Date.now(),
+              };
             } catch (_) {
               return {
                 index_trend_plays: [],
@@ -95796,6 +95913,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               };
             }
           };
+          if (_itOnly) {
+            if (!_dtDispatchAllowed) {
+              return sendJSON({ ok: false, error_kind: "internal_only" }, 403, corsHeaders(env, req));
+            }
+            let allIt = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
+            if (!allIt) allIt = await kvGetJSON(env.KV_TIMED, "timed:all");
+            const tickersIt = _flattenOptionsTickers(allIt);
+            const _itPricesRawX = await KV.get("timed:prices").catch(() => null);
+            const _itPricesMapX = _itPricesRawX ? (JSON.parse(_itPricesRawX)?.prices || {}) : {};
+            const itSection = await _buildIndexTrendSection(tickersIt, _itPricesMapX, _optsFsdMacro, { dispatchOnly: true });
+            return sendJSON({ ok: true, it_only: true, ...itSection, generated_at: Date.now() }, 200, corsHeaders(env, req));
+          }
           if (_dtOnly) {
             // Lean */1 dispatch lane — internal cron only. Advance the paper
             // book + fire trim/exit/stop signals for the 4 index tickers
@@ -95823,7 +95952,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const _dtPricesMap = _dtPricesRaw ? (JSON.parse(_dtPricesRaw)?.prices || {}) : {};
               const _dtMarketOpen = (typeof isNyRegularMarketOpen === "function") ? isNyRegularMarketOpen() : true;
               const dayTrade = await _buildDayTradeSection(tickersSnap, _dtPricesMap, _dtMarketOpen, { fsdMacro: _optsFsdMacro });
-              const indexTrend = _buildIndexTrendSection(tickersSnap, _dtPricesMap, _optsFsdMacro);
+              const indexTrend = await _buildIndexTrendSection(tickersSnap, _dtPricesMap, _optsFsdMacro);
               const filteredPlays = _filterShortDteIndexPlays(cached.plays, _dtPricesMap, _dtMarketOpen);
               return sendJSON({
                 ...cached,
@@ -96006,7 +96135,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             day_trade_expiration: _dtExpiration,
             day_trade_count: _dtCount,
           } = await _buildDayTradeSection(tickers, _dtPricesMap, _dtMarketOpen, { fsdMacro: _optsFsdMacro });
-          const _indexTrendSection = _buildIndexTrendSection(tickers, _dtPricesMap, _optsFsdMacro);
+          const _indexTrendSection = await _buildIndexTrendSection(tickers, _dtPricesMap, _optsFsdMacro);
           const filteredPlays = _filterShortDteIndexPlays(plays, _dtPricesMap, _dtMarketOpen);
           const payload = {
             ok: true,
@@ -103785,6 +103914,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.error("[SANITY_SWEEP fast cron] threw:", String(e?.message || e).slice(0, 200));
         }));
       }
+    }
+
+    // 2026-08-27 — */15 index trend LETF dispatch (piggybacks on */5 cron
+    // when minute % 15 === 0). Swing book does not need */1 cadence.
+    if (_isEvery5Min && (_utcM % 15 === 0) && !_isDedicatedEngine
+        && (typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false)) {
+      ctx.waitUntil((async () => {
+        try {
+          await _selfDispatch("/timed/options/all?it_only=1&_nocache=1").catch(() => {});
+        } catch (_) { /* never block the 15-min tick on index trend */ }
+      })());
     }
 
     // 2026-08-25 — 1-minute index day-trade dispatch. The paper book +
