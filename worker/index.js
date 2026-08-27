@@ -7688,6 +7688,77 @@ function qualifiesForEnter(d, asOfTs = null) {
     }
   }
 
+  // DA-3f (2026-08-27, Ripster-BE month-end evolve): setup-scoped EQ floor.
+  //
+  // The Aug bleed (~27% WR on last 40) clusters into `TT ATH Breakout` +
+  // `TT Cloud Pivot` setups getting stopped for the full leg without ever
+  // banking a MFE_SAFETY trim. Global `deep_audit_min_entry_quality` would
+  // also throttle the setups actually working (LLY/AXON HTF Reclaim,
+  // USO Support Bounce). Per-setup floor lets us tighten only the leakers.
+  //
+  // Overrides via `deep_audit_setup_min_entry_quality_json` — a JSON map
+  // keyed by normalized entry_path (lowercased, spaces→underscores):
+  //   {"tt_ath_breakout": 55, "tt_cloud_pivot": 50}
+  // Defaults below bump the two worst 40-trade offenders modestly.
+  // Blocked at qualify time so the entry never opens; upstream reason is
+  // logged for the deep-audit ring.
+  const _setupEqPath = String(d?.entry_path || d?.setup_name || "")
+    .toLowerCase().replace(/[\s-]+/g, "_").replace(/^tt_/, "tt_");
+  if (_setupEqPath) {
+    let _setupFloors = {
+      tt_ath_breakout: 50,
+      tt_atl_breakdown: 50,
+      tt_cloud_pivot: 45,
+    };
+    try {
+      const _raw = _daConfig.deep_audit_setup_min_entry_quality_json;
+      if (_raw && typeof _raw === "string") {
+        const _parsed = JSON.parse(_raw);
+        if (_parsed && typeof _parsed === "object") {
+          _setupFloors = { ..._setupFloors, ..._parsed };
+        }
+      } else if (_raw && typeof _raw === "object") {
+        _setupFloors = { ..._setupFloors, ..._raw };
+      }
+    } catch (_) { /* keep defaults */ }
+    const _setupFloor = Number(_setupFloors[_setupEqPath]) || 0;
+    if (_setupFloor > 0) {
+      const _eqVal = Number(d?.entry_quality?.score) || 0;
+      if (_eqVal > 0 && _eqVal < _setupFloor) {
+        return {
+          qualifies: false,
+          reason: "da_setup_entry_quality_floor",
+          setup: _setupEqPath,
+          eqScore: _eqVal,
+          required: _setupFloor,
+        };
+      }
+    }
+  }
+
+  // DA-3g (2026-08-27): setup blocklist — enforce-list from playbook audit.
+  //
+  // `deep_audit_setup_blocklist` (comma-separated, normalized keys) lets the
+  // operator immediately pause a losing setup lane without a deploy — same
+  // shape as the ticker blacklist. Empty by default. Complements the Loop 1
+  // specialization scorecard (`loop1_specialization_enabled`), which stays
+  // off pending backtest validation.
+  if (_setupEqPath) {
+    const _rawBlock = _daConfig.deep_audit_setup_blocklist;
+    if (_rawBlock) {
+      const _blockList = String(_rawBlock).split(",")
+        .map((s) => s.trim().toLowerCase().replace(/[\s-]+/g, "_"))
+        .filter(Boolean);
+      if (_blockList.includes(_setupEqPath)) {
+        return {
+          qualifies: false,
+          reason: "da_setup_blocked",
+          setup: _setupEqPath,
+        };
+      }
+    }
+  }
+
   // DA-3e: Risk-off + choppy regime block — DISABLED
   // Was blocking ALL replay entries because execution_profile uses current (not historical)
   // market internals. Needs redesign to use historical VIX before re-enabling.
@@ -25342,6 +25413,28 @@ async function processTradeSimulation(
             if (!_mfeTrimBlocked) {
             console.log(`[MFE_SAFETY] ${sym} P&L ${_mfePnlPct.toFixed(2)}% >= ${_mfeSafetyThresh}% threshold, forcing ${(THREE_TIER_CONFIG.TRIM.trimPct * 100).toFixed(0)}% trim`);
             await trimTradeToPct(openTrade, THREE_TIER_CONFIG.TRIM.trimPct, pxNow, "MFE_SAFETY_TRIM");
+
+            // 2026-08-27 (Ripster-BE month-end evolve): unconditional post-safety-trim
+            // BE lock. The banked half already covered the risk; the runner must
+            // never take the full pre-trim stop and turn the trade into a full loss
+            // (DPZ 8/24 pattern: trim +2%, exit −2.6%, net −$2). The structure /
+            // protection-stage branch below still applies a *tighter* stop when
+            // structure has advanced. This floor makes sure that even without
+            // structure confirmation the SL is ratcheted to entry (or better).
+            {
+              const _prevSl = Number(openTrade.sl) || 0;
+              const _entrySl = Number(_mfeEntry) || 0;
+              if (_entrySl > 0) {
+                const _newSl = _mfeDir === "LONG"
+                  ? Math.max(_prevSl, _entrySl)
+                  : (_prevSl > 0 ? Math.min(_prevSl, _entrySl) : _entrySl);
+                if (_newSl !== _prevSl) {
+                  openTrade.sl = _newSl;
+                  console.log(`[MFE_SAFETY_BE_LOCK] ${sym} post-trim SL ratcheted to entry: $${_prevSl.toFixed(2)} → $${_newSl.toFixed(2)}`);
+                }
+              }
+            }
+
           const _mfeProtectionStage = _getProtectionStage();
           const _mfeStructureAdvance = hasPostTrimStructureAdvance(
             tickerData,

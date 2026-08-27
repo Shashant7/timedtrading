@@ -17,6 +17,12 @@ export const REPLAY_DA_KEYS = [
   // playbooks shadow stamping. Default absent => ON (shadow only, no
   // capital); set "false" in model_config to kill-switch.
   "deep_audit_context_scoring_shadow",
+  // 2026-08-27 (Ripster-BE month-end evolve) — per-setup EQ floors
+  // (JSON map) + operator-tunable setup blocklist. Both applied inside
+  // `qualifiesForEnter()`; defaults are baked in the gate so the keys
+  // exist here only to make them replay-safe overrides.
+  "deep_audit_setup_min_entry_quality_json",
+  "deep_audit_setup_blocklist",
   // Slice B Part 2 — bleeder guard: shield soft force/fast-cut exits when
   // structure holds. Default absent => OFF. Never shields hard SL/max-loss.
   "deep_audit_bleeder_shield_enabled",
