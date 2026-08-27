@@ -65,6 +65,15 @@ export function isPlayRecovered30d(perSetup30, playId, direction) {
   return recovered30d(findSetupStats(perSetup30, playId, direction));
 }
 
+/** Collapse "7 churn" / "8 churn" and "65 → 60" / "60 → 55" to one template. */
+export function discoveryNoteCore(note) {
+  return String(note || "")
+    .replace(/\s*\[.*?\]\s*/g, "")
+    .replace(/\d+(?:\.\d+)?/g, "#")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function stillSevere(stats) {
   if (!stats) return false;
   const n = Number(stats.n) || 0;
@@ -200,9 +209,9 @@ export function deskTriageProposal(row, ctx = {}) {
 
   if (source === "discovery") {
     const prior = (ctx.appliedSameKey || []).find((p) => p.config_key === key);
-    const priorNote = String(prior?.note || "").replace(/\s*\[.*?\]\s*/g, "").trim();
-    const thisNote = note.replace(/\s*\[.*?\]\s*/g, "").trim();
-    if (prior && priorNote && thisNote && priorNote === thisNote) {
+    const priorCore = discoveryNoteCore(prior?.note);
+    const thisCore = discoveryNoteCore(note);
+    if (prior && priorCore && thisCore && priorCore === thisCore) {
       return {
         action: "reject",
         desk: "cto",
@@ -210,7 +219,13 @@ export function deskTriageProposal(row, ctx = {}) {
         reason: "recycled_discovery_note",
       };
     }
-    if (ageDays >= 7 && prior) {
+    // submitProposal restamps pending created_at on every nightly
+    // rediscovery, so age must come from the last applied row.
+    const priorTs = Number(prior?.applied_at || prior?.created_at) || 0;
+    const priorAgeDays = Number(ctx.now) && priorTs
+      ? (Number(ctx.now) - priorTs) / 86400000
+      : ageDays;
+    if (prior && priorAgeDays >= 7) {
       return {
         action: "reject",
         desk: "cto",
@@ -327,7 +342,7 @@ export async function runLearningDeskReview(env, opts = {}) {
   ).all().catch(() => ({ results: [] })))?.results || [];
 
   const appliedSame = (await env.DB.prepare(
-    `SELECT config_key, note FROM learning_proposals
+    `SELECT config_key, note, applied_at, created_at FROM learning_proposals
       WHERE status = 'applied' ORDER BY applied_at DESC LIMIT 40`
   ).all().catch(() => ({ results: [] })))?.results || [];
 

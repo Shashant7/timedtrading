@@ -64,6 +64,27 @@ describe("deskTriageProposal", () => {
     expect(v).toMatchObject({ action: "approve", desk: "cro", reason: "wow_regressing_block_widen" });
   });
 
+  it("CTO rejects discovery notes that only increment the same numbers", () => {
+    const v = deskTriageProposal(
+      {
+        source: "discovery",
+        config_key: "deep_audit_trail_atr_mult",
+        proposed_value: "3.5",
+        note: "Widen trailing stop to reduce 8 churn events",
+        created_at: NOW,
+      },
+      {
+        now: NOW,
+        appliedSameKey: [{
+          config_key: "deep_audit_trail_atr_mult",
+          note: "Widen trailing stop to reduce 7 churn events",
+          applied_at: NOW - 60 * 86400000,
+        }],
+      },
+    );
+    expect(v).toMatchObject({ action: "reject", desk: "cto", reason: "recycled_discovery_note" });
+  });
+
   it("CTO rejects recycled discovery notes", () => {
     const v = deskTriageProposal(
       {

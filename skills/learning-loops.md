@@ -82,7 +82,7 @@ stay pending.
 
 | Desk | High-confidence action |
 |---|---|
-| CTO | Ack already-live values. Reject mangled `TT Tt …` keys and recycled discovery notes. |
+| CTO | Ack already-live values. Reject mangled `TT Tt …` keys and recycled discovery notes (digit-stripped templates; ignore restamped `created_at`). |
 | CRO | Reject / restore workhorse demotions (Gap Reversal). Approve `block_widen` when WoW is red. |
 | CIO | Restore a setup when 30d n≥12 and PnL > 0. Ack a block that is still severe. Escalate mixed windows. |
 | COO | Nightly tier-1 apply of whatever is still pending and auto-eligible. |
