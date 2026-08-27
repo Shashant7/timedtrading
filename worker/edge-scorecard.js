@@ -18,6 +18,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { summarizeSignalOutcomes } from "./signal-outcomes.js";
+import { canonicalPlayId } from "./foundation/play-catalog.js";
+
+/** Group ledger rows by catalog play id so "TT Cloud Pivot" and tt_cloud_pivot are one family. */
+export function setupGroupKey(row) {
+  const id = canonicalPlayId(row?.entry_path, row?.setup_name, row?.direction);
+  return id || String(row?.setup_name || "unknown");
+}
 
 const DAY_MS = 86400000;
 
@@ -124,7 +131,7 @@ export async function buildEdgeScorecard(env, opts = {}) {
   let rows = [];
   try {
     rows = (await db.prepare(
-      `SELECT ticker, direction, setup_name, setup_grade, status, pnl, pnl_pct, exit_reason, exit_ts
+      `SELECT ticker, direction, setup_name, setup_grade, entry_path, status, pnl, pnl_pct, exit_reason, exit_ts
          FROM trades
         WHERE status IN ('WIN','LOSS','FLAT') AND exit_ts >= ?1
         ORDER BY exit_ts ASC LIMIT 3000`
@@ -143,7 +150,7 @@ export async function buildEdgeScorecard(env, opts = {}) {
   // Per setup × direction over 90d.
   const bySetup = new Map();
   for (const r of rows) {
-    const key = `${r.setup_name || "unknown"}|${r.direction || "?"}`;
+    const key = `${setupGroupKey(r)}|${r.direction || "?"}`;
     if (!bySetup.has(key)) bySetup.set(key, []);
     bySetup.get(key).push(r);
   }

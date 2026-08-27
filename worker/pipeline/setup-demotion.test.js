@@ -6,6 +6,7 @@ import {
   buildDemotionHealUpserts,
   isDemotionKeyBlocked,
   mergeEnforceDemotionPaths,
+  SEVERE_BLEEDER_PATHS,
 } from "./setup-demotion.js";
 
 describe("setup-demotion heal (2026-07-23)", () => {
@@ -59,5 +60,13 @@ describe("setup-demotion heal (2026-07-23)", () => {
     expect(enforce).toContain("tt_range_reversal_long");
     expect(rows.some((r) => r.config_key.includes("TT ATH Breakout"))).toBe(true);
     expect(mergeEnforceDemotionPaths("tt_a", ["tt_b", "tt_a"])).toBe("tt_a,tt_b");
+  });
+
+  it("maps Cloud Pivot onto the governor severe list", () => {
+    expect(SEVERE_BLEEDER_PATHS).toContain("tt_cloud_pivot");
+    expect(setupDemotionConfigKey("tt_cloud_pivot", "long"))
+      .toBe("deep_audit_setup_demotion_TT Cloud Pivot_long");
+    expect(demotionProposalConfigKey("TT Cloud Pivot", "LONG"))
+      .toBe("deep_audit_setup_demotion_TT Cloud Pivot_long");
   });
 });

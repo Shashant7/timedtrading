@@ -1,10 +1,37 @@
 import { describe, it, expect } from "vitest";
 import {
   isPhantomBreakerTrade,
+  loop1ComputeAdvisoryMap,
+  loop1SetupSideKey,
   loop2ComputePulse,
   loop2EvaluatePulse,
   sumRealizedPnlExcludingPhantoms,
 } from "./phase-c-loops.js";
+
+describe("loop1 setup × side rollup", () => {
+  it("blocks a family when no exact combo has enough samples", () => {
+    const cards = {
+      "tt_cloud_pivot:trending_up:volatile_runner:L": { wins: 0, losses: 2, samples: 2 },
+      "tt_cloud_pivot:choppy:mean_reverter:L": { wins: 1, losses: 2, samples: 3 },
+      "tt_cloud_pivot:transitional:unknown:L": { wins: 0, losses: 3, samples: 3 },
+    };
+    const map = loop1ComputeAdvisoryMap(cards, { loop1_min_samples: 8, loop1_block_wr: 0.30, loop1_raise_bar_wr: 0.45 });
+    expect(map["tt_cloud_pivot:trending_up:volatile_runner:L"]).toBeUndefined();
+    const roll = map[loop1SetupSideKey("tt_cloud_pivot", "L")];
+    expect(roll?.decision).toBe("block");
+    expect(roll?.rollup).toBe(true);
+    expect(roll?.samples).toBe(8);
+  });
+
+  it("prefers an exact combo opinion over the rollup", () => {
+    const cards = {
+      "tt_htf_reclaim:trending_up:leader:L": { wins: 9, losses: 1, samples: 10 },
+    };
+    const map = loop1ComputeAdvisoryMap(cards, { loop1_min_samples: 8, loop1_block_wr: 0.30, loop1_raise_bar_wr: 0.45 });
+    expect(map["tt_htf_reclaim:trending_up:leader:L"]).toBeUndefined();
+    expect(map[loop1SetupSideKey("tt_htf_reclaim", "L")]).toBeUndefined();
+  });
+});
 
 describe("isPhantomBreakerTrade", () => {
   it("flags fast sl_breached LOSS round-trips (stale entry flap)", () => {

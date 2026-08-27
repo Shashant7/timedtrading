@@ -6,6 +6,35 @@
 
 ---
 
+## Do not write a first-time analysis when the loops are already on [2026-08-27]
+
+**Symptom:** After the Ripster-BE / month-end plan (#1370), the operator
+said the plan read like we were analyzing the book for the first time.
+Asked for a self-learning mechanism that uses what is already in place,
+via the last month of merged PRs.
+
+**What was already live (D1, not code defaults):**
+`loop1_specialization_enabled=true` (May 6), Loop 2/3 on, Trade Review
+on (Aug 17) with ~100 reviews, weekly governor auto-demoting ATH /
+Support Bounce / Range Reversal, `COO_AUTO_APPLY_TIER1=true`, 9 applied
++ 10 pending `learning_proposals` (last human decide: Jun 26).
+
+**Actual holes:** (1) Cloud Pivot became a live `setup_name` in August
+and was **not** in `CORE_PLAYS` / `SEVERE_BLEEDER_PATHS`, so the
+governor could not pause the family that was printing. (2) Loop 1's
+4-way combo almost never hits sample, so a 12-trade / 25% WR setup had
+"no opinion." (3) Pending proposals re-asked for blocks that were
+already written. (4) Trade Review C / LOCATION_WRONG never reaches the
+apply bus.
+
+**Fix:** Catalog Cloud Pivot + severe list; Loop 1 setup × side rollup;
+`processProposals` already-in-effect; edge scorecard groups by
+`canonicalPlayId`. Playbook: `skills/learning-loops.md`. Review:
+`tasks/2026-08-27-learning-loop-evolution.md`.
+
+**Do not:** ship another static EQ floor / "enable Loop 1" checklist /
+new apply path.
+
 ## ST share Discord at 8pm ET cannot follow through at the broker [2026-08-25]
 
 **Symptom:** `#trade-signals` posted TSLA max-loss exit @ 8:01 PM ET and

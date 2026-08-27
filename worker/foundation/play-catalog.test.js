@@ -33,6 +33,8 @@ describe("play catalog", () => {
     expect(isPlayPaused("Range Reversal (Long)")).toBe(true);
     expect(isPlayPaused("tt_gap_reversal_long")).toBe(false);
     expect(isPlayRestricted("tt_ath_breakout")).toBe(true);
+    expect(isPlayRestricted("tt_cloud_pivot")).toBe(true);
+    expect(isPlayRestricted("TT Cloud Pivot")).toBe(true);
     expect(isPlayRestricted("tt_index_etf_swing")).toBe(true);
     expect(isPlayRestricted("tt_gap_reversal_long")).toBe(false);
     expect(playLabel("tt_n_test_support")).toBe("Support Bounce");
@@ -48,5 +50,6 @@ describe("play catalog", () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.length).toBeLessThanOrEqual(16);
     expect(ids).toContain("tt_gap_reversal_long");
+    expect(ids).toContain("tt_cloud_pivot");
   });
 });

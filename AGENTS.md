@@ -45,6 +45,7 @@ should read. It tells you what to look at, in what order, and why.
 | Backfill candles (D / W / M) | [skills/backfill-candles.md](skills/backfill-candles.md) |
 | Run a backtest / candle replay | [skills/backtest-replay.md](skills/backtest-replay.md) |
 | Grade a trade's entry/trim/exit, or act on a review finding | [skills/trade-review-agent.md](skills/trade-review-agent.md) |
+| Why the book is not adapting / Loop 2 pause / learning_proposals | [skills/learning-loops.md](skills/learning-loops.md) |
 | Read or update the Investor / Trader UI | [skills/mission-control-tour.md](skills/mission-control-tour.md) |
 | Debug a 401 / 403 / 404 / 503 | [skills/debug-http-codes.md](skills/debug-http-codes.md) |
 | Query D1 directly | [skills/d1-debugging.md](skills/d1-debugging.md) |

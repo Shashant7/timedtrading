@@ -21,6 +21,14 @@ describe("weekly governor pure helpers", () => {
     expect(severe[0].action).toBe("auto_demote_blocked");
   });
 
+  it("can auto-demote Cloud Pivot once it is a catalog severe path", () => {
+    const severe = planSevereDemotions([
+      { setup: "tt_cloud_pivot", direction: "long", stats: { n: 12, profit_factor: 0.22, win_rate_pct: 25, pnl_usd: -140 } },
+    ], { minN: 10, maxPf: 0.5 });
+    expect(severe).toHaveLength(1);
+    expect(severe[0].path).toBe("tt_cloud_pivot");
+  });
+
   it("defaults governor flags ON", () => {
     const cfg = loadWeeklyGovernorConfig({});
     expect(cfg.enabled).toBe(true);

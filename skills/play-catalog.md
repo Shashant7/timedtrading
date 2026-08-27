@@ -21,7 +21,7 @@ Source: `worker/foundation/play-catalog.js` (`resolvePlay`,
 | Status | Meaning |
 |---|---|
 | `live` | Take when the detector + admission fire. Workhorse: gap reversal. |
-| `restricted` | Admission matrix only (wildcard ON). ATH, N-test, ATL, index swing. |
+| `restricted` | Admission matrix only (wildcard ON). ATH, N-test, ATL, index swing, Cloud Pivot. |
 | `paused` | Hard reject at qualify. Range reversal long/short. |
 
 Admission used to no-op when grade was empty (`missing_inputs_default_allow`).
@@ -32,15 +32,17 @@ when the flag is on and no exact/`*` row matches. ATH `*` also requires
 `conviction>=4` (same as Prime). `min_rr` / `min_conviction` fail closed
 when the value is missing.
 
-Cloud Pivot exits do **not** manage a canonical core `entry_path` even
-when a paper family stamp is coincident.
+**Cloud Pivot is now a catalog play** (`tt_cloud_pivot`, restricted).
+The live book writes `setup_name = TT Cloud Pivot`. The weekly governor
+and Loop 1 must see that id — leaving it off the catalog made August's
+bleeder invisible to demotion.
 
-Paper families (Confirm-stack / Cloud Pivot / Continuation) open their
-**own** 0.1× ticket when FIRE + proposal are live and no core path is
-in the enter lane (`resolvePaperFamilyStandaloneEntry`). Path ids look
-like `tt_cloud_pivot_long` — carved out of `isCanonicalCapitalEntryPath`
-so size stays 0.1× and the broker mirror uses the same qty. Do not
-apply that size to `tt_gap_reversal_*` / `tt_n_test_*` / ATH.
+Paper families (Confirm-stack / Cloud Pivot / Continuation) still open a
+**0.1×** sibling ticket when FIRE + proposal are live and no core path is
+in the enter lane (`resolvePaperFamilyStandaloneEntry`). Those path ids
+look like `tt_cloud_pivot_long` and do **not** resolve to the catalog
+play (the `_long` suffix is the carve-out). Do not apply 0.1× size to
+`tt_gap_reversal_*` / `tt_n_test_*` / ATH / core `tt_cloud_pivot`.
 
 ## Verify
 

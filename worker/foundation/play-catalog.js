@@ -132,6 +132,21 @@ export const CORE_PLAYS = Object.freeze([
       "tt atl breakdown",
     ],
   }),
+  // Promoted from the 0.1× paper family into the live book (Aug 2026).
+  // 30d: 3W/8L, −$140 — governor + Loop 1 must be able to see this id.
+  play({
+    id: "tt_cloud_pivot",
+    label: "Cloud Pivot",
+    direction: "LONG",
+    status: PLAY_STATUS.RESTRICTED,
+    role: "live_family",
+    demotion_label: "TT Cloud Pivot",
+    aliases: [
+      "cloud pivot",
+      "tt cloud pivot",
+      "tt tt cloud pivot",
+    ],
+  }),
   play({
     id: "tt_pullback",
     label: "Pullback Reclaim",
