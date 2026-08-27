@@ -29,7 +29,11 @@
 
 import { getProposal, markProposalApplied } from "./fsd-extractor.js";
 import { markPublicationApplied } from "./fsd-ingestion.js";
-import { normalizeTacticalSignalDirections } from "./fsd-macro-context.js";
+import {
+  normalizeTacticalSignalDirections,
+  parseMacroContextFromOverlay,
+  mergeFsdMacroContexts,
+} from "./fsd-macro-context.js";
 import { stampOverlayProvenance } from "../overlay-provenance.js";
 
 const OVERRIDE_KV_KEY = "cro:tactical_overrides";
@@ -418,11 +422,52 @@ export async function healTacticalOverrideFromD1(env) {
 
 /** Load parsed FSD macro rally context (KV-aware, auto-heals from D1). */
 export async function loadFsdMacroContext(env) {
-  const { parseMacroContextFromOverlay } = await import("./fsd-macro-context.js");
   let override = await loadTacticalOverrideBlob(env);
   if (!override) {
     const healed = await healTacticalOverrideFromD1(env);
     if (healed.healed) override = healed.blob;
   }
-  return parseMacroContextFromOverlay(override);
+  const primary = parseMacroContextFromOverlay(override);
+
+  const db = env?.DB;
+  if (!db) return primary;
+
+  let rows = [];
+  try {
+    const res = await db.prepare(`
+      SELECT proposal_id, pub_id, proposal_json, applied_at
+        FROM cro_playbook_proposals
+       WHERE status = 'applied'
+       ORDER BY applied_at DESC
+       LIMIT 12
+    `).all();
+    rows = res?.results || [];
+  } catch (_) {
+    return primary;
+  }
+
+  const supplemental = [];
+  for (const row of rows) {
+    if (override?.proposal_id && row.proposal_id === override.proposal_id) continue;
+    let proposal = null;
+    try {
+      proposal = typeof row.proposal_json === "string"
+        ? JSON.parse(row.proposal_json)
+        : row.proposal_json;
+    } catch (_) { continue; }
+    if (!proposal) continue;
+    const blob = proposalToOverrideBlob(proposal, {
+      proposalId: row.proposal_id,
+      pubId: row.pub_id,
+    });
+    blob.applied_at = Number(row.applied_at) || blob.applied_at;
+    const ctx = parseMacroContextFromOverlay(blob);
+    if (ctx?.spx_target || ctx?.target_month_end
+        || ctx?.signals?.some((s) => String(s?.signal || "").includes("spx_target"))) {
+      supplemental.push(ctx);
+    }
+  }
+
+  if (!supplemental.length) return primary;
+  return mergeFsdMacroContexts(primary, ...supplemental);
 }

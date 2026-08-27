@@ -44,6 +44,47 @@ export function parseSpxTargetRange(text) {
   return null;
 }
 
+/** Merge macro contexts — month-end SPX targets persist across newer tactical notes. */
+export function mergeFsdMacroContexts(...contexts) {
+  const valid = contexts.filter((c) => c && typeof c === "object");
+  if (!valid.length) return null;
+
+  const now = Date.now();
+  const merged = { ...valid[0] };
+  const signalKeys = new Set((merged.signals || []).map((s) => String(s?.signal || "")));
+
+  for (const ctx of valid.slice(1)) {
+    if (ctx.spx_target && !merged.spx_target) merged.spx_target = ctx.spx_target;
+    if (ctx.rally_active) merged.rally_active = true;
+    if (ctx.crypto_leadership) merged.crypto_leadership = true;
+    if (ctx.target_month_end) merged.target_month_end = true;
+    if (ctx.spx_target && ctx.target_deadline_ms) {
+      merged.target_deadline_ms = Math.max(
+        Number(merged.target_deadline_ms) || 0,
+        Number(ctx.target_deadline_ms) || 0,
+      );
+    }
+    for (const s of (ctx.signals || [])) {
+      const k = String(s?.signal || "");
+      if (k && !signalKeys.has(k)) {
+        signalKeys.add(k);
+        merged.signals = [...(merged.signals || []), s];
+      }
+    }
+    if (!merged.overlay_line && ctx.overlay_line) merged.overlay_line = ctx.overlay_line;
+    if (!merged.pub_id && ctx.pub_id) merged.pub_id = ctx.pub_id;
+  }
+
+  // Month-end index target still inside its window → rally stays on even if the
+  // live KV overlay is a newer single-name note (e.g. NVDA earnings).
+  if (merged.spx_target && Number(merged.target_deadline_ms) > now) {
+    merged.rally_active = true;
+    merged.target_month_end = true;
+  }
+
+  return merged;
+}
+
 /** Build macro context from a tactical override blob. */
 export function parseMacroContextFromOverlay(override) {
   if (!override || typeof override !== "object") return null;

@@ -4,6 +4,7 @@ import {
   parseMacroContextFromOverlay,
   parseSpxTargetRange,
   pickMonthEndRallyExpiration,
+  mergeFsdMacroContexts,
 } from "./fsd-macro-context.js";
 
 describe("fsd-macro-context", () => {
@@ -47,5 +48,31 @@ describe("fsd-macro-context", () => {
     expect(exp).not.toBeNull();
     expect(exp.dte).toBeGreaterThanOrEqual(2);
     expect(exp.dte).toBeLessThanOrEqual(10);
+  });
+
+  it("merges month-end SPX target when live overlay is a newer single-name note", () => {
+    const monthEnd = parseMacroContextFromOverlay({
+      tactical_overlay: "S&P 500 targeting 7,900-8,000 by month end.",
+      tactical_signals: [{
+        signal: "spx_target_7900_8000",
+        pair: "^SPX",
+        direction: "bullish_target",
+      }],
+      applied_at: Date.UTC(2026, 7, 25, 12, 0, 0),
+    });
+    const nvidia = parseMacroContextFromOverlay({
+      tactical_overlay: "NVIDIA strong earnings; semis rally.",
+      tactical_signals: [{
+        signal: "nvidia_earnings_positive_impact",
+        pair: "IGV/SMH",
+        direction: "favor_a_over_b",
+      }],
+      applied_at: Date.UTC(2026, 7, 27, 12, 0, 0),
+    });
+    expect(nvidia.rally_active).toBe(false);
+    const merged = mergeFsdMacroContexts(nvidia, monthEnd);
+    expect(merged.rally_active).toBe(true);
+    expect(merged.spx_target.high).toBe(8000);
+    expect(merged.target_month_end).toBe(true);
   });
 });
