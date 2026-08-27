@@ -79,13 +79,34 @@ async function loop1ReadAllScorecards(KV) {
  * Pre-evaluation lets the sync entry-gate read from a plain object map.
  * Returns: { [comboKey]: { decision, reason, samples, wr } }
  */
+function loop1SetupSideKey(setup, side) {
+  const safe = (s) => String(s || "unknown").toLowerCase().replace(/[^a-z0-9_]/g, "_");
+  const sideKey = String(side || "").toUpperCase().startsWith("S") ? "S" : "L";
+  return `__setup__:${safe(setup)}:${sideKey}`;
+}
+
 function loop1ComputeAdvisoryMap(scorecardsMap, daCfg) {
   const minSamples = Number(daCfg?.loop1_min_samples) || LOOP1_DEFAULT_MIN_SAMPLES;
   const raiseWr = Number(daCfg?.loop1_raise_bar_wr) || LOOP1_DEFAULT_BAR_RAISE_WR;
   const blockWr = Number(daCfg?.loop1_block_wr) || LOOP1_DEFAULT_BAR_BLOCK_WR;
   const out = {};
+  const bySetupSide = {};
   for (const [combo, card] of Object.entries(scorecardsMap || {})) {
-    if (!card || (card.samples || 0) < minSamples) continue; // no opinion
+    if (!card) continue;
+    if (!String(combo).startsWith("__setup__")) {
+      const parts = String(combo).split(":");
+      if (parts.length >= 4) {
+        const setup = parts[0];
+        const side = parts[parts.length - 1];
+        const rollKey = `${setup}:${side}`;
+        const agg = bySetupSide[rollKey] || { wins: 0, losses: 0, samples: 0 };
+        agg.wins += Number(card.wins) || 0;
+        agg.losses += Number(card.losses) || 0;
+        agg.samples += Number(card.samples) || 0;
+        bySetupSide[rollKey] = agg;
+      }
+    }
+    if ((card.samples || 0) < minSamples) continue; // no opinion
     const wr = (card.wins || 0) / (card.samples || 1);
     if (wr <= blockWr) {
       out[combo] = { decision: "block", reason: `wr_${(wr * 100).toFixed(0)}_below_block`, wr, samples: card.samples };
@@ -93,6 +114,21 @@ function loop1ComputeAdvisoryMap(scorecardsMap, daCfg) {
       out[combo] = { decision: "raise_bar", reason: `wr_${(wr * 100).toFixed(0)}_below_raise`, wr, samples: card.samples };
     }
     // No entry written for "allow" — absence implies allow.
+  }
+
+  // Setup × side rollup — 4-way combos rarely hit min_samples, so a new
+  // family (Cloud Pivot) can bleed while every exact combo says "no opinion".
+  for (const [rollKey, agg] of Object.entries(bySetupSide)) {
+    if ((agg.samples || 0) < minSamples) continue;
+    const wr = (agg.wins || 0) / (agg.samples || 1);
+    const [setup, side] = rollKey.split(":");
+    const key = loop1SetupSideKey(setup, side);
+    if (out[key]) continue;
+    if (wr <= blockWr) {
+      out[key] = { decision: "block", reason: `setup_wr_${(wr * 100).toFixed(0)}_below_block`, wr, samples: agg.samples, rollup: true };
+    } else if (wr <= raiseWr) {
+      out[key] = { decision: "raise_bar", reason: `setup_wr_${(wr * 100).toFixed(0)}_below_raise`, wr, samples: agg.samples, rollup: true };
+    }
   }
   return out;
 }
@@ -753,6 +789,7 @@ export {
   LOOP2_PHANTOM_MAX_HOLD_MS,
   // Loop 1
   loop1Key,
+  loop1SetupSideKey,
   loop1ReadAllScorecards,
   loop1ComputeAdvisoryMap,
   loop1ReadScorecard,

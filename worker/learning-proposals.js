@@ -125,6 +125,35 @@ export async function submitProposal(env, p) {
 
 const TIER1_MAX_DELTA = 0.10; // ±10% of current numeric value
 
+/** Collapse JSON-encoded / quoted twins so `"blocked"` == blocked. */
+export function normalizeConfigValue(v) {
+  if (v == null) return "";
+  let cur = v;
+  for (let i = 0; i < 3; i++) {
+    if (typeof cur !== "string") break;
+    const t = cur.trim();
+    if (!t) return "";
+    if (
+      (t.startsWith("\"") && t.endsWith("\""))
+      || (t.startsWith("{") && t.endsWith("}"))
+      || (t.startsWith("[") && t.endsWith("]"))
+    ) {
+      try {
+        cur = JSON.parse(t);
+        continue;
+      } catch { /* not JSON */ }
+    }
+    break;
+  }
+  return String(cur).trim().toLowerCase().replace(/^["']+|["']+$/g, "");
+}
+
+export function configValuesEquivalent(a, b) {
+  const na = normalizeConfigValue(a);
+  const nb = normalizeConfigValue(b);
+  return na !== "" && na === nb;
+}
+
 function _tier1Clamp(currentRaw, proposedRaw) {
   const current = Number(currentRaw);
   const proposed = Number(proposedRaw);
@@ -205,6 +234,40 @@ export async function processProposals(env) {
   const dryRun = [];
   const awaitingOperator = [];
   for (const row of pending) {
+    // Governor / edge-scorecard often re-propose a block that is already
+    // live. Leave those off the operator queue.
+    if (row.config_key) {
+      let liveValue = row.current_value;
+      try {
+        const live = await env.DB.prepare(
+          `SELECT config_value FROM model_config WHERE config_key = ?1`
+        ).bind(String(row.config_key)).first();
+        if (live?.config_value != null) liveValue = live.config_value;
+      } catch { /* keep row.current_value */ }
+      if (configValuesEquivalent(liveValue, row.proposed_value)) {
+        try {
+          await env.DB.prepare(
+            `UPDATE learning_proposals
+                SET status = 'applied', applied_at = ?1, decided_at = ?1,
+                    decided_by = ?2, rollback_value = ?3,
+                    note = COALESCE(note, '') || ?4
+              WHERE id = ?5`
+          ).bind(
+            Date.now(), "already_in_effect", row.current_value,
+            " [already_in_effect]", row.id,
+          ).run();
+          applied.push({
+            id: row.id,
+            config_key: row.config_key,
+            written: normalizeConfigValue(liveValue),
+            already_in_effect: true,
+          });
+        } catch (e) {
+          console.warn(`[LEARN_BUS] already-in-effect #${row.id} threw:`, String(e?.message || e).slice(0, 120));
+        }
+        continue;
+      }
+    }
     if (row.tier !== "tier1") {
       awaitingOperator.push({ id: row.id, source: row.source, config_key: row.config_key });
       continue;

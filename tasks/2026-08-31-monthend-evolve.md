@@ -3,7 +3,15 @@
 Owner: model core (short-term equity). Trigger: August drawdown, Loop 2
 day-P&L trip (−8.58%), 27% WR on last 40 closes, no material PnL uptick.
 
-Read first: `tasks/2026-08-19-playbook-audit.md`,
+**Superseded as the adaptation plan.** This file is the Ripster-BE
+patch note (BE lock + static EQ floors). The last month of merges and
+the live loops are reviewed in
+`tasks/2026-08-27-learning-loop-evolution.md`. Do not "enable Loop 1"
+from §3 — it has been on since May. Do not start another Analysis Suite
+pass until that review's wires are live.
+
+Read first: `tasks/2026-08-27-learning-loop-evolution.md`,
+`tasks/2026-08-19-playbook-audit.md`,
 `tasks/2026-08-18-movie-reframe.md`,
 `tasks/2026-08-15-july-st-autopsy-feedback.md`, and the Ripster-BE lineage
 in `tasks/lessons.md`.
@@ -55,10 +63,9 @@ Use the Analysis Suite (`system-intelligence.html`) + `/timed/admin/model-config
   `deep_audit_setup_min_entry_quality_json` to
   `{tt_ath_breakout: 55, tt_cloud_pivot: 50}` (defaults are conservative);
   re-baseline after 30 closes.
-- **Enable Loop 1 specialization scorecard** —
-  `loop1_specialization_enabled=true` (currently off). Reads
-  `phase-c:scorecards`, raises rank bar +20 when combo WR<45%, blocks when
-  <30%. Runs alongside blocklist; kill-switch via same flag.
+- **Loop 1 is already on** (since 2026-05-06). The gap was combo
+  sparsity + Cloud Pivot missing from the play catalog. See
+  `tasks/2026-08-27-learning-loop-evolution.md`. Do not flip the flag.
 - **Portfolio DD haircut enforcement (already default ON in code) —
   verify live**. `portfolio_dd_size_haircut_enabled` should tick position
   size down as equity nears 5% DD. Confirm in `/timed/portfolio-risk`.

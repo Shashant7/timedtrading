@@ -21,6 +21,15 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **Learning-loop evolution (2026-08-27).** Last month of merges was
+      mostly product (index vehicles, broker, Today). Loops 1–3, Trade
+      Review, and the weekly governor are already ON. Cloud Pivot was a
+      live bleeder the catalog/governor could not see; Loop 1 combos were
+      too sparse; the proposal queue was full of already-applied blocks.
+      Wire catalog + setup rollup + already-in-effect. Spec:
+      `tasks/2026-08-27-learning-loop-evolution.md`. Skill:
+      `skills/learning-loops.md`. Branch:
+      `cursor/learning-loop-adapt-df0c`.
 - [x] **Index trend LETF lane (2026-08-27).** Split day-trade options from
       swing/trend SPYU/SPXU share expressions. API + paper book + mirror +
       Today strip + right-rail panel. Spec:

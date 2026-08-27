@@ -7049,12 +7049,18 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
       const sideKey = inferredSide === "SHORT" ? "S" : "L";
       const safe = (s) => String(s || "unknown").toLowerCase().replace(/[^a-z0-9_]/g, "_");
       const comboKey = `${safe(setup)}:${safe(regime)}:${safe(personality)}:${sideKey}`;
-      const advisory = loop1State[comboKey];
+      const setupRollupKey = typeof PhaseCLoops.loop1SetupSideKey === "function"
+        ? PhaseCLoops.loop1SetupSideKey(setup, sideKey)
+        : `__setup__:${safe(setup)}:${sideKey}`;
+      const advisory = loop1State[comboKey] || loop1State[setupRollupKey] || null;
       if (advisory?.decision === "block") {
-        phaseCEvents.push({ loop: 1, action: "block", combo: comboKey, wr: advisory.wr, samples: advisory.samples });
+        phaseCEvents.push({
+          loop: 1, action: "block", combo: comboKey, wr: advisory.wr, samples: advisory.samples,
+          rollup: advisory.rollup === true,
+        });
         return {
           qualifies: false,
-          reason: "phase_c_loop1_combo_blocked",
+          reason: advisory.rollup ? "phase_c_loop1_setup_blocked" : "phase_c_loop1_combo_blocked",
           combo: comboKey,
           wr: advisory.wr,
           samples: advisory.samples,
@@ -7067,10 +7073,13 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
         const tickerRank = Number(d?.score ?? d?.rank) || 0;
         const lifted = (Number(daCfg.deep_audit_min_rank_for_promotion) || 0) + liftPts;
         if (tickerRank < lifted) {
-          phaseCEvents.push({ loop: 1, action: "raise_bar_block", combo: comboKey, wr: advisory.wr, samples: advisory.samples, lift: liftPts });
+          phaseCEvents.push({
+            loop: 1, action: "raise_bar_block", combo: comboKey, wr: advisory.wr,
+            samples: advisory.samples, lift: liftPts, rollup: advisory.rollup === true,
+          });
           return {
             qualifies: false,
-            reason: "phase_c_loop1_raised_bar",
+            reason: advisory.rollup ? "phase_c_loop1_setup_raised_bar" : "phase_c_loop1_raised_bar",
             combo: comboKey,
             wr: advisory.wr,
             samples: advisory.samples,
@@ -7078,7 +7087,7 @@ function _applyContextGates(d, inferredSide, asOfTs, leadingLtfLabel) {
             actual_rank: tickerRank,
           };
         }
-        phaseCEvents.push({ loop: 1, action: "raise_bar_passed", combo: comboKey, wr: advisory.wr });
+        phaseCEvents.push({ loop: 1, action: "raise_bar_passed", combo: comboKey, wr: advisory.wr, rollup: advisory.rollup === true });
       }
     }
   } catch (e) {

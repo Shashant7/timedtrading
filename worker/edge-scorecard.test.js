@@ -5,6 +5,7 @@ import {
   computeWindowStats,
   findDemotionCandidates,
   deriveEdgeFlags,
+  setupGroupKey,
 } from "./edge-scorecard.js";
 
 const W = (pnl, pct = 1) => ({ status: "WIN", pnl, pnl_pct: pct });
@@ -30,6 +31,13 @@ describe("computeWindowStats", () => {
     expect(empty.n).toBe(0);
     expect(empty.win_rate_pct).toBeNull();
     expect(empty.expectancy_usd).toBeNull();
+  });
+});
+
+describe("setupGroupKey", () => {
+  it("collapses Cloud Pivot display name and path onto one id", () => {
+    expect(setupGroupKey({ setup_name: "TT Cloud Pivot", direction: "LONG" })).toBe("tt_cloud_pivot");
+    expect(setupGroupKey({ entry_path: "tt_cloud_pivot", setup_name: "Cloud Pivot" })).toBe("tt_cloud_pivot");
   });
 });
 

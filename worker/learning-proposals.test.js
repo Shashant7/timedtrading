@@ -157,6 +157,24 @@ describe("learning-proposals bus", () => {
     expect(state.config.get("rank_min")).toBe("50");
   });
 
+  it("clears pending proposals whose live value already matches", async () => {
+    state.config.set("deep_audit_setup_demotion_TT ATH Breakout_long", "\"blocked\"");
+    const env = makeEnv(state, { COO_AUTO_APPLY_TIER1: "true" });
+    await submitProposal(env, {
+      source: "edge_scorecard",
+      kind: "config_change",
+      config_key: "deep_audit_setup_demotion_TT ATH Breakout_long",
+      proposed_value: "blocked",
+      tier: "tier2",
+    });
+    const r = await processProposals(env);
+    expect(r.applied).toHaveLength(1);
+    expect(r.applied[0].already_in_effect).toBe(true);
+    expect(r.awaiting_operator).toHaveLength(0);
+    expect(state.proposals[0].status).toBe("applied");
+    expect(state.proposals[0].decided_by).toBe("already_in_effect");
+  });
+
   it("tier-2 NEVER auto-applies; operator approve applies it verbatim", async () => {
     state.config.set("ai_cio_shadow_mode", "true");
     const env = makeEnv(state, { COO_AUTO_APPLY_TIER1: "true" });
