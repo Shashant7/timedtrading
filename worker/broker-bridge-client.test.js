@@ -213,6 +213,25 @@ describe("resolveTraderEquityEthMirror", () => {
     expect(r.fields.limit_price).toBeLessThan(348.95);
   });
 
+  it("floors a fractional AH trim so 1.359 TSLA still sells 1 share", () => {
+    const r = resolveTraderEquityEthMirror(
+      { ticker: "TSLA", side: "trim", entry: 354.66, qty: 1.359, mode: "trader" },
+      new Date("2026-08-27T16:53:00-04:00"),
+    );
+    expect(r.skip).toBe(false);
+    expect(r.fields.qty).toBe(1);
+    expect(r.fields.support_trading_session).toBe("ALL");
+  });
+
+  it("defers a leftover under 1 share until RTH", () => {
+    const r = resolveTraderEquityEthMirror(
+      { ticker: "TSLA", side: "trim", entry: 354.66, qty: 0.42, mode: "trader" },
+      new Date("2026-08-27T16:14:00-04:00"),
+    );
+    expect(r.skip).toBe(true);
+    expect(r.reason).toBe("fractional_trim_deferred_to_rth");
+  });
+
   it("skips at 8:01 PM ET — broker cannot follow through", () => {
     const r = resolveTraderEquityEthMirror(
       { ticker: "TSLA", side: "exit", entry: 348.95, mode: "trader" },

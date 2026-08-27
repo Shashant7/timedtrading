@@ -103,6 +103,12 @@ function humanizeReason(raw) {
   if (/nothing_to_reduce|reducer_qty_rounded_to_zero/.test(r)) return "Nothing to sell on this account";
   if (/qty_zero|rounded_to_zero/.test(r)) return "Order size rounded to zero for this account";
   if (/insufficient|buying_power/.test(r)) return "Insufficient buying power";
+  if (/fractional_trim_deferred_to_rth|webull_fractional_outside_rth_whole_share_unaffordable/.test(r)) {
+    return "Webull only fills fractional shares during regular hours (9:30 a.m.–4:00 p.m. ET). This leftover is under 1 share — it waits for the next open";
+  }
+  if (/webull_fractional_outside_rth/.test(r)) {
+    return "Webull rejected a fractional after-hours order — the mirror retries in whole shares";
+  }
   if (/outside.*market|market.*closed|requires regular market|fractional_outside|outside_rth/.test(r)) return "Requires regular market hours";
   if (/investor_mirror_disabled/.test(r)) return "Long-term mirroring is off globally";
   if (/broker_integration_disabled|mirror_off|not_enabled/.test(r)) return "Mirroring is off for this account";
@@ -3322,6 +3328,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787846872103:925093193
+// cache-bust:1787864783264:581265804
 
-// cache-bust:1787846872103:925093193
+// cache-bust:1787864783264:581265804

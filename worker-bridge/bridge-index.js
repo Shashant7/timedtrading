@@ -60,7 +60,12 @@ import { listBrokers, resolveBrokerAccountId, resolveBrokerId, brokerCapabilitie
 import { normalizeOrderIntent, planBrokerOrder, summarizeOrderPlan } from "./bridge-order-plan.js";
 import { recordAccountFill, readAccountLedger, readAccountSnapshots, recordEquityPoint, readEquityHistory } from "./bridge-account-ledger.js";
 import { ensureConnectedAccountsEquity, extractPortfolioTotals, refreshAccountEquitySnapshot } from "./bridge-equity-sync.js";
-import { classifyWebullFractError, roundToWholeShares } from "./bridge-webull-fract.js";
+import {
+  classifyWebullFractError,
+  roundToWholeShares,
+  adaptWebullEquityQtyForSession,
+  ensureWebullEthOrderFields,
+} from "./bridge-webull-fract.js";
 
 // 2026-05-29 — broker-router. Each user record carries a `broker`
 // field (`"robinhood"` | `"ibkr"` | `"webull"`); the router picks the right
@@ -2325,8 +2330,34 @@ async function handleSingleAccountOrder(env, ctx, payload) {
         resolved_qty: recon.qty,
       }, 200);
     }
-    sanitized.qty = roundedQty;
-    sanitized._reducer = { isFull: recon.isFull, heldQty, modelRemaining, pre_round_qty: recon.qty };
+    // Webull ETH: fractionals are RTH-only. Floor 1.359 → 1 so an AH trim
+    // still places; a leftover under 1 share waits for the next open.
+    let sessionQty = roundedQty;
+    if (brokerId === "webull") {
+      const adapted = adaptWebullEquityQtyForSession({
+        qty: roundedQty,
+        session: sanitized.support_trading_session,
+      });
+      if (adapted.deferred) {
+        if (sanitized.client_order_id) {
+          await releaseOrderIdempotency(env, sanitized.client_order_id).catch(() => {});
+        }
+        return json({
+          ok: false, rejected: true,
+          reject_reason: adapted.reason || "fractional_trim_deferred_to_rth",
+          held_qty: heldQty, model_remaining: modelRemaining,
+          requested_qty: sanitized.qty, resolved_qty: roundedQty,
+        }, 200);
+      }
+      if (adapted.adapted) sessionQty = adapted.qty;
+      sanitized._reducer = {
+        isFull: recon.isFull, heldQty, modelRemaining, pre_round_qty: recon.qty,
+        ...(adapted.adapted ? { eth_whole_share: true, pre_eth_qty: roundedQty } : {}),
+      };
+    } else {
+      sanitized._reducer = { isFull: recon.isFull, heldQty, modelRemaining, pre_round_qty: recon.qty };
+    }
+    sanitized.qty = sessionQty;
 
     // (e) Cancel pending OCO children — they reserve the shares, so a trim /
     // flatten would otherwise be rejected by the broker ("qty locked up").
@@ -2343,6 +2374,20 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   }
 
   // 4. Place (native bracket when planned + supported, else market/limit)
+  // Webull after 16:00 ET: CORE+MARKET is rejected even for whole shares.
+  // Fill LIMIT+ALL+GTC when the mothership omitted them.
+  if (brokerId === "webull") {
+    const eth = ensureWebullEthOrderFields(sanitized);
+    if (eth !== sanitized) {
+      Object.assign(sanitized, {
+        order_kind: eth.order_kind,
+        order_type: eth.order_type,
+        limit_price: eth.limit_price,
+        tif: eth.tif,
+        support_trading_session: eth.support_trading_session,
+      });
+    }
+  }
   place = await placePlannedOrder(env, user, sanitized, orderPlan);
 
   // 2026-07-22 — Webull fractional-agreement auto-fallback. Webull rejects

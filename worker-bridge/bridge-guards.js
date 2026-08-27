@@ -9,6 +9,7 @@ import { getKillSwitch, readUser, writeUser, resolveBridgeUser } from "./bridge-
 import { readManifestRow, classifyOrderLifecycle } from "./bridge-manifest.js";
 import { brokerCapabilities, resolveBrokerId, resolveBrokerAccountId } from "./bridge-brokers.js";
 import { computeRelationalQty } from "./bridge-sizing.js";
+import { isWebullEthSession } from "./bridge-webull-fract.js";
 
 // 2026-06-01 — Naked-short sides are HARD-rejected regardless of any
 // env var. The previous behavior accepted `REJECT_SHORT_SIDES=false`
@@ -663,9 +664,7 @@ export async function preflightOrder(env, payload) {
   // ETH / overnight rebuilds pass support_trading_session=ALL|NIGHT and
   // must size in whole shares up-front (otherwise relational scaling
   // re-introduces 0.48sh and place fails after review).
-  const ethSession = ["ALL", "NIGHT", "ALL_DAY"].includes(
-    String(payload?.support_trading_session || "").toUpperCase(),
-  );
+  const ethSession = isWebullEthSession(payload?.support_trading_session);
   if (relationalOn && (sizingLifecycle === "open" || sizingLifecycle === "add")) {
     const modelBook = Number(payload?.model_capital_usd)
       || Number(env?.MODEL_BOOK_BASE_USD)
