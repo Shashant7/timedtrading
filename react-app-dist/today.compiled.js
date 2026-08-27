@@ -1189,6 +1189,67 @@ function indexTrendPositionPnl(pos) {
   if (!(entry > 0) || !(live > 0)) return null;
   return Math.round((live - entry) / entry * 10000) / 100;
 }
+function reviveStripZone(zone, livePrice) {
+  if (!zone || !(Number(zone.minPx) < Number(zone.maxPx))) return null;
+  const minPx = Number(zone.minPx);
+  const maxPx = Number(zone.maxPx);
+  const span = maxPx - minPx;
+  const price = Number(livePrice) > 0 ? Number(livePrice) : Number(zone.price);
+  const pct = px => Math.max(0, Math.min(100, (Number(px) - minPx) / span * 100));
+  return Object.assign({}, zone, {
+    price,
+    pct,
+    lane: zone.lane || "trader"
+  });
+}
+function buildIndexStripZoneModel({
+  zone,
+  liveT,
+  trackPrice,
+  stop,
+  target,
+  direction,
+  VU
+} = {}) {
+  const revived = reviveStripZone(zone, trackPrice);
+  if (revived) return revived;
+  const fromTicker = VU?.buildTraderZoneModel?.(liveT, trackPrice) || VU?.buildInvestorZoneModel?.(liveT, trackPrice) || null;
+  if (fromTicker) return fromTicker;
+  const px = Number(trackPrice);
+  const sl = Number(stop);
+  const tgt = Number(target);
+  const dir = String(direction || "LONG").toUpperCase();
+  if (!(px > 0)) return null;
+  let inv;
+  let targetPx;
+  if (dir === "SHORT") {
+    if (!(sl > px) || !(tgt > 0 && tgt < px)) return null;
+    inv = sl;
+    targetPx = tgt;
+  } else {
+    if (!(sl > 0 && sl < px) || !(tgt > px)) return null;
+    inv = sl;
+    targetPx = tgt;
+  }
+  const span = Math.abs(targetPx - inv);
+  if (!(span > 0)) return null;
+  const pad = span * 0.04;
+  const minPx = Math.min(inv, targetPx) - pad;
+  const maxPx = Math.max(inv, targetPx) + pad;
+  const pct = p => Math.max(0, Math.min(100, (Number(p) - minPx) / (maxPx - minPx) * 100));
+  const pbLo = dir === "SHORT" ? Math.max(targetPx + span * 0.12, px - span * 0.08) : inv + span * 0.45;
+  const pbHi = px;
+  return {
+    inv,
+    pb: [Math.min(pbLo, pbHi), Math.max(pbLo, pbHi)],
+    tgt: targetPx,
+    price: px,
+    minPx,
+    maxPx,
+    pct,
+    lane: "trader"
+  };
+}
 function stripFactStack(items, opts = {}) {
   if (!items || !items.length) return null;
   const kids = [];
@@ -2553,6 +2614,8 @@ function IndexDayTradeStrip({
   onSelectTicker,
   embedded,
   data,
+  savedSet,
+  onToggleSaved,
   sparkCache,
   ensureSpark
 }) {
@@ -2629,11 +2692,11 @@ function IndexDayTradeStrip({
     className: "tt-ready__head"
   }, h("div", {
     className: "tt-sec-title"
-  }, "INDEX DAY-TRADE"), h("h2", {
+  }, "Index Day Trade"), h("h2", {
     className: "tt-ready__title"
-  }, "SPY · QQQ · IWM · DIA"), h("p", {
+  }, "Index Day Trade"), h("p", {
     className: "tt-ready__sub"
-  }, "Index options lean — 21 EMA and SuperTrend. Separate from the Cloud Desk 10-minute call above. New buys wait for the 09:30 ET cash open."), h(StripPublishedStamp, {
+  }, "SPY · QQQ · IWM · DIA — 0/1 DTE index options lean. Separate from Index Swings below and the Cloud Desk 10-minute call above."), h(StripPublishedStamp, {
     ms: Number(payload?.day_trade_generated_at) || Number(payload?.generated_at) || null,
     staleAfterMin: 8,
     cadenceNote: "day-trade cards are rebuilt on every request; this tab re-checks every 5 minutes while visible"
@@ -2670,19 +2733,6 @@ function IndexDayTradeStrip({
   }
   const LaneCard = window.TTLaneCard;
   const VU = window.TimedVerdictUI;
-  const reviveZone = (zone, livePrice) => {
-    if (!zone || !(Number(zone.minPx) < Number(zone.maxPx))) return null;
-    const minPx = Number(zone.minPx);
-    const maxPx = Number(zone.maxPx);
-    const span = maxPx - minPx;
-    const price = Number(livePrice) > 0 ? Number(livePrice) : Number(zone.price);
-    const pct = px => Math.max(0, Math.min(100, (Number(px) - minPx) / span * 100));
-    return Object.assign({}, zone, {
-      price,
-      pct,
-      lane: zone.lane || "trader"
-    });
-  };
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
     role: "list"
@@ -2731,8 +2781,14 @@ function IndexDayTradeStrip({
     const modeChip = confluenceModeChip(mode, p.confluence_summary || "Model confluence");
     if (modeChip) chipRow.push(modeChip);
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
-    const zm = reviveZone(p.zone || exec.zone, trackPrice);
     const dtSide = flavor === "put" || lean === "SHORT" ? "SHORT" : flavor === "call" || lean === "LONG" ? "LONG" : "";
+    const zm = buildIndexStripZoneModel({
+      zone: p.zone || exec.zone,
+      liveT,
+      trackPrice,
+      direction: dtSide || p.direction,
+      VU
+    });
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
       planLabel: "Day-trade plan",
@@ -2765,6 +2821,7 @@ function IndexDayTradeStrip({
     }, h("p", {
       className: "tt-dt-plan__punch"
     }, copy.punch), dayTradeFactsRow(factCells))];
+    const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
     const signalCard = LaneCard?.create ? h("div", {
       key: sym + ":sig",
       className: "tt-strip-card",
@@ -2790,7 +2847,9 @@ function IndexDayTradeStrip({
       },
       sparkSvg,
       midBody,
-      metrics: []
+      metrics: [],
+      isSaved,
+      onToggleSaved
     }), h("div", {
       className: "tt-strip-card__foot"
     }, footEls)) : h("button", {
@@ -2907,7 +2966,9 @@ function IndexDayTradeStrip({
         },
         sparkSvg,
         midBody: posMidBody,
-        metrics: []
+        metrics: [],
+        isSaved,
+        onToggleSaved
       }), h("div", {
         className: "tt-strip-card__foot"
       }, h("div", {
@@ -2926,6 +2987,8 @@ function IndexTrendLetfStrip({
   onSelectTicker,
   embedded,
   data,
+  savedSet,
+  onToggleSaved,
   sparkCache,
   ensureSpark
 }) {
@@ -3002,11 +3065,11 @@ function IndexTrendLetfStrip({
     className: "tt-ready__head"
   }, h("div", {
     className: "tt-sec-title"
-  }, "INDEX TREND"), h("h2", {
+  }, "Index Swings"), h("h2", {
     className: "tt-ready__title"
-  }, "SPY · QQQ · IWM · DIA"), h("p", {
+  }, "Index Swings"), h("p", {
     className: "tt-ready__sub"
-  }, "LETF share expression — days to weeks on the trend book. Separate from the Index Day-Trade options strip (0/1 DTE)."), h(StripPublishedStamp, {
+  }, "SPY · QQQ · IWM · DIA — LETF share expression on the trend book (days to weeks). Separate from Index Day Trade options above."), h(StripPublishedStamp, {
     ms: Number(payload?.index_trend_generated_at) || Number(payload?.generated_at) || null,
     staleAfterMin: 15,
     cadenceNote: "trend cards rebuild on every request; this tab re-checks every 5 minutes while visible"
@@ -3043,19 +3106,6 @@ function IndexTrendLetfStrip({
   }
   const LaneCard = window.TTLaneCard;
   const VU = window.TimedVerdictUI;
-  const reviveZone = (zone, livePrice) => {
-    if (!zone || !(Number(zone.minPx) < Number(zone.maxPx))) return null;
-    const minPx = Number(zone.minPx);
-    const maxPx = Number(zone.maxPx);
-    const span = maxPx - minPx;
-    const price = Number(livePrice) > 0 ? Number(livePrice) : Number(zone.price);
-    const pct = px => Math.max(0, Math.min(100, (Number(px) - minPx) / span * 100));
-    return Object.assign({}, zone, {
-      price,
-      pct,
-      lane: zone.lane || "trader"
-    });
-  };
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
     role: "list"
@@ -3103,11 +3153,19 @@ function IndexTrendLetfStrip({
       }, posPnl != null ? `HELD ${posPnl >= 0 ? "+" : ""}${posPnl.toFixed(1)}%` : "HELD"));
     }
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
-    const zm = reviveZone(p.zone, trackPrice);
     const itSide = direction === "SHORT" ? "SHORT" : "LONG";
+    const zm = buildIndexStripZoneModel({
+      zone: p.zone,
+      liveT,
+      trackPrice,
+      stop: mgmt.stop_underlying,
+      target: mgmt.target_underlying,
+      direction: itSide,
+      VU
+    });
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
-      planLabel: "Trend plan",
+      planLabel: "Swing plan",
       trackTitle: itSide === "SHORT" ? "Inverse path — invalidation above, first target below." : "Long path — invalidation below, first target above."
     }) : null;
     const factCells = indexTrendPlanFacts({
@@ -3119,6 +3177,7 @@ function IndexTrendLetfStrip({
       dcaOnDip: mgmt.dca_on_dip,
       exitBy: mgmt.exit_by
     });
+    const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
     return h("div", {
       key: sym,
       className: "tt-strip-card" + (pos ? " tt-strip-card--position" : ""),
@@ -3128,7 +3187,7 @@ function IndexTrendLetfStrip({
       ticker: liveT,
       button: {
         onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
-        title: `${sym} — open index trend plan`,
+        title: `${sym} — open index swing plan`,
         style: {
           textAlign: "left"
         }
@@ -3144,19 +3203,16 @@ function IndexTrendLetfStrip({
       },
       sparkSvg,
       midBody,
-      metrics: []
+      metrics: [],
+      isSaved,
+      onToggleSaved
     }) : h("div", null, sym), h("div", {
       className: "tt-strip-card__foot"
     }, h("div", {
       className: "tt-dt-plan"
     }, h("p", {
       className: "tt-dt-plan__punch"
-    }, copy.punch), stripFactStack(factCells), play.rationale ? h("p", {
-      className: "tt-dt-plan__mgmt",
-      style: {
-        marginTop: 6
-      }
-    }, String(play.rationale).slice(0, 140)) : null)));
+    }, copy.punch), stripFactStack(factCells))));
   }))));
 }
 function computeOpenPositionPnlPct(tr, livePx) {
@@ -8832,6 +8888,8 @@ function TodayApp({
     onSelectTicker,
     embedded: true,
     data,
+    savedSet,
+    onToggleSaved: toggleSaved,
     sparkCache,
     ensureSpark
   }), h("div", {
@@ -8840,6 +8898,8 @@ function TodayApp({
     onSelectTicker,
     embedded: true,
     data,
+    savedSet,
+    onToggleSaved: toggleSaved,
     sparkCache,
     ensureSpark
   }), h("div", {
@@ -9439,6 +9499,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787832989649:519506760
+// cache-bust:1787837055919:776230104
 
-// cache-bust:1787832989649:519506760
+// cache-bust:1787837055919:776230104
