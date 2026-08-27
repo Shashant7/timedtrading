@@ -33,7 +33,8 @@ import { preflightOrder, bumpDailyCounter, evaluateReducerAgainstPositions, reco
 import { roundQtyForBroker } from "./bridge-sizing.js";
 import {
   writeEntryManifest, writeRejectedEntry,
-  recentManifestRows, readManifestRow,
+  recentManifestRows, readManifestRow, listManifestRowsForTrade,
+  pickReducerFanoutAccounts,
   classifyOrderLifecycle, markManifestModelClosed,
   writeLastActionAudit,
 } from "./bridge-manifest.js";
@@ -1375,7 +1376,11 @@ export default {
         const userId = url.searchParams.get("user_id");
         const limit = Number(url.searchParams.get("limit")) || 50;
         const sinceMs = Number(url.searchParams.get("since_ms")) || 0;
-        const rows = await recentManifestRows(env, { user_id: userId, limit, since_ms: sinceMs });
+        const remainingOnly = String(url.searchParams.get("remaining") || "") === "1"
+          || String(url.searchParams.get("remaining_only") || "").toLowerCase() === "true";
+        const rows = await recentManifestRows(env, {
+          user_id: userId, limit, since_ms: sinceMs, remaining_only: remainingOnly,
+        });
         // Surface counts by sync_state to make MC stats easy.
         const counts = {};
         for (const r of rows) {
@@ -1868,6 +1873,37 @@ async function handleOrderWebhook(env, ctx, payload) {
     ? await resolveBridgeAccounts(env, owner, { enabledOnly: true })
     : [];
   const expandOwner = fanoutOn && ownerAccounts.length > 1;
+  let ownerPool = vehicle === "index_trend_letf"
+    ? ownerAccounts.filter((acct) => indexTrendLetfOn(acct))
+    : ownerAccounts.slice();
+  let participantPool = participants.filter((acct) =>
+    !(vehicle === "index_trend_letf" && !indexTrendLetfOn(acct)));
+  const lifecycle = classifyOrderLifecycle(payload?.side);
+  if ((lifecycle === "reduce" || lifecycle === "close") && payload?.trade_id) {
+    const rows = await listManifestRowsForTrade(env, payload.trade_id).catch(() => []);
+    if (expandOwner) ownerPool = pickReducerFanoutAccounts(ownerPool, rows);
+    participantPool = pickReducerFanoutAccounts(participantPool, rows);
+    if (expandOwner && ownerPool.length === 0 && participantPool.length === 0) {
+      await writeAudit(env, {
+        ts: Date.now(),
+        user_id: owner,
+        trade_id: payload.trade_id,
+        ticker: payload.ticker || null,
+        action: "reject",
+        side: payload.side || "exit",
+        qty: payload.qty,
+        status: "rejected",
+        reject_reason: "no_manifest_for_trade",
+        request_json: { skipped_empty_holders: true, fanout: true },
+      });
+      return json({
+        ok: false,
+        rejected: true,
+        reject_reason: "no_manifest_for_trade",
+        holders: 0,
+      }, 200);
+    }
+  }
   if (!expandOwner && !participants.length) {
     if (vehicle === "index_trend_letf") {
       const allOwner = await resolveBridgeAccounts(env, owner, { enabledOnly: true }).catch(() => []);
@@ -1925,16 +1961,12 @@ async function handleOrderWebhook(env, ctx, payload) {
     };
   };
   if (expandOwner) {
-    const ownerPool = vehicle === "index_trend_letf"
-      ? ownerAccounts.filter((acct) => indexTrendLetfOn(acct))
-      : ownerAccounts;
     for (const acct of ownerPool) await dispatchOne(perAccountPayload(acct), acct);
   } else {
     // Signal owner keeps the legacy single-account resolution.
     await dispatchOne({ ...payload }, null);
   }
-  for (const acct of participants) {
-    if (vehicle === "index_trend_letf" && !indexTrendLetfOn(acct)) continue;
+  for (const acct of participantPool) {
     await dispatchOne(perAccountPayload(acct), acct);
   }
   return json({ ok: true, fanout: true, accounts: results.length, results }, 200);

@@ -2382,6 +2382,7 @@ const ROUTES = [
   ["POST", "/timed/admin/broker-bridge/catchup-investor", "POST /timed/admin/broker-bridge/catchup-investor"],
   // 2026-07-30 — Re-fire a stuck trader EXIT (review ok, place never ran).
   ["POST", "/timed/admin/broker-bridge/catchup-exit", "POST /timed/admin/broker-bridge/catchup-exit"],
+  ["POST", "/timed/admin/broker-bridge/catchup-trader-exits", "POST /timed/admin/broker-bridge/catchup-trader-exits"],
   // 2026-07-30 — Rebuild Roth mirror from OPEN positions (avg_entry band + thesis).
   ["POST", "/timed/admin/broker-bridge/rebuild-mirror", "POST /timed/admin/broker-bridge/rebuild-mirror"],
   // 2026-07-30 — Reverse dual-worker DCA twin lots (share bump + lot + ledger).
@@ -40583,6 +40584,11 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
     else if (rejects.length) { mirror = "rejected"; mirrorReason = rejects[0].reject_reason || null; }
     else if (ringMatch && String(ringMatch.status) === "skipped") {
       mirror = "skipped"; mirrorReason = ringMatch.skip_reason || null;
+    } else if (ringMatch && String(ringMatch.status) === "pending") {
+      mirror = "pending"; mirrorReason = "order_working";
+    } else if (ringMatch && (String(ringMatch.status) === "error" || String(ringMatch.status) === "fetch_error")) {
+      mirror = "rejected";
+      mirrorReason = ringMatch.reject_reason || ringMatch.error || "mirror_error";
     } else if (ringMatch && String(ringMatch.status) === "ok") {
       mirror = "forwarded";
     }
@@ -84624,6 +84630,31 @@ export default {
         }
       }
 
+      // 2026-08-27 — Sweep model EXITs that still have broker remaining qty
+      // (AMZN leftover after a dropped waitUntil). Default dry_run=true.
+      if (routeKey === "POST /timed/admin/broker-bridge/catchup-trader-exits") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const { runTraderExitCatchup } = await import("./trader-exit-catchup.js");
+          const out = await runTraderExitCatchup(env, {
+            dry_run: body?.dry_run !== false,
+            hours: body?.hours,
+            max_ops: body?.max_ops,
+            reason: body?.reason || "admin_catchup_trader_exits",
+          });
+          return sendJSON({
+            ...out,
+            note: out.dry_run
+              ? "Pass {\"dry_run\":false} to forward leftover Short Term exits."
+              : "Leftover Short Term exits forwarded; check bridge audit.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // 2026-08-12 — Manually run the DCA side-effect heal sweep (same code
       // the 15:50 ET cron runs; window_hours widens the lookback for
       // after-the-fact repairs like NVDA 8/11).
@@ -105212,6 +105243,42 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[INVESTOR CATCHUP AUTO] Failed:", String(e?.message || e).slice(0, 300));
           recordCronFailure(env, {
             op: "investor_catchup_auto",
+            error: String(e?.message || e),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
+    }
+
+    // ── Short Term EXIT catch-up (hourly RTH + ETH follow-through) ──
+    //
+    // 2026-08-27 — AMZN model EXIT wrote D1 then waitUntil died on a deploy
+    // (blank NOT MIRRORED). EXPE-class never-opened trades are not bought.
+    // Sub-share leftovers wait for RTH; whole shares can still sell until 7pm.
+    if (!_isDedicatedEngine
+        && _isHourly
+        && (_calIsNyRegularMarketOpenStatic() || _calIsEquityBrokerFollowThroughStatic())
+        && String(env?.BROKER_CATCHUP_AUTO_RTH || "false").toLowerCase() === "true") {
+      ctx.waitUntil((async () => {
+        try {
+          const { runTraderExitCatchup } = await import("./trader-exit-catchup.js");
+          const out = await runTraderExitCatchup(env, {
+            dry_run: false,
+            hours: 72,
+            max_ops: 8,
+            reason: "trader_exit_catchup_auto",
+          });
+          console.log(
+            `[TRADER EXIT CATCHUP] planned=${out.planned} forwarded=${out.forwarded}`
+            + ` results=${(out.results || []).length}`,
+          );
+          if (out.planned > 0) {
+            recordCronSuccess(env, "trader_exit_catchup_auto").catch(() => {});
+          }
+        } catch (e) {
+          console.warn("[TRADER EXIT CATCHUP] Failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, {
+            op: "trader_exit_catchup_auto",
             error: String(e?.message || e),
             caller: "scheduled_event",
           }).catch(() => {});
