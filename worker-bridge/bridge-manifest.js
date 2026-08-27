@@ -507,6 +507,67 @@ export async function readManifestRow(env, userId, tradeId, brokerAccountId) {
   }
 }
 
+/** True when a reducer/close should actually hit this account. */
+export function rowHoldsReducerQty(row) {
+  if (!row) return false;
+  if (Number(row.mirror_suppressed) === 1) return false;
+  const state = String(row.sync_state || "");
+  if (state === "rejected" || state === "expired" || state === "mirror_suppressed") return false;
+  const remaining = Number(row.broker_remaining_qty);
+  return Number.isFinite(remaining) && remaining > 1e-9;
+}
+
+function accountIdSet(acct) {
+  const ids = new Set();
+  if (!acct || typeof acct !== "object") return ids;
+  for (const k of ["broker_account_id", "webull_account_id", "ibkr_account_id", "rh_account_number", "account_id"]) {
+    const v = acct[k];
+    if (v != null && String(v).trim()) ids.add(String(v).trim().toLowerCase());
+  }
+  return ids;
+}
+
+export function accountMatchesManifestRow(acct, row) {
+  if (!acct || !row) return false;
+  const rowAid = String(row.broker_account_id || "").trim().toLowerCase();
+  if (rowAid && accountIdSet(acct).has(rowAid)) return true;
+  const uid = String(acct.user_id || "").toLowerCase();
+  const rowUid = String(row.user_id || "").toLowerCase();
+  return !!(uid && rowUid && uid === rowUid);
+}
+
+/**
+ * Fan-out TRIM/EXIT only to accounts that actually hold the trade.
+ * Participants that rejected the entry (too small / futures) must not
+ * produce a `no_manifest_for_trade` reject on every model sell.
+ */
+export function pickReducerFanoutAccounts(accounts, rows) {
+  const holders = (rows || []).filter(rowHoldsReducerQty);
+  if (!holders.length) return [];
+  return (accounts || []).filter((acct) => holders.some((row) => accountMatchesManifestRow(acct, row)));
+}
+
+export async function listManifestRowsForTrade(env, tradeId) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return [];
+  await ensureMirrorManifestSchema(env);
+  const tid = String(tradeId || "").trim();
+  if (!tid) return [];
+  try {
+    const r = await db.prepare(`
+      SELECT * FROM mirror_trade_manifest
+       WHERE trade_id = ?1
+       ORDER BY updated_at DESC
+       LIMIT 50
+    `).bind(tid).all();
+    return (r?.results || []).map(_expandJsonCols);
+  } catch (e) {
+    console.warn(`[MANIFEST] listManifestRowsForTrade failed:`,
+      String(e?.message || e).slice(0, 200));
+    return [];
+  }
+}
+
 /**
  * Read recent manifest rows for the operator debug view.
  *
@@ -521,25 +582,31 @@ export async function recentManifestRows(env, opts = {}) {
   const userId = opts.user_id ? String(opts.user_id).toLowerCase() : null;
   const limit = Math.max(1, Math.min(500, Number(opts.limit) || 50));
   const sinceMs = Number(opts.since_ms) || 0;
+  const remSql = opts.remaining_only
+    ? ` AND COALESCE(broker_remaining_qty, 0) > 0
+        AND COALESCE(mirror_suppressed, 0) = 0
+        AND sync_state NOT IN ('rejected','expired','mirror_suppressed')`
+    : "";
   try {
     let q, b;
     if (userId && sinceMs > 0) {
       q = `SELECT * FROM mirror_trade_manifest
-            WHERE user_id = ?1 AND updated_at >= ?2
+            WHERE user_id = ?1 AND updated_at >= ?2${remSql}
             ORDER BY updated_at DESC LIMIT ?3`;
       b = [userId, sinceMs, limit];
     } else if (userId) {
       q = `SELECT * FROM mirror_trade_manifest
-            WHERE user_id = ?1
+            WHERE user_id = ?1${remSql}
             ORDER BY updated_at DESC LIMIT ?2`;
       b = [userId, limit];
     } else if (sinceMs > 0) {
       q = `SELECT * FROM mirror_trade_manifest
-            WHERE updated_at >= ?1
+            WHERE updated_at >= ?1${remSql}
             ORDER BY updated_at DESC LIMIT ?2`;
       b = [sinceMs, limit];
     } else {
       q = `SELECT * FROM mirror_trade_manifest
+            WHERE 1=1${remSql}
             ORDER BY updated_at DESC LIMIT ?1`;
       b = [limit];
     }

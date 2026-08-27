@@ -93,7 +93,7 @@ export async function catchupTraderExit(env, opts = {}) {
     ticker,
     side: "exit",
     qty,
-    entry: null,
+    entry: Number(opts.price) || Number(opts.entry) || null,
     sl: null,
     tp: null,
     decision_reason: `catchup_exit:${opts.reason || "operator"}`.slice(0, 160),

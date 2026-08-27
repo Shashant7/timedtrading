@@ -75,5 +75,6 @@ describe("catchupTraderExit", () => {
     expect(order.client_order_id.startsWith("ttex")).toBe(true);
     expect(order.client_order_id.length).toBeLessThanOrEqual(40);
     expect(order.qty).toBe(0.5);
+    expect(order.entry).toBeNull();
   });
 });

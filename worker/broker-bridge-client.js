@@ -129,13 +129,28 @@ export function parseBridgeOrderIds(parsed) {
   };
 }
 
-async function pushRing(env, entry) {
+async function pushRing(env, entry, { replacePending = false } = {}) {
   const KV = env?.KV_TIMED;
   if (!KV) return;
   try {
     const raw = await KV.get(RING_KEY);
     const list = raw ? JSON.parse(raw) : [];
-    list.unshift(entry);
+    if (replacePending) {
+      const idx = list.findIndex((e) =>
+        String(e?.status || "") === "pending"
+        && String(e?.side || "") === String(entry?.side || "")
+        && (
+          (entry?.client_order_id && e?.client_order_id === entry.client_order_id)
+          || (entry?.trade_id && e?.trade_id === entry.trade_id)
+        ));
+      if (idx >= 0) {
+        list[idx] = entry;
+      } else {
+        list.unshift(entry);
+      }
+    } else {
+      list.unshift(entry);
+    }
     if (list.length > RING_MAX) list.length = RING_MAX;
     await KV.put(RING_KEY, JSON.stringify(list), { expirationTtl: 30 * 86400 });
   } catch (_) { /* best-effort */ }
@@ -482,13 +497,17 @@ export async function forwardOrderToBridge(env, order) {
     user_id: order.user_id,
     ticker: order.ticker,
     side: order.side,
-    qty: order.qty,
+    qty: liveOrder.qty ?? order.qty,
     trade_id: order.trade_id,
     client_order_id: order.client_order_id || null,
     mode: order.mode || null,
     vehicle: order.vehicle || null,
     transport: hasSvc ? "service-binding" : "http",
+    status: "pending",
   };
+  // Stamp pending before the fetch so a deploy/waitUntil tear-down still
+  // explains the model row (WORKING) instead of a blank NOT MIRRORED.
+  await pushRing(env, ringEntry);
   try {
     // Service-binding routes by binding name, not host — the URL host is
     // arbitrary. Keep the real URL when we have it (harmless) so HTTP fallback
@@ -519,7 +538,7 @@ export async function forwardOrderToBridge(env, order) {
     ringEntry.deduped = ids.deduped;
     ringEntry.reject_reason = parsed?.reject_reason || parsed?.error || parsed?.message || null;
     ringEntry.latency_ms = Date.now() - t0;
-    await pushRing(env, ringEntry);
+    await pushRing(env, ringEntry, { replacePending: true });
     if (!ok) {
       await recordBridgeFailure(env, {
         stage: `bridge_mirror.reject.${String(order?.side || "order").slice(0, 20)}`,
@@ -541,7 +560,7 @@ export async function forwardOrderToBridge(env, order) {
     ringEntry.status = "fetch_error";
     ringEntry.error = String(e?.message || e).slice(0, 200);
     ringEntry.latency_ms = Date.now() - t0;
-    await pushRing(env, ringEntry);
+    await pushRing(env, ringEntry, { replacePending: true });
     await recordBridgeFailure(env, {
       stage: `bridge_mirror.fetch_error.${String(order?.side || "order").slice(0, 20)}`,
       ticker: order?.ticker,

@@ -25,7 +25,28 @@ ATH blocked. Approve `block_widen` when WoW is red.
 
 **Do not:** leave restore as a human-only tier-2 forever, or remove
 Support Bounce from `SEVERE_BLEEDER_PATHS` (auto-demote must still
-fire if 30d turns red).
+fire if 30d turns red). Nightly `processProposals` must not Discord
+`already_in_effect` acks as "tier-1 applies" — that is how Support
+Bounce looked freshly blocked at 6:01 PM ET after the queue cleanup.
+
+## ST EXIT rejected on accounts that never opened the trade [2026-08-27]
+
+**Symptom:** Broker timeline after the close showed EXPE EXIT REJECTED
+(`No tracked entry`) on the owner email plus participant sleeves, and
+AMZN EXIT as a blank NOT MIRRORED.
+
+**Cause:** EXPE's Aug 24 share ENTRY never hit the bridge (no manifest,
+no audit). Fan-out still sent the EXIT to every enabled account,
+including cash/futures participants that rejected the entry. AMZN did
+open (0.27 sh after cash-scale) but the EXIT `waitUntil` died during a
+deploy — no ring row, leftover still OPEN.
+
+**Fix:** Reducer fan-out only to accounts with `broker_remaining_qty > 0`.
+If nobody holds it, one `no_manifest_for_trade` (do not sell). Stamp
+`pending` on `bridge:client:recent` before the fetch. Hourly
+`runTraderExitCatchup` pairs model EXITs with leftover manifests;
+sub-share leftovers wait for RTH. Do not catch up a buy after the
+model has already closed.
 
 ## Do not write a first-time analysis when the loops are already on [2026-08-27]
 
