@@ -21,6 +21,7 @@ import {
   getStrategyOverrideCache,
   loadStrategyOverrideCache,
 } from "./cro/strategy-overrides.js";
+import { parseSpxTargetRange } from "./cro/fsd-macro-context.js";
 
 export { loadStrategyOverrideCache };
 //  reads through `getStrategyDigest()` so callers stay decoupled from the
@@ -156,6 +157,25 @@ export const STRATEGY_PHASE = {
   // phase label. Updated per Daily Technical Strategy publication.
   tactical_overlay: "July allocation model: Industrials +2.7% to 10.0%, Financials +2.4% to 12.3%, Discretionary +1.9% to 8.5%. Utilities cut to 1.8% and Real Estate to 2.0%; Comm Services trimmed to 6.7%. Mark upgraded Industrials + Discretionary while downgrading defensives — cyclical broadening.",
 };
+
+/** Merge structural + tactical FSD revisions into live SPX target display. */
+export function getEffectiveSpxTargets(override = null) {
+  const out = { ...STRATEGY_PHASE.spx_targets };
+  const phaseRev = override?.phase_revision
+    || override?.structural_pending?.phase_revision;
+  const revTargets = phaseRev?.spx_targets;
+  if (revTargets && typeof revTargets === "object") {
+    if (Number.isFinite(Number(revTargets.base_case))) out.base_case = Number(revTargets.base_case);
+    if (Number.isFinite(Number(revTargets.aspirational))) out.aspirational = Number(revTargets.aspirational);
+    if (Number.isFinite(Number(revTargets.near_term_high))) out.near_term_high = Number(revTargets.near_term_high);
+  }
+  const parsed = parseSpxTargetRange(override?.tactical_overlay || override?.tactical_title || "");
+  if (parsed?.high) {
+    out.near_term_high = parsed.high;
+    out.aspirational = Math.max(out.aspirational || 0, parsed.high);
+  }
+  return out;
+}
 
 // ── 2b. Tactical signals (short-term rotation overlay) ─────────────────────
 // Refreshed per Daily Technical Strategy publication. These are TIMING
@@ -1048,6 +1068,7 @@ export async function getStrategyBriefAsync(env) {
     ? `Tactical overlay (CRO auto-applied from proposal ${tact.override_proposal_id} on ${new Date(tact.override_applied_at || 0).toISOString().slice(0,10)})`
     : `Tactical overlay (${STRATEGY_TACTICAL_SOURCE})`;
   const overlayLine = (override?.tactical_overlay) || STRATEGY_PHASE.tactical_overlay || "";
+  const spxTargets = getEffectiveSpxTargets(override);
 
   return [
     `## TT Active Strategy — ${STRATEGY_TITLE}`,
@@ -1056,7 +1077,7 @@ export async function getStrategyBriefAsync(env) {
     `Headline: ${STRATEGY_HEADLINE}`,
     ``,
     `Phase: ${STRATEGY_PHASE.label}.`,
-    `S&P targets: base ${STRATEGY_PHASE.spx_targets.base_case}, aspirational ${STRATEGY_PHASE.spx_targets.aspirational}, long-horizon ${STRATEGY_PHASE.spx_targets.long_horizon_2030} (2030).`,
+    `S&P targets: base ${spxTargets.base_case}, aspirational ${spxTargets.aspirational}${spxTargets.near_term_high ? `, near-term ${spxTargets.near_term_high}` : ""}, long-horizon ${spxTargets.long_horizon_2030} (2030).`,
     `Scenario weights: grind-higher ${(STRATEGY_PHASE.scenario_weights.grind_higher_to_target * 100).toFixed(0)}%, round-trip ${(STRATEGY_PHASE.scenario_weights.round_trip_then_rally * 100).toFixed(0)}%, bear-retest ${(STRATEGY_PHASE.scenario_weights.bear_case_retest_lows * 100).toFixed(0)}%.`,
     `${overrideHeader}: ${overlayLine}`,
     ``,

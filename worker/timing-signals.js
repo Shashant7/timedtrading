@@ -6,6 +6,7 @@
 //   COMPRESSION (bull): add on dips, fade long, call timing
 
 import { ACTIVE_RISKS, TACTICAL_SIGNALS } from "./strategy-context.js";
+import { isFsdDipBuySetup } from "./cro/fsd-macro-context.js";
 
 export const BROAD_INDEX_TICKERS = new Set(["SPY", "QQQ", "IWM", "DIA", "RSP"]);
 
@@ -19,6 +20,9 @@ const MACRO_RISK_ON_DIRECTIONS = new Set([
   "favor_equal_weight_over_cap_weight",
   "favor_software_over_semis_on_any_tech_dip",
   "favor_industrials_into_broadening",
+  "bullish_target",
+  "fsd_rally_window",
+  "buy_the_dip_rally",
 ]);
 
 const INDEX_WATCH_MIN_HITS = 3;
@@ -135,8 +139,14 @@ function fsdRiskOnHint(tickerData) {
   ).toLowerCase();
   if (stance.includes("overweight") || stance.includes("risk_on") || stance.includes("accumulate")) return true;
 
+  const fsdMacro = tickerData?.fsd_macro;
+  if (fsdMacro?.rally_active) return true;
+
   if (BROAD_INDEX_TICKERS.has(sym)) {
-    const tactRiskOn = TACTICAL_SIGNALS.some((s) => {
+    const tactSignals = fsdMacro?.signals?.length
+      ? fsdMacro.signals
+      : TACTICAL_SIGNALS;
+    const tactRiskOn = tactSignals.some((s) => {
       const dir = String(s?.direction || "").toLowerCase();
       if (MACRO_RISK_ON_DIRECTIONS.has(dir)) return true;
       const action = String(s?.playbook_action || "").toLowerCase();
@@ -416,6 +426,19 @@ export function computeTimingOverlay(tickerData, confluence = null) {
   const ext = computeExtensionSide(tickerData, confluence, warnings);
   const comp = computeCompressionSide(tickerData, confluence, compressions);
 
+  const fsdMacro = tickerData?.fsd_macro;
+  if (fsdMacro?.rally_active) {
+    if (!comp.signals.includes("fsd_rally_window")) comp.signals.push("fsd_rally_window");
+    if (comp.score < 40) comp.score = Math.min(40, comp.score + 12);
+    comp.add_on_dips = true;
+    if (isFsdDipBuySetup(tickerData, fsdMacro)) {
+      comp.call_opportunity = true;
+      comp.long_opportunity = true;
+      if (!comp.signals.includes("fsd_rally_dip_buy")) comp.signals.push("fsd_rally_dip_buy");
+      if (comp.posture === "NEUTRAL") comp.posture = "RALLY_WATCH";
+    }
+  }
+
   ext.put_opportunity = ext.short_opportunity && (ext.stBear || ext.td9Complete || ext.score >= 58);
 
   let bias = "NEUTRAL";
@@ -488,6 +511,7 @@ export function computeTimingOverlay(tickerData, confluence = null) {
     td9_complete: bias === "COMPRESSION" ? comp.td9Complete : ext.td9Complete,
     vix: vx,
     is_index: BROAD_INDEX_TICKERS.has(sym),
+    fsd_macro: fsdMacro || null,
     flash_headline,
     flash_detail: dominantSignals.slice(0, 6).join(" · ") || null,
     timing_primary: (bias === "EXTENSION" && ext.score >= 52) ? "TOP"

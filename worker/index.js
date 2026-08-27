@@ -94901,13 +94901,32 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             tickerForMomentum._index_quartet = quartetState;
             if (data) data._index_quartet = quartetState;
           } catch (_) { /* best-effort */ }
+          let fsdMacro = null;
+          try {
+            const { loadFsdMacroContext } = await import("./cro/cro-apply.js");
+            fsdMacro = await loadFsdMacroContext(env);
+            if (fsdMacro) {
+              tickerForMomentum.fsd_macro = fsdMacro;
+              if (data) data.fsd_macro = fsdMacro;
+            }
+          } catch (_) { /* best-effort */ }
           // 2026-05-30 — Compute confluence NOW that VP + quartet are
           // injected, so L4 ICT picks up VP zone and L5 Carter picks up
           // SMT bonus.
           try { confluence = _scoreRootConfluence(data); } catch (_) {}
+          if (fsdMacro && data) {
+            try {
+              const overlay = computeTimingOverlay(data, confluence);
+              data.timing_overlay = overlay;
+              if (confluence) {
+                confluence = applyTimingOverlayToConfluence(confluence, overlay, data);
+              }
+            } catch (_) { /* best-effort */ }
+          }
           let ladder = _buildOptionsLadder(ladderInput, {
             profile, account_value: accountValue, chain, confluence, themes,
             tickerData: tickerForMomentum,
+            fsd_macro: fsdMacro,
             lotto_max_loss_usd: Number(env?.CONVEXITY_LOTTO_MAX_LOSS_USD) || 50,
             leap_chain: ladderInput?._leap_chain || null,
           });

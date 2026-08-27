@@ -44,6 +44,14 @@ describe("research desk SPX alias mapping", () => {
     expect(publicationMentionsTicker(title, excerpt, "ES1!")).toBe(true);
     expect(publicationMentionsTicker(title, excerpt, "AAPL")).toBe(false);
   });
+
+  it("extracts S&P 500 prose and tags SPY proxies", () => {
+    const text = "S&P 500 to reach 7,900-8,000 by month end while ETH leads.";
+    const tags = extractCashtagsFromText(text);
+    expect(tags).toEqual(expect.arrayContaining(["SPX", "SPY", "ES1!", "ES"]));
+    expect(publicationMentionsTicker("Macro Minute", text, "SPY")).toBe(true);
+    expect(publicationMentionsTicker("Macro Minute", text, "QQQ")).toBe(false);
+  });
 });
 
 describe("Market Intel Discord title", () => {

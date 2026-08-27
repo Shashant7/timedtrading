@@ -39,6 +39,8 @@ import {
   dayTradeMaxDriftPct,
   attachIndexDayTradeFallback,
   shouldAllowIndexDirectional,
+  pickPreferredLetfTicker,
+  lookupLETF,
   buildOptionsSetupGuidance,
   buildOptionsModelDisposition,
   contractToLadderInput,
@@ -653,6 +655,34 @@ describe("shouldAllowIndexDirectional — compression call timing", () => {
     expect(align.allow).toBe(true);
     expect(align.reason).toBe("compression_call_timing");
     expect(align.timing_override).toBe(true);
+  });
+});
+
+describe("shouldAllowIndexDirectional — FSD rally dip buy", () => {
+  it("allows LONG calls on WAIT when FSD macro rally + dip timing", () => {
+    const align = shouldAllowIndexDirectional({
+      verdictMode: "WAIT",
+      verdictSide: "NEUTRAL",
+      direction: "LONG",
+      effectiveDirection: "LONG",
+      timingOverlay: {
+        fsd_macro: { rally_active: true },
+        call_opportunity: true,
+        add_on_dips: true,
+        signals: ["fsd_rally_dip_buy"],
+      },
+    });
+    expect(align.allow).toBe(true);
+    expect(align.reason).toBe("fsd_rally_dip_buy");
+    expect(align.fsd_macro).toBe(true);
+  });
+});
+
+describe("pickPreferredLetfTicker", () => {
+  it("prefers SPYU during FSD rally window on SPY", () => {
+    const letf = lookupLETF("SPY");
+    expect(pickPreferredLetfTicker(letf, "LONG", { rally_active: true })).toBe("SPYU");
+    expect(pickPreferredLetfTicker(letf, "LONG", null)).toBe("SPXL");
   });
 });
 

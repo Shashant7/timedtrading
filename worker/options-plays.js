@@ -37,6 +37,11 @@
 //
 //  Authored 2026-05-30.
 
+import {
+  isFsdDipBuySetup,
+  pickMonthEndRallyExpiration,
+} from "./cro/fsd-macro-context.js";
+
 // ── Leveraged-ETF map ──────────────────────────────────────────────────────
 // Per-direction LETF lookup so the ladder can include "no-options leverage"
 // alternatives between stock and options. Operator-articulated: "leveraged
@@ -119,6 +124,17 @@ export function lookupLETF(ticker, themes = []) {
     if (THEME_LETF[theme]) return { ticker: sym, theme, ...THEME_LETF[theme] };
   }
   return null;
+}
+
+/** FSD month-end rally window: prefer 4× SPYU over 3× SPXL on index proxies. */
+export function pickPreferredLetfTicker(letfEntry, direction, fsdMacro = null) {
+  if (!letfEntry) return null;
+  const sideKey = direction === "SHORT" ? "short" : "long";
+  const primary = letfEntry[sideKey];
+  if (direction !== "LONG" || !fsdMacro?.rally_active) return primary;
+  const alts = Array.isArray(letfEntry.long_alts) ? letfEntry.long_alts : [];
+  if (alts.includes("SPYU")) return "SPYU";
+  return primary;
 }
 
 // ── Risk profiles ──────────────────────────────────────────────────────────
@@ -440,6 +456,22 @@ export function shouldActivateEarningsPrepLotto({
   const h4Pending = sameDayAmc && isFirstRth4hForming(now);
   if (mode === "WAIT" && !floorOk && !h4Pending) {
     return { activate: false, reason: "wait_requires_floor" };
+  }
+  const fsdRally = !!(tickerData?.fsd_macro?.rally_active);
+  if (fsdRally && side === "LONG" && (dte === 0 || dte === 1)) {
+  // FSD macro rally (Tom Lee / Newton) into earnings: surface convexity when
+  // the desk is explicitly bullish into clearing events / month-end targets.
+    if (floorOk || timingOk || reclaimOk || mode === "WAIT" || mode === "DRIFT") {
+      return {
+        activate: true,
+        side,
+        earnings_dte: dte,
+        earnings_prep: true,
+        fsd_macro_rally: true,
+        earnings_session: session,
+        h4_close_pending: sameDayAmc && isFirstRth4hForming(now),
+      };
+    }
   }
   return {
     activate: true,
@@ -1008,6 +1040,23 @@ export function shouldAllowIndexDirectional({
   }
   if (timing?.short_opportunity && contractDir === "SHORT" && mode === "FADE") {
     return { allow: true, reason: "extension_fade_short", contractDir, side: "SHORT" };
+  }
+
+  const fsdMacro = timing?.fsd_macro || confluence?.fsd_macro || null;
+  const fsdDipBuy = fsdMacro?.rally_active && contractDir === "LONG" && (
+    timing?.call_opportunity
+    || timing?.signals?.includes?.("fsd_rally_dip_buy")
+    || timing?.add_on_dips
+  );
+  if (fsdDipBuy && (mode === "WAIT" || side === "NEUTRAL" || side === "SHORT")) {
+    return {
+      allow: true,
+      reason: "fsd_rally_dip_buy",
+      contractDir: "LONG",
+      side: "LONG",
+      timing_override: true,
+      fsd_macro: true,
+    };
   }
 
   if (mode === "WAIT") {
@@ -2593,18 +2642,14 @@ function buildMoonshot(ctx, direction) {
 // risk ladder for users who want amplified beta without options' time
 // decay / strike / expiration complexity.
 export function buildLeveragedETFPlay(ctx) {
-  const { ticker, price, sl, tp1, direction, dollars_at_risk, themes } = ctx;
+  const { ticker, price, sl, tp1, direction, dollars_at_risk, themes, fsd_macro: fsdMacro } = ctx;
   const letf = lookupLETF(ticker, themes);
   if (!letf) return null;
-  const sideKey = direction === "SHORT" ? "short" : "long";
-  const letfTicker = letf[sideKey];
+  const letfTicker = pickPreferredLetfTicker(letf, direction, fsdMacro);
   if (!letfTicker) {
-    // No inverse LETF exists; if user wants short and only long LETF exists,
-    // suggest puts on the long LETF as the leverage path — but that becomes
-    // an options play, so we skip the LETF tier here.
     return null;
   }
-  const factor = Number(letf.factor) || 2;
+  const factor = letfTicker === "SPYU" ? 4 : (Number(letf.factor) || 2);
   // SL/TP geometry translates by factor (approximately, with daily-reset
   // decay above 3% moves — flag in notes).
   const underlyingPctMove = direction === "SHORT"
@@ -3229,7 +3274,9 @@ export function buildIndexSwingPlay(ctx = {}) {
   const direction = String(ctx?.direction || "").toUpperCase();
   if (!(price > 0) || (direction !== "LONG" && direction !== "SHORT")) return null;
   const atrPct = Number(ctx?.atrPct) || 0.012;
-  const expiration = ctx?.expiration || pickIndexSwingExpiration(Number(ctx?.now) || Date.now());
+  const now = Number(ctx?.now) || Date.now();
+  const monthEndExp = pickMonthEndRallyExpiration(now, ctx?.fsd_macro);
+  const expiration = ctx?.expiration || monthEndExp || pickIndexSwingExpiration(now);
   const strike = snapStrike(price, 1.0);
   const optType = direction === "LONG" ? "C" : "P";
   const chainLeg = ctx?.chain ? _chainLeg(ctx.chain, optType, strike) : null;
@@ -3538,6 +3585,7 @@ export function buildOptionsLadder(contract, opts = {}) {
     themes: Array.isArray(opts.themes) ? opts.themes : [],
     levels,
     targetDelta,
+    fsd_macro: opts.fsd_macro || opts.tickerData?.fsd_macro || null,
   };
 
   // ── Moonshot activation check — flagship tier ───────────────────────────
