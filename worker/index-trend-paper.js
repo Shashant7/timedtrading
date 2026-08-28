@@ -95,23 +95,32 @@ export function classifyIndexTrendPaperEvent({
     event,
     reason,
     nextBook: {
+      ...extra,
       status: "closed",
       event,
       reason,
+      needs_wait: true,
       exit_ts: now,
       exit_letf_price: letfPx,
       exit_underlying_price: ulPx,
       shares_remaining: 0,
-      ...extra,
     },
   });
 
-  if (status === "closed") {
-    if (book?.needs_wait) return { event: null, nextBook: { ...book, status: "flat", needs_wait: false } };
-    if (!activate) return { event: null, nextBook: book };
+  // After EXIT/STOP, stay flat while the same weekly play is still live.
+  // Clearing needs_wait on the next tick used to BUY the same SPYU book
+  // immediately (Discord EXIT + Today still HELD, plus a second BUY card).
+  if (status === "closed" || status === "flat") {
+    if (book?.needs_wait) {
+      return {
+        event: null,
+        nextBook: { ...book, status: "flat", needs_wait: !!activate },
+      };
+    }
+    if (status === "closed" && !activate) return { event: null, nextBook: book };
   }
 
-  const canEnter = status === "flat" || (status === "closed" && !book?.needs_wait);
+  const canEnter = (status === "flat" || status === "closed") && !book?.needs_wait;
   if (canEnter && activate && isNyRegularMarketOpenStatic(new Date(now))) {
     if (!(letfPx > 0) || !(ulPx > 0)) return { event: null, nextBook: null };
     return {
@@ -258,17 +267,20 @@ export function buildIndexTrendSignalEmbed({
   const pxLetf = round2(letfPrice);
   const pxUl = round2(underlyingPrice);
   const entry = round2(book?.entry_letf_price);
-  const sharesRem = Number(book?.shares_remaining);
-  const sharesOrig = Number(book?.shares);
-  const shares = (Number.isFinite(sharesRem) && sharesRem > 0)
-    ? sharesRem
-    : (Number.isFinite(sharesOrig) && sharesOrig > 0 ? sharesOrig : null);
-  const pnlPct = entry > 0 && pxLetf > 0
-    ? Math.round(((pxLetf - entry) / entry) * 10000) / 100
-    : null;
   const isExit = ev === "EXIT" || ev === "STOP";
   const isTrim = ev === "TRIM";
   const isEntry = ev === "BUY" || ev === "DCA_ADD";
+  const sharesRem = Number(book?.shares_remaining);
+  const sharesOrig = Number(book?.shares);
+  // EXIT stamps remaining=0 — do not fall back to original size as "still held".
+  const shares = isExit
+    ? (Number.isFinite(sharesOrig) && sharesOrig > 0 ? sharesOrig : null)
+    : ((Number.isFinite(sharesRem) && sharesRem > 0)
+      ? sharesRem
+      : (Number.isFinite(sharesOrig) && sharesOrig > 0 ? sharesOrig : null));
+  const pnlPct = entry > 0 && pxLetf > 0
+    ? Math.round(((pxLetf - entry) / entry) * 10000) / 100
+    : null;
 
   // Title mirrors Short Term Discord: horizon · event · vehicle · fill.
   let title;
@@ -320,8 +332,10 @@ export function buildIndexTrendSignalEmbed({
   if (mgmt.exit_by) {
     fields.push({ name: "Exit doctrine", value: String(mgmt.exit_by).slice(0, 256), inline: false });
   }
-  if (isTrim && shares != null) {
-    fields.push({ name: "Shares remaining", value: String(shares), inline: true });
+  if (isTrim && Number.isFinite(sharesRem)) {
+    fields.push({ name: "Shares remaining", value: String(Math.max(0, sharesRem)), inline: true });
+  } else if (isExit) {
+    fields.push({ name: "Shares remaining", value: "0 — closed", inline: true });
   }
 
   return {
