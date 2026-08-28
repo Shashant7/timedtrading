@@ -12513,7 +12513,14 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         }
       }
       if (_cpDec?.stage === "exit" || _cpDec?.stage === "trim" || _cpDec?.stage === "defend") {
-        tickerData.__exit_reason = _cpDec.reason;
+        // Ribbon-trail / pending 5-12 are defend-only (ratchet SL). Do not
+        // stamp __exit_reason — a later 50% trim then Discord-labels itself
+        // "Trim triggered: tt cloud pivot ribbon trail" (NKE/H 8pm ET 2026-08-27).
+        if (_cpDec.stage === "defend") {
+          tickerData.__defend_reason = _cpDec.reason;
+        } else {
+          tickerData.__exit_reason = _cpDec.reason;
+        }
         tickerData.__exit_family = CLOUD_PIVOT_FAMILY;
         if (_cpDec.metadata?.trail_px != null) {
           tickerData.__suggested_sl = _cpDec.metadata.trail_px;
@@ -20653,7 +20660,36 @@ async function processTradeSimulation(
       else promise.catch(() => {});
     };
 
+    // Compute session gates before close/trim helpers so those closures
+    // can refuse live ST fills after 7:00 PM ET (NKE/H 8pm 2026-08-27).
+    const weekendNow = isNyWeekend(isReplay && Number.isFinite(asOfMs) ? asOfMs : Date.now());
+    const entryTimeRef = isReplay && Number.isFinite(asOfMs) ? new Date(asOfMs) : new Date();
+    const outsideRTH = !isNyRegularMarketOpen(entryTimeRef);
+    const _shareBrokerLive = _calIsCrypto(sym) || _calIsFutures(sym)
+      || (_cronCalendar
+        ? _calIsEquityBrokerFollowThrough(_cronCalendar, entryTimeRef)
+        : _calIsEquityBrokerFollowThroughStatic(entryTimeRef));
+    const afterHoursTooLate = !isReplay && outsideRTH && !_shareBrokerLive;
+
     const closeTradeAtPrice = async (trade, closePrice, closeReason) => {
+      // Live ST equity: after 7:00 PM ET the broker cannot take the fill.
+      // Fuse / phase / event-risk call sites used to skip the kanban AH gate
+      // and Discord still claimed "Filled at 8:00 PM" (NKE/H 2026-08-27).
+      if (afterHoursTooLate) {
+        console.log(`[TRADE SIM] ${sym} exit blocked: after-hours too late for broker follow-through (reason=${closeReason || "-"})`);
+        if (!isReplay && env?.DB) {
+          const session = _cronCalendar ? _calGetSessionType(_calGetETMinutes()) : "CLOSED";
+          d1QueueAction(env, {
+            ticker: sym,
+            action: "exit",
+            direction: trade?.direction,
+            session,
+            snapshot: { price: closePrice, exit_reason: closeReason || null },
+            reason: "ah_too_late",
+          });
+        }
+        return;
+      }
       // Stale-candle hard-exit-only pass: allow SL/hard-loss closes, block soft exits.
       if (tickerData?.__stale_hard_exit_only === true) {
         const _hardOk = /sl_breached|sl_hit|hard_loss|HARD_LOSS|HARD_FUSE|max.?loss|stop.?loss|v13_hard_/i
@@ -21234,6 +21270,21 @@ async function processTradeSimulation(
       trimPrice,
       trimReason,
     ) => {
+      if (afterHoursTooLate) {
+        console.log(`[TRADE SIM] ${sym} trim blocked: after-hours too late for broker follow-through (reason=${trimReason || "-"})`);
+        if (!isReplay && env?.DB) {
+          const session = _cronCalendar ? _calGetSessionType(_calGetETMinutes()) : "CLOSED";
+          d1QueueAction(env, {
+            ticker: sym,
+            action: "trim",
+            direction: trade?.direction,
+            session,
+            snapshot: { price: trimPrice, target_pct: targetTrimPct, trim_reason: trimReason || null },
+            reason: "ah_too_late",
+          });
+        }
+        return;
+      }
       // Soft size changes need fresh structure — hard SL uses closeTradeAtPrice.
       if (tickerData?.__stale_hard_exit_only === true) {
         console.warn(`[STALE_HARD_EXIT_ONLY] ${sym} skip trim reason=${trimReason || "-"}`);
@@ -21301,6 +21352,10 @@ async function processTradeSimulation(
         } catch (e) {
           console.warn(`[TRIM CAS] ${sym} CAS check failed, proceeding:`, e?.message);
         }
+      }
+      trade.lastTrimReason = trimReason || null;
+      if (tickerData && typeof tickerData === "object") {
+        tickerData.__trim_reason = trimReason || tickerData.__trim_reason || null;
       }
       const delta = tgt - oldTrim;
       const shares = Number(trade.shares);
@@ -21706,7 +21761,7 @@ async function processTradeSimulation(
               setup_name: trade.setupName || trade.setup_name || tickerData?.__setupName || null,
               setup_grade: trade.setupGrade || trade.setup_grade || tickerData?.__setupGrade || null,
               risk_budget: Number(trade.riskBudget || trade.risk_budget || tickerData?.__riskBudget) || null,
-              trim_reason: trade.exitReason || tickerData?.__exit_reason || null,
+              trim_reason: trade.lastTrimReason || trade.exitReason || tickerData?.__trim_reason || tickerData?.__exit_reason || null,
               action_ts: tsMs,
               chart_url: getTradeAutopsyChartUrl(env, trade.id) || null,
             }, requestCtx).catch((e) => {
@@ -21799,27 +21854,8 @@ async function processTradeSimulation(
     }
 
     // Market is closed on weekends — never execute TP trims/exits on Sat/Sun.
-    // (We still allow SL evaluation elsewhere to be conservative.)
-    // During replay, use the simulation time (asOfMs) to check weekend, not wall-clock time.
-    const weekendNow = isNyWeekend(isReplay && Number.isFinite(asOfMs) ? asOfMs : Date.now());
-
-    // RTH guard: Regular Trading Hours = 9:30 AM - 4:00 PM ET.
-    // ENTRIES: Restricted to RTH only.
-    // EXITS/TRIMS outside RTH: Only allowed if PRICE-DRIVEN (SL breach, max-loss, TP hit).
-    //   Signal-based exits (fuse, kanban, completion) are blocked outside RTH.
-    //   This prevents premature trims/exits during thin pre-market/after-hours volume.
-    // DEFEND (SL adjustment): SL tightening allowed outside RTH, but Discord notifications suppressed.
-    // During replay, use the simulation time to check RTH.
-    const entryTimeRef = isReplay && Number.isFinite(asOfMs) ? new Date(asOfMs) : new Date();
-    const outsideRTH = !isNyRegularMarketOpen(entryTimeRef);
-    // Live ST shares: post-RTH (earnings) is allowed through 7:00 PM ET.
-    // 8:00 PM official AH close + overnight ATS cannot follow through.
-    // Replay keeps the old window so evening historical closes stay intact.
-    const _shareBrokerLive = _calIsCrypto(sym) || _calIsFutures(sym)
-      || (_cronCalendar
-        ? _calIsEquityBrokerFollowThrough(_cronCalendar, entryTimeRef)
-        : _calIsEquityBrokerFollowThroughStatic(entryTimeRef));
-    const afterHoursTooLate = !isReplay && outsideRTH && !_shareBrokerLive;
+    // RTH/AH gates (weekendNow, outsideRTH, afterHoursTooLate) are computed
+    // above the close/trim helpers so every live ST path shares one clock.
     // Parity lane guard: optionally defer early opening-minute Confirmed EMA entries
     // so ripster_momentum can take precedence in historical-emulation replays.
     const _parityDeferConfirmedOpenMinsCfg = Number(env?._deepAuditConfig?.deep_audit_parity_defer_confirmed_opening_minutes);
@@ -48911,7 +48947,7 @@ function createTradeTrimmedEmbed(
   // at intraday loss but the WEEKLY trend hit a profit target. Each entry
   // explains both the trigger AND why the trim is the right action even
   // when the current P&L is negative.
-  const trimReason = trade?.exitReason || tickerData?.__exit_reason || null;
+  const trimReason = trade?.lastTrimReason || trade?.exitReason || tickerData?.__trim_reason || tickerData?.__exit_reason || null;
   const trimReasonMap = {
     MFE_SAFETY_TRIM: "Locked in profits while the trade was ahead — taking money off the table",
     PHASE_LEAVE_100: "Momentum peaked and is starting to fade — securing gains before reversal",
@@ -96070,6 +96106,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 };
                 playsOut.push({
                   ...baseRow,
+                  // Open book + live plan = one carry card, not a second BUY.
+                  carry_only: !!_itLive || !!baseRow.carry_only,
                   signal_id: _itSid || signalId,
                   position: _itLive ? {
                     signal_id: _itSid || signalId,

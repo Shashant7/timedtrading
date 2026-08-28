@@ -94,6 +94,82 @@ describe("index-trend-paper", () => {
     });
     expect(d.event).toBe("STOP");
     expect(d.reason).toBe("underlying_invalidation");
+    expect(d.nextBook?.needs_wait).toBe(true);
+    expect(d.nextBook?.shares_remaining).toBe(0);
+  });
+
+  it("does not re-BUY the same weekly play after trail_giveback EXIT", () => {
+    const book = {
+      status: "trimmed",
+      direction: "LONG",
+      entry_underlying_price: 640,
+      entry_letf_price: 34.9,
+      stop_underlying: 628,
+      shares: 32,
+      shares_remaining: 32,
+      trims_fired: [1, 2],
+      peak_underlying_r: 3.0,
+    };
+    const now = Date.UTC(2026, 7, 27, 18, 30, 0); // 2:30 PM ET
+    const mgmt = {
+      stop_underlying: 628,
+      target_underlying: 680,
+      trim_ladder: [
+        { at_r: 1, size: 0.25 },
+        { at_r: 2, size: 0.25 },
+        { trail_remainder: true },
+      ],
+    };
+    // peak 3R, floor 1.8R; 640+12*1.5=658 → 1.5R giveback.
+    const exit = classifyIndexTrendPaperEvent({
+      book,
+      letfPrice: 35.63,
+      underlyingPrice: 658,
+      management: mgmt,
+      direction: "LONG",
+      activate: true,
+      now,
+    });
+    expect(exit.event).toBe("EXIT");
+    expect(exit.reason).toBe("trail_giveback");
+    expect(exit.nextBook?.status).toBe("closed");
+    expect(exit.nextBook?.needs_wait).toBe(true);
+    expect(exit.nextBook?.shares_remaining).toBe(0);
+
+    const again = classifyIndexTrendPaperEvent({
+      book: exit.nextBook,
+      letfPrice: 35.55,
+      underlyingPrice: 769.60,
+      management: mgmt,
+      direction: "LONG",
+      activate: true,
+      now: now + 30 * 60 * 1000,
+    });
+    expect(again.event).toBeNull();
+    expect(again.nextBook?.status).toBe("flat");
+    expect(again.nextBook?.needs_wait).toBe(true);
+  });
+
+  it("EXIT embed does not claim original size as shares remaining", () => {
+    const emb = buildIndexTrendSignalEmbed({
+      event: "EXIT",
+      underlying: "SPY",
+      letfTicker: "SPYU",
+      direction: "LONG",
+      letfPrice: 35.55,
+      underlyingPrice: 769.60,
+      reason: "trail_giveback",
+      book: {
+        entry_letf_price: 34.9,
+        shares: 32,
+        shares_remaining: 0,
+      },
+    });
+    const rem = (emb.fields || []).find((f) => f.name === "Shares remaining");
+    expect(rem?.value).toMatch(/0/);
+    expect(rem?.value).not.toBe("32");
+    const summary = (emb.fields || []).find((f) => f.name === "Trade Summary");
+    expect(summary?.value).toContain("Qty 32");
   });
 
   it("sizes default paper shares from budget", () => {

@@ -241,6 +241,21 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 - Live ST equity exit/trim + trader mirror stop at 19:00 ET. 16:00–19:00
   sends LIMIT + ALL + GTC (Webull rejects MARKET in ETH). Replay / crypto /
   futures / investor GTC flatten unchanged.
+- Gate is inside `trimTradeToPct` / `closeTradeAtPrice`, not only the kanban
+  block — fuse / phase / event-risk were still filling at 8:00 PM (NKE/H
+  2026-08-27). Cloud Pivot ribbon-trail is defend-only (`__defend_reason`);
+  Discord trim copy must use `lastTrimReason`, not leftover `__exit_reason`.
+
+**Index Swings is one stateful card (2026-08-27)**
+- Today strip: HELD / TRIMMED / WAITING — never HELD + BUY on the same SPYU.
+- Paper EXIT/STOP sets `needs_wait` and keeps it while the weekly play is
+  still live so trail-giveback cannot flatten then immediately re-BUY.
+- Discord EXIT must show remaining 0, not fall back to original share count.
+
+**Model LT card must not inherit ST realized loss (2026-08-27)**
+- Same-ticker ST close (AMZN max-loss) + open investor lot → Bought card
+  showed Open Long + REALIZED LOSS. Strip `_closedTrade` / sticky exit on
+  owned LT cards; closed overlay only when `!resolvedOpen`.
 
 **Tom Lee Macro Minute is a first-class research arm (2026-08-13)**
 - Daily MM is FSD+Vimeo captions, not YouTube. HTML ingest is a ~600 char

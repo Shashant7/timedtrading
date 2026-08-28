@@ -6,6 +6,36 @@
 
 ---
 
+## 8pm ST fills, Index Swings repeats, AMZN LT realized-loss leak [2026-08-27]
+
+**Symptom:** `#trade-signals` posted NKE/H 50% Cloud Pivot trims at
+8:00 PM ET ("tt cloud pivot ribbon trail"). Today Index Swings showed
+HELD SPYU 32sh plus a second BUY card after Discord EXIT trail-giveback
+at 2:30 and 3:00. Model Bought AMZN Long Term showed REALIZED LOSS
+−1.84% / Max Loss Time Scaled while the Short Term close in Exited was
+correct.
+
+**Cause:**
+1. `afterHoursTooLate` only wrapped the kanban trim/exit block. Fuse /
+   phase / event-risk called `trimTradeToPct` / `closeTradeAtPrice`
+   directly. Cloud Pivot defend stamped `__exit_reason`, and Discord
+   used that leftover over the actual trim reason.
+2. Index strip `flatMap` emitted a position card AND a plan card when
+   a play still existed. Paper EXIT cleared `needs_wait` on the next
+   tick, so the same weekly signal re-entered. Embed treated
+   `shares_remaining=0` as "use original 32".
+3. LT Model cards spread the ticker snapshot including ST sticky
+   `_closedTrade` / `kanban_stage=exit` / `pnlPct`.
+
+**Fix:** Helper-level 7:00 PM ET gate; defend → `__defend_reason`;
+Discord `lastTrimReason`. One HELD/TRIMMED/WAITING card; EXIT
+`needs_wait` while the play is live; remaining 0 on EXIT embeds. Strip
+ST exit overlay on owned LT cards; closed banner only when no open
+trade.
+
+**Do not:** treat ribbon-trail as a trim, or show realized loss on an
+open Long Term book because the Short Term lot on the same ticker closed.
+
 ## Cloud Pivot profit-lock never saw the live ticket [2026-08-27]
 
 **Symptom:** Operator unblocked the family (paper, 3 days). Closed
