@@ -4,9 +4,11 @@
  * Hard gaps = incomplete for trading awareness (missing scoring-TF candles
  * or no usable timed:latest score). These drive the watchdog orphan count.
  *
- * Soft gaps = heal-queue niceties (candle history quality below target, or
- * missing behavioral profile). Thin / new listings (SPCX, GRNI, …) often
- * stay soft forever without meaning the feed is broken.
+ * Soft gaps = heal-queue niceties (missing behavioral profile, or
+ * incomplete TF coverage that is not yet a hard orphan).
+ * Thin = every scoring TF has bars + score + profile, but history depth
+ * is below the quality target. Thin / new listings (SPCX, SKHY, …) stay
+ * thin forever without meaning the feed is broken — do not heal-loop them.
  */
 
 export function tickerHasUsableScore(latest) {
@@ -24,6 +26,12 @@ export function tickerHasUsableScore(latest) {
 export function classifyOnboardGap({ missing, hasProfile, hasScore, avgQuality, minQuality }) {
   const missingTfs = Array.isArray(missing) ? missing : [];
   const hard = missingTfs.length > 0 || !hasScore;
-  const soft = avgQuality < minQuality || !hasProfile;
-  return { hard, soft, needsHeal: hard || soft };
+  // All scoring TFs have bars + a usable score + a profile. History depth
+  // below the 80-quality target is expected for thin / young listings
+  // (SKHY, SPCX, …) and must not keep the heal cron in permanent "partial".
+  const onboarded = missingTfs.length === 0 && !!hasScore && !!hasProfile;
+  const qualityShort = Number(avgQuality) < Number(minQuality);
+  const thin = onboarded && qualityShort;
+  const soft = !onboarded && (qualityShort || !hasProfile);
+  return { hard, soft, thin, needsHeal: hard || soft };
 }

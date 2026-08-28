@@ -40805,7 +40805,7 @@ async function d1FindTickersNeedingOnboard(env, opts = {}) {
       avgQuality,
       minQuality,
     });
-    if (!kind.needsHeal) continue;
+    if (!kind.needsHeal && !kind.thin) continue;
     if (hardOnly && !kind.hard) continue;
     gaps.push({
       ticker: sym,
@@ -40815,6 +40815,7 @@ async function d1FindTickersNeedingOnboard(env, opts = {}) {
       hasScore,
       hard: kind.hard,
       soft: kind.soft,
+      thin: !!kind.thin,
     });
   }
   gaps.sort((a, b) => (a.quality - b.quality) || a.ticker.localeCompare(b.ticker));
@@ -40829,11 +40830,13 @@ async function updateUniverseOrphanSnapshot(env) {
     // visible via soft_count for heal ops without false-alarming at dawn.
     const hardGaps = await d1FindTickersNeedingOnboard(env, { minQuality: 80, hardOnly: true });
     const softGaps = await d1FindTickersNeedingOnboard(env, { minQuality: 80, hardOnly: false });
-    const softOnly = softGaps.filter((g) => !g.hard);
+    const softOnly = softGaps.filter((g) => g.soft && !g.hard);
+    const thinOnly = softGaps.filter((g) => g.thin);
     const snap = {
       ts: Date.now(),
       count: hardGaps.length,
       soft_count: softOnly.length,
+      thin_count: thinOnly.length,
       sample: hardGaps.slice(0, 15).map((g) => ({
         ticker: g.ticker,
         quality: g.quality,
@@ -40843,6 +40846,12 @@ async function updateUniverseOrphanSnapshot(env) {
         hard: true,
       })),
       soft_sample: softOnly.slice(0, 8).map((g) => ({
+        ticker: g.ticker,
+        quality: g.quality,
+        hasProfile: g.hasProfile,
+        hasScore: g.hasScore,
+      })),
+      thin_sample: thinOnly.slice(0, 8).map((g) => ({
         ticker: g.ticker,
         quality: g.quality,
         hasProfile: g.hasProfile,
@@ -40887,10 +40896,10 @@ async function kickOnboardGapsHeal(env, ctx, opts = {}) {
     batch = [...new Set(opts.onlyTickers.map((t) => String(t).toUpperCase()).filter(Boolean))].slice(0, limit);
     candidatesTotal = batch.length;
   } else {
-    const candidates = await d1FindTickersNeedingOnboard(env, {
+    const candidates = (await d1FindTickersNeedingOnboard(env, {
       minQuality,
       extraTickers: opts.extraTickers || [],
-    });
+    })).filter((g) => g.hard || g.soft);
     candidatesTotal = candidates.length;
     batch = candidates.slice(0, limit).map((g) => g.ticker);
   }
@@ -40928,6 +40937,7 @@ async function kickOnboardGapsHeal(env, ctx, opts = {}) {
         try {
           const r = await ensureTickerUniverseAndOnboard(env, sym, null, { sinceDays, sync: true });
           if (r?.ok !== false) done.push(sym);
+          else if (String(r?.error || "") === "insufficient_data") done.push(sym);
           else errors.push({ ticker: sym, error: r?.error || "onboard_failed" });
         } catch (e) {
           errors.push({ ticker: sym, error: String(e?.message || e).slice(0, 200) });
@@ -47739,11 +47749,14 @@ async function fetchAndCacheFundamentalsSnapshot(env, tickerRaw, opts = {}) {
   }
   try {
           const cacheKey = fundamentalsCacheKey(ticker);
-          const TTL_SECONDS = 6 * 60 * 60; // 6h
+          const CACHE_FRESH_SECONDS = 6 * 60 * 60; // skip TwelveData refetch
+          // Health SLO is 7d; nightly roll is ~9 nights. A 6h KV TTL deleted
+          // QQQ/NVDA samples between refreshes and kept feeds.fundamentals red.
+          const KV_TTL_SECONDS = 14 * 24 * 60 * 60;
 
           if (!force) {
             const cached = await kvGetJSON(KV, cacheKey);
-            if (cached && cached.as_of && (Date.now() - cached.as_of) < TTL_SECONDS * 1000) {
+            if (cached && cached.as_of && (Date.now() - cached.as_of) < CACHE_FRESH_SECONDS * 1000) {
               if (!isDegenerateFundamentalsSnapshot(cached)) {
                 return { ok: true, snapshot: cached, cache: "hit" };
               }
@@ -48308,9 +48321,9 @@ async function fetchAndCacheFundamentalsSnapshot(env, tickerRaw, opts = {}) {
             out.compounder = extractGrowthCompounderSignal(out);
           } catch (_) { /* non-fatal */ }
 
-          // Persist to KV for the next 6h. Best-effort.
+          // Persist past the 7d health SLO. Best-effort.
           try {
-            await kvPutJSON(KV, cacheKey, out, TTL_SECONDS);
+            await kvPutJSON(KV, cacheKey, out, KV_TTL_SECONDS);
           } catch (kvErr) {
             console.warn("[FUNDAMENTALS] KV write failed:", String(kvErr).slice(0, 120));
           }
@@ -61650,6 +61663,8 @@ export default {
             orphan_sample: (orphanSnap?.sample || []).slice(0, 8).map((s) => s.ticker || s),
             soft_gaps: Number(orphanSnap?.soft_count) || 0,
             soft_sample: (orphanSnap?.soft_sample || []).slice(0, 8).map((s) => s.ticker || s),
+            thin_gaps: Number(orphanSnap?.thin_count) || 0,
+            thin_sample: (orphanSnap?.thin_sample || []).slice(0, 8).map((s) => s.ticker || s),
             orphan_age_min: orphanSnap?.ts ? Math.round((Date.now() - orphanSnap.ts) / 60000) : null,
             heal_status: heal?.status || null,
             heal_errors: heal?.errors ?? null,

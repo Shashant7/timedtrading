@@ -43,7 +43,7 @@ Each step takes 30-60 seconds. Total: ~5-7 minutes.
 
 ## 2. Candle freshness (active universe)
 
-**Endpoint:** `GET /timed/admin/freshness-summary` (or inspect Mission Control "Worst Stale Ticker" tile)
+**Endpoint:** `GET /timed/admin/candle-freshness` (or `/timed/health` → `freshness`, or Mission Control "Worst Stale Ticker")
 
 **Look at:**
 - Worst 60m candle age (in hours) — should be < 24h on weekdays, < 72h Monday morning (the weekend-aware threshold catches the Friday-close → Monday-9-AM gap)
@@ -86,7 +86,7 @@ Each step takes 30-60 seconds. Total: ~5-7 minutes.
 
 **Endpoints:**
 - `GET /timed/admin/waitlist?limit=50` → recent waitlist signups (now Discord-link signups after PR #438)
-- `GET /timed/admin/sessions?range=24h` → session heartbeats per user
+- `GET /timed/admin/users` → last_login / tier (there is no `/timed/admin/sessions`)
 
 **Look at:**
 - Daily signups in line with the last 7-day baseline (no sudden 90% drop)
@@ -106,7 +106,8 @@ Each step takes 30-60 seconds. Total: ~5-7 minutes.
 ## 5. Email delivery health (SendGrid + DMARC)
 
 **Endpoints:**
-- `GET /timed/admin/email-health` → daily send count, bounces, complaints, DMARC alignment
+- `GET /timed/admin/sendgrid-health` → key valid + `mail.send` scope
+- `GET /timed/admin/dmarc/posture` → live DNS DMARC record
 - SendGrid Activity Feed (login to SendGrid dashboard for the latest 1000 events)
 
 **Look at:**
@@ -130,7 +131,7 @@ Each step takes 30-60 seconds. Total: ~5-7 minutes.
 ## 6. Stripe health (subscriptions + recent webhooks)
 
 **Endpoints:**
-- `GET /timed/admin/stripe-health` → active subscriptions, MRR, recent webhook events
+- `GET /timed/admin/stripe/subscriptions` → Stripe vs D1 cross-check (`needs_action` is a false-positive when D1 is already vip/admin + active)
 - Stripe dashboard webhook log (https://dashboard.stripe.com/webhooks)
 
 **Look at:**
@@ -208,7 +209,7 @@ File any gaps in `tasks/todo.md` under "Mission Control gaps surfaced by holisti
 
 ## Source
 
-- `worker/index.js` → `/timed/health`, `/timed/admin/freshness-summary`, `/timed/admin/email-health`, `/timed/admin/stripe-health`
+- `worker/index.js` → `/timed/health`, `/timed/admin/candle-freshness`, `/timed/admin/sendgrid-health`, `/timed/admin/dmarc/posture`, `/timed/admin/stripe/subscriptions`
 - `react-app/mission-control.html` → all React components
 - Companion skills: [mission-control-tour.md](mission-control-tour.md), [broker-bridge.md](broker-bridge.md), [backfill-candles.md](backfill-candles.md), [d1-debugging.md](d1-debugging.md), [discord-alerts.md](discord-alerts.md)
 - Recent reliability lessons in `tasks/lessons.md`: BK freshness heal-before-page, investor compute retry, manifest stale-bridge hint, toxic-ticker safety

@@ -41,6 +41,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: reference-intel-refresh
+  cancel-in-progress: false
+
 jobs:
   refresh:
     runs-on: ubuntu-latest
@@ -114,7 +118,26 @@ jobs:
             exit 0
           fi
           git commit -m "chore(reference-intel): scheduled refresh $(date -u +'%Y-%m-%dT%H:%MZ')"
-          # Retry push once (GH Actions can race with concurrent merges).
-          if ! git push; then
-            git pull --rebase && git push
-          fi
+          # Pipeline leftovers (unstaged / untracked) made `git pull --rebase`
+          # fail with exit 128 when #1377 landed mid-push (2026-08-28).
+          git reset --hard HEAD
+          git clean -fd
+          attempt=1
+          while [ "$attempt" -le 5 ]; do
+            if git push origin HEAD:main; then
+              echo "Pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "Push failed (attempt ${attempt}) — rebase onto origin/main"
+            git fetch origin main
+            if ! git rebase --autostash origin/main; then
+              echo "Rebase conflict in artifacts — keep ours, continue"
+              git checkout --ours -- data/reference-intel || true
+              git add data/reference-intel
+              git -c core.editor=true rebase --continue || git rebase --abort
+            fi
+            attempt=$((attempt + 1))
+            sleep $((attempt * 4))
+          done
+          echo "Failed to push reference-intel after 5 attempts"
+          exit 1

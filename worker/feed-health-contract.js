@@ -8,7 +8,7 @@ const SAMPLE_TICKERS = ["SPY", "QQQ", "NVDA"];
 /** Age in minutes from a row's updated_at / computed_at / ts field. */
 export function feedAgeMin(row, now = Date.now()) {
   if (!row || typeof row !== "object") return null;
-  const ts = Number(row.updated_at ?? row.computed_at ?? row.ts ?? row._ts);
+  const ts = Number(row.updated_at ?? row.computed_at ?? row.as_of ?? row.ts ?? row._ts);
   if (!Number.isFinite(ts) || ts <= 0) return null;
   return Math.round((now - ts) / 60000);
 }

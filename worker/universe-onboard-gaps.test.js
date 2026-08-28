@@ -28,6 +28,20 @@ describe("classifyOnboardGap", () => {
     expect(g.needsHeal).toBe(true);
   });
 
+  it("does not keep thin-but-complete listings on the heal queue", () => {
+    const g = classifyOnboardGap({
+      missing: [],
+      hasProfile: true,
+      hasScore: true,
+      avgQuality: 57,
+      minQuality: 80,
+    });
+    expect(g.hard).toBe(false);
+    expect(g.soft).toBe(false);
+    expect(g.thin).toBe(true);
+    expect(g.needsHeal).toBe(false);
+  });
+
   it("treats missing TFs or unscored names as hard orphans", () => {
     expect(classifyOnboardGap({
       missing: ["D"],
