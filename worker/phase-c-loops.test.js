@@ -5,6 +5,7 @@ import {
   loop1SetupSideKey,
   loop2ComputePulse,
   loop2EvaluatePulse,
+  loop2WrHoldoffUntilMs,
   sumRealizedPnlExcludingPhantoms,
 } from "./phase-c-loops.js";
 
@@ -120,6 +121,54 @@ describe("loop2ComputePulse phantom exclusion", () => {
     const pulse = loop2ComputePulse(phantoms, { nowMs, maxAgeHours: 168 });
     const evalRes = loop2EvaluatePulse(pulse, { loop2_breaker_consec_loss: 4 });
     expect(evalRes.trip).toBe(false);
+  });
+});
+
+describe("loop2 operator reset WR holdoff", () => {
+  const closedLosses = Array.from({ length: 10 }, (_, i) => ({
+    status: i === 6 ? "WIN" : "LOSS",
+    pnl_pct: i === 6 ? 0.2 : -2,
+    exit_ts: Date.UTC(2026, 7, 27, 14, i, 0),
+  }));
+
+  it("trips wr_10 without a holdoff", () => {
+    const pulse = loop2ComputePulse(closedLosses, { nowMs: Date.UTC(2026, 7, 28, 16, 0, 0), maxAgeHours: 168 });
+    const evalRes = loop2EvaluatePulse(pulse, {});
+    expect(pulse.last10_wr).toBeCloseTo(0.1, 5);
+    expect(evalRes.trip).toBe(true);
+    expect(evalRes.reason).toMatch(/^wr_/);
+  });
+
+  it("defers the same WR trip until holdoff expires", () => {
+    const nowMs = Date.UTC(2026, 7, 28, 21, 0, 0);
+    const pulse = loop2ComputePulse(closedLosses, { nowMs, maxAgeHours: 168 });
+    const holdoff = loop2WrHoldoffUntilMs(nowMs);
+    const evalRes = loop2EvaluatePulse(pulse, {}, { nowMs, holdoff_wr_until_ms: holdoff });
+    expect(evalRes.trip).toBe(false);
+    expect(evalRes.operator_reset_holdoff).toBe(true);
+    expect(evalRes.original_reason).toMatch(/^wr_/);
+    expect(holdoff).toBeGreaterThan(nowMs);
+  });
+
+  it("maps a Friday evening reset to Monday RTH close", () => {
+    const fridayEve = Date.UTC(2026, 7, 28, 21, 0, 0);
+    const until = loop2WrHoldoffUntilMs(fridayEve);
+    // Monday 2026-08-31 16:00 ET = 20:00 UTC
+    expect(until).toBe(Date.UTC(2026, 7, 31, 20, 0, 0));
+  });
+
+  it("still trips a fresh today-PnL rule during holdoff", () => {
+    const nowMs = Date.UTC(2026, 7, 31, 15, 0, 0);
+    const today = [
+      { status: "LOSS", pnl_pct: -2, exit_ts: Date.UTC(2026, 7, 31, 14, 0, 0) },
+      { status: "LOSS", pnl_pct: -2, exit_ts: Date.UTC(2026, 7, 31, 14, 10, 0) },
+      { status: "LOSS", pnl_pct: -2, exit_ts: Date.UTC(2026, 7, 31, 14, 20, 0) },
+    ];
+    const pulse = loop2ComputePulse(today, { nowMs, maxAgeHours: 168 });
+    const evalRes = loop2EvaluatePulse(pulse, {}, { nowMs, holdoff_wr_until_ms: Date.UTC(2026, 7, 31, 20, 0, 0) });
+    expect(pulse.today_n).toBe(3);
+    expect(evalRes.trip).toBe(true);
+    expect(evalRes.reason).toMatch(/today_pnl/);
   });
 });
 

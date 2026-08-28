@@ -1131,6 +1131,7 @@ import {
   convenienceFieldsFromInvestorScore,
 } from "./investor-positions-repair.js";
 import { replayInvestorLots } from "./investor-lot-ledger.js";
+import { applyInvestorLedgerLeftovers } from "./ledger-leftover-repair.js";
 import {
   gatherSizingMultipliers,
   computePdzSizeMult,
@@ -67279,6 +67280,16 @@ export default {
               }
             }
           }
+          // 4a5. Leftovers the exact-ts twin matcher misses: orphan
+          // +286ms backfills, same-ts invalidation+trim oversells, and
+          // closed-position dust after an incomplete EXIT.
+          let leftover = { action_count: 0 };
+          try {
+            leftover = await applyInvestorLedgerLeftovers(db, { dryRun, skipRebalance: true });
+          } catch (le) {
+            leftover = { ok: false, error: String(le?.message || le).slice(0, 200) };
+          }
+
           // 4b. Recompute the `balance` column on ALL ledger entries based
           // on cumulative cash_delta (post-back-fill). The drift between
           // `balance` and `cumsum(cash_delta)` is a race condition in the
@@ -67319,6 +67330,8 @@ export default {
             duplicate_buy_count: duplicateBuyLedgerIds.length,
             duplicate_buy_sample: duplicateBuyLedgerIds.slice(0, 20),
             delta_mismatch_count: deltaMismatches.length,
+            leftover_action_count: leftover?.action_count || 0,
+            leftover,
             rebalanced, // count of ledger rows whose balance column got rewritten
             recomputed_balance_after_replay: Math.round(runningBalance * 100) / 100,
             current_ledger_last_balance: (ledgerRows && ledgerRows.length > 0)
@@ -78746,7 +78759,14 @@ export default {
           const KV = env?.KV_TIMED;
           if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
           const raw = await KV.get("phase-c:engine-paused", { type: "json" });
-          return sendJSON({ ok: true, paused: !!raw?.paused, state: raw || null }, 200, corsHeaders(env, req));
+          const reset = await PhaseCLoops.loop2ReadReset(KV);
+          return sendJSON({
+            ok: true,
+            paused: !!raw?.paused,
+            state: raw || null,
+            reset: reset || null,
+            wr_holdoff_active: !!(reset && Number(reset.holdoff_wr_until_ms) > Date.now()),
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -78758,8 +78778,14 @@ export default {
           const KV = env?.KV_TIMED;
           if (!KV) return sendJSON({ ok: false, error: "no_kv" }, 500, corsHeaders(env, req));
           const before = await KV.get("phase-c:engine-paused", { type: "json" });
-          await KV.delete("phase-c:engine-paused");
-          return sendJSON({ ok: true, cleared: !!before, before }, 200, corsHeaders(env, req));
+          const reset = await PhaseCLoops.loop2ResetBreaker(KV, { reason: "admin_loop2_pause_reset" });
+          return sendJSON({
+            ok: true,
+            cleared: !!before,
+            before,
+            reset,
+            wr_holdoff_until_ms: reset?.holdoff_wr_until_ms || null,
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -104540,7 +104566,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const pulseBase = PhaseCLoops.loop2ComputePulse(recentRows, { window: 10, maxAgeHours: _maxAgeHours });
               const openBook = PhaseCLoops.loop2ComputeOpenBookMetrics(openRows, priceMap);
               const pulse = { ...pulseBase, ...openBook };
-              const evalRes = PhaseCLoops.loop2EvaluatePulse(pulse, _daCfg);
+              const resetHoldoff = await PhaseCLoops.loop2ReadReset(KV);
+              const evalRes = PhaseCLoops.loop2EvaluatePulse(pulse, _daCfg, {
+                nowMs: pulse.pulse_ts_ms,
+                holdoff_wr_until_ms: resetHoldoff?.holdoff_wr_until_ms,
+              });
               await PhaseCLoops.loop2WritePulse(KV, pulse, evalRes, _daCfg);
               const _wrStr = pulse.last10_wr != null ? `${(pulse.last10_wr * 100).toFixed(0)}%` : "n/a";
               const _pfStr = pulse.profit_factor != null
@@ -104579,7 +104609,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     ],
                   }, "system").catch(() => {});
                 } catch (_) {}
-              } else if (evalRes.duration_bias_override) {
+              } else if (evalRes.duration_bias_override || evalRes.operator_reset_holdoff) {
                 console.log(`[phase-c] loop 2 trip deferred — ${evalRes.original_reason} would have fired but ${evalRes.override_reason} (pf=${_pfStr} combined_today=${_combinedToday.toFixed(2)}% open=${pulse.open_count}@${pulse.open_unrealized_pct}%)`);
               } else {
                 console.log(`[phase-c] loop 2 pulse — wr=${_wrStr} todayPnl=${pulse.today_pnl_pct.toFixed(2)}% consec=${pulse.consec_losses} pf=${_pfStr} open=${pulse.open_count}@${pulse.open_unrealized_pct}%`);
