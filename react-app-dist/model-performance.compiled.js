@@ -56,6 +56,18 @@ async function fetchLedgerSummary() {
     return null;
   }
 }
+async function fetchAccountNav() {
+  try {
+    const r = await fetch(`${API_BASE}/timed/account-summary?mode=both&_t=${Date.now()}`, {
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) {
+    return null;
+  }
+}
 async function fetchBrief() {
   try {
     const r = await fetch(`${API_BASE}/timed/daily-brief`, {
@@ -83,7 +95,8 @@ async function fetchUniverseChanges() {
 function ModelStatus({
   allMeta,
   history,
-  summary
+  summary,
+  nav
 }) {
   const builtAt = Number(allMeta?.built_at);
   const tickerCount = Number(allMeta?.count) || (allMeta?.data ? Object.keys(allMeta.data).length : 0);
@@ -104,6 +117,15 @@ function ModelStatus({
   }, [history, summary]);
   const healthOk = Number.isFinite(builtAt) && Date.now() - builtAt < 30 * 60 * 1000;
   const healthLabel = healthOk ? "Healthy" : Number.isFinite(builtAt) ? "Stale snapshot" : "Unknown";
+  const combined = nav?.combined || null;
+  const navVal = Number(combined?.accountValue);
+  const navPnl = Number(combined?.totalPnl);
+  const navOpen = Number(combined?.unrealized);
+  const navReal = Number(combined?.totalRealized);
+  const navGrowth = Number(combined?.growthPct);
+  const invOpen = Number(nav?.investor?.unrealized);
+  const trOpen = Number(nav?.trader?.unrealized);
+  const pnlCls = Number.isFinite(navPnl) ? navPnl >= 0 ? "up" : "dn" : "";
   return h("section", {
     className: "tt-row"
   }, h("div", {
@@ -129,7 +151,33 @@ function ModelStatus({
     style: {
       background: "currentColor"
     }
-  }), healthLabel)), h("div", {
+  }), healthLabel)), combined && h("div", {
+    className: "nav-pnl"
+  }, h("div", null, h("div", {
+    className: "l"
+  }, "Model NAV"), h("div", {
+    className: `v ${pnlCls}`
+  }, Number.isFinite(navVal) ? fmtUsdPlain(navVal) : "—"), h("div", {
+    className: "s"
+  }, Number.isFinite(navGrowth) ? `${navGrowth >= 0 ? "+" : ""}${navGrowth.toFixed(1)}% vs $200k start` : "short-term + long-term books")), h("div", null, h("div", {
+    className: "l"
+  }, "Total P&L"), h("div", {
+    className: `v ${pnlCls}`
+  }, Number.isFinite(navPnl) ? fmtUsd(navPnl) : "—"), h("div", {
+    className: "s"
+  }, "realized + open mark-to-market")), h("div", null, h("div", {
+    className: "l"
+  }, "Open P&L"), h("div", {
+    className: `v ${Number.isFinite(navOpen) && navOpen < 0 ? "dn" : "up"}`
+  }, Number.isFinite(navOpen) ? fmtUsd(navOpen) : "—"), h("div", {
+    className: "s"
+  }, [Number.isFinite(invOpen) ? `LT ${fmtUsd(invOpen)}` : null, Number.isFinite(trOpen) ? `ST ${fmtUsd(trOpen)}` : null].filter(Boolean).join(" · ") || "includes long-term book")), h("div", null, h("div", {
+    className: "l"
+  }, "Realized"), h("div", {
+    className: `v ${Number.isFinite(navReal) && navReal < 0 ? "dn" : "up"}`
+  }, Number.isFinite(navReal) ? fmtUsd(navReal) : "—"), h("div", {
+    className: "s"
+  }, `${Number(combined.openCount) || 0} open · closed is not the whole book`))), h("div", {
     className: "status-grid"
   }, h("div", {
     className: "status-card"
@@ -2093,17 +2141,19 @@ function ModelPerformanceApp() {
   const [allMeta, setAllMeta] = useState(null);
   const [history, setHistory] = useState(null);
   const [summary, setSummary] = useState(null);
+  const [nav, setNav] = useState(null);
   const [error, setError] = useState(null);
   const [dim, setDim] = useState("setup_name");
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [a, h_, s] = await Promise.all([fetchAllMeta(), fetchHistory(), fetchLedgerSummary()]);
+        const [a, h_, s, n] = await Promise.all([fetchAllMeta(), fetchHistory(), fetchLedgerSummary(), fetchAccountNav()]);
         if (!alive) return;
         if (a) setAllMeta(a);
         if (h_?.ok) setHistory(h_.trades || []);else if (h_) setHistory([]);
         if (s?.ok) setSummary(s);
+        if (n?.ok) setNav(n);
       } catch (err) {
         if (alive) setError(String(err?.message || err));
       }
@@ -2123,7 +2173,7 @@ function ModelPerformanceApp() {
     className: "label"
   }, "ADMIN"), h("h1", null, "Model Performance"), h("div", {
     className: "sub"
-  }, "Engine health, paper-experiment scoreboard, closed-trade breakdown, and the scrimmage scoreboard. ", h("a", {
+  }, "Model NAV includes open mark-to-market on the long-term and short-term books — not closed trades only. ", h("a", {
     href: "/insights.html",
     style: {
       color: "var(--tt-accent)"
@@ -2131,7 +2181,8 @@ function ModelPerformanceApp() {
   }, "Strategy playbook lives on Insights"), "."))), h(ModelStatus, {
     allMeta,
     history,
-    summary
+    summary,
+    nav
   }), h(PaperExperimentScoreboard), h(Disclosure, {
     id: "scrimmage",
     title: "Scrimmage Room",
@@ -2206,6 +2257,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   return h(ModelPerformanceApp);
 }) : h(ModelPerformanceApp);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787866928806:167592496
+// cache-bust:1787888910865:593484638
 
-// cache-bust:1787866928806:167592496
+// cache-bust:1787888910865:593484638

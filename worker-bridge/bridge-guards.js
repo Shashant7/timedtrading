@@ -10,6 +10,12 @@ import { readManifestRow, classifyOrderLifecycle } from "./bridge-manifest.js";
 import { brokerCapabilities, resolveBrokerId, resolveBrokerAccountId } from "./bridge-brokers.js";
 import { computeRelationalQty } from "./bridge-sizing.js";
 import { isWebullEthSession } from "./bridge-webull-fract.js";
+import {
+  usableBuyingPower,
+  sleeveReservePct,
+  reservedUsd,
+  addReservation,
+} from "./bridge-cash-budget.js";
 
 // 2026-06-01 — Naked-short sides are HARD-rejected regardless of any
 // env var. The previous behavior accepted `REJECT_SHORT_SIDES=false`
@@ -863,9 +869,21 @@ export async function preflightOrder(env, payload) {
   // even with unsettled cash.
   const liveCash = Number(user?.cash_usd || user?.portfolio?.cash_usd);
   const liveBuyingPower = Number(user?.buying_power_usd || user?.portfolio?.buying_power_usd);
-  const cashCeilingRaw = [liveCash, liveBuyingPower]
-    .filter((v) => Number.isFinite(v) && v > 0);
-  const cashCeiling = cashCeilingRaw.length ? Math.min(...cashCeilingRaw) : null;
+  const accountId = resolveBrokerAccountId(user);
+  let reservedCash = 0;
+  try {
+    reservedCash = accountId ? await reservedUsd(env, accountId) : 0;
+  } catch (_) { reservedCash = 0; }
+  const reservePct = sleeveReservePct(user, payload?.vehicle || "equity_long");
+  const liveEquityForReserve = Number(user?.equity_usd || user?.portfolio?.equity_usd);
+  const cashCeiling = usableBuyingPower({
+    cashUsd: liveCash,
+    buyingPowerUsd: liveBuyingPower,
+    reservedUsd: reservedCash,
+    equityUsd: liveEquityForReserve,
+    reservePct,
+    isReducer,
+  });
   if (!isReducer && cashCeiling != null && estValue != null && estValue > cashCeiling) {
     const scaleToFit = String(env?.BROKER_SCALE_TO_FIT || "true").toLowerCase() !== "false";
     if (!scaleToFit) {
@@ -875,6 +893,8 @@ export async function preflightOrder(env, payload) {
         estimated_value: estValue,
         cash_usd: liveCash,
         buying_power_usd: Number.isFinite(liveBuyingPower) ? liveBuyingPower : null,
+        reserved_usd: reservedCash,
+        tactical_reserve_pct: reservePct,
       };
     }
     // Reserve Webull's 2% market-order buffer PLUS a small slippage
@@ -889,6 +909,8 @@ export async function preflightOrder(env, payload) {
         reject_reason: `insufficient_cash_for_one_unit_${cashCeiling.toFixed(0)}_lt_${entry.toFixed(2)}`,
         cash_usd: liveCash,
         buying_power_usd: Number.isFinite(liveBuyingPower) ? liveBuyingPower : null,
+        reserved_usd: reservedCash,
+        tactical_reserve_pct: reservePct,
         unit_usd: entry,
       };
     }
@@ -966,6 +988,15 @@ export async function preflightOrder(env, payload) {
   // account-level gate; sizing is relational. bumpDailyCounter still
   // increments for analytics, but never blocks placement. Legacy
   // user_caps.max_orders_per_day values are ignored.
+
+  if (!isReducer && estValue > 0 && accountId) {
+    const reserveId = String(
+      payload.trade_id || payload.client_order_id || `${userId}:${payload.ticker}:${Date.now()}`,
+    );
+    try {
+      await addReservation(env, accountId, { id: reserveId, usd: estValue });
+    } catch (_) { /* never block a cleared preflight on the reservation write */ }
+  }
 
   return {
     ok: true,

@@ -824,7 +824,13 @@ import {
 import { paperEventToNotifType } from "./paper-lane-notify.js";
 import { listOpenPaperLaneTrades, loadOpenIndexTrendBookForUnderlying } from "./paper-lane-positions.js";
 import { buildIndexTrendSignalId as _itBuildSignalId } from "./index-trend-paper.js";
-import { buildDayTradePositionMgmtLine as _optDtPositionMgmtLine } from "./option-day-trade-plan.js";
+import { buildDayTradePositionMgmtLine as _optDtPositionMgmtLine, isOptionsSellWindowEt as _isOptionsSellWindowEt } from "./option-day-trade-plan.js";
+import {
+  priceMapFromTimedPrices as _priceMapFromTimedPrices,
+  loadAccountBook as _loadAccountBook,
+  combineAccountBooks as _combineAccountBooks,
+  applyLiveMarkToEquityPoints as _applyLiveMarkToEquityPoints,
+} from "./account-summary.js";
 import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction } from "./broker-day-actions-join.js";
 import {
   recordSignal as _soRecordSignal,
@@ -89218,7 +89224,9 @@ export default {
       // ═══════════════════════════════════════════════════════════════════════
       if (routeKey === "GET /timed/account-summary") {
         try {
-          const mode = url.searchParams.get("mode") || "trader";
+          const _modeRaw = String(url.searchParams.get("mode") || "trader").toLowerCase();
+          const _wantBoth = _modeRaw === "both" || _modeRaw === "combined";
+          const mode = _wantBoth ? "trader" : (_modeRaw === "investor" ? "investor" : "trader");
           const db = env?.DB;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
 
@@ -89330,118 +89338,36 @@ export default {
             }
           }
 
-          // ── Read current state ──────────────────────────────────────
-          const latestRow = await db.prepare(
-            "SELECT balance FROM account_ledger WHERE mode = ?1 ORDER BY ts DESC, ledger_id DESC LIMIT 1"
-          ).bind(mode).first();
+          // ── Read current state (realized + open MTM) ────────────
+          const pricesRaw = await kvGetJSON(KV, "timed:prices");
+          const priceMap = _priceMapFromTimedPrices(pricesRaw);
+          const generated_at = new Date().toISOString();
+          const traderBook = await _loadAccountBook(db, {
+            mode: "trader",
+            startCash: PORTFOLIO_START_CASH,
+            priceMap,
+          });
 
-          const startCash = mode === "trader" ? PORTFOLIO_START_CASH : 100000;
-          const cash = latestRow ? Number(latestRow.balance) : startCash;
-
-          const pnlRow = await db.prepare(
-            "SELECT SUM(realized_pnl) as total_realized FROM account_ledger WHERE mode = ?1"
-          ).bind(mode).first();
-          let totalRealized = pnlRow ? Number(pnlRow.total_realized) || 0 : 0;
-
-          // Fallback: during replay, account_ledger is not populated.
-          // Sum realized P&L directly from closed trades (which replay DOES write).
-          if (totalRealized === 0 && mode === "trader") {
-            for (const tbl of ["trades", "positions"]) {
-              try {
-                const row = await db.prepare(
-                  `SELECT SUM(pnl) as total_pnl FROM ${tbl} WHERE status IN ('WIN','LOSS','FLAT') AND pnl IS NOT NULL`
-                ).first();
-                if (row && Number(row.total_pnl)) {
-                  totalRealized = Number(row.total_pnl);
-                  break;
-                }
-              } catch (_) {}
+          if (_wantBoth || mode === "investor") {
+            const investorBook = await _loadAccountBook(db, {
+              mode: "investor",
+              startCash: 100000,
+              priceMap,
+            });
+            if (_wantBoth) {
+              return sendJSON({
+                ok: true,
+                mode: "both",
+                trader: traderBook,
+                investor: investorBook,
+                combined: _combineAccountBooks(traderBook, investorBook),
+                generated_at,
+              }, 200, corsHeaders(env, req));
             }
+            return sendJSON({ ...investorBook, generated_at }, 200, corsHeaders(env, req));
           }
 
-          // Mark-to-market open positions
-          let unrealized = 0;
-          let costBasis = 0;
-          let markToMarket = 0;
-
-          if (mode === "trader") {
-            // V15 P0.7.82: include status='TP_HIT_TRIM' too — trimmed
-            // positions are still half-open and contribute unrealized PnL.
-            // Was: 'WHERE status = OPEN'  → SNDK (TP_HIT_TRIM) was excluded
-            // and Open PnL showed $0 even with two open positions.
-            const openTrades = (await db.prepare(
-              "SELECT trade_id, ticker, direction, entry_price, shares, notional, trimmed_pct FROM trades WHERE status IN ('OPEN', 'TP_HIT_TRIM')"
-            ).all())?.results || [];
-
-            const pricesRaw = await kvGetJSON(KV, "timed:prices");
-            const priceMap = {};
-            if (pricesRaw?.prices) {
-              for (const [sym, pObj] of Object.entries(pricesRaw.prices)) {
-                priceMap[sym] = Number(pObj.p || pObj.price || pObj.latestTrade?.p) || 0;
-              }
-            }
-
-            for (const t of openTrades) {
-              const px = priceMap[t.ticker] || 0;
-              const fullQty = Number(t.shares) || 0;
-              // For TP_HIT_TRIM trades the engine doesn't always reduce
-              // `shares`; respect trimmed_pct to size the remaining leg.
-              const trimPct = Math.max(0, Math.min(1, Number(t.trimmed_pct) || 0));
-              const qty = fullQty * (1 - trimPct);
-              const entry = Number(t.entry_price) || 0;
-              const cb = entry * qty;
-              const mtm = px * qty;
-              const dir = String(t.direction).toUpperCase() === "SHORT" ? -1 : 1;
-              unrealized += dir * (mtm - cb);
-              costBasis += cb;
-              markToMarket += mtm;
-            }
-          } else {
-            // Investor positions
-            try {
-              const openPos = (await db.prepare(
-                "SELECT id, ticker, total_shares, cost_basis, avg_entry FROM investor_positions WHERE status = 'OPEN'"
-              ).all())?.results || [];
-
-              const pricesRaw = await kvGetJSON(KV, "timed:prices");
-              const priceMap = {};
-              if (pricesRaw?.prices) {
-                for (const [sym, pObj] of Object.entries(pricesRaw.prices)) {
-                  priceMap[sym] = Number(pObj.p || pObj.price || pObj.latestTrade?.p) || 0;
-                }
-              }
-
-              for (const pos of openPos) {
-                const px = priceMap[pos.ticker] || 0;
-                const qty = Number(pos.total_shares) || 0;
-                const cb = Number(pos.cost_basis) || 0;
-                const mtm = px * qty;
-                unrealized += mtm - cb;
-                costBasis += cb;
-                markToMarket += mtm;
-              }
-            } catch {
-              // investor_positions table may not exist yet
-            }
-          }
-
-          // Account value = starting capital + total P&L (realized + unrealized)
-          // This is correct for mixed LONG/SHORT portfolios where cash + markToMarket
-          // would double-count SHORT positions (entry deducts cash but market value is a liability)
-          const accountValue = startCash + totalRealized + unrealized;
-
-          return sendJSON({
-            ok: true,
-            mode,
-            startCash,
-            cash: Math.round(cash * 100) / 100,
-            totalRealized: Math.round(totalRealized * 100) / 100,
-            unrealized: Math.round(unrealized * 100) / 100,
-            costBasis: Math.round(costBasis * 100) / 100,
-            markToMarket: Math.round(markToMarket * 100) / 100,
-            accountValue: Math.round(accountValue * 100) / 100,
-            generated_at: new Date().toISOString(),
-          }, 200, corsHeaders(env, req));
+          return sendJSON({ ...traderBook, generated_at }, 200, corsHeaders(env, req));
         } catch (err) {
           console.error("[ACCOUNT SUMMARY] Error:", err);
           return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
@@ -89522,6 +89448,29 @@ export default {
               }
             }
 
+            let liveUnrealized = 0;
+            let liveOpenCount = 0;
+            try {
+              const _eqPrices = await kvGetJSON(KV, "timed:prices");
+              const _eqLive = await _loadAccountBook(db, {
+                mode: m,
+                startCash,
+                priceMap: _priceMapFromTimedPrices(_eqPrices),
+              });
+              liveUnrealized = Number(_eqLive.unrealized) || 0;
+              liveOpenCount = Number(_eqLive.openCount) || 0;
+              const todayEt = typeof _calGetETDateStr === "function"
+                ? _calGetETDateStr()
+                : new Date().toISOString().slice(0, 10);
+              const marked = _applyLiveMarkToEquityPoints(points, _eqLive, todayEt);
+              if (marked?.length) {
+                points = marked;
+                if (points[points.length - 1]?.live_mark) {
+                  curveSource = curveSource === "none" ? "live_mark" : `${curveSource}+live_mark`;
+                }
+              }
+            } catch (_) { /* curve degrades to realized-only */ }
+
             const totalReturn = points.length > 0
               ? (points[points.length - 1].equity - startCash) / startCash
               : 0;
@@ -89557,6 +89506,8 @@ export default {
                 sharpe: Math.round(sharpe * 100) / 100,
                 totalDays: points.length,
                 cumRealized: Math.round(cumRealized * 100) / 100,
+                unrealized: Math.round(liveUnrealized * 100) / 100,
+                openPositions: liveOpenCount,
                 closedStats,
               },
             };
@@ -95480,6 +95431,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               return !!env.TIMED_API_KEY && k === env.TIMED_API_KEY;
             } catch (_) { return false; }
           })();
+          // Local binding — processTradeSimulation / investor-rebalance each
+          // define their own queueBackground. Calling the name from this
+          // handler without a local const threw ReferenceError, the
+          // OPTIONS-DT-PLAN catch swallowed it, and paper BUY/TRIM/EXIT
+          // never wrote KV / Discord / broker (empty timed:opt-dt-book).
+          const queueBackground = (promise) => {
+            try {
+              if (!promise || typeof promise.then !== "function") return;
+              if (typeof ctx !== "undefined" && ctx && typeof ctx.waitUntil === "function") {
+                ctx.waitUntil(promise.catch(() => {}));
+              } else {
+                promise.catch(() => {});
+              }
+            } catch (_) { /* never block the handler */ }
+          };
           const _optionsPlaysMod = await import("./options-plays.js");
           const _indexTrendMod = await import("./index-trend-letf.js");
           let _optsFsdMacro = null;
@@ -104164,7 +104130,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // (4 index tickers, no swing scan, no mark writes). Only inside the
     // options session so we don't spin the builder overnight.
     if (_isEveryMin && !_isDedicatedEngine && (_utcM % 5 !== 0)
-        && (typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false)) {
+        && (typeof _isOptionsSellWindowEt === "function" ? _isOptionsSellWindowEt() : false)) {
       ctx.waitUntil((async () => {
         try {
           await _selfDispatch("/timed/options/all?dt_only=1&_nocache=1").catch(() => {});
