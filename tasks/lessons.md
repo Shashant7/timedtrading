@@ -6,6 +6,32 @@
 
 ---
 
+## Health ops: universe thin gaps, fundamentals TTL, watchdog, reference-intel [2026-08-28]
+
+**Symptom:** Holistic check showed `universe_onboard` heal `partial` (SKHY /
+SPCX / CBRS / DRAM), `feeds.fundamentals` red (QQQ/NVDA missing), Health
+watchdog last run ~6h stale on a */30 schedule, and Reference Intel Refresh
+failed when #1377 merged mid-push.
+
+**Cause:**
+1. Soft-gap quality <80 kept scored+profiled thin listings on the heal
+   queue. SKHY re-onboard died `insufficient_data` (<60 daily bars) and
+   left `heal_status=partial` forever.
+2. `timed:fundamentals_v7:*` wrote with a 6h KV TTL while the health SLO
+   is 7 days. Nightly refresh landed, then QQQ/NVDA expired.
+3. GitHub regularly drops `*/30` on this repo. `cancel-in-progress: false`
+   also queued stale runs.
+4. Reference-intel `git pull --rebase` after a raced push failed on
+   leftover unstaged pipeline files (exit 128).
+
+**Fix:** Thin-but-complete listings are not `needsHeal`. Fundamentals KV
+TTL is 14d. Watchdog adds an hourly `:12` backup + keepalive dispatch
+when the last run is >25m old. Reference-intel cleans the tree and
+retries push with `--autostash`.
+
+**Do not:** treat SKHY/SPCX history-depth as a feed outage, or write
+fundamentals samples with a TTL shorter than the health SLO.
+
 ## 8pm ST fills, Index Swings repeats, AMZN LT realized-loss leak [2026-08-27]
 
 **Symptom:** `#trade-signals` posted NKE/H 50% Cloud Pivot trims at

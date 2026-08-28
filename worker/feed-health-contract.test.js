@@ -7,6 +7,11 @@ describe("feed-health-contract", () => {
     expect(feedAgeMin({ updated_at: now - 120_000 }, now)).toBe(2);
   });
 
+  it("feedAgeMin falls back to as_of (fundamentals_v7 snapshots)", () => {
+    const now = 1_000_000;
+    expect(feedAgeMin({ as_of: now - 180_000 }, now)).toBe(3);
+  });
+
   it("summarizeFeedHealth fails when fundamentals missing", () => {
     const out = summarizeFeedHealth({
       fundamentals: { SPY: null, QQQ: null, NVDA: null },

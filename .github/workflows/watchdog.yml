@@ -5,7 +5,9 @@ name: Health watchdog
 # when the worker was fully wedged, nothing paged until the operator
 # opened Mission Control.
 #
-# Every 30 minutes: hit /timed/health, check (a) it answers ok:true,
+# Target cadence is 30 minutes. GitHub often delays or drops `*/30`
+# schedules on a busy repo, so an hourly backup cron plus a kick from
+# feed-keepalive.yml cover the gaps. On each run: hit /timed/health, check (a) it answers ok:true,
 # (b) the 5-min cron heartbeat is fresh during operating hours, (c) the
 # tombstone count is sane, (d) tt-feed freshness when it owns the price
 # feed AND the feed cron window is active, (e) universe orphan count stays
@@ -17,6 +19,8 @@ name: Health watchdog
 on:
   schedule:
     - cron: "*/30 * * * *"
+    # Hourly backup — GitHub regularly skips */30 on this repo (6h+ gaps).
+    - cron: "12 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -24,7 +28,7 @@ permissions:
 
 concurrency:
   group: health-watchdog
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   check:

@@ -710,9 +710,17 @@ playbook in `skills/security-auth-patterns.md`)**
 - `npm test` gates every PR (`test.yml`) and every deploy. Bridge has its
   own deploy workflow (`deploy-bridge.yml`). Post-deploy smoke curls
   `/timed/health` on BOTH URLs.
-- External watchdog (`watchdog.yml`, 30-min) reads `/timed/health`
-  (`cronTickAgeMin` + `cronFailures`) — new critical subsystems add
-  their freshness to that ONE endpoint, not bespoke endpoints.
+- External watchdog (`watchdog.yml`, */30 + hourly `:12` backup, plus a
+  kick from `feed-keepalive.yml` when the last run is >25m stale) reads
+  `/timed/health` (`cronTickAgeMin` + `cronFailures`) — new critical
+  subsystems add their freshness to that ONE endpoint, not bespoke
+  endpoints. GitHub often drops `*/30` on this repo.
+- **Fundamentals health samples** live in `timed:fundamentals_v7:{SPY,QQQ,NVDA}`
+  with a 14-day KV TTL (7d SLO). A 6h TTL used to delete QQQ/NVDA between
+  nightly refreshes and keep `feeds.fundamentals` red.
+- **Universe onboard**: scored + profiled names with every scoring TF
+  present are onboarded even when candle-history quality is <80 (SKHY /
+  SPCX thin listings). Those are `thin_gaps`, not heal failures.
 - **Chain-smoke overlay**: do not trust a lone `_live_price` that
   diverges from settled `price` (zombie left by merge).
   `mergeFreshnessIntoLatest` must stamp `_live_price` with `p` (deploy
