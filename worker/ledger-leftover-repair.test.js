@@ -160,6 +160,17 @@ describe("planClosedDustFlattens", () => {
     expect(flattens[0].value).toBeCloseTo(181.96 * 10.8485, 1);
     expect(flattens[0].ledger_id).toBe(50);
   });
+
+  it("does not emit a zero_closed action for stale seed snapshots", () => {
+    const { flattens, zeroClosed } = planClosedDustFlattens(
+      [{ id: "b1", position_id: "inv-pos-AGQ-2025-07-02", ticker: "AGQ", action: "BUY", shares: 1, value: 5000, ts: 1, price: 5000 },
+       { id: "s1", position_id: "inv-pos-AGQ-2025-07-02", ticker: "AGQ", action: "SELL", shares: 1, value: 5000, ts: 2, price: 5000, reason: "EXIT" }],
+      [],
+      [{ id: "inv-pos-AGQ-2025-07-02", ticker: "AGQ", status: "CLOSED", total_shares: 0, cost_basis: 5000 }],
+    );
+    expect(flattens).toEqual([]);
+    expect(zeroClosed).toEqual([]);
+  });
 });
 
 describe("planInvestorLedgerLeftovers", () => {

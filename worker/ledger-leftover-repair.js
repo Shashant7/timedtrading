@@ -198,18 +198,7 @@ export function planClosedDustFlattens(lots, ledgerRows, positions) {
     const leftoverCost = Number(replay.costBasis) || 0;
     const pos = posById.get(pid);
     const closed = !pos || String(pos.status || "").toUpperCase() === "CLOSED";
-    if (leftover <= SHARE_EPS) {
-      if (closed && pos && (Math.abs(Number(pos.cost_basis) || 0) > CASH_EPS || Math.abs(Number(pos.total_shares) || 0) > SHARE_EPS)) {
-        zeroClosed.push({
-          kind: "zero_closed_snapshot",
-          position_id: pid,
-          ticker: pos.ticker,
-          before_cost: Number(pos.cost_basis) || 0,
-          before_shares: Number(pos.total_shares) || 0,
-        });
-      }
-      continue;
-    }
+    if (leftover <= SHARE_EPS) continue;
     if (!closed) continue;
     if (leftover > DUST_SHARES && leftoverCost > DUST_VALUE) continue;
 
