@@ -17,17 +17,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1787882638963" />
-    <script defer src="/vendor/react.production.min.js?v=1787882638963"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1787882638963"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1787882638963" />
-<script defer src="/vendor/marked.min.js?v=1787882638963"></script>
-    <script defer src="auth-gate.js?v=1787882638963"></script>
-    <script defer src="tt-fetch-cache.js?v=1787882638963"></script>
-    <script src="tt-bottom-nav.js?v=1787882638963" defer></script>
-    <script defer src="investor-nav-badge.js?v=1787882638963"></script>
-    <script src="tt-nav-extras.js?v=1787882638963" defer></script>
-    <script src="tt-global-search.js?v=1787882638963" defer></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1787914492508" />
+    <script defer src="/vendor/react.production.min.js?v=1787914492508"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1787914492508"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1787914492508" />
+<script defer src="/vendor/marked.min.js?v=1787914492508"></script>
+    <script defer src="auth-gate.js?v=1787914492508"></script>
+    <script defer src="tt-fetch-cache.js?v=1787914492508"></script>
+    <script src="tt-bottom-nav.js?v=1787914492508" defer></script>
+    <script defer src="investor-nav-badge.js?v=1787914492508"></script>
+    <script src="tt-nav-extras.js?v=1787914492508" defer></script>
+    <script src="tt-global-search.js?v=1787914492508" defer></script>
     <style>
       :root {
         --tt-bg-base: var(--vf-ink, #0B1410);
@@ -181,6 +181,23 @@
       .status-card .v.up { color: var(--tt-up-soft); }
       .status-card .v.dn { color: var(--tt-dn-soft); }
       .status-card .s { font-size: 11.5px; color: var(--tt-text-muted); margin-top: 6px; font-family: var(--tt-font-mono); }
+      .nav-pnl {
+        display: grid;
+        grid-template-columns: 1.3fr repeat(3, 1fr);
+        gap: 12px;
+        margin-bottom: 14px;
+        padding: 16px 18px;
+        background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+      }
+      @media (max-width: 920px) { .nav-pnl { grid-template-columns: 1fr 1fr; } }
+      @media (max-width: 540px) { .nav-pnl { grid-template-columns: 1fr; } }
+      .nav-pnl .l { font-size: 10.5px; color: var(--tt-text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+      .nav-pnl .v { font-size: 22px; font-weight: 700; font-family: var(--tt-font-mono); }
+      .nav-pnl .v.up { color: var(--tt-up-soft); }
+      .nav-pnl .v.dn { color: var(--tt-dn-soft); }
+      .nav-pnl .s { font-size: 11.5px; color: var(--tt-text-muted); margin-top: 6px; font-family: var(--tt-font-mono); }
 
       /* Setup table */
       .tbl { width: 100%; border-collapse: collapse; }
@@ -615,7 +632,7 @@
   </head>
   <body class="vf-page" data-admin-only="true">
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1787882638963"></script>
+    <script defer src="shared-nav.js?v=1787914492508"></script>
 
     <div id="root">
       <main>
@@ -623,7 +640,7 @@
       </main>
     </div>
 
-    <script defer src="model-performance.compiled.js?v=1787882638963"></script>
+    <script defer src="model-performance.compiled.js?v=1787914492508"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#8AA39A;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#8AA39A;text-decoration:underline;">Twelve Data</a>
@@ -631,4 +648,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1787882638963:7954716 -->
+<!-- cache-bust:1787914492508:218120180 -->

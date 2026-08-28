@@ -175,6 +175,23 @@
       .status-card .v.up { color: var(--tt-up-soft); }
       .status-card .v.dn { color: var(--tt-dn-soft); }
       .status-card .s { font-size: 11.5px; color: var(--tt-text-muted); margin-top: 6px; font-family: var(--tt-font-mono); }
+      .nav-pnl {
+        display: grid;
+        grid-template-columns: 1.3fr repeat(3, 1fr);
+        gap: 12px;
+        margin-bottom: 14px;
+        padding: 16px 18px;
+        background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
+        border: 1px solid var(--tt-border);
+        border-radius: 12px;
+      }
+      @media (max-width: 920px) { .nav-pnl { grid-template-columns: 1fr 1fr; } }
+      @media (max-width: 540px) { .nav-pnl { grid-template-columns: 1fr; } }
+      .nav-pnl .l { font-size: 10.5px; color: var(--tt-text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+      .nav-pnl .v { font-size: 22px; font-weight: 700; font-family: var(--tt-font-mono); }
+      .nav-pnl .v.up { color: var(--tt-up-soft); }
+      .nav-pnl .v.dn { color: var(--tt-dn-soft); }
+      .nav-pnl .s { font-size: 11.5px; color: var(--tt-text-muted); margin-top: 6px; font-family: var(--tt-font-mono); }
 
       /* Setup table */
       .tbl { width: 100%; border-collapse: collapse; }
@@ -672,6 +689,15 @@
           return await r.json();
         } catch (_) { return null; }
       }
+      async function fetchAccountNav() {
+        try {
+          const r = await fetch(`${API_BASE}/timed/account-summary?mode=both&_t=${Date.now()}`, {
+            credentials: "include", cache: "no-store",
+          });
+          if (!r.ok) return null;
+          return await r.json();
+        } catch (_) { return null; }
+      }
       async function fetchBrief() {
         try {
           const r = await fetch(`${API_BASE}/timed/daily-brief`, {
@@ -692,7 +718,7 @@
       }
 
       // ── ModelStatus — top status cards ─────────────────────────
-      function ModelStatus({ allMeta, history, summary }) {
+      function ModelStatus({ allMeta, history, summary, nav }) {
         const builtAt = Number(allMeta?.built_at);
         const tickerCount = Number(allMeta?.count) || (allMeta?.data ? Object.keys(allMeta.data).length : 0);
         const lastTradeTs = useMemo(() => {
@@ -717,6 +743,15 @@
 
         const healthOk = Number.isFinite(builtAt) && (Date.now() - builtAt) < 30 * 60 * 1000;
         const healthLabel = healthOk ? "Healthy" : Number.isFinite(builtAt) ? "Stale snapshot" : "Unknown";
+        const combined = nav?.combined || null;
+        const navVal = Number(combined?.accountValue);
+        const navPnl = Number(combined?.totalPnl);
+        const navOpen = Number(combined?.unrealized);
+        const navReal = Number(combined?.totalRealized);
+        const navGrowth = Number(combined?.growthPct);
+        const invOpen = Number(nav?.investor?.unrealized);
+        const trOpen = Number(nav?.trader?.unrealized);
+        const pnlCls = Number.isFinite(navPnl) ? (navPnl >= 0 ? "up" : "dn") : "";
 
         return h("section", { className: "tt-row" },
           h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 12 } },
@@ -727,6 +762,31 @@
             h("div", { className: `health-pill ${healthOk ? "ok" : "warn"}` },
               h("div", { className: "dot", style: { background: "currentColor" } }),
               healthLabel,
+            ),
+          ),
+          combined && h("div", { className: "nav-pnl" },
+            h("div", null,
+              h("div", { className: "l" }, "Model NAV"),
+              h("div", { className: `v ${pnlCls}` }, Number.isFinite(navVal) ? fmtUsdPlain(navVal) : "—"),
+              h("div", { className: "s" }, Number.isFinite(navGrowth) ? `${navGrowth >= 0 ? "+" : ""}${navGrowth.toFixed(1)}% vs $200k start` : "short-term + long-term books"),
+            ),
+            h("div", null,
+              h("div", { className: "l" }, "Total P&L"),
+              h("div", { className: `v ${pnlCls}` }, Number.isFinite(navPnl) ? fmtUsd(navPnl) : "—"),
+              h("div", { className: "s" }, "realized + open mark-to-market"),
+            ),
+            h("div", null,
+              h("div", { className: "l" }, "Open P&L"),
+              h("div", { className: `v ${Number.isFinite(navOpen) && navOpen < 0 ? "dn" : "up"}` }, Number.isFinite(navOpen) ? fmtUsd(navOpen) : "—"),
+              h("div", { className: "s" }, [
+                Number.isFinite(invOpen) ? `LT ${fmtUsd(invOpen)}` : null,
+                Number.isFinite(trOpen) ? `ST ${fmtUsd(trOpen)}` : null,
+              ].filter(Boolean).join(" · ") || "includes long-term book"),
+            ),
+            h("div", null,
+              h("div", { className: "l" }, "Realized"),
+              h("div", { className: `v ${Number.isFinite(navReal) && navReal < 0 ? "dn" : "up"}` }, Number.isFinite(navReal) ? fmtUsd(navReal) : "—"),
+              h("div", { className: "s" }, `${Number(combined.openCount) || 0} open · closed is not the whole book`),
             ),
           ),
           h("div", { className: "status-grid" },
@@ -2036,6 +2096,7 @@
         const [allMeta, setAllMeta] = useState(null);
         const [history, setHistory] = useState(null);
         const [summary, setSummary] = useState(null);
+        const [nav, setNav] = useState(null);
         const [error, setError] = useState(null);
         const [dim, setDim] = useState("setup_name");
 
@@ -2043,14 +2104,15 @@
           let alive = true;
           (async () => {
             try {
-              const [a, h_, s] = await Promise.all([
-                fetchAllMeta(), fetchHistory(), fetchLedgerSummary(),
+              const [a, h_, s, n] = await Promise.all([
+                fetchAllMeta(), fetchHistory(), fetchLedgerSummary(), fetchAccountNav(),
               ]);
               if (!alive) return;
               if (a) setAllMeta(a);
               if (h_?.ok) setHistory(h_.trades || []);
               else if (h_) setHistory([]);
               if (s?.ok) setSummary(s);
+              if (n?.ok) setNav(n);
             } catch (err) { if (alive) setError(String(err?.message || err)); }
           })();
           return () => { alive = false; };
@@ -2066,13 +2128,13 @@
                 h("div", { className: "label" }, "ADMIN"),
                 h("h1", null, "Model Performance"),
                 h("div", { className: "sub" },
-                  "Engine health, paper-experiment scoreboard, closed-trade breakdown, and the scrimmage scoreboard. ",
+                  "Model NAV includes open mark-to-market on the long-term and short-term books — not closed trades only. ",
                   h("a", { href: "/insights.html", style: { color: "var(--tt-accent)" } }, "Strategy playbook lives on Insights"),
                   ".",
                 ),
               ),
             ),
-            h(ModelStatus, { allMeta, history, summary }),
+            h(ModelStatus, { allMeta, history, summary, nav }),
             h(PaperExperimentScoreboard),
             h(Disclosure, {
               id: "scrimmage",

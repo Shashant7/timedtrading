@@ -144,6 +144,7 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
     const unsettled = {
       ...rothUser,
       user_id: "op@x.com#webull#individual-cash",
+      webull_account_id: "WB-CASH",
       cash_usd: 340,
       buying_power_usd: 332,
       equity_usd: 100000,
@@ -174,6 +175,7 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
     const cashOnly = {
       ...rothUser,
       user_id: "op@x.com#webull#margin",
+      webull_account_id: "WB-MARGIN",
       cash_usd: 500,
       buying_power_usd: undefined,
       equity_usd: 100000,

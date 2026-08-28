@@ -49,7 +49,15 @@ import {
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
 import * as WebullAdapter from "./bridge-webull.js";
-import { webullAuthMode, webullConnectConfigured, webullCredentialsConfigured, webullPersonalConfigured } from "./bridge-webull-config.js";
+import { webullAuthMode, webullConnectConfigured, webullCredentialsConfigured, webullPersonalConfigured, isBridgeMockMode } from "./bridge-webull-config.js";
+import {
+  usableBuyingPower,
+  reservedUsd,
+  addReservation,
+  optionDebitUsd,
+  maxQtyForCeiling,
+  WEBULL_MARKET_BUFFER,
+} from "./bridge-cash-budget.js";
 import {
   handleWebullOauthStart,
   handleWebullOauthCallback,
@@ -2954,6 +2962,67 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
         requested_qty: guard.requested_qty ?? brokerOrder.qty,
         latency_ms: Date.now() - t0,
       }, 200);
+    }
+  }
+
+  // Buy-side cash gate — options webhook historically skipped
+  // preflightOrder, so index day-trade BUYs hit Webull with no
+  // buying-power check and came back insufficient funds.
+  const isBuy = String(brokerOrder.action || "").toUpperCase() === "BUY";
+  if (isBuy && !isBridgeMockMode(env) && !sanitized.dry_run) {
+    const accountId = resolveBrokerAccountId(user);
+    let reserved = 0;
+    try {
+      reserved = accountId ? await reservedUsd(env, accountId) : 0;
+    } catch (_) { reserved = 0; }
+    const usable = usableBuyingPower({
+      cashUsd: user?.cash_usd || user?.portfolio?.cash_usd,
+      buyingPowerUsd: user?.buying_power_usd || user?.portfolio?.buying_power_usd,
+      reservedUsd: reserved,
+      equityUsd: user?.equity_usd || user?.portfolio?.equity_usd,
+      reservePct: 0,
+      isReducer: false,
+    });
+    const premium = Number(
+      brokerOrder.limit_price
+      || brokerOrder.price
+      || sanitized.play?.premium
+      || sanitized.play?.entry,
+    ) || 0;
+    const qty = Number(brokerOrder.qty) || 1;
+    let debit = Number(sanitized.play?.debit_usd)
+      || Number(sanitized.play?.max_loss_usd)
+      || optionDebitUsd({ premium, qty });
+    if (usable != null && debit > 0 && debit > usable / WEBULL_MARKET_BUFFER) {
+      const unit = premium > 0 && premium < 50 ? premium * 100 : (debit / qty);
+      const maxQty = maxQtyForCeiling({ usableUsd: usable, entryUsd: unit });
+      if (maxQty < 1) {
+        await recordOptionsAccountFill(env, {
+          user, sanitized, brokerOrder,
+          status: "rejected",
+          reject_reason: "insufficient_buying_power",
+        });
+        return json({
+          ok: false,
+          rejected: true,
+          reason: "insufficient_buying_power",
+          cash_usd: Number(user?.cash_usd) || null,
+          buying_power_usd: Number(user?.buying_power_usd) || null,
+          reserved_usd: reserved,
+          debit_usd: debit,
+          latency_ms: Date.now() - t0,
+        }, 200);
+      }
+      brokerOrder.qty = maxQty;
+      debit = optionDebitUsd({ premium, qty: maxQty }) || (unit * maxQty);
+    }
+    if (accountId && debit > 0) {
+      try {
+        await addReservation(env, accountId, {
+          id: sanitized.trade_id || `opt:${sanitized.ticker}:${Date.now()}`,
+          usd: debit,
+        });
+      } catch (_) { /* never block a cleared options buy on reservation */ }
     }
   }
 
