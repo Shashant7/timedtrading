@@ -1471,7 +1471,7 @@
           }
           return exitReasonRaw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
         })();
-        const closedMid = (stage === "exit" && closedTrade) ? h("div", {
+        const closedMid = (stage === "exit" && closedTrade && !resolvedOpen) ? h("div", {
           className: "tt-lane-card__closed-exit",
           style: {
             marginTop: 4,
@@ -2424,7 +2424,13 @@
               take_profit: ltTarget,
               _source_mode: "investor",
             } : null;
-            // Strip Short Term open so LT card P&L is not polluted by ST trade.
+            const recentlyExited = stage === "exited" || (row?.recentlyExited && typeof row.recentlyExited === "object");
+            const invClosed = (!owned && recentlyExited && typeof row.recentlyExited === "object")
+              ? row.recentlyExited
+              : null;
+            // Strip Short Term open AND sticky ST exit so an open Long Term
+            // book cannot inherit "REALIZED LOSS" / max_loss_time_scaled
+            // from a same-ticker Short Term close (AMZN 2026-08-27).
             const enriched = {
               ...base,
               ticker: sym,
@@ -2435,8 +2441,15 @@
               _openTrade: invTrade,
               has_open_position: owned,
               position_direction: owned ? "LONG" : null,
+              kanban_stage: owned ? (stage === "reduce" ? "trim" : "hold") : (recentlyExited ? "exit" : null),
+              _effectiveKanbanStage: owned ? (stage === "reduce" ? "trim" : "hold") : (recentlyExited ? "exit" : null),
+              _closedTrade: owned ? null : invClosed,
+              _stickyExit: !owned && recentlyExited,
+              _exitLabel: (!owned && recentlyExited)
+                ? String(invClosed?.status || "CLOSED").toUpperCase()
+                : null,
+              pnlPct: owned ? null : (invClosed?.pnl_pct ?? invClosed?.pnlPct ?? null),
             };
-            const recentlyExited = stage === "exited" || (row?.recentlyExited && typeof row.recentlyExited === "object");
             if (recentlyExited) { invExit.push(enriched); continue; }
             if (owned) {
               if (stage === "reduce") invTrim.push(enriched);
