@@ -38,7 +38,21 @@ describe("enrichLiveOpenPositionContext", () => {
     expect(ctx.maxFavorableExcursion).toBe(0.7183);
     expect(ctx.trimmedPct).toBe(0.65);
     expect(ctx.entrySignals.has_adverse_phase_div).toBe(true);
+    expect(ctx.entry_path).toBe("tt_ath_breakout");
     expect(ctx.__tradeRef).toBe(trade);
+  });
+
+  it("copies Cloud Pivot setup/path so live manage does not use the current card", () => {
+    const ctx = enrichLiveOpenPositionContext({ status: "OPEN", sl: 80 }, {
+      setup_name: "TT Cloud Pivot",
+      entry_path: "tt_cloud_pivot_long",
+      slice_family: "tt_cloud_pivot",
+      maxFavorableExcursion: 5.18,
+    });
+    expect(ctx.setup_name).toBe("TT Cloud Pivot");
+    expect(ctx.entry_path).toBe("tt_cloud_pivot_long");
+    expect(ctx.slice_family).toBe("tt_cloud_pivot");
+    expect(ctx.maxFavorableExcursion).toBe(5.18);
   });
 });
 

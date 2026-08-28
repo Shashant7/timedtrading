@@ -730,45 +730,53 @@ export function cloudPivotPaperSizeMult(tickerData, daCfg = {}) {
   return Number.isFinite(m) && m > 0 && m <= 1 ? m : cfg.sizeMult;
 }
 
-/** True when an open trade belongs to this family. */
-export function isTtCloudPivotTrade(trade = {}, tickerData = null) {
-  if (!trade && !tickerData) return false;
-  const path = String(
-    trade?.entry_path
-    || trade?.entryPath
-    || trade?.__entry_path
-    || trade?.__tradeRef?.entry_path
-    || trade?.__tradeRef?.entryPath
-    || tickerData?.__entry_path
+function tradeIdentityField(trade, keys) {
+  const ref = trade?.__tradeRef && typeof trade.__tradeRef === "object" ? trade.__tradeRef : null;
+  for (const key of keys) {
+    const v = trade?.[key] ?? ref?.[key];
+    if (v != null && String(v).trim()) return String(v);
+  }
+  return "";
+}
+
+/**
+ * True when an OPEN TRADE belongs to this family.
+ *
+ * Identity is the executed ticket only (`entry_path` / `setup_name` /
+ * `slice_family` on the position or `__tradeRef`). The live ticker
+ * score must not decide this — after a paper fill the card often reads
+ * ATH / Support Bounce / HTF Reclaim, and using that score made
+ * profit-lock / magnet / ribbon no-op on the live Cloud Pivot book.
+ */
+export function isTtCloudPivotTrade(trade = {}, _tickerData = null) {
+  if (!trade || typeof trade !== "object") return false;
+  const path = tradeIdentityField(trade, [
+    "entry_path", "entryPath", "__entry_path",
+  ]).toLowerCase().trim();
+  const setupRaw = tradeIdentityField(trade, ["setup_name", "setupName"]);
+  const fam = tradeIdentityField(trade, [
+    "slice_family", "entry_family", "__entry_family",
+  ]);
+  const playFam = String(
+    trade?.model_play?.family
+    || trade?.__model_play?.family
+    || trade?.__tradeRef?.model_play?.family
+    || trade?.__tradeRef?.__model_play?.family
     || "",
-  ).toLowerCase().trim();
+  );
   // Canonical core paths keep their own exits. A coincident paper stamp
   // must not overlay Cloud Pivot 5/12 / 34/50 exits on Support Bounce / ATH.
   if (path && isCanonicalCapitalEntryPath(path) && !path.includes("cloud_pivot")) {
     return false;
   }
-  const setupPlay = resolvePlay(
-    trade?.setup_name || tickerData?.setup_name || tickerData?.setupName,
-    trade?.direction || tickerData?.direction,
-  );
+  const setupPlay = resolvePlay(setupRaw, trade?.direction || trade?.__tradeRef?.direction);
   if (setupPlay && !String(setupPlay.id).includes("cloud_pivot")) {
     return false;
   }
-  const fam = String(
-    trade?.slice_family
-    || trade?.entry_family
-    || trade?.__entry_family
-    || trade?.model_play?.family
-    || trade?.__model_play?.family
-    || tickerData?.slice_family
-    || tickerData?._sequence_queue_proposal?.family
-    || tickerData?.__model_play?.family
-    || tickerData?._model_play?.family
-    || "",
-  );
-  if (fam === CLOUD_PIVOT_FAMILY) return true;
-  const name = String(trade?.setup_name || tickerData?.__entry_path || path || "").toLowerCase();
-  return name.includes("tt_cloud_pivot") || name.includes("cloud_pivot");
+  if (fam === CLOUD_PIVOT_FAMILY || playFam === CLOUD_PIVOT_FAMILY) return true;
+  if (path.includes("cloud_pivot")) return true;
+  const name = `${setupRaw} ${path}`.toLowerCase();
+  return name.includes("tt_cloud_pivot") || name.includes("cloud pivot") || name.includes("cloud_pivot");
 }
 
 /**
@@ -832,6 +840,36 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
 
   const direction = String(dirIn || openPosition?.direction || "LONG").toUpperCase() === "SHORT"
     ? "SHORT" : "LONG";
+  const age = Number(positionAgeMin) || 0;
+  const pnl = Number(pnlPct) || 0;
+  const trimmed = Number(trimmedPct) || 0;
+  const px = firstFinite(currentPrice, cloudPivotMarkPx(tickerData));
+  const atr = cloudPivotAtr(tickerData);
+  const mfe = Math.abs(firstFinite(
+    ctx.mfePct,
+    openPosition?.maxFavorableExcursion,
+    openPosition?.max_favorable_excursion,
+    openPosition?.mfePct,
+    openPosition?.__tradeRef?.maxFavorableExcursion,
+    tickerData?.__mfe_pct,
+  ) || 0);
+
+  // Profit-lock is a peak-giveback rule. It must not wait on a 10m
+  // 5/12 print — overnight / first-bar / missing ripster used to skip
+  // the whole family exit and let TJX-style +12% MFEs die at the stop.
+  if (cfg.profitLockEnabled
+    && age >= 5
+    && mfe >= cfg.profitLockArmPct * 100
+    && pnl <= mfe * cfg.profitLockKeepFrac) {
+    const keepFloorPct = Math.round(mfe * cfg.profitLockKeepFrac * 100) / 100;
+    return {
+      stage: "exit",
+      reason: "tt_cloud_pivot_profit_lock",
+      family: CLOUD_PIVOT_FAMILY,
+      metadata: { direction, pnlPct: pnl, mfePct: mfe, keep_floor_pct: keepFloorPct },
+    };
+  }
+
   const rt10 = tfRipster(tickerData, "10");
   const rt1H = tfRipsterAny(tickerData, ["1H", "60"]);
   const c512 = rt10?.c5_12;
@@ -846,20 +884,6 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
   const lose3450Mtf = direction === "LONG"
     ? !!((c34_10?.bear || c34_10?.below) && (c34_1h?.bear || c34_1h?.below))
     : !!((c34_10?.bull || c34_10?.above) && (c34_1h?.bull || c34_1h?.above));
-
-  const age = Number(positionAgeMin) || 0;
-  const pnl = Number(pnlPct) || 0;
-  const trimmed = Number(trimmedPct) || 0;
-  const px = firstFinite(currentPrice, cloudPivotMarkPx(tickerData));
-  const atr = cloudPivotAtr(tickerData);
-  const mfe = Math.abs(firstFinite(
-    ctx.mfePct,
-    openPosition?.maxFavorableExcursion,
-    openPosition?.max_favorable_excursion,
-    openPosition?.mfePct,
-    openPosition?.__tradeRef?.maxFavorableExcursion,
-    tickerData?.__mfe_pct,
-  ) || 0);
 
   // Pending debounce on payload/position (scoring cycles ≈ bars).
   const prev = Math.max(
@@ -890,25 +914,6 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
         metadata: meta,
       };
     }
-  }
-
-  // Profit-lock peak-giveback — the anti-round-trip the cloud stops miss.
-  // The 5/12 / 34-50 ribbons sit far below a fast +5% run, so price can hand
-  // the whole move back to max_loss before the cloud "loses" it. Once MFE
-  // clears the arm threshold, keep a fraction of the peak: exit the remainder
-  // when the live P&L retraces below that keep floor. `mfe` and `pnl` are both
-  // in percent; a runner still near its peak (pnl ≈ mfe) never triggers.
-  if (cfg.profitLockEnabled
-    && age >= 5
-    && mfe >= cfg.profitLockArmPct * 100
-    && pnl <= mfe * cfg.profitLockKeepFrac) {
-    const keepFloorPct = Math.round(mfe * cfg.profitLockKeepFrac * 100) / 100;
-    return {
-      stage: "exit",
-      reason: "tt_cloud_pivot_profit_lock",
-      family: CLOUD_PIVOT_FAMILY,
-      metadata: { direction, pnlPct: pnl, mfePct: mfe, keep_floor_pct: keepFloorPct },
-    };
   }
 
   // Primary Ripster rule: lose 5/12 → get out (after brief confirm).

@@ -261,6 +261,49 @@ describe("tt_cloud_pivot", () => {
     expect(exit?.metadata?.keep_floor_pct).toBe(1.5);
   });
 
+  it("identifies the paper ticket even when the live card scores a different setup", () => {
+    const tickerNow = { setup_name: "TT ATH Breakout", setupName: "TT ATH Breakout" };
+    expect(isTtCloudPivotTrade({
+      entry_path: "tt_cloud_pivot_long",
+      setup_name: "TT Cloud Pivot",
+    }, tickerNow)).toBe(true);
+    expect(isTtCloudPivotTrade({
+      __tradeRef: { entry_path: "tt_cloud_pivot_short", setup_name: "TT Cloud Pivot" },
+    }, tickerNow)).toBe(true);
+    expect(isTtCloudPivotTrade({}, tickerNow)).toBe(false);
+    const res = evaluateTtCloudPivotExit({
+      tickerData: { ...tickerNow },
+      openPosition: {
+        entry_path: "tt_cloud_pivot_long",
+        setup_name: "TT Cloud Pivot",
+        direction: "LONG",
+        maxFavorableExcursion: 5.18,
+      },
+      direction: "LONG",
+      currentPrice: 100,
+      pnlPct: 1.69,
+      mfePct: 5.18,
+      positionAgeMin: 4000,
+      trimmedPct: 0,
+    });
+    expect(res?.reason).toBe("tt_cloud_pivot_profit_lock");
+    expect(res?.metadata?.keep_floor_pct).toBe(2.59);
+  });
+
+  it("profit-lock fires without a 10m 5/12 print", () => {
+    const res = evaluateTtCloudPivotExit({
+      tickerData: { price: 100 },
+      openPosition: { entry_path: "tt_cloud_pivot_long", direction: "LONG" },
+      direction: "LONG",
+      currentPrice: 100,
+      pnlPct: 1.69,
+      mfePct: 5.18,
+      positionAgeMin: 4000,
+      trimmedPct: 0,
+    });
+    expect(res?.reason).toBe("tt_cloud_pivot_profit_lock");
+  });
+
   it("does not treat a canonical core path as a Cloud Pivot trade", () => {
     expect(isTtCloudPivotTrade({
       entry_path: "tt_n_test_support",

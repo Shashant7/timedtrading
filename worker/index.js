@@ -2716,17 +2716,20 @@ function _minsSinceNyOpen(now = new Date()) {
 async function d1LoadTradeExcursions(env, tradeId) {
   const db = env?.DB;
   const id = String(tradeId || "").trim();
-  if (!db || !id) return { mfe: null, mae: null };
+  if (!db || !id) return { mfe: null, mae: null, setup_name: null, entry_path: null };
   try {
     const row = await db.prepare(
-      `SELECT max_favorable_excursion, max_adverse_excursion FROM trades WHERE trade_id = ?1`,
+      `SELECT max_favorable_excursion, max_adverse_excursion, setup_name, entry_path
+         FROM trades WHERE trade_id = ?1`,
     ).bind(id).first();
     return {
       mfe: row?.max_favorable_excursion != null ? Number(row.max_favorable_excursion) : null,
       mae: row?.max_adverse_excursion != null ? Number(row.max_adverse_excursion) : null,
+      setup_name: row?.setup_name != null ? String(row.setup_name) : null,
+      entry_path: row?.entry_path != null ? String(row.entry_path) : null,
     };
   } catch (_) {
-    return { mfe: null, mae: null };
+    return { mfe: null, mae: null, setup_name: null, entry_path: null };
   }
 }
 
@@ -12483,6 +12486,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         direction,
         currentPrice,
         pnlPct,
+        mfePct: Number(openPosition?.maxFavorableExcursion
+          ?? openPosition?.max_favorable_excursion
+          ?? openPosition?.mfePct
+          ?? openPosition?.__tradeRef?.maxFavorableExcursion
+          ?? 0),
         positionAgeMin,
         trimmedPct: currentTrimPct,
         daCfg: tickerData?._env?._deepAuditConfig || {},
@@ -19737,6 +19745,9 @@ async function processTradeSimulation(
           entrySignals: openTrade.entrySignals || openTrade.entry_signals || null,
           entryPath: openTrade.entryPath || openTrade.entry_path || null,
           entry_path: openTrade.entry_path || openTrade.entryPath || null,
+          setup_name: openTrade.setup_name || openTrade.setupName || null,
+          setupName: openTrade.setup_name || openTrade.setupName || null,
+          slice_family: openTrade.slice_family || openTrade.entry_family || null,
           __tradeRef: openTrade,
         };
       }
@@ -46238,6 +46249,13 @@ async function getOpenPositionAsTrade(env, ticker, direction) {
     max_favorable_excursion: Number.isFinite(_exc.mfe) ? _exc.mfe : undefined,
     maxAdverseExcursion: Number.isFinite(_exc.mae) ? _exc.mae : undefined,
     max_adverse_excursion: Number.isFinite(_exc.mae) ? _exc.mae : undefined,
+    setup_name: _exc.setup_name || undefined,
+    setupName: _exc.setup_name || undefined,
+    entry_path: _exc.entry_path || undefined,
+    entryPath: _exc.entry_path || undefined,
+    slice_family: /cloud_pivot/i.test(String(_exc.entry_path || _exc.setup_name || ""))
+      ? "tt_cloud_pivot"
+      : undefined,
   };
 }
 

@@ -43,6 +43,8 @@ in the enter lane (`resolvePaperFamilyStandaloneEntry`). Those path ids
 look like `tt_cloud_pivot_long` and do **not** resolve to the catalog
 play (the `_long` suffix is the carve-out). Do not apply 0.1× size to
 `tt_gap_reversal_*` / `tt_n_test_*` / ATH / core `tt_cloud_pivot`.
+Family exits (`evaluateTtCloudPivotExit`) must read that paper path from
+the trade, not `tickerData.setup_name`.
 
 ## Verify
 
