@@ -1110,10 +1110,21 @@ function indexTrendPlanCopy({
     scan
   };
 }
-function indexTrendActionChip(direction, title) {
+function indexTrendActionChip(direction, title, state = "waiting") {
   const dir = String(direction || "LONG").toUpperCase();
-  const label = dir === "SHORT" ? "BUY INVERSE" : "BUY LONG";
-  const cls = dir === "SHORT" ? "ds-chip ds-chip--sm ds-chip--dn" : "ds-chip ds-chip--sm ds-chip--up";
+  const st = String(state || "waiting").toLowerCase();
+  let label = "WAITING";
+  let cls = "ds-chip ds-chip--sm ds-chip--solid";
+  if (st === "trimmed") {
+    label = "TRIMMED";
+    cls = "ds-chip ds-chip--sm ds-chip--accent";
+  } else if (st === "held" || st === "bought") {
+    label = "HELD";
+    cls = dir === "SHORT" ? "ds-chip ds-chip--sm ds-chip--dn" : "ds-chip ds-chip--sm ds-chip--up";
+  } else if (st === "waiting") {
+    label = "WAITING";
+    cls = "ds-chip ds-chip--sm ds-chip--solid";
+  }
   return h("span", {
     key: "it-act",
     className: cls,
@@ -3213,16 +3224,8 @@ function IndexTrendLetfStrip({
     const letf = String(p.letf_ticker || play.letf_ticker || p.position?.letf_ticker || "").toUpperCase();
     const direction = p.direction || play.direction || p.position?.direction || "LONG";
     const mode = String(p.confluence_mode || "").toUpperCase();
-    const copy = indexTrendPlanCopy({
-      ticker: sym,
-      letfTicker: letf,
-      factor: p.factor,
-      direction,
-      mode
-    });
     const pos = indexTrendPositionOpen(p.position) ? p.position : null;
     const posPnl = pos ? indexTrendPositionPnl(pos) : null;
-    const carryOnly = !!p.carry_only;
     const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
     const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
     const itSide = direction === "SHORT" ? "SHORT" : "LONG";
@@ -3244,16 +3247,18 @@ function IndexTrendLetfStrip({
     const cards = [];
     if (pos) {
       const shares = Number(pos.shares_remaining ?? pos.shares) || 0;
-      const heldChip = h("span", {
+      const trims = Array.isArray(pos.trims_fired) ? pos.trims_fired : [];
+      const trimmed = trims.length > 0 || String(pos.status || "").toLowerCase() === "trimmed";
+      const stateChip = h("span", {
         key: "held",
-        className: "ds-chip ds-chip--sm " + (posPnl != null && posPnl < 0 ? "ds-chip--dn" : "ds-chip--up"),
+        className: "ds-chip ds-chip--sm " + (posPnl != null && posPnl < 0 ? "ds-chip--dn" : trimmed ? "ds-chip--accent" : "ds-chip--up"),
         style: {
           fontFamily: "var(--tt-font-mono)",
           fontWeight: 800
         },
-        title: `Open paper position on ${letf}`
-      }, posPnl != null ? `HELD ${posPnl >= 0 ? "+" : ""}${posPnl.toFixed(1)}%` : "HELD");
-      const posPunch = `HOLDING ${letf || sym} on ${sym} — ${shares} share${shares === 1 ? "" : "s"}`;
+        title: trimmed ? `Open paper position on ${letf} — partials taken` : `Open paper position on ${letf}`
+      }, trimmed ? posPnl != null ? `TRIMMED ${posPnl >= 0 ? "+" : ""}${posPnl.toFixed(1)}%` : "TRIMMED" : posPnl != null ? `HELD ${posPnl >= 0 ? "+" : ""}${posPnl.toFixed(1)}%` : "HELD");
+      const posPunch = trimmed ? `TRIMMED ${letf || sym} on ${sym} — ${shares} share${shares === 1 ? "" : "s"} left` : `HOLDING ${letf || sym} on ${sym} — ${shares} share${shares === 1 ? "" : "s"}`;
       const posFacts = indexTrendPositionFacts({
         pos,
         mgmt,
@@ -3262,7 +3267,7 @@ function IndexTrendLetfStrip({
       });
       const posMgmtLine = indexTrendPositionMgmtLine(pos, mgmt, {
         underlying: sym,
-        carryOnly
+        carryOnly: true
       });
       cards.push(h("div", {
         key: sym + ":pos",
@@ -3278,7 +3283,7 @@ function IndexTrendLetfStrip({
             textAlign: "left"
           }
         },
-        chipRow: [heldChip, indexTrendLetfChip(letf, p.factor)].filter(Boolean),
+        chipRow: [stateChip, indexTrendLetfChip(letf, p.factor)].filter(Boolean),
         mtfBelow: true,
         quote: {
           price: livePrice,
@@ -3301,9 +3306,9 @@ function IndexTrendLetfStrip({
       }, posPunch), stripFactStack(posFacts), posMgmtLine ? h("p", {
         className: "tt-dt-plan__mgmt"
       }, posMgmtLine) : null))));
-    }
-    if (!carryOnly) {
-      const chipRow = [indexTrendActionChip(direction, copy.punch)];
+    } else {
+      const waitCopy = `WAITING ${letf || sym} on ${sym} — swing trend, not day-trade options`;
+      const chipRow = [indexTrendActionChip(direction, waitCopy, "waiting")];
       const modeChip = confluenceModeChip(mode, p.confluence_summary || "Model confluence");
       if (modeChip) chipRow.push(modeChip);
       const letfChip = indexTrendLetfChip(letf, p.factor);
@@ -3318,7 +3323,7 @@ function IndexTrendLetfStrip({
         exitBy: mgmt.exit_by
       });
       cards.push(h("div", {
-        key: sym + ":sig",
+        key: sym + ":wait",
         className: "tt-strip-card",
         role: "listitem"
       }, LaneCard?.create ? LaneCard.create({
@@ -3326,7 +3331,7 @@ function IndexTrendLetfStrip({
         ticker: liveT,
         button: {
           onClick: () => onSelectTicker && onSelectTicker(sym, "OPTIONS"),
-          title: `${sym} — open index swing plan`,
+          title: `${sym} — waiting on index swing plan`,
           style: {
             textAlign: "left"
           }
@@ -3341,7 +3346,7 @@ function IndexTrendLetfStrip({
           extLine: window.TTLaneCard?.extLineFromTicker?.(liveT) ?? null
         },
         sparkSvg,
-        midBody: pos ? null : midBody,
+        midBody,
         metrics: [],
         isSaved,
         onToggleSaved
@@ -3351,7 +3356,7 @@ function IndexTrendLetfStrip({
         className: "tt-dt-plan"
       }, h("p", {
         className: "tt-dt-plan__punch"
-      }, copy.punch), stripFactStack(factCells)))));
+      }, waitCopy), stripFactStack(factCells)))));
     }
     return cards;
   }))));
@@ -9640,6 +9645,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787866928806:167592496
+// cache-bust:1787882638963:7954716
 
-// cache-bust:1787866928806:167592496
+// cache-bust:1787882638963:7954716

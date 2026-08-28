@@ -746,7 +746,7 @@ function ATCard({
     }
     return exitReasonRaw.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   })();
-  const closedMid = stage === "exit" && closedTrade ? h("div", {
+  const closedMid = stage === "exit" && closedTrade && !resolvedOpen ? h("div", {
     className: "tt-lane-card__closed-exit",
     style: {
       marginTop: 4,
@@ -1840,6 +1840,8 @@ function ActiveTraderApp() {
         take_profit: ltTarget,
         _source_mode: "investor"
       } : null;
+      const recentlyExited = stage === "exited" || row?.recentlyExited && typeof row.recentlyExited === "object";
+      const invClosed = !owned && recentlyExited && typeof row.recentlyExited === "object" ? row.recentlyExited : null;
       const enriched = {
         ...base,
         ticker: sym,
@@ -1849,9 +1851,14 @@ function ActiveTraderApp() {
         _investorStage: stage,
         _openTrade: invTrade,
         has_open_position: owned,
-        position_direction: owned ? "LONG" : null
+        position_direction: owned ? "LONG" : null,
+        kanban_stage: owned ? stage === "reduce" ? "trim" : "hold" : recentlyExited ? "exit" : null,
+        _effectiveKanbanStage: owned ? stage === "reduce" ? "trim" : "hold" : recentlyExited ? "exit" : null,
+        _closedTrade: owned ? null : invClosed,
+        _stickyExit: !owned && recentlyExited,
+        _exitLabel: !owned && recentlyExited ? String(invClosed?.status || "CLOSED").toUpperCase() : null,
+        pnlPct: owned ? null : invClosed?.pnl_pct ?? invClosed?.pnlPct ?? null
       };
-      const recentlyExited = stage === "exited" || row?.recentlyExited && typeof row.recentlyExited === "object";
       if (recentlyExited) {
         invExit.push(enriched);
         continue;
@@ -2275,6 +2282,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787866928806:167592496
+// cache-bust:1787882638963:7954716
 
-// cache-bust:1787866928806:167592496
+// cache-bust:1787882638963:7954716
