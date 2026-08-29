@@ -24,6 +24,13 @@
  *     never blocks the engine
  */
 
+import {
+  etDateStr,
+  isNyRthOpenAt,
+  nextTradingSession,
+  sessionBoundsUtc,
+} from "./foundation/trading-calendar.js";
+
 // ─────────────────────────────────────────────────────────────────────
 // Loop 1 — Specialization Scorecard
 // ─────────────────────────────────────────────────────────────────────
@@ -181,6 +188,7 @@ async function loop1RecordOutcome(KV, ctx, status) {
 
 const LOOP2_PULSE_KEY = "phase-c:engine-pulse";
 const LOOP2_PAUSE_KEY = "phase-c:engine-paused";
+const LOOP2_RESET_KEY = "phase-c:engine-reset";
 const LOOP2_DEFAULT_BREAKER_WR = 0.30;       // last-10 WR < 30% → trip
 const LOOP2_DEFAULT_BREAKER_DAY_PNL = -1.5;  // today PnL < -1.5% → trip
 const LOOP2_DEFAULT_BREAKER_CONSEC_LOSS = 4; // 4 consecutive losses → trip
@@ -364,6 +372,7 @@ function loop2ComputePulse(trades, opts = {}) {
     closed_total: closedAll.length,
     closed_recent: closed.length,
     phantom_excluded_n: phantomExcluded.length,
+    newest_exit_ts: closed.length ? Number(closed[closed.length - 1].exit_ts || 0) : 0,
   };
 }
 
@@ -460,7 +469,7 @@ function loop2ComputeOpenBookMetrics(openTrades, priceMap, /* opts = {} */) {
  *   { trip: false }
  *   { trip: true, reason: "wr_low_25%" | "today_pnl_-2.0%" | "consec_5" }
  */
-function loop2EvaluatePulse(pulse, daCfg) {
+function loop2EvaluatePulse(pulse, daCfg, opts = {}) {
   const wrCap = Number(daCfg?.loop2_breaker_wr) || LOOP2_DEFAULT_BREAKER_WR;
   const dayCap = Number(daCfg?.loop2_breaker_day_pnl) || LOOP2_DEFAULT_BREAKER_DAY_PNL;
   const consecCap = Number(daCfg?.loop2_breaker_consec_loss) || LOOP2_DEFAULT_BREAKER_CONSEC_LOSS;
@@ -538,6 +547,24 @@ function loop2EvaluatePulse(pulse, daCfg) {
     };
   }
 
+  /* Operator reset hold-off: a manual unpause must survive the next
+     session open. Otherwise the same pre-reset last-10 WR re-trips at
+     the first weekday pulse and new entries stay blocked. Only WR is
+     deferred — a fresh today-PnL or consec cluster can still pause. */
+  const holdoffUntil = Number(opts.holdoff_wr_until_ms) || 0;
+  const evalNowMs = Number(opts.nowMs) || Number(pulse?.pulse_ts_ms) || Date.now();
+  if (trip && reason && String(reason).startsWith("wr_") && holdoffUntil > evalNowMs) {
+    return {
+      trip: false,
+      original_reason: reason,
+      override_reason: "operator_reset_wr_holdoff",
+      operator_reset_holdoff: true,
+      holdoff_wr_until_ms: holdoffUntil,
+      profit_factor: pf ?? null,
+      combined_today_pnl_pct: openBookKnown ? Number(combinedTodayPct.toFixed(2)) : null,
+    };
+  }
+
   if (trip) {
     return {
       trip: true,
@@ -566,7 +593,16 @@ async function loop2WritePulse(KV, pulse, evaluation, daCfg, opts = {}) {
     await KV.put(LOOP2_PULSE_KEY, JSON.stringify({ ...pulse, ...evaluation }), {
       expirationTtl: 3 * 24 * 60 * 60, // 3 days, plenty for review
     });
-    if (evaluation.trip) {
+    const reset = await loop2ReadReset(KV);
+    const holdoffUntil = Number(reset?.holdoff_wr_until_ms) || 0;
+    const wrHoldoffActive = holdoffUntil > nowMs
+      && String(evaluation.reason || evaluation.original_reason || "").startsWith("wr_");
+    if (evaluation.trip && wrHoldoffActive) {
+      try {
+        const existing = await KV.get(LOOP2_PAUSE_KEY, { type: "json" });
+        if (existing?.paused) await KV.delete(LOOP2_PAUSE_KEY);
+      } catch (_) {}
+    } else if (evaluation.trip) {
       // Phase C — Stage 1 (2026-05-05) — DEADLOCK FIX.
       // Previously, every batch that re-evaluated the (still-bad) rolling
       // window would overwrite tripped_at_ms with current nowMs, resetting
@@ -655,12 +691,50 @@ async function loop2AdviseEntry(KV, daCfg) {
   return { allow: true };
 }
 
+async function loop2ReadReset(KV) {
+  if (!KV) return null;
+  try {
+    const raw = await KV.get(LOOP2_RESET_KEY, { type: "json" });
+    if (raw && Number(raw.holdoff_wr_until_ms) > 0) return raw;
+  } catch (_) {}
+  return null;
+}
+
 /**
- * Manual reset (admin / scheduled at session open). Clears the pause.
+ * After an operator unpause, suppress WR re-trips through the end of the
+ * next NY regular session (or today's close if reset during RTH).
+ * Friday evening → Monday 16:00 ET. Monday morning → Monday 16:00 ET.
  */
-async function loop2ResetBreaker(KV) {
-  if (!KV) return;
+function loop2WrHoldoffUntilMs(nowMs = Date.now()) {
+  const ms = Number(nowMs) || Date.now();
+  try {
+    if (isNyRthOpenAt(ms)) {
+      const today = sessionBoundsUtc(etDateStr(ms));
+      if (today?.closeMs) return today.closeMs;
+    }
+    const next = nextTradingSession(ms);
+    if (next?.closeMs) return next.closeMs;
+  } catch (_) {}
+  return ms + 72 * 60 * 60 * 1000;
+}
+
+/** Manual reset. Clears the pause and holds WR re-trips until next session close. */
+async function loop2ResetBreaker(KV, opts = {}) {
+  if (!KV) return { ok: false };
+  const nowMs = Number(opts.nowMs) || Date.now();
+  const holdoffUntil = Number(opts.holdoff_wr_until_ms) || loop2WrHoldoffUntilMs(nowMs);
   try { await KV.delete(LOOP2_PAUSE_KEY); } catch (_) {}
+  const reset = {
+    reset_at_ms: nowMs,
+    holdoff_wr_until_ms: holdoffUntil,
+    reason: String(opts.reason || "operator_reset"),
+  };
+  try {
+    await KV.put(LOOP2_RESET_KEY, JSON.stringify(reset), {
+      expirationTtl: 7 * 24 * 60 * 60,
+    });
+  } catch (_) {}
+  return { ok: true, ...reset };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -800,8 +874,10 @@ export {
   loop2EvaluatePulse,
   loop2WritePulse,
   loop2ReadPause,
+  loop2ReadReset,
   loop2AdviseEntry,
   loop2ResetBreaker,
+  loop2WrHoldoffUntilMs,
   LOOP2_DEFAULT_BREAKER_MAX_AGE_HOURS,
   LOOP2_DEFAULT_BREAKER_MIN_RECENT_FOR_WR,
   // Loop 3
@@ -813,5 +889,6 @@ export {
   LOOP1_MASTER_KEY,
   LOOP2_PULSE_KEY,
   LOOP2_PAUSE_KEY,
+  LOOP2_RESET_KEY,
   LOOP3_PROFILES,
 };
