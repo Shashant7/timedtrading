@@ -3195,7 +3195,8 @@ export function evaluateEntry(ctx) {
   if (formingPairEntryEnabled(daCfg) && !inOpeningNoise && !_jaLtfStructBlock) {
     const _fp = d?._mtf_forming?.complementary ? d._mtf_forming : resolveFormingPair(d);
     const _fpSide = _fp?.side;
-    if (_fp?.complementary && _fpSide === side) {
+    const _fpGreenLtfShort = side === "SHORT" && Number(d?.ltf_score) > 4;
+    if (_fp?.complementary && _fpSide === side && !_fpGreenLtfShort) {
       const _fpLtfConfirm = side === "LONG"
         ? !!(c10_8?.crossUp || (c10_5?.bull && Number(c10_5?.fastSlope) >= 0)
           || hasStFlipBull || hasEmaCrossBull || Number(tf?.m30?.stDir) === -1

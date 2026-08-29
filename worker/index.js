@@ -1120,7 +1120,7 @@ import {
   loadFsdRemovedMap,
   fsdRemovalSignal,
 } from "./etf-holdings.js";
-import { buildTradeContext } from "./pipeline/trade-context.js";
+import { buildTradeContext, inferSide } from "./pipeline/trade-context.js";
 import { runUniversalGates } from "./pipeline/gates.js";
 import {
   activityDedupeKey,
@@ -14221,12 +14221,12 @@ function computeMoveStatus(tickerData) {
 }
 
 function sideFromStateOrScores(tickerData) {
-  // Phase 2b: Primary — use swing-TF consensus direction (fixes NFLX-type errors)
-  // When 4/5 TFs agree on direction, that overrides the lagging state-based direction.
+  // Forming-pair clocks (and the TSLA Aug 13 turn) live in inferSide.
+  // Do not let swing_consensus or the BEAR substring fade a green LTF.
+  const inferred = inferSide(tickerData, String(tickerData?.state || ""));
+  if (inferred === "LONG" || inferred === "SHORT") return inferred;
   const consensusDir = tickerData?.swing_consensus?.direction;
   if (consensusDir === "LONG" || consensusDir === "SHORT") return consensusDir;
-
-  // Fallback — state-based direction (original logic)
   const state = String(tickerData?.state || "");
   if (state.includes("BULL")) return "LONG";
   if (state.includes("BEAR")) return "SHORT";

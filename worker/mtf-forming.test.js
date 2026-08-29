@@ -210,6 +210,27 @@ describe("inferSide uses the forming pair over BEAR substring", () => {
     expect(inferSide(tslaAug13(), "HTF_BEAR_LTF_PULLBACK")).toBe("LONG");
   });
 
+  it("live TSLA Aug 13 fill snapshot is LONG even with a stale SHORT stamp", () => {
+    const t = {
+      ticker: "TSLA",
+      state: "HTF_BEAR_LTF_PULLBACK",
+      htf_score: -10,
+      ltf_score: 15.7,
+      daily_structure: { pct_above_e21: 2.81, e21_slope_5d_pct: 0.2, days_above_e21: 2 },
+      tf_tech: {
+        "10": tf({ stDir: -1 }),
+        "30": tf({ stDir: -1 }),
+        "1H": tf({ stDir: -1 }),
+        "4H": tf({ stDir: -1 }),
+        D: tf({ stDir: 1 }),
+        W: tf({ stDir: 1, stSlope: 0 }),
+      },
+      _mtf_forming: { complementary: true, side: "SHORT", mode: "continuation" },
+    };
+    expect(resolveFormingPair(t).side).toBe("LONG");
+    expect(inferSide(t, "HTF_BEAR_LTF_PULLBACK")).toBe("LONG");
+  });
+
   it("HTF_BEAR_LTF_PULLBACK + LTF>0 is LONG even if the pair is thin", () => {
     const t = tslaAug13();
     t.tf_tech["4H"] = tf({ stDir: 1, stSlope: -1, struct: -0.4 });
