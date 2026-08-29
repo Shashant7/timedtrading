@@ -297,6 +297,21 @@ describe("G2 location gate (P3)", () => {
     expect(block).toBeNull();
   });
 
+  it("exempts tt_forming_pair the same way as tt_htf_reclaim (PDZ labels early legs premium)", () => {
+    const d = {
+      pdz_zone_D: "premium_approach",
+      pdz_zone_4h: "premium_approach",
+      __entry_divergence_summary: { adverse_phase: { count: 1, tfs: ["4h"] } },
+    };
+    const daCfg = { deep_audit_ja_location_gate: "true" };
+    expect(julyAutopsyGateBlock({
+      d, daCfg, path: "tt_forming_pair", direction: "LONG", etParts: { hour: 10, minute: 0 },
+    })).toBeNull();
+    expect(julyAutopsyGateBlock({
+      d, daCfg, path: "tt_ath_breakout", direction: "LONG", etParts: { hour: 10, minute: 0 },
+    })?.reason).toBe("ja_location_premium_adverse_div_block");
+  });
+
   it("reads anyActive-shaped summaries (no count field)", () => {
     const block = julyAutopsyGateBlock({
       d: {

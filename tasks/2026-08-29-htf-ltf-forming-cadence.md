@@ -48,7 +48,36 @@ npx vitest run worker/mtf-forming.test.js worker/supertrend-hold.test.js worker/
 
 TSLA Aug 13 printed the review shape (`HTF_BEAR_LTF_PULLBACK`, LTF +8..+24, HTF −10) and still died on `focus_tier_c_below_c_floor` / `h3_rank_below_transitional_floor` — not on BEAR-substring SHORT.
 
-**Verdict:** the new path fires (TSLA shorts, late AAPL long). TEAM-style continuation is still gated **above** `tt_forming_pair` by conviction/rank. Do not lower the 60 accumulate floor from this. Next arm is the same two months with both flags `false` if we need attribution vs baseline.
+**Verdict:** the new path fires (TSLA shorts, late AAPL long). TEAM-style continuation is still gated **above** `tt_forming_pair` by conviction/rank. Do not lower the 60 accumulate floor from this.
+
+## Floor carve-out (2026-08-29, live-model slice)
+
+Complementary clocks were not the bind. Conviction/rank/tier-C sit in
+front of `tt_forming_pair`. Carve-outs (mirrors reclaim P15, **LONG only**):
+
+| Gate | Forming-pair LONG complementary |
+|---|---|
+| `focus_conviction_below_floor` | floor → `deep_audit_forming_pair_conviction_floor` (default 40, hard min 35) |
+| `focus_tier_c_suspended` / `focus_tier_c_below_c_floor` | bypass |
+| `h3_rank_below_transitional_floor` | bypass |
+| `h3_consensus_below_min` | bypass |
+| `v15_veto_all_signals_oppose` | **kept** (catastrophe veto) |
+
+SHORT is excluded so TEAM Jul 8 `HTF_BEAR_LTF_BEAR` cannot fade the rip.
+AAPL June dumps stay dead (15m+30m structure broken → not complementary).
+`tt_forming_pair` is also exempt from `ja_location_gate` (PDZ labels early
+legs premium, same as `tt_htf_reclaim`).
+
+Flags (default ON): `deep_audit_forming_pair_floors`,
+`deep_audit_forming_pair_conviction_floor`.
+
+Canaries this slice must catch on preprod Jul+Aug ON v2:
+
+- **TEAM** Jul 13+ continuation LONG
+- **TSLA** Aug 13 turn LONG (not only the July shorts)
+- **AAPL** valid complementary longs; June dump still 0
+
+Do **not** implement Discovery's global 60→55 accumulate floor.
 
 ```
 scripts/monthly-slice.sh \

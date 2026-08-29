@@ -27,6 +27,10 @@ ST is flat.
   forming on the slow clock (4H ST / daily 21 / D magnet, W/M not
   sloping against). Then the parked daily bear is the magnet, not a
   veto (`freshness = htf_forming`). See `worker/mtf-forming.js`.
+  Complementary LONG also gets reclaim-style floor carve-outs
+  (`isFormingPairFloorContext`) so TEAM/TSLA/AAPL are not killed by
+  conviction/rank/tier-C before `tt_forming_pair` evaluates. SHORT
+  floors stay put.
 - **Swing slope** (1H/4H/D/W/M) is vetoed only when the HTF line is still
   *sloping* against. A **flat** opposite-side daily ST is the magnet, not
   a hard veto of the reclaim. Sloping-against stays a veto (closed book

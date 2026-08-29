@@ -261,6 +261,42 @@ export function formingPairEntryEnabled(daCfg) {
     && flagOn(daCfg?.deep_audit_forming_pair_entry);
 }
 
+export function formingPairFloorsEnabled(daCfg) {
+  return formingPairEntryEnabled(daCfg)
+    && flagOn(daCfg?.deep_audit_forming_pair_floors);
+}
+
+const FORMING_PAIR_CONVICTION_FLOOR_DEFAULT = 40;
+const FORMING_PAIR_CONVICTION_FLOOR_HARD_MIN = 35;
+
+/**
+ * LONG-only floor carve-out context (mirrors reclaim P15).
+ *
+ * TEAM Jul 8 printed HTF_BEAR_LTF_BEAR (a SHORT continuation shape) on
+ * the first days of a +94% rip. Lowering SHORT floors would buy that
+ * fade. The three canaries we need — TEAM Jul 13+ continuation, TSLA
+ * Aug 13 turn, valid AAPL longs — are all LONG. AAPL June dumps stay
+ * out because LTF 15m+30m is broken (not complementary).
+ */
+export function isFormingPairFloorContext(d, daCfg, side) {
+  if (!formingPairFloorsEnabled(daCfg)) return false;
+  if (side && side !== "LONG") return false;
+  const stamped = d?._mtf_forming;
+  const pair = stamped?.complementary ? stamped : resolveFormingPair(d, { side: "LONG" });
+  if (!pair?.complementary || pair.side !== "LONG") return false;
+  if (pair.ltf?.broken) return false;
+  return true;
+}
+
+export function applyFormingPairConvictionCarveout(floor, d, daCfg, side) {
+  if (!isFormingPairFloorContext(d, daCfg, side)) return floor;
+  const raw = Number(daCfg?.deep_audit_forming_pair_conviction_floor);
+  const target = Number.isFinite(raw) && raw > 0
+    ? raw
+    : FORMING_PAIR_CONVICTION_FLOOR_DEFAULT;
+  return Math.min(Number(floor) || 0, Math.max(FORMING_PAIR_CONVICTION_FLOOR_HARD_MIN, target));
+}
+
 /** Parked HTF color is not a veto when the slow clock is forming with the trigger. */
 export function formingPairExemptsHtfColorVeto(pair, triggerSide) {
   if (!pair?.complementary || !triggerSide || triggerSide === "NEUTRAL") return false;

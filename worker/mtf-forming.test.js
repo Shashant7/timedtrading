@@ -6,6 +6,9 @@ import {
   formingPairExemptsHtfColorVeto,
   formingPairEnabled,
   formingPairEntryEnabled,
+  formingPairFloorsEnabled,
+  isFormingPairFloorContext,
+  applyFormingPairConvictionCarveout,
 } from "./mtf-forming.js";
 import { inferSide } from "./pipeline/trade-context.js";
 
@@ -56,6 +59,45 @@ function aaplJuneDump() {
       "4H": tf({ stDir: -1, stSlope: 0, struct: 0.2 }),
       D: tf({ stDir: -1, stSlope: 0, struct: 0.1 }),
       W: tf({ stDir: -1, stSlope: 1 }),
+    },
+  };
+}
+
+// Valid AAPL long (not the June dump): HTF formed, LTF constructing.
+function aaplValidLong() {
+  return {
+    ticker: "AAPL",
+    state: "HTF_BULL_LTF_BULL",
+    htf_score: 12,
+    ltf_score: 8,
+    daily_structure: { pct_above_e21: 1.1, e21_slope_5d_pct: 0.4, days_above_e21: 3 },
+    tf_tech: {
+      "10": tf({ stDir: -1, stSlope: 1, struct: 0.4, cloud: { bull: true, above: true, fastSlope: 1 } }),
+      "30": tf({ stDir: -1, stSlope: 1, struct: 0.3 }),
+      "1H": tf({ stDir: -1, struct: 0.2 }),
+      "4H": tf({ stDir: -1, stSlope: 1, struct: 0.3 }),
+      D: tf({ stDir: -1, stSlope: 1, struct: 0.4 }),
+      W: tf({ stDir: -1, stSlope: 1 }),
+    },
+  };
+}
+
+// TEAM Jul 8 last-gasp bear print — complementary SHORT, must NOT get
+// the LONG floor carve-out (that fade is the start of the +94% rip).
+function teamJul8BearFade() {
+  return {
+    ticker: "TEAM",
+    state: "HTF_BEAR_LTF_BEAR",
+    htf_score: -12,
+    ltf_score: -10,
+    daily_structure: { pct_above_e21: -1.2, e21_slope_5d_pct: -0.4, days_above_e21: 0 },
+    tf_tech: {
+      "10": tf({ stDir: 1, stSlope: -1, struct: -0.5 }),
+      "30": tf({ stDir: 1, stSlope: -1, struct: -0.4 }),
+      "1H": tf({ stDir: 1, struct: -0.3 }),
+      "4H": tf({ stDir: 1, stSlope: -1, struct: -0.4 }),
+      D: tf({ stDir: 1, stSlope: -1, struct: -0.5 }),
+      W: tf({ stDir: 1, stSlope: -1 }),
     },
   };
 }
@@ -174,7 +216,61 @@ describe("flags default ON", () => {
   it("enabled and entry default true; explicit false kills", () => {
     expect(formingPairEnabled({})).toBe(true);
     expect(formingPairEntryEnabled({})).toBe(true);
+    expect(formingPairFloorsEnabled({})).toBe(true);
     expect(formingPairEnabled({ deep_audit_forming_pair_enabled: "false" })).toBe(false);
     expect(formingPairEntryEnabled({ deep_audit_forming_pair_entry: "false" })).toBe(false);
+    expect(formingPairFloorsEnabled({ deep_audit_forming_pair_floors: "false" })).toBe(false);
+  });
+});
+
+describe("forming-pair LONG floor carve-out (TEAM / TSLA / AAPL)", () => {
+  const daOn = {};
+
+  it("TEAM Jul continuation: complementary LONG, floor 80 → 40", () => {
+    const t = teamJulRip();
+    expect(isFormingPairFloorContext(t, daOn, "LONG")).toBe(true);
+    expect(applyFormingPairConvictionCarveout(80, t, daOn, "LONG")).toBe(40);
+  });
+
+  it("TSLA Aug 13 turn: complementary LONG, floor 80 → 40", () => {
+    const t = tslaAug13();
+    expect(isFormingPairFloorContext(t, daOn, "LONG")).toBe(true);
+    expect(applyFormingPairConvictionCarveout(80, t, daOn, "LONG")).toBe(40);
+  });
+
+  it("valid AAPL long: complementary, same carve-out", () => {
+    const t = aaplValidLong();
+    expect(resolveFormingPair(t).complementary).toBe(true);
+    expect(isFormingPairFloorContext(t, daOn, "LONG")).toBe(true);
+    expect(applyFormingPairConvictionCarveout(80, t, daOn, "LONG")).toBe(40);
+  });
+
+  it("AAPL June dump: not complementary, floor stays 80", () => {
+    const t = aaplJuneDump();
+    expect(isFormingPairFloorContext(t, daOn, "LONG")).toBe(false);
+    expect(applyFormingPairConvictionCarveout(80, t, daOn, "LONG")).toBe(80);
+  });
+
+  it("TEAM Jul 8 bear fade: complementary SHORT, no LONG floor carve-out", () => {
+    const t = teamJul8BearFade();
+    const p = resolveFormingPair(t);
+    expect(p.complementary).toBe(true);
+    expect(p.side).toBe("SHORT");
+    expect(isFormingPairFloorContext(t, daOn, "LONG")).toBe(false);
+    expect(isFormingPairFloorContext(t, daOn, "SHORT")).toBe(false);
+    expect(applyFormingPairConvictionCarveout(80, t, daOn, "SHORT")).toBe(80);
+  });
+
+  it("explicit floors=false kills the carve-out", () => {
+    const t = teamJulRip();
+    const daOff = { deep_audit_forming_pair_floors: "false" };
+    expect(isFormingPairFloorContext(t, daOff, "LONG")).toBe(false);
+    expect(applyFormingPairConvictionCarveout(80, t, daOff, "LONG")).toBe(80);
+  });
+
+  it("honors a custom conviction floor and the 35 hard min", () => {
+    const t = tslaAug13();
+    expect(applyFormingPairConvictionCarveout(80, t, { deep_audit_forming_pair_conviction_floor: 45 }, "LONG")).toBe(45);
+    expect(applyFormingPairConvictionCarveout(80, t, { deep_audit_forming_pair_conviction_floor: 20 }, "LONG")).toBe(35);
   });
 });

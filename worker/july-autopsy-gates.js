@@ -80,12 +80,14 @@ export function julyAutopsyGateBlock({ d, daCfg, path, direction, etParts }) {
   }
 
   // ── G2: location / adverse divergence (P3) ──
-  // tt_htf_reclaim is exempt: a fresh reclaim sits just above the daily
-  // EMA-21 — the correct location by definition — but PDZ zone math is
-  // range-relative and labels post-pullback reclaims "premium" (CIBR
-  // Jul 31 probe: G2 vetoed the reclaim on 9 of 14 bars).
+  // tt_htf_reclaim and tt_forming_pair are exempt: a fresh reclaim /
+  // forming-pair long sits just above the daily EMA-21 — the correct
+  // location by definition — but PDZ zone math is range-relative and
+  // labels post-pullback reclaims "premium" (CIBR Jul 31 probe: G2
+  // vetoed the reclaim on 9 of 14 bars).
   if (flagOn(daCfg.deep_audit_ja_location_gate) && isLong
-      && String(path || "") !== "tt_htf_reclaim") {
+      && String(path || "") !== "tt_htf_reclaim"
+      && String(path || "") !== "tt_forming_pair") {
     const div = d?.__entry_divergence_summary || {};
     const advRsi = advCount(div.adverse_rsi);
     const advPhase = advCount(div.adverse_phase);

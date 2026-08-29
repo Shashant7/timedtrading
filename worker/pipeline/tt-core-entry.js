@@ -32,6 +32,8 @@ import { isQualityCompounderDip } from "../growth-compounder.js";
 import {
   formingPairEntryEnabled,
   resolveFormingPair,
+  isFormingPairFloorContext,
+  applyFormingPairConvictionCarveout,
 } from "../mtf-forming.js";
 
 const FRESHNESS_MIN = 0.3;
@@ -1150,6 +1152,16 @@ export function evaluateEntry(ctx) {
         _entryMinConviction = Math.min(_entryMinConviction, Math.max(35, _jaReclaimFloor));
       }
 
+      // FORMING PAIR (2026-08-29) — TEAM/TSLA/AAPL canaries die on the
+      // same structurally-low conviction as reclaim days. Complementary
+      // LONG pair (LTF constructing + HTF forming/formed) lowers the
+      // floor so tt_forming_pair can evaluate. SHORT is excluded so
+      // TEAM Jul 8 HTF_BEAR_LTF_BEAR cannot fade the rip. AAPL June
+      // dumps are not complementary (15m+30m broken).
+      _entryMinConviction = applyFormingPairConvictionCarveout(
+        _entryMinConviction, d, daCfg, side,
+      );
+
       // ─────────────────────────────────────────────────────────────────
       // V15 P0.5 — HARD VETOES (2026-04-26)
       //
@@ -1246,8 +1258,9 @@ export function evaluateEntry(ctx) {
       const _jaReclaimTierBypass =
         String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
         && isHtfReclaimContext(d, tf, daCfg);
+      const _fpFloorBypass = isFormingPairFloorContext(d, daCfg, side);
       const _suspendTierC = String(daCfg.deep_audit_focus_suspend_tier_c ?? "true") === "true";
-      if (_focusTier === "C" && _suspendTierC && !_jaReclaimTierBypass) {
+      if (_focusTier === "C" && _suspendTierC && !_jaReclaimTierBypass && !_fpFloorBypass) {
         return rejectEntry("focus_tier_c_suspended", {
           score: _focusConviction.score, tier: _focusTier,
           note: "Tier C entries suspended pending conviction-signal repair (Part 4)",
@@ -1257,7 +1270,7 @@ export function evaluateEntry(ctx) {
       // needs stricter entry because we're casting a wider exploratory
       // net). If conviction < tier_c_floor AND tier is C, the entry is
       // rejected. Tier A/B pass if above _entryMinConviction.
-      if (_focusTier === "C" && _focusConviction.score < _tierCFloor && !_jaReclaimTierBypass) {
+      if (_focusTier === "C" && _focusConviction.score < _tierCFloor && !_jaReclaimTierBypass && !_fpFloorBypass) {
         return rejectEntry("focus_tier_c_below_c_floor", {
           score: _focusConviction.score, tierFloor: _tierCFloor,
         });
@@ -1437,7 +1450,8 @@ export function evaluateEntry(ctx) {
           side === "LONG"
           && String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
           && isHtfReclaimContext(d, tf, daCfg);
-        if (_transRankMin > 0 && rankScore < _transRankMin && !_jaReclaimRankBypass) {
+        const _fpRankBypass = isFormingPairFloorContext(d, daCfg, side);
+        if (_transRankMin > 0 && rankScore < _transRankMin && !_jaReclaimRankBypass && !_fpRankBypass) {
           return rejectEntry("h3_rank_below_transitional_floor", {
             cycle: cycle || "unknown", rank: rankScore, rankMin: _transRankMin,
           });
@@ -1517,7 +1531,8 @@ export function evaluateEntry(ctx) {
         isLong
         && String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
         && isHtfReclaimContext(d, tf, daCfg);
-      if (signals < _h3MinSignals && !_jaReclaimConsensusBypass) {
+      const _fpConsensusBypass = isFormingPairFloorContext(d, daCfg, side);
+      if (signals < _h3MinSignals && !_jaReclaimConsensusBypass && !_fpConsensusBypass) {
         return rejectEntry("h3_consensus_below_min", {
           signals, min: _h3MinSignals, breakdown,
         });

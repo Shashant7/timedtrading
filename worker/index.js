@@ -692,6 +692,10 @@ import {
   exhaustTrimMinProfitPct as jaExhaustTrimMinProfitPct,
   structStopCushion as jaStructStopCushion,
 } from "./july-autopsy-gates.js";
+import {
+  isFormingPairFloorContext,
+  applyFormingPairConvictionCarveout,
+} from "./mtf-forming.js";
 /* Trade Review Agent (2026-08-17) — independent per-leg grading of every
    ENTRY / TRIM / EXIT. The enqueue is a single D1 insert on the ledger
    path; the LLM runs from the cron drain or the admin page. See
@@ -7341,6 +7345,12 @@ function qualifiesForEnter(d, asOfTs = null) {
           const _jaFloor = Number(_focusDaCfg.deep_audit_ja_htf_reclaim_conviction_floor) || 40;
           _entryMinConv = Math.min(_entryMinConv, Math.max(35, _jaFloor));
         }
+        // FORMING PAIR — LONG complementary pair lowers the same floors
+        // that blocked TEAM Jul 13+ / TSLA Aug 13. SHORT excluded.
+        const _fpFloorCtx = isFormingPairFloorContext(d, _focusDaCfg);
+        _entryMinConv = applyFormingPairConvictionCarveout(
+          _entryMinConv, d, _focusDaCfg,
+        );
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,
@@ -7359,7 +7369,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         // non-discriminating signal. Suspend by default; reversible via
         // deep_audit_focus_suspend_tier_c="false".
         const _suspendTierCLegacy = String(_focusDaCfg.deep_audit_focus_suspend_tier_c ?? "true") === "true";
-        if (_focusConv.tier === "C" && _suspendTierCLegacy && !_jaReclaimCtx) {
+        if (_focusConv.tier === "C" && _suspendTierCLegacy && !_jaReclaimCtx && !_fpFloorCtx) {
           return {
             qualifies: false,
             reason: "focus_tier_c_suspended",
@@ -7372,7 +7382,7 @@ function qualifiesForEnter(d, asOfTs = null) {
           };
         }
         const _tierCFloor = Math.max(_floorHardMin, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 65));
-        if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor && !_jaReclaimCtx) {
+        if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor && !_jaReclaimCtx && !_fpFloorCtx) {
           return {
             qualifies: false,
             reason: "focus_tier_c_below_c_floor",
