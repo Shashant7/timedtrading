@@ -31,3 +31,23 @@ Does **not** fire AAPL-June dumps (15m+30m structure broken).
 ```
 npx vitest run worker/mtf-forming.test.js worker/supertrend-hold.test.js worker/foundation/play-catalog.test.js worker/discovery/gameplan.test.js
 ```
+
+## Preprod (2026-08-29)
+
+- Worker: `timed-trading-ingest-preprod` version `2b929f0a-b1a7-473f-977b-d59ed2644aa3` from this branch. **Not** deployed to prod.
+- Flags ON: `deep_audit_forming_pair_enabled`, `deep_audit_forming_pair_entry`.
+- Copied prod Jun–Aug 2026 candles for TEAM / TSLA / AAPL (10/15/30/60/240/D/W/M/5). TEAM 10m now ends 2026-08-28 (was 2026-06-18).
+- Lock free. Slice not started.
+
+```
+scripts/monthly-slice.sh \
+  --month=2026-07 \
+  --run-id=forming-pair-team-jul-on \
+  --label=forming-pair-team-jul-on \
+  --tickers=TEAM,TSLA,AAPL \
+  --ticker-batch=3 \
+  --interval-minutes=30 \
+  --watchdog-seconds=900 \
+  --block-chain \
+  --api-base=https://timed-trading-ingest-preprod.shashant.workers.dev
+```
