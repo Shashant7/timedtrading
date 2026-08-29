@@ -164,12 +164,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          LAST=$(gh run list --workflow=watchdog.yml --limit 1 --json createdAt --jq '.[0].createdAt // empty' || true)
+          set -u
+          REPO="Shashant7/timedtrading"
+          # Keepalive has no checkout — gh must be given -R or it looks for .git.
+          LAST=$(gh -R "$REPO" run list --workflow=watchdog.yml --limit 1 --json createdAt --jq '.[0].createdAt // empty' || true)
           NOW=$(date -u +%s)
+          kick() {
+            if gh -R "$REPO" workflow run watchdog.yml --ref main; then
+              echo "Dispatched watchdog.yml"
+            else
+              echo "::warning::Could not dispatch watchdog (keepalive stays green; watchdog owns pages)"
+            fi
+          }
           if [ -z "$LAST" ]; then
             echo "No watchdog runs found — dispatching"
-            gh workflow run watchdog.yml --ref main
+            kick
             exit 0
           fi
           LAST_S=$(date -u -d "$LAST" +%s)
@@ -177,7 +186,8 @@ jobs:
           echo "Last watchdog run ${AGE_MIN}m ago (${LAST})"
           if [ "$AGE_MIN" -gt 25 ]; then
             echo "GitHub dropped the */30 watchdog — dispatching"
-            gh workflow run watchdog.yml --ref main
+            kick
           else
             echo "Watchdog cadence is healthy — no kick"
           fi
+          exit 0
