@@ -5,6 +5,7 @@
 import { normalizeTfKey } from "../ingest.js";
 import { resolveTickerProfileContext } from "../profile-resolution.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
+import { formingPairEnabled, resolveFormingPair } from "../mtf-forming.js";
 
 export function buildTradeContext(tickerData, asOfTs = null) {
   const d = tickerData || {};
@@ -255,7 +256,14 @@ export function buildTradeContext(tickerData, asOfTs = null) {
   };
 }
 
-function inferSide(d, state) {
+export function inferSide(d, state) {
+  const daCfg = d?._env?._deepAuditConfig || d?._deepAuditConfig || {};
+  if (formingPairEnabled(daCfg)) {
+    const pair = d?._mtf_forming?.complementary ? d._mtf_forming : resolveFormingPair(d);
+    if (pair?.complementary && (pair.side === "LONG" || pair.side === "SHORT")) {
+      return pair.side;
+    }
+  }
   const consensusDir = d.swing_consensus?.direction;
   if (consensusDir === "LONG" || consensusDir === "SHORT") return consensusDir;
   if (state.includes("BULL")) return "LONG";

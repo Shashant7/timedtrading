@@ -29,6 +29,10 @@ import {
   stampMomentumBreakoutEarly,
 } from "../lib/smart-gates.js";
 import { isQualityCompounderDip } from "../growth-compounder.js";
+import {
+  formingPairEntryEnabled,
+  resolveFormingPair,
+} from "../mtf-forming.js";
 
 const FRESHNESS_MIN = 0.3;
 
@@ -3122,6 +3126,48 @@ export function evaluateEntry(ctx) {
       hasStFlipBull,
       entrySupport: summarizeEntrySupport(entrySupportProfile),
     });
+  }
+
+  // ── FORMING PAIR (2026-08-29) — LTF fast clock + complementary HTF slow clock.
+  // Unblocks TSLA Aug 13 (HTF_BEAR_LTF_PULLBACK, 4H ST + daily 21, inferSide
+  // used to lock SHORT) and TEAM-style continuation (HTF already formed,
+  // LTF re-forming). Does NOT fire AAPL-June dumps (LTF 15m+30m broken).
+  // Placed before the pullback/momentum rejection cascade for the same
+  // reason as tt_htf_reclaim: forming days score low on HTF color / rank.
+  if (formingPairEntryEnabled(daCfg) && !inOpeningNoise && !_jaLtfStructBlock) {
+    const _fp = d?._mtf_forming?.complementary ? d._mtf_forming : resolveFormingPair(d);
+    const _fpSide = _fp?.side;
+    if (_fp?.complementary && _fpSide === side) {
+      const _fpLtfConfirm = side === "LONG"
+        ? !!(c10_8?.crossUp || (c10_5?.bull && Number(c10_5?.fastSlope) >= 0)
+          || hasStFlipBull || hasEmaCrossBull || Number(tf?.m30?.stDir) === -1
+          || Number(tf?.m10?.stDir) === -1)
+        : !!(c10_8?.crossDn || (c10_5?.bear && Number(c10_5?.fastSlope) <= 0)
+          || hasStFlipBear || hasEmaCrossBear || Number(tf?.m30?.stDir) === 1
+          || Number(tf?.m10?.stDir) === 1);
+      if (_fpLtfConfirm) {
+        const _fpDs = d?.daily_structure || {};
+        const _fpE21 = Number(_fpDs.e21);
+        if (d && Number.isFinite(_fpE21) && _fpE21 > 0 && side === "LONG") {
+          d.__ja_reclaim_level = _fpE21;
+        }
+        return qualifyEntry("tt_forming_pair", _fp.mode === "turn" ? "high" : "medium",
+          _fp.mode === "turn" ? "ltf_fast_htf_slow_turn" : "htf_formed_ltf_reform", {
+            pdz: 1.0, meanRevert: 1.0, regime: 1.0, danger: 1.0,
+            rvol: 1.0, spy: 1.0, orb: 1.0, internals: 1.0,
+          }, {
+            triggerType: "forming_pair",
+            forming: {
+              side: _fp.side,
+              mode: _fp.mode,
+              reason: _fp.reason,
+              ltf_cues: _fp.ltf?.cues || [],
+              htf_cues: _fp.htf?.cues || [],
+              pct_above_e21: Number.isFinite(Number(_fpDs.pct_above_e21)) ? Number(_fpDs.pct_above_e21) : null,
+            },
+          });
+      }
+    }
   }
 
   // ── JULY-2026 AUTOPSY — HTF RECLAIM ENTRY (P15, flag-gated, default OFF) ──

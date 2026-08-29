@@ -456,6 +456,8 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_ja_post_trim_floor_buffer_pct",
   "deep_audit_ja_grade_wildcard",
   "deep_audit_ja_htf_reclaim_entry",
+  "deep_audit_forming_pair_enabled",
+  "deep_audit_forming_pair_entry",
   "deep_audit_ja_htf_reclaim_max_ext_pct",
   "deep_audit_ja_htf_reclaim_conviction_floor",
   "deep_audit_ja_htf_reclaim_cooldown_hours",

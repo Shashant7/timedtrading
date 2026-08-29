@@ -53,6 +53,7 @@ describe("play catalog", () => {
     expect(ids.length).toBeLessThanOrEqual(16);
     expect(ids).toContain("tt_gap_reversal_long");
     expect(ids).toContain("tt_cloud_pivot");
+    expect(ids).toContain("tt_forming_pair");
   });
 
   it("keeps Cloud Pivot on the calibration path, not auto-demote", () => {

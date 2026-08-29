@@ -60,6 +60,11 @@ import {
   isSupertrendSlopeFlat,
   magnetAgreesWithSide,
 } from "./supertrend-hold.js";
+import {
+  formingPairEnabled,
+  formingPairExemptsHtfColorVeto,
+  resolveFormingPair,
+} from "./mtf-forming.js";
 
 // ── Mode thresholds ────────────────────────────────────────────────────────
 // 8 layers identify the opportunity; SuperTrend ignites the trigger.
@@ -779,9 +784,17 @@ function computeSupertrendTrigger(t) {
     const wmSlopeAgrees = (triggerSide === "LONG" ? confirmedBullTfs : confirmedBearTfs)
       .some((tf) => tf === "W" || tf === "M");
     if (hardAgainst && !wmSlopeAgrees) {
-      triggerSide = "NEUTRAL";
-      triggerStrength = 0;
-      freshness = "htf_against";
+      const daCfg = t?._env?._deepAuditConfig || t?._deepAuditConfig || {};
+      const pair = formingPairEnabled(daCfg)
+        ? (t._mtf_forming?.complementary ? t._mtf_forming : resolveFormingPair(t))
+        : null;
+      if (formingPairExemptsHtfColorVeto(pair, triggerSide)) {
+        freshness = "htf_forming";
+      } else {
+        triggerSide = "NEUTRAL";
+        triggerStrength = 0;
+        freshness = "htf_against";
+      }
     }
   }
 

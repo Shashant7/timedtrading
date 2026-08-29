@@ -22,7 +22,11 @@ ST is flat.
 - **Do not chase:** ST just flipped, line still sloping, `|px − ema21| / ATR > ~1.5`,
   no retest yet — especially on 10m/30m.
 - **Do not ignite LTF-only slope** (10m/30m) when D/4H/6.5H/9H SuperTrend
-  is the other *color* — even if that daily line is flat. That is a chase.
+  is the other *color* — even if that daily line is flat. That is a chase
+  **unless** `resolveFormingPair` says LTF is constructing and HTF is
+  forming on the slow clock (4H ST / daily 21 / D magnet, W/M not
+  sloping against). Then the parked daily bear is the magnet, not a
+  veto (`freshness = htf_forming`). See `worker/mtf-forming.js`.
 - **Swing slope** (1H/4H/D/W/M) is vetoed only when the HTF line is still
   *sloping* against. A **flat** opposite-side daily ST is the magnet, not
   a hard veto of the reclaim. Sloping-against stays a veto (closed book
