@@ -50868,13 +50868,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 60.2784
+        "sql_duration_ms": 45.3446
       },
-      "duration": 60.2784,
+      "duration": 45.3446,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4822777856,
+      "size_after": 4630663168,
       "rows_read": 5651,
       "rows_written": 0,
       "total_attempts": 1
