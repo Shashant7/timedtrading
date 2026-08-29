@@ -5,7 +5,7 @@
 import { normalizeTfKey } from "../ingest.js";
 import { resolveTickerProfileContext } from "../profile-resolution.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
-import { formingPairEnabled, resolveFormingPair } from "../mtf-forming.js";
+import { formingPairEnabled, resolveFormingPair, resolveHtfForming } from "../mtf-forming.js";
 
 export function buildTradeContext(tickerData, asOfTs = null) {
   const d = tickerData || {};
@@ -262,6 +262,15 @@ export function inferSide(d, state) {
     const pair = d?._mtf_forming?.complementary ? d._mtf_forming : resolveFormingPair(d);
     if (pair?.complementary && (pair.side === "LONG" || pair.side === "SHORT")) {
       return pair.side;
+    }
+    // HTF_BEAR_LTF_PULLBACK with LTF already green is a LONG turn even
+    // when the slow clock has only one cue. Do not let the BEAR
+    // substring fade TSLA Aug 13.
+    const st = String(state || d?.state || "").toUpperCase();
+    const ltf = Number(d?.ltf_score);
+    if (st.includes("HTF_BEAR_LTF_PULLBACK") && Number.isFinite(ltf) && ltf > 0) {
+      const htf = resolveHtfForming(d, "LONG");
+      if (!htf.wm_against) return "LONG";
     }
   }
   const consensusDir = d.swing_consensus?.direction;

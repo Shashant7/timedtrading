@@ -176,6 +176,24 @@ describe("resolveFormingPair", () => {
     expect(p.mode).toBe("continuation");
   });
 
+  it("positive LTF score vetoes a SHORT pair (cannot fade TSLA Aug 13)", () => {
+    const t = tslaAug13();
+    expect(resolveLtfForming(t, "SHORT").forming).toBe(false);
+    expect(resolveLtfForming(t, "SHORT").opposed).toBe(true);
+    expect(resolveFormingPair(t).side).toBe("LONG");
+  });
+
+  it("one HTF cue + strong LTF is enough for a LONG turn", () => {
+    const t = tslaAug13();
+    t.tf_tech["4H"] = tf({ stDir: 1, stSlope: -1, struct: -0.4 }); // no 4h_st
+    const htf = resolveHtfForming(t, "LONG");
+    expect(htf.cues).toContain("d21_reclaim_or_hold");
+    expect(htf.cues.length).toBeGreaterThanOrEqual(1);
+    expect(htf.forming).toBe(true);
+    expect(resolveFormingPair(t).complementary).toBe(true);
+    expect(resolveFormingPair(t).side).toBe("LONG");
+  });
+
   it("stretch chase (far above 21, days>5, HTF not formed) is not complementary", () => {
     const t = tslaAug13();
     t.htf_score = -8;
@@ -190,6 +208,13 @@ describe("resolveFormingPair", () => {
 describe("inferSide uses the forming pair over BEAR substring", () => {
   it("HTF_BEAR_LTF_PULLBACK + forming pair → LONG (TSLA)", () => {
     expect(inferSide(tslaAug13(), "HTF_BEAR_LTF_PULLBACK")).toBe("LONG");
+  });
+
+  it("HTF_BEAR_LTF_PULLBACK + LTF>0 is LONG even if the pair is thin", () => {
+    const t = tslaAug13();
+    t.tf_tech["4H"] = tf({ stDir: 1, stSlope: -1, struct: -0.4 });
+    t.daily_structure = { pct_above_e21: 6, e21_slope_5d_pct: -1, days_above_e21: 9 };
+    expect(inferSide(t, "HTF_BEAR_LTF_PULLBACK")).toBe("LONG");
   });
 
   it("HTF_BEAR_LTF_PULLBACK without forming pair still → SHORT", () => {

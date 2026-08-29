@@ -127,11 +127,18 @@ export function resolveLtfForming(t, side) {
   if (side === "LONG" && Number.isFinite(ltf) && ltf >= 0) cues.push("ltf_score");
   if (side === "SHORT" && Number.isFinite(ltf) && ltf <= 0) cues.push("ltf_score");
   const broken = ltfBrokenBoth(t, side);
+  // Hard veto: a clearly-green LTF cannot construct a SHORT pair
+  // (TSLA Aug 13 printed LTF +8..+24 while inferSide still SHORT'd the
+  // HTF_BEAR substring and faded the turn). Mirror for LONG.
+  const opposed = Number.isFinite(ltf) && (
+    (side === "LONG" && ltf < -4) || (side === "SHORT" && ltf > 4)
+  );
   return {
-    forming: !broken && cues.length >= 2,
+    forming: !broken && !opposed && cues.length >= 2,
     cadence: "10m/30m/1H",
     cues,
     broken,
+    opposed,
   };
 }
 
@@ -170,7 +177,13 @@ export function resolveHtfForming(t, side) {
     || (side === "SHORT" && Number.isFinite(htf) && htf < 0 && (stWith(tfRow(t, "D"), side) || stWith(tfRow(t, "W"), side)))
     || (stWith(tfRow(t, "D"), side) && stWith(tfRow(t, "4H"), side) && !wmAgainst)
   );
-  const forming = !wmAgainst && cues.length >= 2;
+  const ltfScore = Number(t?.ltf_score);
+  const ltfStrong = (side === "LONG" && Number.isFinite(ltfScore) && ltfScore >= 8)
+    || (side === "SHORT" && Number.isFinite(ltfScore) && ltfScore <= -8);
+  // Two HTF cues is the default. One cue is enough when LTF is already
+  // clearly constructing — the slow clock is allowed to lag (TSLA Aug 13
+  // real bars often had 4H ST or daily 21, not both, on the first prints).
+  const forming = !wmAgainst && (cues.length >= 2 || (cues.length >= 1 && ltfStrong));
   return {
     forming,
     formed,
