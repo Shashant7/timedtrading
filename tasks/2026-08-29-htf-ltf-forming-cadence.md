@@ -87,6 +87,12 @@ all 14 bars — daily 20/21 cloud still the old color (the turn). Complementary
 LONG now qualifies **before** cloud-bias (`before_bias: true`). Parked daily
 ST is also not `tt_daily_st_conflict` in forming-pair context.
 
+Aug ON v3 still shorted TSLA Aug 13 (`thesis_flip_htf` / `doctrine_force_exit`)
+because a green LTF did not veto a SHORT pair. Follow-up: opposite LTF
+score vetoes the pair; one HTF cue is enough when `|ltf| >= 8`;
+`inferSide(HTF_BEAR_LTF_PULLBACK)` with `ltf > 0` is LONG unless W/M
+slopes against.
+
 ```
 scripts/monthly-slice.sh \
   --month=2026-07 \
