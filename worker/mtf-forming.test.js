@@ -236,6 +236,10 @@ describe("forming-pair LONG floor carve-out (TEAM / TSLA / AAPL)", () => {
     const t = tslaAug13();
     expect(isFormingPairFloorContext(t, daOn, "LONG")).toBe(true);
     expect(applyFormingPairConvictionCarveout(80, t, daOn, "LONG")).toBe(40);
+    // Parked daily ST/cloud is the turn, not a veto — evaluateEntry
+    // qualifies tt_forming_pair before tt_bias_not_aligned.
+    expect(t.tf_tech.D.stDir).toBe(1);
+    expect(t.state).toBe("HTF_BEAR_LTF_PULLBACK");
   });
 
   it("valid AAPL long: complementary, same carve-out", () => {

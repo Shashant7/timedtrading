@@ -8955,7 +8955,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     const biasAligned = ripsterTuneV2
       ? (dAligned && h1Aligned && (strongDailyTrend ? alignedCount >= 2 : m10Aligned))
       : (dAligned && h1Aligned && m10Aligned);
-    if (!biasAligned) {
+    if (!biasAligned && !isFormingPairFloorContext(d, _focusDaCfg, inferredSide)) {
       return {
         qualifies: false,
         reason: "ripster_bias_not_aligned",

@@ -1594,7 +1594,50 @@ export function evaluateEntry(ctx) {
     },
   });
 
-  if (!biasAligned) {
+  // FORMING PAIR LONG — qualify BEFORE cloud-bias. A turn (TSLA Aug 13)
+  // has LTF constructing while the daily 20/21 cloud is still the old
+  // color; waiting for dAligned misses the entry. Continuation (TEAM)
+  // also lands here so later pullback 5/12 rejects cannot kill it.
+  // SHORT stays on the bias path (July TSLA shorts already clear it).
+  if (formingPairEntryEnabled(daCfg) && side === "LONG") {
+    const _fpEarly = d?._mtf_forming?.complementary
+      ? d._mtf_forming
+      : resolveFormingPair(d, { side: "LONG" });
+    if (_fpEarly?.complementary && _fpEarly.side === "LONG" && !_fpEarly.ltf?.broken) {
+      const _fpEt = getEasternParts(new Date(Number(ctx.asOfTs) || Date.now()));
+      const _fpOpenEnd = Number(daCfg.deep_audit_ripster_opening_noise_end_minute) || 45;
+      const _fpOpenNoise = _fpEt?.hour === 9 && Number(_fpEt?.minute) < _fpOpenEnd;
+      const _fpLtfConfirm = !!(c10_8?.crossUp
+        || (c10_5?.bull && Number(c10_5?.fastSlope) >= 0)
+        || Number(m30?.stDir) === -1
+        || Number(m10?.stDir) === -1);
+      if (!_fpOpenNoise && _fpLtfConfirm) {
+        const _fpDs = d?.daily_structure || {};
+        const _fpE21 = Number(_fpDs.e21);
+        if (d && Number.isFinite(_fpE21) && _fpE21 > 0) {
+          d.__ja_reclaim_level = _fpE21;
+        }
+        return qualifyEntry("tt_forming_pair", _fpEarly.mode === "turn" ? "high" : "medium",
+          _fpEarly.mode === "turn" ? "ltf_fast_htf_slow_turn" : "htf_formed_ltf_reform", {
+            pdz: 1.0, meanRevert: 1.0, regime: 1.0, danger: 1.0,
+            rvol: 1.0, spy: 1.0, orb: 1.0, internals: 1.0,
+          }, {
+            triggerType: "forming_pair",
+            forming: {
+              side: _fpEarly.side,
+              mode: _fpEarly.mode,
+              reason: _fpEarly.reason,
+              ltf_cues: _fpEarly.ltf?.cues || [],
+              htf_cues: _fpEarly.htf?.cues || [],
+              pct_above_e21: Number.isFinite(Number(_fpDs.pct_above_e21)) ? Number(_fpDs.pct_above_e21) : null,
+              before_bias: true,
+            },
+          });
+      }
+    }
+  }
+
+  if (!biasAligned && !isFormingPairFloorContext(d, daCfg, side)) {
     return rejectEntry("tt_bias_not_aligned", {
       cloudAlignment: {
         D: cD_bias?.bull ? "bull" : cD_bias?.bear ? "bear" : "na",
@@ -3069,7 +3112,7 @@ export function evaluateEntry(ctx) {
 
     const dailyStConflict = (side === "LONG" && stDirD === 1)
       || (side === "SHORT" && stDirD === -1);
-    if (dailyStConflict) {
+    if (dailyStConflict && !isFormingPairFloorContext(d, daCfg, side)) {
       return rejectEntry("tt_daily_st_conflict", { stDirD });
     }
 

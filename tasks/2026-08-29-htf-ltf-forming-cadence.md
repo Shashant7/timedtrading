@@ -79,6 +79,14 @@ Canaries this slice must catch on preprod Jul+Aug ON v2:
 
 Do **not** implement Discovery's global 60→55 accumulate floor.
 
+## Bias / parked HTF color (TSLA Aug 13)
+
+Jul ON v2 caught TEAM longs and AAPL longs. Aug ON v2 TEAM continued to fill,
+but TSLA Aug 13 cleared the new floors and then died on `tt_bias_not_aligned`
+all 14 bars — daily 20/21 cloud still the old color (the turn). Complementary
+LONG now qualifies **before** cloud-bias (`before_bias: true`). Parked daily
+ST is also not `tt_daily_st_conflict` in forming-pair context.
+
 ```
 scripts/monthly-slice.sh \
   --month=2026-07 \
