@@ -87,7 +87,7 @@ export function julyAutopsyGateBlock({ d, daCfg, path, direction, etParts }) {
   // vetoed the reclaim on 9 of 14 bars).
   if (flagOn(daCfg.deep_audit_ja_location_gate) && isLong
       && String(path || "") !== "tt_htf_reclaim"
-      && String(path || "") !== "tt_forming_pair") {
+      && !String(path || "").toLowerCase().startsWith("tt_forming_pair")) {
     const div = d?.__entry_divergence_summary || {};
     const advRsi = advCount(div.adverse_rsi);
     const advPhase = advCount(div.adverse_phase);

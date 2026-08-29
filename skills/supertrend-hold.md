@@ -30,7 +30,9 @@ ST is flat.
   Complementary LONG also gets reclaim-style floor carve-outs
   (`isFormingPairFloorContext`) so TEAM/TSLA/AAPL are not killed by
   conviction/rank/tier-C before `tt_forming_pair` evaluates. SHORT
-  floors stay put.
+  floors stay put. Persist must use `resolveEntryPersistDirection`
+  (inferSide), not `getTradeDirection(state)` — the BEAR substring
+  opened TSLA Aug 13 as SHORT after a LONG qualify.
 - **Swing slope** (1H/4H/D/W/M) is vetoed only when the HTF line is still
   *sloping* against. A **flat** opposite-side daily ST is the magnet, not
   a hard veto of the reclaim. Sloping-against stays a veto (closed book

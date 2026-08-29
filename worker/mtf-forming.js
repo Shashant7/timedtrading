@@ -279,6 +279,10 @@ export function formingPairFloorsEnabled(daCfg) {
     && flagOn(daCfg?.deep_audit_forming_pair_floors);
 }
 
+export function isFormingPairEntryPath(path) {
+  return String(path || "").toLowerCase().startsWith("tt_forming_pair");
+}
+
 const FORMING_PAIR_CONVICTION_FLOOR_DEFAULT = 40;
 const FORMING_PAIR_CONVICTION_FLOOR_HARD_MIN = 35;
 

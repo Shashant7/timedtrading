@@ -9,8 +9,9 @@ import {
   formingPairFloorsEnabled,
   isFormingPairFloorContext,
   applyFormingPairConvictionCarveout,
+  isFormingPairEntryPath,
 } from "./mtf-forming.js";
-import { inferSide } from "./pipeline/trade-context.js";
+import { inferSide, resolveEntryPersistDirection } from "./pipeline/trade-context.js";
 
 function tf({ stDir, stSlope = 0, struct = 0, rsi, cloud }) {
   return {
@@ -256,9 +257,38 @@ describe("inferSide uses the forming pair over BEAR substring", () => {
   it("AAPL dump stays LONG from HTF_BULL (no pair override)", () => {
     expect(inferSide(aaplJuneDump(), "HTF_BULL_LTF_PULLBACK")).toBe("LONG");
   });
+
+  it("persist writes LONG for tt_forming_pair on the live TSLA Aug 13 fill", () => {
+    const t = {
+      ticker: "TSLA",
+      state: "HTF_BEAR_LTF_PULLBACK",
+      htf_score: -10,
+      ltf_score: 15.7,
+      daily_structure: { pct_above_e21: 2.81, e21_slope_5d_pct: 0.2, days_above_e21: 2 },
+      tf_tech: {
+        "10": tf({ stDir: -1 }),
+        "30": tf({ stDir: -1 }),
+        "1H": tf({ stDir: -1 }),
+        "4H": tf({ stDir: -1 }),
+        D: tf({ stDir: 1 }),
+        W: tf({ stDir: 1, stSlope: 0 }),
+      },
+      __entry_path: "tt_forming_pair",
+    };
+    // BEAR substring is the old persist bug — do not use it for this path.
+    expect(String(t.state).includes("BEAR")).toBe(true);
+    expect(resolveEntryPersistDirection(t, "tt_forming_pair")).toBe("LONG");
+    expect(resolveEntryPersistDirection(t, "tt_forming_pair_long")).toBe("LONG");
+  });
 });
 
 describe("flags default ON", () => {
+  it("forming-pair path matcher accepts suffix", () => {
+    expect(isFormingPairEntryPath("tt_forming_pair")).toBe(true);
+    expect(isFormingPairEntryPath("tt_forming_pair_long")).toBe(true);
+    expect(isFormingPairEntryPath("tt_htf_reclaim")).toBe(false);
+  });
+
   it("enabled and entry default true; explicit false kills", () => {
     expect(formingPairEnabled({})).toBe(true);
     expect(formingPairEntryEnabled({})).toBe(true);

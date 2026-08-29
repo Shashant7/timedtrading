@@ -87,11 +87,12 @@ all 14 bars — daily 20/21 cloud still the old color (the turn). Complementary
 LONG now qualifies **before** cloud-bias (`before_bias: true`). Parked daily
 ST is also not `tt_daily_st_conflict` in forming-pair context.
 
-Aug ON v3 still shorted TSLA Aug 13 (`thesis_flip_htf` / `doctrine_force_exit`)
-because a green LTF did not veto a SHORT pair. Follow-up: opposite LTF
-score vetoes the pair; one HTF cue is enough when `|ltf| >= 8`;
-`inferSide(HTF_BEAR_LTF_PULLBACK)` with `ltf > 0` is LONG unless W/M
-slopes against.
+Aug ON v3–v5 still shorted TSLA Aug 13 (`thesis_flip_htf` / `doctrine_force_exit`)
+even after inferSide was LONG on the live fill snapshot (`htf -10`, `ltf +15.7`,
+4H ST bull). The bind was persist, not qualify: `tt_forming_pair` has no
+`long`/`short` suffix, so `processTradeSimulation` used `getTradeDirection(state)`
+(BEAR substring → SHORT). `resolveEntryPersistDirection` now writes inferSide.
+Do not treat another floor tweak as the next step.
 
 ```
 scripts/monthly-slice.sh \

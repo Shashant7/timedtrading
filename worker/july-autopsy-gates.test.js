@@ -308,6 +308,9 @@ describe("G2 location gate (P3)", () => {
       d, daCfg, path: "tt_forming_pair", direction: "LONG", etParts: { hour: 10, minute: 0 },
     })).toBeNull();
     expect(julyAutopsyGateBlock({
+      d, daCfg, path: "tt_forming_pair_long", direction: "LONG", etParts: { hour: 10, minute: 0 },
+    })).toBeNull();
+    expect(julyAutopsyGateBlock({
       d, daCfg, path: "tt_ath_breakout", direction: "LONG", etParts: { hour: 10, minute: 0 },
     })?.reason).toBe("ja_location_premium_adverse_div_block");
   });

@@ -1120,7 +1120,7 @@ import {
   loadFsdRemovedMap,
   fsdRemovalSignal,
 } from "./etf-holdings.js";
-import { buildTradeContext, inferSide } from "./pipeline/trade-context.js";
+import { buildTradeContext, inferSide, resolveEntryPersistDirection, isFormingPairEntryPath } from "./pipeline/trade-context.js";
 import { runUniversalGates } from "./pipeline/gates.js";
 import {
   activityDedupeKey,
@@ -19677,19 +19677,12 @@ async function processTradeSimulation(
     }
     
     // Determine trade direction based on entry path (for mean-reversion entries like gold_short)
-    // or fall back to state-based direction
+    // or inferSide. Do NOT fall back to getTradeDirection(state) first —
+    // HTF_BEAR_LTF_PULLBACK is a LONG turn when LTF is green (TSLA Aug 13).
     let entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
-    const stateDirection = getTradeDirection(tickerData.state); // BULL->LONG, BEAR->SHORT
-    let direction;
-    if (entryPath.includes("mean_revert")) {
-      direction = tickerData?.mean_revert_td9?.direction || "LONG";
-    } else if (entryPath.includes("short")) {
-      direction = "SHORT";
-    } else if (entryPath.includes("long")) {
-      direction = "LONG";
-    } else {
-      direction = stateDirection;
-    }
+    const stateDirection = inferSide(tickerData, String(tickerData?.state || ""))
+      || getTradeDirection(tickerData.state);
+    let direction = resolveEntryPersistDirection(tickerData, entryPath);
     if (!direction) {
       try {
         const _paperDir = resolvePaperFamilyStandaloneEntry(
@@ -19723,7 +19716,8 @@ async function processTradeSimulation(
     const isMeanRevertEntry = entryPath.includes("mean_revert");
     const isPaperFamilyEntry = isPaperFamilyEntryPath(entryPath)
       || tickerData?._sequence_queue_proposal?.paper === true;
-    const hasIntentionalEntryPath = isGoldShortEntry || isGoldLongEntry || isEmaRegimeEntry || isMeanRevertEntry || isPaperFamilyEntry;
+    const isFormingPairEntry = isFormingPairEntryPath(entryPath);
+    const hasIntentionalEntryPath = isGoldShortEntry || isGoldLongEntry || isEmaRegimeEntry || isMeanRevertEntry || isPaperFamilyEntry || isFormingPairEntry;
     
     // Only block direction mismatches for entries WITHOUT a recognized entry path
     // (e.g., momentum/squeeze entries where direction must align with state)
@@ -25674,7 +25668,7 @@ async function processTradeSimulation(
         
         // Determine candidate's direction and sector
         const entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
-        const candidateDir = entryPath.includes("short") ? "SHORT" : "LONG";
+        const candidateDir = resolveEntryPersistDirection(tickerData, entryPath) || "LONG";
         const candidateSector = getSector(sym) || "UNKNOWN";
 
         // Week-calibration entry guards (2026-06-26): repeat churn, range-reversal
