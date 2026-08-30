@@ -106,6 +106,27 @@ function teamJul8BearFade() {
   };
 }
 
+// TEAM Aug 24–25 rip shake: LTF dump-broken (15m+30m bear, RSI
+// not washed) but HTF still +33 and daily 21 +8%. Must HOLD.
+function teamAug24RipShake() {
+  return {
+    ticker: "TEAM",
+    state: "HTF_BULL_LTF_PULLBACK",
+    htf_score: 32.7,
+    ltf_score: -23.7,
+    daily_structure: { pct_above_e21: 8.33, e21_slope_5d_pct: 7.56, days_above_e21: 20 },
+    tf_tech: {
+      "10": tf({ stDir: 1, stSlope: -1, struct: -0.6 }),
+      "15": tf({ stDir: 1, stSlope: -1, struct: -1, rsi: 40 }),
+      "30": tf({ stDir: 1, stSlope: -1, struct: -1, rsi: 38 }),
+      "1H": tf({ stDir: 1, struct: -0.4 }),
+      "4H": tf({ stDir: -1, stSlope: 1, struct: 0.4 }),
+      D: tf({ stDir: -1, stSlope: 1, struct: 0.5 }),
+      W: tf({ stDir: -1, stSlope: 1 }),
+    },
+  };
+}
+
 // TEAM Aug shake: HTF still formed, LTF no longer constructing
 // (the -2% day-trade fuse that used to flatten before Trend-Hold's
 // 5% MFE promote). Not dump-broken.
@@ -408,8 +429,20 @@ describe("forming-pair hold winners (Trend-Hold lesson, no 5% promote)", () => {
     }).defer).toBe(true);
   });
 
+  it("holds TEAM Aug 24 rip shake even though LTF is dump-broken", () => {
+    const t = teamAug24RipShake();
+    expect(resolveLtfForming(t, "LONG").broken).toBe(true);
+    expect(resolveHtfForming(t, "LONG").formed).toBe(true);
+    expect(formingPairStructureHolds(t, "LONG")).toBe(true);
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "max_loss", pnlPct: -2.31, direction: "LONG",
+    }).defer).toBe(true);
+  });
+
   it("does not defer AAPL June dump when LTF is broken", () => {
     const t = aaplJuneDump();
+    expect(resolveLtfForming(t, "LONG").broken).toBe(true);
+    expect(t.daily_structure.pct_above_e21).toBeLessThan(-0.15);
     expect(formingPairStructureHolds(t, "LONG")).toBe(false);
     expect(shouldDeferFormingPairExit({
       trade, tickerData: t, daCfg: daOn, reason: "max_loss", pnlPct: -2.1, direction: "LONG",

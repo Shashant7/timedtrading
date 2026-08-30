@@ -327,20 +327,25 @@ export function isFormingPairOpenTrade(trade) {
 }
 
 /**
- * HTF still with the long and LTF is not dump-broken.
+ * HTF still with the long. LTF dump-broken only kills the hold
+ * when the slow clock has also lost the daily 21 (AAPL June).
  *
- * Complementary is enough. HTF already formed is also enough even
- * when LTF is no longer "forming" — that is the TEAM Aug 3/7/24
- * -2% shake that used to flatten on max_loss before Trend-Hold's
- * 5% MFE promote could fire.
+ * TEAM Aug 24–25 printed LTF −24 / 15m+30m bear on a −2.3% shake
+ * while HTF was +33 and daily 21 was +8% / +7.5% slope. Treating
+ * that as `ltf.broken` flattened a rip that then ran 168 → 190.
  */
 export function formingPairStructureHolds(d, side = "LONG") {
   if (!d || side !== "LONG") return false;
-  const ltf = resolveLtfForming(d, side);
-  if (ltf.broken) return false;
   const htf = resolveHtfForming(d, side);
   if (htf.wm_against) return false;
-  if (htf.formed || htf.forming) return true;
+  const ds = d?.daily_structure || {};
+  const pctE21 = Number(ds.pct_above_e21);
+  const e21Lost = Number.isFinite(pctE21) && pctE21 < -0.15;
+  const htfWith = htf.formed
+    || (Number.isFinite(Number(d?.htf_score)) && Number(d.htf_score) > 0 && !e21Lost);
+  const ltf = resolveLtfForming(d, side);
+  if (ltf.broken && (e21Lost || !htfWith)) return false;
+  if (htfWith || htf.forming) return true;
   const pair = d?._mtf_forming?.complementary
     ? d._mtf_forming
     : resolveFormingPair(d, { side });

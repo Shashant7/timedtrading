@@ -119,6 +119,12 @@ Zero shorts. Same three canaries, fewer TEAM chops:
 
 Book realized ~+$297 (v6 was +$409 because it re-entered after those max_loss cuts and harvested 1H tops). TEAM realized +$193 vs +$39. Do not enable global Trend-Hold. Do not deploy this hold-winners revision to production until the operator signs off — live already has the persist-only build.
 
+### TEAM Aug 24 autopsy (v7 → v8)
+
+Exit bar (2026-08-25 17:00, `max_loss` −2.31% @ 167.74): `HTF_BULL_LTF_PULLBACK`, **HTF +32.7**, LTF −23.7, daily 21 **+8.33% / +7.56% slope**. Next fill Aug 26 @ 168.26 rode to 190.
+
+`ltfBrokenBoth` (15m+30m bear, RSI not washed) treated that shake like AAPL June. Hold now lets LTF-broken through when HTF is still with the long and the daily 21 is not lost. AAPL June stays dead (`pct_above_e21` −1.8).
+
 ```
 scripts/monthly-slice.sh \
   --month=2026-07 \
