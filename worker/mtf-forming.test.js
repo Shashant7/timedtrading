@@ -67,6 +67,33 @@ function aaplJuneDump() {
   };
 }
 
+// AAPL Aug 6 after Jul 30 earnings (333→309): HTF still green, LTF
+// bouncing, but still 2% below a declining daily 21. Failed cross.
+function aaplAug6FailedD21() {
+  return {
+    ticker: "AAPL",
+    state: "HTF_BULL_LTF_BULL",
+    htf_score: 17.1,
+    ltf_score: 20.1,
+    daily_structure: {
+      px: 312.41,
+      e21: 318.79,
+      pct_above_e21: -2,
+      e21_slope_5d_pct: -1.78,
+      days_above_e21: 0,
+    },
+    tf_tech: {
+      "10": tf({ stDir: -1, stSlope: 1, struct: 0.4, cloud: { bull: true, above: true, fastSlope: 1 } }),
+      "15": tf({ stDir: -1, struct: 0.2, rsi: 48 }),
+      "30": tf({ stDir: -1, stSlope: 1, struct: 0.3 }),
+      "1H": tf({ stDir: -1, struct: 0.2 }),
+      "4H": tf({ stDir: -1, stSlope: 1, struct: 0.3 }),
+      D: tf({ stDir: -1, stSlope: 0, struct: 0.2 }),
+      W: tf({ stDir: -1, stSlope: 1 }),
+    },
+  };
+}
+
 // Valid AAPL long (not the June dump): HTF formed, LTF constructing.
 function aaplValidLong() {
   return {
@@ -239,6 +266,23 @@ describe("resolveFormingPair", () => {
     expect(htf.forming).toBe(true);
     expect(resolveFormingPair(t).complementary).toBe(true);
     expect(resolveFormingPair(t).side).toBe("LONG");
+  });
+
+  it("AAPL Aug 6 failed D21 cross after earnings is not complementary", () => {
+    const t = aaplAug6FailedD21();
+    expect(resolveLtfForming(t, "LONG").forming).toBe(true);
+    expect(resolveHtfForming(t, "LONG").formed).toBe(true);
+    const p = resolveFormingPair(t);
+    expect(p.complementary).toBe(false);
+    expect(p.reason).toBe("below_d21");
+  });
+
+  it("a poke at the 21 (pct −0.10) is still complementary", () => {
+    const t = aaplAug6FailedD21();
+    t.daily_structure = { ...t.daily_structure, pct_above_e21: -0.10, e21: 312.5 };
+    const p = resolveFormingPair(t);
+    expect(p.complementary).toBe(true);
+    expect(p.side).toBe("LONG");
   });
 
   it("stretch chase (far above 21, days>5, HTF not formed) is not complementary", () => {
@@ -437,6 +481,14 @@ describe("forming-pair hold winners (Trend-Hold lesson, no 5% promote)", () => {
     expect(shouldDeferFormingPairExit({
       trade, tickerData: t, daCfg: daOn, reason: "max_loss", pnlPct: -2.31, direction: "LONG",
     }).defer).toBe(true);
+  });
+
+  it("does not hold AAPL Aug 6 once the daily 21 is lost", () => {
+    const t = aaplAug6FailedD21();
+    expect(formingPairStructureHolds(t, "LONG")).toBe(false);
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "doctrine_force_exit", pnlPct: -1.8, direction: "LONG",
+    }).defer).toBe(false);
   });
 
   it("does not defer AAPL June dump when LTF is broken", () => {

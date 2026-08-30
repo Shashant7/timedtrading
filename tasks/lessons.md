@@ -6,6 +6,25 @@
 
 ---
 
+## Forming-pair LONG below the daily 21 is a failed reclaim [2026-08-30]
+
+**Symptom:** After #1385 deferred Phase-I / bias-flip, AAPL Aug 6 still
+lost −$160 on `doctrine_force_exit`. Operator: earnings Jul 30 dumped
+333→309; Aug 6 tried to cross the daily 21 and failed.
+
+**Cause:** HTF score stayed +17 (D/W ST still bull from the ATH) and LTF
+bounced to +20 at 312 vs e21 319 (pct −2, slope −1.8). Forming-pair
+treated that as TEAM continuation. It is a dead-cat into a declining 21
+after an air-pocket. First real reclaim was Aug 18 (pct +0.16).
+
+**Fix:** Reject complementary LONG when `pct_above_e21 < -0.15`. Hold
+dies on a lost 21 even if `htf.formed` is still true. TSLA Aug 13
+(pct +0.35) and TEAM above-21 continuation stay.
+
+**Do not:** require an earnings calendar (the 21 already knows); drop
+the −0.15 poke band (a tag at the line is the TSLA reclaim); enable
+global Trend-Hold.
+
 ## Forming-pair must hold winners, not just enter them [2026-08-30]
 
 **Symptom:** Aug ON v6 finally opened TEAM/TSLA/AAPL as forming-pair

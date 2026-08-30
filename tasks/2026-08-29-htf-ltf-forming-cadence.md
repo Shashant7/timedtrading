@@ -173,6 +173,49 @@ in the set; that stamp is a +$122 win). TEAM leftover SL after 85–90%
 trim is profit-lock, leave it. Next-in-line after this slice is thinner;
 do not chase global Trend-Hold.
 
+### AAPL Aug 6 was a failed D21 cross after earnings (v10)
+
+Jul 30 earnings dumped AAPL 333 → 309 and lost the daily 21 (e21 was
+~321). Aug 6 printed HTF +17 / LTF +20 at **312 vs e21 319** (pct −2,
+slope −1.8). Forming-pair treated stale D/W ST as TEAM continuation and
+bought the bounce into the 21. It never crossed. Doctrine cut Aug 10 at
+306 (−$160). First actual reclaim was Aug 18 (px 310.03 / e21 309.55,
+pct +0.16).
+
+`resolveFormingPair` now rejects LONG when `pct_above_e21 < -0.15`
+(`below_d21`). `formingPairStructureHolds` also returns false on a lost
+21, even if `htf.formed` is still true. TSLA Aug 13 (pct +0.35) and TEAM
+above-21 continuation stay. A poke at the line (pct −0.10) still
+qualifies. Missing pct does not block.
+
+Collateral on the August tape: Aug 4 bounce at −3.4% (the +$122
+SMART_RUNNER scalp) and Aug 13 at −1.9% also sit below the 21 and will
+drop. Same movie — post-earnings bounce under a declining 21.
+
+### August ON v10 (below-D21 reject, preprod `3ad00217`)
+
+Same 30m TEAM/TSLA/AAPL window. 12 trades vs v9's 15. Zero shorts.
+`PHASE_LEAVE` still fires. AAPL Aug 6 never qualified (conviction floor
+after the pair went `below_d21`).
+
+| | v9 | **v10** |
+|---|---|---|
+| AAPL Aug 4 @ 305.53 | SMART_RUNNER **+$122** | gone (pct −3.4, same post-earnings bounce) |
+| AAPL Aug 6 @ 312.14 | doctrine **−$160** | **gone** (px 312 / e21 319) |
+| AAPL Aug 13 @ 304.84 | thesis_flip −$21 | gone (pct −1.9) |
+| AAPL Aug 18 | +$17 first reclaim | **+$20** first reclaim (pct +0.16) |
+| TEAM Aug 24 @ 171.71 | +$1,167 to 190 | **+$1,168** same hold |
+| TSLA Aug 13 | +$285 `PHASE_LEAVE` | **+$286** |
+| Book realized | +$774 | **+$836** |
+| Open mark | +$1,375 | **+$1,375** |
+| TEAM realized / open | +$402 / +$1,167 | +$402 / +$1,168 |
+| AAPL realized / open | −$62 / +$208 | **−$1** / +$208 |
+| TSLA realized | +$434 | **+$434** |
+
+Canaries intact. AAPL Aug 24 `thesis_flip` −$43 still fires — that bar
+is at the 21 (pct −0.08), inside the poke band. Leave it. Do not enable
+global Trend-Hold. Do not deploy to production until signed off.
+
 ```
 scripts/monthly-slice.sh \
   --month=2026-07 \
