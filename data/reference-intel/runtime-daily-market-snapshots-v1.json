@@ -4419,13 +4419,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 6.0086
+        "sql_duration_ms": 5.3632
       },
-      "duration": 6.0086,
+      "duration": 5.3632,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4631363584,
+      "size_after": 4440969216,
       "rows_read": 294,
       "rows_written": 0,
       "total_attempts": 1
