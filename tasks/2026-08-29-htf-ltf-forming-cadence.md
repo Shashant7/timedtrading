@@ -125,6 +125,18 @@ Exit bar (2026-08-25 17:00, `max_loss` −2.31% @ 167.74): `HTF_BULL_LTF_PULLBAC
 
 `ltfBrokenBoth` (15m+30m bear, RSI not washed) treated that shake like AAPL June. Hold now lets LTF-broken through when HTF is still with the long and the daily 21 is not lost. AAPL June stays dead (`pct_above_e21` −1.8).
 
+### August ON v8 (Aug 24 shake hold, preprod `90a2ca08`)
+
+TEAM Aug 24 @ 171.71 is no longer `max_loss`. Held through MAE −4.5%, 50% trim @ 177.62, `replay_end_close` @ 190.37 **+$1,164** (+12.9%, MFE 13.5%). The Aug 26 re-entry at 168 is gone — one position rode the rest of the rip.
+
+| Ticker | n | Realized $ | Open mark $ | Note |
+|---|---|---|---|---|
+| TEAM | 4 | +402 | +1,164 | Aug 3/7 same-day max_loss still gone. Aug 24 hold is the new mark. |
+| TSLA | 6 | −52 | 0 | Aug 13 `PHASE_LEAVE` +$285 intact. Aug 25 then died `phase_i_mfe_cut_8h` −$233 (v7 was a scratch POST_TRIM). |
+| AAPL | 7 | −83 | +207 | Unchanged vs v7. |
+
+Book realized ~+$268 / open ~+$1,370. TEAM total (realized+open) **+$1,566** vs v7 +$1,051. Zero shorts. Do not enable global Trend-Hold. Do not deploy to production until the operator signs off.
+
 ```
 scripts/monthly-slice.sh \
   --month=2026-07 \
