@@ -107,6 +107,18 @@ Book realized ~+$409; open mark ~+$1,065.
 
 **Management (hold winners, this slice):** TEAM Aug 3/7/24 were `max_loss` same-day −2%; Aug 10/18 were `RUNNER_TOP_FORMATION_1H` flatten at +3.5/+4.6%. The Aug 26 hold (`replay_end_close` +16% @ 190.37) is the proof. Forming-pair LONGs now defer those day-trade fuses (plus doctrine / thesis flip / parked daily `ema_regime_reversed` / Trend-Hold giveback set) while HTF structure holds. 1H runner-top trims instead of flattening. Catastrophe floor stays −6%. `PHASE_LEAVE*` still fires (TSLA Aug 13 +$284). Do not enable global `deep_audit_trend_hold_enabled`. Flag: `deep_audit_forming_pair_hold_winners` (default ON). Identity is the ticket `entry_path`.
 
+### August ON v7 (hold-winners, preprod `8f3021cb`)
+
+Zero shorts. Same three canaries, fewer TEAM chops:
+
+| Ticker | n | Realized $ | Open mark $ | What changed vs v6 |
+|---|---|---|---|---|
+| TEAM | 5 | +193 | +857 (Aug 26 @ 168.26 → 190.37) | Aug 3 held 3d, 85% trim @ 109.70, leftover SL **+$194** (was same-day `max_loss` −$157). Aug 7 held 11d, MFE 13.5%, 90% trim @ 166.44, leftover SL **+$214** (was same-day `max_loss` −$213). Aug 24 `max_loss` still fired (structure said no). |
+| TSLA | 5 | +186 | 0 | **Aug 13 14:30 LONG @ 333.69, +$285 `PHASE_LEAVE_100`**. Aug 17 `ema_regime_reversed` deferred; `bias_flip_full_bear_vs_long` took the next exit. |
+| AAPL | 7 | −83 | +207 | Doctrine deferred on Aug 6; `phase_i_mfe_cut_8h` then cut −$180. |
+
+Book realized ~+$297 (v6 was +$409 because it re-entered after those max_loss cuts and harvested 1H tops). TEAM realized +$193 vs +$39. Do not enable global Trend-Hold. Do not deploy this hold-winners revision to production until the operator signs off — live already has the persist-only build.
+
 ```
 scripts/monthly-slice.sh \
   --month=2026-07 \
