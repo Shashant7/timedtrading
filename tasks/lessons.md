@@ -22,8 +22,10 @@ not dump-broken. 1H runner-top trims. Hard floor −6%. Ticket identity
 only. `PHASE_LEAVE*` still exits.
 
 **Do not:** flip `deep_audit_trend_hold_enabled`, drop the global 60
-accumulate floor, or defer AAPL-June `ltf.broken` dumps / TEAM Jul 8
-SHORT fades.
+accumulate floor, or defer AAPL-June dumps (LTF broken **and** daily
+21 lost) / TEAM Jul 8 SHORT fades. LTF-broken alone is a shake when
+HTF is still formed and the 21 is holding (TEAM Aug 24–25: LTF −24,
+HTF +33, 21 +8%, then 168 → 190).
 
 ## Health ops: universe thin gaps, fundamentals TTL, watchdog, reference-intel [2026-08-28]
 
