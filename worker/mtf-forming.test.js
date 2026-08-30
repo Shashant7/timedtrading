@@ -456,6 +456,29 @@ describe("forming-pair hold winners (Trend-Hold lesson, no 5% promote)", () => {
     }).defer).toBe(false);
   });
 
+  it("defers the next-in-line Phase-I 8h cut and full bias flip", () => {
+    const t = teamJulRip();
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "phase_i_mfe_cut_8h", pnlPct: -2.0, direction: "LONG",
+    }).defer).toBe(true);
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "phase_i_mfe_dead_money_24h", pnlPct: -1.2, direction: "LONG",
+    }).defer).toBe(true);
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "bias_flip_full_bear_vs_long", pnlPct: -0.63, direction: "LONG",
+    }).defer).toBe(true);
+  });
+
+  it("does not defer Phase-I / bias flip on AAPL June or a Jul 8 SHORT fade", () => {
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: aaplJuneDump(), daCfg: daOn, reason: "phase_i_mfe_cut_8h", pnlPct: -2.0, direction: "LONG",
+    }).defer).toBe(false);
+    expect(formingPairStructureHolds(teamJul8BearFade(), "LONG")).toBe(false);
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: teamJul8BearFade(), daCfg: daOn, reason: "bias_flip_full_bear_vs_long", pnlPct: -1, direction: "LONG",
+    }).defer).toBe(false);
+  });
+
   it("does not defer PHASE_LEAVE (the TSLA Aug 13 winner exit)", () => {
     const t = tslaAug13();
     expect(shouldDeferFormingPairExit({

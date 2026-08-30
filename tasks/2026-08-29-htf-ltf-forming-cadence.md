@@ -135,7 +135,17 @@ TEAM Aug 24 @ 171.71 is no longer `max_loss`. Held through MAE −4.5%, 50% trim
 | TSLA | 6 | −52 | 0 | Aug 13 `PHASE_LEAVE` +$285 intact. Aug 25 then died `phase_i_mfe_cut_8h` −$233 (v7 was a scratch POST_TRIM). |
 | AAPL | 7 | −83 | +207 | Unchanged vs v7. |
 
-Book realized ~+$268 / open ~+$1,370. TEAM total (realized+open) **+$1,566** vs v7 +$1,051. Zero shorts. Do not enable global Trend-Hold. Do not deploy to production until the operator signs off.
+Book realized ~+$268 / open ~+$1,370. TEAM total (realized+open) **+$1,566** vs v7 +$1,051. Zero shorts. Do not enable global Trend-Hold.
+
+### Next-in-line fuses (v9)
+
+After doctrine / `ema_regime` defer, the day-trade clock took the trade:
+
+- AAPL Aug 6 `phase_i_mfe_cut_8h` −$180
+- TSLA Aug 17 `bias_flip_full_bear_vs_long` −$92
+- TSLA Aug 25 `phase_i_mfe_cut_8h` −$233
+
+Whole `phase_i_mfe_*` family + `bias_flip_full_bear_vs_long` now defer while forming-pair structure holds. AAPL June and TEAM Jul 8 SHORT fade stay dead (structure false). `PHASE_LEAVE*` still fires.
 
 ```
 scripts/monthly-slice.sh \

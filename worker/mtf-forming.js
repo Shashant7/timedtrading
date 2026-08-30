@@ -311,7 +311,21 @@ const FORMING_PAIR_DEFERRED_EXITS = new Set([
   "ST_FLIP_4H_CLOSE",
   "st_flip_4h_close",
   "ripster_72_89_1h_structural_break",
+  // Next-in-line after doctrine / ema_regime defer (Aug ON v7–v8).
+  "phase_i_mfe_fast_cut_zero_mfe",
+  "phase_i_mfe_fast_cut_2h",
+  "phase_i_mfe_cut_4h",
+  "phase_i_mfe_cut_8h",
+  "phase_i_mfe_dead_money_24h",
+  "phase_i_mfe_stale_72h",
+  "bias_flip_full_bear_vs_long",
 ]);
+
+function isDeferredFormingPairReason(why) {
+  if (FORMING_PAIR_DEFERRED_EXITS.has(why)) return true;
+  // Whole Phase-I MFE clock is a day-trade fuse on a swing.
+  return why.startsWith("phase_i_mfe_");
+}
 
 export function isFormingPairOpenTrade(trade) {
   if (!trade || typeof trade !== "object") return false;
@@ -373,7 +387,7 @@ export function shouldDeferFormingPairExit({
     return { defer: false, reason: "not_forming_pair" };
   }
   const why = String(reason || "");
-  if (!FORMING_PAIR_DEFERRED_EXITS.has(why)) {
+  if (!isDeferredFormingPairReason(why)) {
     return { defer: false, reason: "reason_not_deferred" };
   }
   const hardRaw = Number(daCfg?.deep_audit_forming_pair_hard_floor_pct);
