@@ -6,6 +6,8 @@
 // dies on HTF *color*. Result: TSLA Aug 13 (LTF +13 / HTF −10, 4H ST
 // bull, daily 21 reclaim) never became a long; TEAM sat HTF_BULL_LTF_BULL
 // with no continuation play; AAPL June gold-long shape bought the dump.
+// AAPL Aug 6 bought a post-earnings bounce into a declining daily 21
+// (px 312 / e21 319) because HTF was still green — that is `below_d21`.
 //
 // This module does not replace the 2×2. It adds a forming pair:
 //   LTF  (fast: 10m / 30m / 1H)  — constructing
@@ -232,6 +234,17 @@ export function resolveFormingPair(t, opts = {}) {
     const htf = resolveHtfForming(t, side);
     if (!ltf.forming) return { ok: false, ltf, htf, reason: "ltf_not_forming" };
     if (htf.wm_against) return { ok: false, ltf, htf, reason: "htf_wm_against" };
+    // AAPL Jul 30 earnings dumped 333→309 and lost the daily 21. Aug 6
+    // printed HTF +17 / LTF +20 at 312 vs e21 319 (pct −2, slope −1.8).
+    // That is a failed cross into a declining 21, not TEAM continuation.
+    // Stale D/W ST after an air-pocket is not `formed`. TSLA Aug 13
+    // reclaim was already above (pct +0.35). Missing pct does not block.
+    if (side === "LONG") {
+      const pctE21 = Number(t?.daily_structure?.pct_above_e21);
+      if (Number.isFinite(pctE21) && pctE21 < -0.15) {
+        return { ok: false, ltf, htf, reason: "below_d21" };
+      }
+    }
     if (!(htf.forming || htf.formed)) return { ok: false, ltf, htf, reason: "htf_not_forming" };
     if (stretchChase(t, side, htf)) return { ok: false, ltf, htf, reason: "htf_stretch_chase" };
     const mode = htf.formed && Number(t?.htf_score) * (side === "LONG" ? 1 : -1) > 0
@@ -355,8 +368,11 @@ export function formingPairStructureHolds(d, side = "LONG") {
   const ds = d?.daily_structure || {};
   const pctE21 = Number(ds.pct_above_e21);
   const e21Lost = Number.isFinite(pctE21) && pctE21 < -0.15;
+  // Lost the daily 21 — stale D/W ST after an earnings air-pocket
+  // (AAPL Aug 6) is not a hold, even when htf.formed is still true.
+  if (e21Lost) return false;
   const htfWith = htf.formed
-    || (Number.isFinite(Number(d?.htf_score)) && Number(d.htf_score) > 0 && !e21Lost);
+    || (Number.isFinite(Number(d?.htf_score)) && Number(d.htf_score) > 0);
   const ltf = resolveLtfForming(d, side);
   if (ltf.broken && (e21Lost || !htfWith)) return false;
   if (htfWith || htf.forming) return true;
