@@ -25,7 +25,11 @@ only. `PHASE_LEAVE*` still exits.
 accumulate floor, or defer AAPL-June dumps (LTF broken **and** daily
 21 lost) / TEAM Jul 8 SHORT fades. LTF-broken alone is a shake when
 HTF is still formed and the 21 is holding (TEAM Aug 24–25: LTF −24,
-HTF +33, 21 +8%, then 168 → 190).
+HTF +33, 21 +8%, then 168 → 190). After doctrine / `ema_regime` defer,
+the next flatteners were `phase_i_mfe_*` and `bias_flip_full_bear_vs_long`
+(AAPL Aug 6, TSLA Aug 17/25). Those clocks now defer too. Aug ON v9:
+book realized +$774; TSLA +$434. AAPL Aug 6 still lost on doctrine
+after the 21 failed — that is the floor, not a new fuse to chase.
 
 ## Health ops: universe thin gaps, fundamentals TTL, watchdog, reference-intel [2026-08-28]
 

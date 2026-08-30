@@ -135,7 +135,43 @@ TEAM Aug 24 @ 171.71 is no longer `max_loss`. Held through MAE −4.5%, 50% trim
 | TSLA | 6 | −52 | 0 | Aug 13 `PHASE_LEAVE` +$285 intact. Aug 25 then died `phase_i_mfe_cut_8h` −$233 (v7 was a scratch POST_TRIM). |
 | AAPL | 7 | −83 | +207 | Unchanged vs v7. |
 
-Book realized ~+$268 / open ~+$1,370. TEAM total (realized+open) **+$1,566** vs v7 +$1,051. Zero shorts. Do not enable global Trend-Hold. Do not deploy to production until the operator signs off.
+Book realized ~+$268 / open ~+$1,370. TEAM total (realized+open) **+$1,566** vs v7 +$1,051. Zero shorts. Do not enable global Trend-Hold.
+
+### Next-in-line fuses (v9)
+
+After doctrine / `ema_regime` defer, the day-trade clock took the trade:
+
+- AAPL Aug 6 `phase_i_mfe_cut_8h` −$180
+- TSLA Aug 17 `bias_flip_full_bear_vs_long` −$92
+- TSLA Aug 25 `phase_i_mfe_cut_8h` −$233
+
+Whole `phase_i_mfe_*` family + `bias_flip_full_bear_vs_long` now defer while forming-pair structure holds. AAPL June and TEAM Jul 8 SHORT fade stay dead (structure false). `PHASE_LEAVE*` still fires.
+
+### August ON v9 (Phase-I + bias-flip defer, preprod)
+
+Same 30m TEAM/TSLA/AAPL window. 15 trades vs v8's 17. Zero shorts.
+`PHASE_LEAVE` still fires.
+
+| | v8 | **v9** |
+|---|---|---|
+| AAPL Aug 6 @ 312.14 | `phase_i_mfe_cut_8h` −$180 @ 305.90 | held, then `doctrine_force_exit` **−$160** @ 306.61 (structure eventually failed — doctrine is already deferred, so the 21 was lost) |
+| TSLA Aug 17 @ 339.77 | `bias_flip_full_bear_vs_long` −$92 | **+$123** `PROFIT_GIVEBACK_STAGE_HOLD` (MFE 3.28%, 50% trim) |
+| TSLA Aug 25 @ 352.78 | `phase_i_mfe_cut_8h` −$233 | scratch `POST_TRIM_ENTRY_FLOOR` **+$7** through Aug 28 (MAE −2.59%) |
+| TEAM Aug 24 @ 171.71 | +$1,164 to 190 | **+$1,167** same hold |
+| TSLA Aug 13 | +$285 `PHASE_LEAVE` | **+$285** |
+| Book realized | +$268 | **+$774** |
+| Open mark | +$1,370 | **+$1,375** |
+| TEAM realized / open | +$402 / +$1,164 | +$402 / +$1,167 |
+| AAPL realized / open | −$83 / +$207 | **−$62** / +$208 |
+| TSLA realized | −$52 | **+$434** |
+
+Honest remaining: AAPL Aug 6 still lost (−$160 doctrine after Phase-I
+defer — that is the structure floor doing its job). AAPL `thesis_flip_htf`
+still fires twice (already in the defer set → structure said no).
+`SMART_RUNNER_SUPPORT_BREAK_CLOUD` still takes AAPL Aug 4 at +1% (already
+in the set; that stamp is a +$122 win). TEAM leftover SL after 85–90%
+trim is profit-lock, leave it. Next-in-line after this slice is thinner;
+do not chase global Trend-Hold.
 
 ```
 scripts/monthly-slice.sh \

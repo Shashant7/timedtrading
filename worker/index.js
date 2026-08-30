@@ -11609,9 +11609,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // ticker's personality wants more breathing room.
           if (!_isPrecisionETF && !tickerData?.__v12_winner_protect_active && !_runnerProtectActive && !_loop3SkipFastCut &&
               _agH >= _p1MinAgeHours && _agH < 8 && pnlPct <= -1.0 && _mfeAbs < 0.3 && _maeAbs >= _p1MaxMaePct) {
+            if (!deferFormingPairDayTradeExit(tickerData, openPosition, "phase_i_mfe_fast_cut_zero_mfe", pnlPct, direction)) {
             tickerData.__exit_reason = "phase_i_mfe_fast_cut_zero_mfe";
             tickerData.__exit_family = "safety";
             return "exit";
+            }
           }
           // Tier 1: fastest — no commitment within 2-4h, already in red.
           // 2026-06-13 (Part 4, finding 3): the 2h checkpoint had the worst
@@ -11626,22 +11628,28 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             tickerData?._env?._deepAuditConfig?.deep_audit_phase_i_fast_cut_tier1_max_age_h ?? 4
           );
           if (!_loop3SkipFastCut && _agH >= _ftCutT1Min && _agH < _ftCutT1Max && pnlPct <= -0.8 && _mfeAbs < 0.3) {
+            if (!deferFormingPairDayTradeExit(tickerData, openPosition, "phase_i_mfe_fast_cut_2h", pnlPct, direction)) {
             tickerData.__exit_reason = "phase_i_mfe_fast_cut_2h";
             tickerData.__exit_family = "safety";
             return "exit";
+            }
           }
           // Tier 2: 4h checkpoint (now overlaps with Tier 0 at >=4 <8, either
           // wins on pnl/MFE criteria; no boundary gap)
           if (!_loop3SkipFastCut && _agH >= 4 && _agH < 8 && pnlPct <= -1.5 && _mfeAbs < 0.5) {
+            if (!deferFormingPairDayTradeExit(tickerData, openPosition, "phase_i_mfe_cut_4h", pnlPct, direction)) {
             tickerData.__exit_reason = "phase_i_mfe_cut_4h";
             tickerData.__exit_family = "safety";
             return "exit";
+            }
           }
           // Tier 3: 8h — sustained underwater, no rally
           if (!_loop3SkipFastCut && _agH >= 8 && _agH < 24 && pnlPct <= -2.0 && _mfeAbs < 0.8) {
+            if (!deferFormingPairDayTradeExit(tickerData, openPosition, "phase_i_mfe_cut_8h", pnlPct, direction)) {
             tickerData.__exit_reason = "phase_i_mfe_cut_8h";
             tickerData.__exit_family = "safety";
             return "exit";
+            }
           }
           // Tier 4: 24h — dead money
           //
@@ -11684,10 +11692,12 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               // V15 P0.7.27: runner-protect-active fully skips this tier.
               if (!_runnerProtectActive
                   && _agH >= _deadMoneyGraceH && _agH < 72 && pnlPct < 0 && _mfeAbs < 1.5) {
+                if (!deferFormingPairDayTradeExit(tickerData, openPosition, "phase_i_mfe_dead_money_24h", pnlPct, direction)) {
                 tickerData.__exit_reason = "phase_i_mfe_dead_money_24h";
                 tickerData.__exit_family = "safety";
                 tickerData.__exit_meta = { age_h: _agH, struct_intact: _structIntactGracePassed };
                 return "exit";
+                }
               }
             }
           }
@@ -11696,9 +11706,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           // (MU 2026-06-06: +15% pnl but mfe=null → false stale_72h exit).
           const _mfeEffective = Math.max(_mfeAbs, Math.max(0, pnlPct));
           if (_agH >= 72 && _mfeEffective < 1.5) {
+            if (!deferFormingPairDayTradeExit(tickerData, openPosition, "phase_i_mfe_stale_72h", pnlPct, direction)) {
             tickerData.__exit_reason = "phase_i_mfe_stale_72h";
             tickerData.__exit_family = "safety";
             return "exit";
+            }
           }
         }
       }
@@ -13320,9 +13332,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         return "exit";
       }
       if (direction === "LONG" && bfHtfBear && bfLtfBear) {
+        if (!deferFormingPairDayTradeExit(tickerData, openPosition, "bias_flip_full_bear_vs_long", pnlPct, direction)) {
         tickerData.__exit_reason = "bias_flip_full_bear_vs_long";
         console.log(`[BIAS FLIP EXIT] ${tickerData?.ticker}: LONG position (${Math.round(positionAgeMin)}m old) but state is ${bfState} (full bearish). pdz=${_pdzZone}`);
         return "exit";
+        }
       }
     }
 
