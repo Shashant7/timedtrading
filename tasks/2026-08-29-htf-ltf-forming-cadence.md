@@ -103,7 +103,9 @@ Zero shorts. Canaries all LONG `tt_forming_pair`:
 | TSLA | 5 | +244 | 0 | **Aug 13 14:30 LONG @ 333.69, +$284** (was SHORT in v3–v5). Aug 10 also LONG @ 329.66. |
 | AAPL | 7 | +126 | +207 | Complementary longs; no dump shape in August |
 
-Book realized ~+$409; open mark ~+$1,065. Management (early TEAM exits vs the full rip) is still out of scope.
+Book realized ~+$409; open mark ~+$1,065.
+
+**Management (hold winners, this slice):** TEAM Aug 3/7/24 were `max_loss` same-day −2%; Aug 10/18 were `RUNNER_TOP_FORMATION_1H` flatten at +3.5/+4.6%. The Aug 26 hold (`replay_end_close` +16% @ 190.37) is the proof. Forming-pair LONGs now defer those day-trade fuses (plus doctrine / thesis flip / parked daily `ema_regime_reversed` / Trend-Hold giveback set) while HTF structure holds. 1H runner-top trims instead of flattening. Catastrophe floor stays −6%. `PHASE_LEAVE*` still fires (TSLA Aug 13 +$284). Do not enable global `deep_audit_trend_hold_enabled`. Flag: `deep_audit_forming_pair_hold_winners` (default ON). Identity is the ticket `entry_path`.
 
 ```
 scripts/monthly-slice.sh \

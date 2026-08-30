@@ -283,6 +283,107 @@ export function isFormingPairEntryPath(path) {
   return String(path || "").toLowerCase().startsWith("tt_forming_pair");
 }
 
+export function formingPairHoldEnabled(daCfg) {
+  return formingPairEntryEnabled(daCfg)
+    && flagOn(daCfg?.deep_audit_forming_pair_hold_winners);
+}
+
+const FORMING_PAIR_HARD_FLOOR_DEFAULT = -6;
+
+const FORMING_PAIR_DEFERRED_EXITS = new Set([
+  "max_loss",
+  "max_loss_time_scaled",
+  "max_loss_pdz_window_expired",
+  "max_loss_momentum_buffered",
+  "max_loss_time_scaled_momentum_buffered",
+  "RUNNER_TOP_FORMATION_1H",
+  "doctrine_force_exit",
+  "thesis_flip_htf",
+  "ema_regime_reversed",
+  // Trend-Hold suppress list — applied from bar 1 (no 5% MFE promote).
+  "HARD_FUSE_RSI_EXTREME",
+  "hard_fuse_rsi_extreme",
+  "PROFIT_GIVEBACK",
+  "PROFIT_GIVEBACK_STAGE_HOLD",
+  "PROFIT_GIVEBACK_COOLING_HOLD",
+  "SMART_RUNNER_SUPPORT_BREAK_CLOUD",
+  "mfe_decay_structural_flatten",
+  "ST_FLIP_4H_CLOSE",
+  "st_flip_4h_close",
+  "ripster_72_89_1h_structural_break",
+]);
+
+export function isFormingPairOpenTrade(trade) {
+  if (!trade || typeof trade !== "object") return false;
+  const path = String(
+    trade.entry_path
+    || trade.entryPath
+    || trade.__entry_path
+    || trade.__tradeRef?.entry_path
+    || trade.__tradeRef?.entryPath
+    || "",
+  );
+  return isFormingPairEntryPath(path);
+}
+
+/**
+ * HTF still with the long and LTF is not dump-broken.
+ *
+ * Complementary is enough. HTF already formed is also enough even
+ * when LTF is no longer "forming" — that is the TEAM Aug 3/7/24
+ * -2% shake that used to flatten on max_loss before Trend-Hold's
+ * 5% MFE promote could fire.
+ */
+export function formingPairStructureHolds(d, side = "LONG") {
+  if (!d || side !== "LONG") return false;
+  const ltf = resolveLtfForming(d, side);
+  if (ltf.broken) return false;
+  const htf = resolveHtfForming(d, side);
+  if (htf.wm_against) return false;
+  if (htf.formed || htf.forming) return true;
+  const pair = d?._mtf_forming?.complementary
+    ? d._mtf_forming
+    : resolveFormingPair(d, { side });
+  return !!(pair?.complementary && pair.side === side && !pair.ltf?.broken);
+}
+
+/**
+ * Trend-Hold lesson applied to forming-pair before the 5% MFE promote:
+ * do not flatten a swing on day-trade fuses while the slow clock holds.
+ * PHASE_LEAVE / TD / soft-fuse / hard floor still exit.
+ */
+export function shouldDeferFormingPairExit({
+  trade,
+  tickerData,
+  daCfg,
+  reason,
+  pnlPct,
+  direction,
+} = {}) {
+  if (!formingPairHoldEnabled(daCfg)) return { defer: false, reason: "hold_off" };
+  const dir = String(direction || trade?.direction || "LONG").toUpperCase();
+  if (dir !== "LONG") return { defer: false, reason: "not_long" };
+  // Identity from the ticket, never the live card (Cloud Pivot lesson).
+  if (!isFormingPairOpenTrade(trade)) {
+    return { defer: false, reason: "not_forming_pair" };
+  }
+  const why = String(reason || "");
+  if (!FORMING_PAIR_DEFERRED_EXITS.has(why)) {
+    return { defer: false, reason: "reason_not_deferred" };
+  }
+  const hardRaw = Number(daCfg?.deep_audit_forming_pair_hard_floor_pct);
+  const floor = Number.isFinite(hardRaw) && hardRaw < 0
+    ? hardRaw
+    : FORMING_PAIR_HARD_FLOOR_DEFAULT;
+  if (Number.isFinite(Number(pnlPct)) && Number(pnlPct) <= floor) {
+    return { defer: false, reason: "hard_floor" };
+  }
+  if (!formingPairStructureHolds(tickerData, "LONG")) {
+    return { defer: false, reason: "structure_broken" };
+  }
+  return { defer: true, reason: `forming_pair_hold(${why})` };
+}
+
 const FORMING_PAIR_CONVICTION_FLOOR_DEFAULT = 40;
 const FORMING_PAIR_CONVICTION_FLOOR_HARD_MIN = 35;
 

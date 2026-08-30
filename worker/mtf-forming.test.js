@@ -7,9 +7,12 @@ import {
   formingPairEnabled,
   formingPairEntryEnabled,
   formingPairFloorsEnabled,
+  formingPairHoldEnabled,
   isFormingPairFloorContext,
   applyFormingPairConvictionCarveout,
   isFormingPairEntryPath,
+  formingPairStructureHolds,
+  shouldDeferFormingPairExit,
 } from "./mtf-forming.js";
 import { inferSide, resolveEntryPersistDirection } from "./pipeline/trade-context.js";
 
@@ -99,6 +102,28 @@ function teamJul8BearFade() {
       "4H": tf({ stDir: 1, stSlope: -1, struct: -0.4 }),
       D: tf({ stDir: 1, stSlope: -1, struct: -0.5 }),
       W: tf({ stDir: 1, stSlope: -1 }),
+    },
+  };
+}
+
+// TEAM Aug shake: HTF still formed, LTF no longer constructing
+// (the -2% day-trade fuse that used to flatten before Trend-Hold's
+// 5% MFE promote). Not dump-broken.
+function teamAugShake() {
+  return {
+    ticker: "TEAM",
+    state: "HTF_BULL_LTF_PULLBACK",
+    htf_score: 18,
+    ltf_score: -1,
+    daily_structure: { pct_above_e21: 2.2, e21_slope_5d_pct: 0.8, days_above_e21: 6 },
+    tf_tech: {
+      "10": tf({ stDir: 1, stSlope: 0, struct: 0 }),
+      "15": tf({ stDir: -1, struct: 0.1, rsi: 45 }),
+      "30": tf({ stDir: 1, struct: -0.2 }),
+      "1H": tf({ stDir: -1, struct: 0.1 }),
+      "4H": tf({ stDir: -1, stSlope: 1, struct: 0.4 }),
+      D: tf({ stDir: -1, stSlope: 1, struct: 0.5 }),
+      W: tf({ stDir: -1, stSlope: 1 }),
     },
   };
 }
@@ -296,6 +321,8 @@ describe("flags default ON", () => {
     expect(formingPairEnabled({ deep_audit_forming_pair_enabled: "false" })).toBe(false);
     expect(formingPairEntryEnabled({ deep_audit_forming_pair_entry: "false" })).toBe(false);
     expect(formingPairFloorsEnabled({ deep_audit_forming_pair_floors: "false" })).toBe(false);
+    expect(formingPairHoldEnabled({})).toBe(true);
+    expect(formingPairHoldEnabled({ deep_audit_forming_pair_hold_winners: "false" })).toBe(false);
   });
 });
 
@@ -352,5 +379,74 @@ describe("forming-pair LONG floor carve-out (TEAM / TSLA / AAPL)", () => {
     const t = tslaAug13();
     expect(applyFormingPairConvictionCarveout(80, t, { deep_audit_forming_pair_conviction_floor: 45 }, "LONG")).toBe(45);
     expect(applyFormingPairConvictionCarveout(80, t, { deep_audit_forming_pair_conviction_floor: 20 }, "LONG")).toBe(35);
+  });
+});
+
+describe("forming-pair hold winners (Trend-Hold lesson, no 5% promote)", () => {
+  const trade = { entry_path: "tt_forming_pair", direction: "LONG" };
+  const daOn = {};
+
+  it("defers TEAM rip max_loss and 1H runner-top while HTF stays formed", () => {
+    const t = teamJulRip();
+    expect(formingPairStructureHolds(t, "LONG")).toBe(true);
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "max_loss", pnlPct: -2.07, direction: "LONG",
+    }).defer).toBe(true);
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "RUNNER_TOP_FORMATION_1H", pnlPct: 3.48, direction: "LONG",
+    }).defer).toBe(true);
+  });
+
+  it("still holds through a TEAM shake when LTF is no longer forming", () => {
+    const t = teamAugShake();
+    expect(resolveLtfForming(t, "LONG").forming).toBe(false);
+    expect(resolveLtfForming(t, "LONG").broken).toBe(false);
+    expect(resolveHtfForming(t, "LONG").formed).toBe(true);
+    expect(formingPairStructureHolds(t, "LONG")).toBe(true);
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "max_loss", pnlPct: -2.5, direction: "LONG",
+    }).defer).toBe(true);
+  });
+
+  it("does not defer AAPL June dump when LTF is broken", () => {
+    const t = aaplJuneDump();
+    expect(formingPairStructureHolds(t, "LONG")).toBe(false);
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "max_loss", pnlPct: -2.1, direction: "LONG",
+    }).defer).toBe(false);
+  });
+
+  it("does not defer the catastrophe hard floor", () => {
+    const t = teamJulRip();
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "max_loss", pnlPct: -6.1, direction: "LONG",
+    }).defer).toBe(false);
+  });
+
+  it("does not defer PHASE_LEAVE (the TSLA Aug 13 winner exit)", () => {
+    const t = tslaAug13();
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "PHASE_LEAVE_100", pnlPct: 5.2, direction: "LONG",
+    }).defer).toBe(false);
+  });
+
+  it("identity is the ticket path, not the live card", () => {
+    const t = { ...teamJulRip(), __entry_path: "tt_forming_pair" };
+    expect(shouldDeferFormingPairExit({
+      trade: { entry_path: "tt_htf_reclaim", direction: "LONG" },
+      tickerData: t, daCfg: daOn, reason: "max_loss", pnlPct: -2, direction: "LONG",
+    }).defer).toBe(false);
+  });
+
+  it("does not defer shorts or when the hold flag is off", () => {
+    const t = teamJulRip();
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t, daCfg: daOn, reason: "max_loss", pnlPct: -2, direction: "SHORT",
+    }).defer).toBe(false);
+    expect(shouldDeferFormingPairExit({
+      trade, tickerData: t,
+      daCfg: { deep_audit_forming_pair_hold_winners: "false" },
+      reason: "max_loss", pnlPct: -2, direction: "LONG",
+    }).defer).toBe(false);
   });
 });

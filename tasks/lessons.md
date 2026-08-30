@@ -6,6 +6,25 @@
 
 ---
 
+## Forming-pair must hold winners, not just enter them [2026-08-30]
+
+**Symptom:** Aug ON v6 finally opened TEAM/TSLA/AAPL as forming-pair
+LONGs, then cut TEAM on `max_loss` (−2% same day) and
+`RUNNER_TOP_FORMATION_1H` flatten (+3–4%) on the way to 190. The Aug 26
+hold (`replay_end_close` +16%) proved the ride works.
+
+**Cause:** Day-trade fuses fire before Trend-Hold's 5% MFE promote.
+Enabling global Trend-Hold was the wrong lever.
+
+**Fix:** Apply the Trend-Hold *lesson* to forming-pair LONGs from bar 1
+(`shouldDeferFormingPairExit`) while HTF is formed/forming and LTF is
+not dump-broken. 1H runner-top trims. Hard floor −6%. Ticket identity
+only. `PHASE_LEAVE*` still exits.
+
+**Do not:** flip `deep_audit_trend_hold_enabled`, drop the global 60
+accumulate floor, or defer AAPL-June `ltf.broken` dumps / TEAM Jul 8
+SHORT fades.
+
 ## Health ops: universe thin gaps, fundamentals TTL, watchdog, reference-intel [2026-08-28]
 
 **Symptom:** Holistic check showed `universe_onboard` heal `partial` (SKHY /
