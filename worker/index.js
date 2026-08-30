@@ -692,6 +692,11 @@ import {
   exhaustTrimMinProfitPct as jaExhaustTrimMinProfitPct,
   structStopCushion as jaStructStopCushion,
 } from "./july-autopsy-gates.js";
+import {
+  isFormingPairFloorContext,
+  applyFormingPairConvictionCarveout,
+  shouldDeferFormingPairExit,
+} from "./mtf-forming.js";
 /* Trade Review Agent (2026-08-17) — independent per-leg grading of every
    ENTRY / TRIM / EXIT. The enqueue is a single D1 insert on the ledger
    path; the LLM runs from the cron drain or the admin page. See
@@ -1116,7 +1121,7 @@ import {
   loadFsdRemovedMap,
   fsdRemovalSignal,
 } from "./etf-holdings.js";
-import { buildTradeContext } from "./pipeline/trade-context.js";
+import { buildTradeContext, inferSide, resolveEntryPersistDirection, isFormingPairEntryPath } from "./pipeline/trade-context.js";
 import { runUniversalGates } from "./pipeline/gates.js";
 import {
   activityDedupeKey,
@@ -7341,6 +7346,12 @@ function qualifiesForEnter(d, asOfTs = null) {
           const _jaFloor = Number(_focusDaCfg.deep_audit_ja_htf_reclaim_conviction_floor) || 40;
           _entryMinConv = Math.min(_entryMinConv, Math.max(35, _jaFloor));
         }
+        // FORMING PAIR — LONG complementary pair lowers the same floors
+        // that blocked TEAM Jul 13+ / TSLA Aug 13. SHORT excluded.
+        const _fpFloorCtx = isFormingPairFloorContext(d, _focusDaCfg);
+        _entryMinConv = applyFormingPairConvictionCarveout(
+          _entryMinConv, d, _focusDaCfg,
+        );
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,
@@ -7359,7 +7370,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         // non-discriminating signal. Suspend by default; reversible via
         // deep_audit_focus_suspend_tier_c="false".
         const _suspendTierCLegacy = String(_focusDaCfg.deep_audit_focus_suspend_tier_c ?? "true") === "true";
-        if (_focusConv.tier === "C" && _suspendTierCLegacy && !_jaReclaimCtx) {
+        if (_focusConv.tier === "C" && _suspendTierCLegacy && !_jaReclaimCtx && !_fpFloorCtx) {
           return {
             qualifies: false,
             reason: "focus_tier_c_suspended",
@@ -7372,7 +7383,7 @@ function qualifiesForEnter(d, asOfTs = null) {
           };
         }
         const _tierCFloor = Math.max(_floorHardMin, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 65));
-        if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor && !_jaReclaimCtx) {
+        if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor && !_jaReclaimCtx && !_fpFloorCtx) {
           return {
             qualifies: false,
             reason: "focus_tier_c_below_c_floor",
@@ -8945,7 +8956,7 @@ function qualifiesForEnter(d, asOfTs = null) {
     const biasAligned = ripsterTuneV2
       ? (dAligned && h1Aligned && (strongDailyTrend ? alignedCount >= 2 : m10Aligned))
       : (dAligned && h1Aligned && m10Aligned);
-    if (!biasAligned) {
+    if (!biasAligned && !isFormingPairFloorContext(d, _focusDaCfg, inferredSide)) {
       return {
         qualifies: false,
         reason: "ripster_bias_not_aligned",
@@ -10081,6 +10092,27 @@ function computeSoftFuseDeferredStop(tickerData, openTrade, priceNow) {
   };
 }
 
+function deferFormingPairDayTradeExit(tickerData, openTrade, reason, pnlPct, direction) {
+  try {
+    const hit = shouldDeferFormingPairExit({
+      trade: openTrade,
+      tickerData,
+      daCfg: tickerData?._env?._deepAuditConfig || {},
+      reason,
+      pnlPct,
+      direction,
+    });
+    if (hit?.defer) {
+      if (tickerData && typeof tickerData === "object") {
+        tickerData.__forming_pair_hold = hit.reason;
+      }
+      console.log(`[FORMING_PAIR HOLD] ${tickerData?.ticker || "?"} ${reason} deferred (${hit.reason})`);
+      return true;
+    }
+  } catch (_) { /* never block a real exit on helper throw */ }
+  return false;
+}
+
 function classifyCloudStructure(cloud) {
   if (!cloud || typeof cloud !== "object") return null;
   const spreadPct = Number(cloud.spreadPct);
@@ -10397,6 +10429,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               && _currentRegime.includes("BULL")
               && pnlPct > _deferMaxLossPct;
             if (!_bullHold) {
+              if (!deferFormingPairDayTradeExit(tickerData, openPosition, "doctrine_force_exit", pnlPct, direction)) {
               tickerData.__exit_reason = "doctrine_force_exit";
               tickerData.__exit_family = "doctrine";
               tickerData.__exit_meta = {
@@ -10410,6 +10443,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
                 age_min: positionAgeMin,
               };
               return "exit";
+              }
             }
           }
         } catch (_doctrineErr) {
@@ -10706,14 +10740,17 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       }
 
       if (pnlPct <= _earlyMaxLossPct) {
+        const _earlyMaxLossReason = (_earlyPdzToleranceActive && !_earlyPdzWindowOpen)
+          ? "max_loss_pdz_window_expired"
+          : (_momBufApplied ? "max_loss_momentum_buffered" : "max_loss");
+        if (!deferFormingPairDayTradeExit(tickerData, openPosition, _earlyMaxLossReason, pnlPct, direction)) {
         if (_momBufApplied) {
           console.log(`[max_loss] ${tickerData?.ticker || "?"} fired at ${pnlPct.toFixed(2)}% despite momentum buffer expanding floor to ${_earlyMaxLossPct.toFixed(1)}% (${_momBufWhy})`);
         }
-        tickerData.__exit_reason = (_earlyPdzToleranceActive && !_earlyPdzWindowOpen)
-          ? "max_loss_pdz_window_expired"
-          : (_momBufApplied ? "max_loss_momentum_buffered" : "max_loss");
+        tickerData.__exit_reason = _earlyMaxLossReason;
         tickerData.__exit_family = "safety";
         return "exit";
+        }
       }
 
       // ──────────────────────────────────────────────────────────────────
@@ -10749,9 +10786,12 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           else if (_agMin >= 720 && _agMin < 1440) _tsCurrentFloor = _tsFloor12h;
           else if (_agMin >= 1440) _tsCurrentFloor = _tsFloor24h;
           if (_tsCurrentFloor != null && pnlPct <= _tsCurrentFloor) {
-            tickerData.__exit_reason = _momBufApplied ? "max_loss_time_scaled_momentum_buffered" : "max_loss_time_scaled";
+            const _tsReason = _momBufApplied ? "max_loss_time_scaled_momentum_buffered" : "max_loss_time_scaled";
+            if (!deferFormingPairDayTradeExit(tickerData, openPosition, _tsReason, pnlPct, direction)) {
+            tickerData.__exit_reason = _tsReason;
             tickerData.__exit_family = "safety";
             return "exit";
+            }
           }
         }
       }
@@ -10813,6 +10853,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           const _againstSign = direction === "LONG" ? 1 : -1;
           const _flipped = [_st30, _st1H, _st4H, _stD].filter((s) => s === _againstSign).length;
           if (_flipped >= 3) {
+            if (!deferFormingPairDayTradeExit(tickerData, openPosition, "thesis_flip_htf", pnlPct, direction)) {
             tickerData.__exit_reason = "thesis_flip_htf";
             tickerData.__exit_family = "safety";
             tickerData.__exit_detail = {
@@ -10824,6 +10865,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
             };
             console.log(`[THESIS_FLIP] ${tickerData?.ticker} ${direction} flipped against on ${_flipped}/4 HTF ST (30m=${_st30} 1H=${_st1H} 4H=${_st4H} D=${_stD}), pnl=${pnlPct.toFixed(2)}%, age=${positionAgeMarketMin}m → exit`);
             return "exit";
+            }
           }
         }
       }
@@ -12427,7 +12469,8 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
                     openPosition, "mfe_decay_structural_flatten",
                     TrendHold.loadTrendHoldConfig(tickerData?._env?._deepAuditConfig),
                   );
-                  if (!_mdThSuppress.suppress) {
+                  if (!_mdThSuppress.suppress
+                    && !deferFormingPairDayTradeExit(tickerData, openPosition, "mfe_decay_structural_flatten", pnlPct, direction)) {
                     tickerData.__exit_reason = "mfe_decay_structural_flatten";
                     tickerData.__exit_family = "safety";
                     return "exit";
@@ -12734,9 +12777,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           tickerData.__exit_family = "ripster_pdz";
           return "trim";
         }
+        if (!deferFormingPairDayTradeExit(tickerData, openPosition, "ripster_72_89_1h_structural_break", pnlPct, direction)) {
         tickerData.__exit_reason = "ripster_72_89_1h_structural_break";
         tickerData.__exit_family = "ripster_pdz";
         return "exit";
+        }
       }
 
       // 30m 9 EMA trailing stop when in extended zone and profitable
@@ -12771,9 +12816,11 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // ─────────────────────────────────────────────────────────────────────────
     if (_regimeExitMinAge && !_regimeConfirms) {
       if (direction === "LONG" && _regimeForExit <= 0) {
+        if (!deferFormingPairDayTradeExit(tickerData, openPosition, "ema_regime_reversed", pnlPct, direction)) {
         tickerData.__exit_reason = "ema_regime_reversed";
         console.log(`[EMA REGIME EXIT] ${tickerData?.ticker}: LONG regime=${_regimeForExit} pdz=${_pdzZone}. pnl=${pnlPct.toFixed(1)}%. Trend over.`);
         return "exit";
+        }
       }
       if (direction === "SHORT" && _regimeForExit >= 0) {
         tickerData.__exit_reason = "ema_regime_reversed";
@@ -12982,10 +13029,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const _pdzWindowOpen = positionAgeMarketMin < _pdzWindowMin;
     const maxLossPct = (_pdzToleranceActive && _pdzWindowOpen) ? _pdzMaxLossPct : _normalMaxLossPct;
     if (pnlPct <= maxLossPct) {
-      tickerData.__exit_reason = (_pdzToleranceActive && !_pdzWindowOpen)
+      const _lateMaxLossReason = (_pdzToleranceActive && !_pdzWindowOpen)
         ? "max_loss_pdz_window_expired"
         : "max_loss";
+      if (!deferFormingPairDayTradeExit(tickerData, openPosition, _lateMaxLossReason, pnlPct, direction)) {
+      tickerData.__exit_reason = _lateMaxLossReason;
       return "exit";
+      }
     }
 
     // DOA early exit: ticker-profile-aware threshold (default 4h market hours, MFE < 0.3%)
@@ -14211,12 +14261,12 @@ function computeMoveStatus(tickerData) {
 }
 
 function sideFromStateOrScores(tickerData) {
-  // Phase 2b: Primary — use swing-TF consensus direction (fixes NFLX-type errors)
-  // When 4/5 TFs agree on direction, that overrides the lagging state-based direction.
+  // Forming-pair clocks (and the TSLA Aug 13 turn) live in inferSide.
+  // Do not let swing_consensus or the BEAR substring fade a green LTF.
+  const inferred = inferSide(tickerData, String(tickerData?.state || ""));
+  if (inferred === "LONG" || inferred === "SHORT") return inferred;
   const consensusDir = tickerData?.swing_consensus?.direction;
   if (consensusDir === "LONG" || consensusDir === "SHORT") return consensusDir;
-
-  // Fallback — state-based direction (original logic)
   const state = String(tickerData?.state || "");
   if (state.includes("BULL")) return "LONG";
   if (state.includes("BEAR")) return "SHORT";
@@ -19667,19 +19717,12 @@ async function processTradeSimulation(
     }
     
     // Determine trade direction based on entry path (for mean-reversion entries like gold_short)
-    // or fall back to state-based direction
+    // or inferSide. Do NOT fall back to getTradeDirection(state) first —
+    // HTF_BEAR_LTF_PULLBACK is a LONG turn when LTF is green (TSLA Aug 13).
     let entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
-    const stateDirection = getTradeDirection(tickerData.state); // BULL->LONG, BEAR->SHORT
-    let direction;
-    if (entryPath.includes("mean_revert")) {
-      direction = tickerData?.mean_revert_td9?.direction || "LONG";
-    } else if (entryPath.includes("short")) {
-      direction = "SHORT";
-    } else if (entryPath.includes("long")) {
-      direction = "LONG";
-    } else {
-      direction = stateDirection;
-    }
+    const stateDirection = inferSide(tickerData, String(tickerData?.state || ""))
+      || getTradeDirection(tickerData.state);
+    let direction = resolveEntryPersistDirection(tickerData, entryPath);
     if (!direction) {
       try {
         const _paperDir = resolvePaperFamilyStandaloneEntry(
@@ -19713,7 +19756,8 @@ async function processTradeSimulation(
     const isMeanRevertEntry = entryPath.includes("mean_revert");
     const isPaperFamilyEntry = isPaperFamilyEntryPath(entryPath)
       || tickerData?._sequence_queue_proposal?.paper === true;
-    const hasIntentionalEntryPath = isGoldShortEntry || isGoldLongEntry || isEmaRegimeEntry || isMeanRevertEntry || isPaperFamilyEntry;
+    const isFormingPairEntry = isFormingPairEntryPath(entryPath);
+    const hasIntentionalEntryPath = isGoldShortEntry || isGoldLongEntry || isEmaRegimeEntry || isMeanRevertEntry || isPaperFamilyEntry || isFormingPairEntry;
     
     // Only block direction mismatches for entries WITHOUT a recognized entry path
     // (e.g., momentum/squeeze entries where direction must align with state)
@@ -22547,8 +22591,10 @@ async function processTradeSimulation(
           openTrade, "HARD_FUSE_RSI_EXTREME",
           TrendHold.loadTrendHoldConfig(tickerData?._env?._deepAuditConfig),
         );
-        if (_thSuppression.suppress) {
-          console.log(`[FUSE EXIT SUPPRESSED] ${sym} ${_thSuppression.reason}`);
+        const _hfPnl = entryPx > 0 ? ((pxNow - entryPx) / entryPx * 100 * (isLong ? 1 : -1)) : 0;
+        if (_thSuppression.suppress
+          || deferFormingPairDayTradeExit(tickerData, openTrade, "HARD_FUSE_RSI_EXTREME", _hfPnl, isLong ? "LONG" : "SHORT")) {
+          console.log(`[FUSE EXIT SUPPRESSED] ${sym} ${_thSuppression.suppress ? _thSuppression.reason : tickerData.__forming_pair_hold}`);
         } else {
           console.log(`[FUSE EXIT] ${sym} HARD FUSE: ${isLong ? "LONG" : "SHORT"} rsi1H=${rsi1H} rsi4H=${rsi4H}`);
           tickerData.__exit_reason = `hard_fuse_rsi_extreme`;
@@ -23010,8 +23056,9 @@ async function processTradeSimulation(
               openTrade, "ST_FLIP_4H_CLOSE",
               TrendHold.loadTrendHoldConfig(tickerData?._env?._deepAuditConfig),
             );
-            if (_thStFlipSuppress.suppress) {
-              console.log(`[ST_FLIP_FUSE SUPPRESSED] ${sym} ${_thStFlipSuppress.reason}`);
+            if (_thStFlipSuppress.suppress
+              || deferFormingPairDayTradeExit(tickerData, openTrade, "ST_FLIP_4H_CLOSE", _stPnl, isLong ? "LONG" : "SHORT")) {
+              console.log(`[ST_FLIP_FUSE SUPPRESSED] ${sym} ${_thStFlipSuppress.suppress ? _thStFlipSuppress.reason : tickerData.__forming_pair_hold}`);
             } else {
               console.log(`[ST_FLIP_FUSE] ${sym} 4H ST flip against ${isLong ? "LONG" : "SHORT"}: closing runner (pnl=${_stPnl.toFixed(1)}% trimmed=${(_stTrimPct * 100).toFixed(0)}%)`);
               tickerData.__exit_reason = "st_flip_4h_close";
@@ -23610,8 +23657,9 @@ async function processTradeSimulation(
                 openTrade, "PROFIT_GIVEBACK_STAGE_HOLD",
                 TrendHold.loadTrendHoldConfig(tickerData?._env?._deepAuditConfig),
               );
-              if (_gbThSuppress.suppress) {
-                console.log(`[PROFIT_GIVEBACK SUPPRESSED] ${sym} ${_gbThSuppress.reason}`);
+              if (_gbThSuppress.suppress
+                || deferFormingPairDayTradeExit(tickerData, openTrade, "PROFIT_GIVEBACK", _gbPnlPct, isLong ? "LONG" : "SHORT")) {
+                console.log(`[PROFIT_GIVEBACK SUPPRESSED] ${sym} ${_gbThSuppress.suppress ? _gbThSuppress.reason : tickerData.__forming_pair_hold}`);
               } else {
                 const _gbReason = "PROFIT_GIVEBACK";
                 console.log(`[PROFIT_GIVEBACK] ${sym} MFE +${_gbMfePct.toFixed(2)}% now ${_gbPnlPct.toFixed(2)}% (retained ${(_gbRetained*100).toFixed(0)}% htf=${_gbHtfAligned}) → closing`);
@@ -23808,6 +23856,17 @@ async function processTradeSimulation(
         if (_rtfPlan && (_rtfPlan.action === "close" || _rtfPlan.action === "trim")) {
           console.log(`[RUNNER_TOP_FORMATION] ${sym} ${_rtfPlan.action.toUpperCase()} — 1H confluence [${_rtfPlan.signals.join(", ")}] pnl=${_rtfPlan.pnlPct.toFixed(1)}% mfe=${_rtfPlan.mfePct.toFixed(1)}% peakDrop=${_rtfPlan.peakDropPct.toFixed(1)}%`);
           if (_rtfPlan.action === "close") {
+            if (deferFormingPairDayTradeExit(tickerData, openTrade, "RUNNER_TOP_FORMATION_1H", _rtfPlan.pnlPct, isLong ? "LONG" : "SHORT")) {
+              // Trend-Hold lesson: take some, keep the runner while HTF holds.
+              const _rtfTrimmed = clamp(Number(openTrade.trimmedPct ?? openTrade.trimmed_pct ?? 0), 0, 1);
+              if (_rtfTrimmed < (_rtfPlan.newTargetTrimPct || 0.85)) {
+                await trimTradeToPct(openTrade, _rtfPlan.newTargetTrimPct || 0.85, pxNow, "RUNNER_TOP_FORMATION_1H");
+                const _rtfHoldExec = { ...execState, lastTrimMs: now, lastPeakTrimPx: pxNow, runnerPeakPrice: pxNow, runnerPeakTs: now };
+                if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _rtfHoldExec);
+                else if (!isReplay) await kvPutJSON(KV, execKey, _rtfHoldExec);
+              }
+              fuseExitFired = true;
+            } else {
             tickerData.__exit_reason = "RUNNER_TOP_FORMATION_1H";
             tickerData.__exit_family = "profit_management";
             await closeTradeAtPrice(openTrade, pxNow, "RUNNER_TOP_FORMATION_1H");
@@ -23815,6 +23874,7 @@ async function processTradeSimulation(
             if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _rtfExec);
             else if (!isReplay) await kvPutJSON(KV, execKey, _rtfExec);
             fuseExitFired = true;
+            }
           } else {
             await trimTradeToPct(openTrade, _rtfPlan.newTargetTrimPct, pxNow, "RUNNER_TOP_FORMATION_1H");
             const _rtfExec = {
@@ -24137,10 +24197,11 @@ async function processTradeSimulation(
               openTrade, _sreReason,
               TrendHold.loadTrendHoldConfig(tickerData?._env?._deepAuditConfig),
             );
-            if (_sreThSuppress.suppress) {
-              console.log(`[SMART_RUNNER SUPPRESSED] ${sym} ${_sreThSuppress.reason}`);
+            if (_sreThSuppress.suppress
+              || deferFormingPairDayTradeExit(tickerData, openTrade, _sreReason, _srePnlPct, isLong ? "LONG" : "SHORT")) {
+              console.log(`[SMART_RUNNER SUPPRESSED] ${sym} ${_sreThSuppress.suppress ? _sreThSuppress.reason : tickerData.__forming_pair_hold}`);
               tickerData.__force_defend_stage = true;
-              tickerData.__defend_reason = "trend_hold_active_suppress";
+              tickerData.__defend_reason = _sreThSuppress.suppress ? "trend_hold_active_suppress" : "forming_pair_hold";
               fuseExitFired = true;
             } else {
               if (_sreCancelDeferral) {
@@ -25664,7 +25725,7 @@ async function processTradeSimulation(
         
         // Determine candidate's direction and sector
         const entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
-        const candidateDir = entryPath.includes("short") ? "SHORT" : "LONG";
+        const candidateDir = resolveEntryPersistDirection(tickerData, entryPath) || "LONG";
         const candidateSector = getSector(sym) || "UNKNOWN";
 
         // Week-calibration entry guards (2026-06-26): repeat churn, range-reversal

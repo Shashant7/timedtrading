@@ -65,6 +65,7 @@ export const KNOWN_PLAYS = [
   "tt_pullback",
   "tt_reclaim",
   "tt_mean_revert",
+  "tt_forming_pair",
 ];
 
 function rnd(v, dp = 1) { return Math.round(v * Math.pow(10, dp)) / Math.pow(10, dp); }

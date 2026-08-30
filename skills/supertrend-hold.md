@@ -22,7 +22,23 @@ ST is flat.
 - **Do not chase:** ST just flipped, line still sloping, `|px − ema21| / ATR > ~1.5`,
   no retest yet — especially on 10m/30m.
 - **Do not ignite LTF-only slope** (10m/30m) when D/4H/6.5H/9H SuperTrend
-  is the other *color* — even if that daily line is flat. That is a chase.
+  is the other *color* — even if that daily line is flat. That is a chase
+  **unless** `resolveFormingPair` says LTF is constructing and HTF is
+  forming on the slow clock (4H ST / daily 21 / D magnet, W/M not
+  sloping against). Then the parked daily bear is the magnet, not a
+  veto (`freshness = htf_forming`). See `worker/mtf-forming.js`.
+  Complementary LONG also gets reclaim-style floor carve-outs
+  (`isFormingPairFloorContext`) so TEAM/TSLA/AAPL are not killed by
+  conviction/rank/tier-C before `tt_forming_pair` evaluates. SHORT
+  floors stay put. Persist must use `resolveEntryPersistDirection`
+  (inferSide), not `getTradeDirection(state)` — the BEAR substring
+  opened TSLA Aug 13 as SHORT after a LONG qualify.
+  Open forming-pair LONGs defer day-trade fuses (`max_loss`, 1H
+  runner-top flatten, doctrine, thesis flip, parked daily
+  `ema_regime_reversed`, Trend-Hold giveback set) while HTF
+  structure holds — the Trend-Hold lesson applied from bar 1,
+  not after a 5% MFE promote. Do not flip
+  `deep_audit_trend_hold_enabled` from that path.
 - **Swing slope** (1H/4H/D/W/M) is vetoed only when the HTF line is still
   *sloping* against. A **flat** opposite-side daily ST is the magnet, not
   a hard veto of the reclaim. Sloping-against stays a veto (closed book
@@ -44,6 +60,7 @@ ST is flat.
 | Piece | Path |
 |---|---|
 | Detector | `worker/supertrend-hold.js` |
+| Forming-pair hold | `worker/mtf-forming.js` (`shouldDeferFormingPairExit`) |
 | Session TFs (6.5H / 9H) | `worker/session-tfs.js` |
 | Closed-book review | `scripts/analyze-st-mtf-trades.mjs`, `tasks/2026-08-21-st-mtf-review.md` |
 | Bundle / flags / `tf_tech.stLine` | `worker/indicators.js` (`computeTfBundle`, `detectFlags`, `assembleTickerData`) |

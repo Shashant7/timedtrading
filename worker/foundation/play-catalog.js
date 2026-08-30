@@ -178,6 +178,14 @@ export const CORE_PLAYS = Object.freeze([
     aliases: ["htf reclaim", "tt htf reclaim"],
   }),
   play({
+    id: "tt_forming_pair",
+    label: "Forming Pair",
+    direction: "LONG",
+    status: PLAY_STATUS.LIVE,
+    demotion_label: "TT Forming Pair",
+    aliases: ["forming pair", "tt forming pair", "mtf forming"],
+  }),
+  play({
     id: "tt_momentum",
     label: "Momentum Push",
     direction: "LONG",

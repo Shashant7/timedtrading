@@ -29,6 +29,12 @@ import {
   stampMomentumBreakoutEarly,
 } from "../lib/smart-gates.js";
 import { isQualityCompounderDip } from "../growth-compounder.js";
+import {
+  formingPairEntryEnabled,
+  resolveFormingPair,
+  isFormingPairFloorContext,
+  applyFormingPairConvictionCarveout,
+} from "../mtf-forming.js";
 
 const FRESHNESS_MIN = 0.3;
 
@@ -1146,6 +1152,16 @@ export function evaluateEntry(ctx) {
         _entryMinConviction = Math.min(_entryMinConviction, Math.max(35, _jaReclaimFloor));
       }
 
+      // FORMING PAIR (2026-08-29) — TEAM/TSLA/AAPL canaries die on the
+      // same structurally-low conviction as reclaim days. Complementary
+      // LONG pair (LTF constructing + HTF forming/formed) lowers the
+      // floor so tt_forming_pair can evaluate. SHORT is excluded so
+      // TEAM Jul 8 HTF_BEAR_LTF_BEAR cannot fade the rip. AAPL June
+      // dumps are not complementary (15m+30m broken).
+      _entryMinConviction = applyFormingPairConvictionCarveout(
+        _entryMinConviction, d, daCfg, side,
+      );
+
       // ─────────────────────────────────────────────────────────────────
       // V15 P0.5 — HARD VETOES (2026-04-26)
       //
@@ -1242,8 +1258,9 @@ export function evaluateEntry(ctx) {
       const _jaReclaimTierBypass =
         String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
         && isHtfReclaimContext(d, tf, daCfg);
+      const _fpFloorBypass = isFormingPairFloorContext(d, daCfg, side);
       const _suspendTierC = String(daCfg.deep_audit_focus_suspend_tier_c ?? "true") === "true";
-      if (_focusTier === "C" && _suspendTierC && !_jaReclaimTierBypass) {
+      if (_focusTier === "C" && _suspendTierC && !_jaReclaimTierBypass && !_fpFloorBypass) {
         return rejectEntry("focus_tier_c_suspended", {
           score: _focusConviction.score, tier: _focusTier,
           note: "Tier C entries suspended pending conviction-signal repair (Part 4)",
@@ -1253,7 +1270,7 @@ export function evaluateEntry(ctx) {
       // needs stricter entry because we're casting a wider exploratory
       // net). If conviction < tier_c_floor AND tier is C, the entry is
       // rejected. Tier A/B pass if above _entryMinConviction.
-      if (_focusTier === "C" && _focusConviction.score < _tierCFloor && !_jaReclaimTierBypass) {
+      if (_focusTier === "C" && _focusConviction.score < _tierCFloor && !_jaReclaimTierBypass && !_fpFloorBypass) {
         return rejectEntry("focus_tier_c_below_c_floor", {
           score: _focusConviction.score, tierFloor: _tierCFloor,
         });
@@ -1433,7 +1450,8 @@ export function evaluateEntry(ctx) {
           side === "LONG"
           && String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
           && isHtfReclaimContext(d, tf, daCfg);
-        if (_transRankMin > 0 && rankScore < _transRankMin && !_jaReclaimRankBypass) {
+        const _fpRankBypass = isFormingPairFloorContext(d, daCfg, side);
+        if (_transRankMin > 0 && rankScore < _transRankMin && !_jaReclaimRankBypass && !_fpRankBypass) {
           return rejectEntry("h3_rank_below_transitional_floor", {
             cycle: cycle || "unknown", rank: rankScore, rankMin: _transRankMin,
           });
@@ -1513,7 +1531,8 @@ export function evaluateEntry(ctx) {
         isLong
         && String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
         && isHtfReclaimContext(d, tf, daCfg);
-      if (signals < _h3MinSignals && !_jaReclaimConsensusBypass) {
+      const _fpConsensusBypass = isFormingPairFloorContext(d, daCfg, side);
+      if (signals < _h3MinSignals && !_jaReclaimConsensusBypass && !_fpConsensusBypass) {
         return rejectEntry("h3_consensus_below_min", {
           signals, min: _h3MinSignals, breakdown,
         });
@@ -1575,7 +1594,50 @@ export function evaluateEntry(ctx) {
     },
   });
 
-  if (!biasAligned) {
+  // FORMING PAIR LONG — qualify BEFORE cloud-bias. A turn (TSLA Aug 13)
+  // has LTF constructing while the daily 20/21 cloud is still the old
+  // color; waiting for dAligned misses the entry. Continuation (TEAM)
+  // also lands here so later pullback 5/12 rejects cannot kill it.
+  // SHORT stays on the bias path (July TSLA shorts already clear it).
+  if (formingPairEntryEnabled(daCfg) && side === "LONG") {
+    const _fpEarly = d?._mtf_forming?.complementary
+      ? d._mtf_forming
+      : resolveFormingPair(d, { side: "LONG" });
+    if (_fpEarly?.complementary && _fpEarly.side === "LONG" && !_fpEarly.ltf?.broken) {
+      const _fpEt = getEasternParts(new Date(Number(ctx.asOfTs) || Date.now()));
+      const _fpOpenEnd = Number(daCfg.deep_audit_ripster_opening_noise_end_minute) || 45;
+      const _fpOpenNoise = _fpEt?.hour === 9 && Number(_fpEt?.minute) < _fpOpenEnd;
+      const _fpLtfConfirm = !!(c10_8?.crossUp
+        || (c10_5?.bull && Number(c10_5?.fastSlope) >= 0)
+        || Number(m30?.stDir) === -1
+        || Number(m10?.stDir) === -1);
+      if (!_fpOpenNoise && _fpLtfConfirm) {
+        const _fpDs = d?.daily_structure || {};
+        const _fpE21 = Number(_fpDs.e21);
+        if (d && Number.isFinite(_fpE21) && _fpE21 > 0) {
+          d.__ja_reclaim_level = _fpE21;
+        }
+        return qualifyEntry("tt_forming_pair", _fpEarly.mode === "turn" ? "high" : "medium",
+          _fpEarly.mode === "turn" ? "ltf_fast_htf_slow_turn" : "htf_formed_ltf_reform", {
+            pdz: 1.0, meanRevert: 1.0, regime: 1.0, danger: 1.0,
+            rvol: 1.0, spy: 1.0, orb: 1.0, internals: 1.0,
+          }, {
+            triggerType: "forming_pair",
+            forming: {
+              side: _fpEarly.side,
+              mode: _fpEarly.mode,
+              reason: _fpEarly.reason,
+              ltf_cues: _fpEarly.ltf?.cues || [],
+              htf_cues: _fpEarly.htf?.cues || [],
+              pct_above_e21: Number.isFinite(Number(_fpDs.pct_above_e21)) ? Number(_fpDs.pct_above_e21) : null,
+              before_bias: true,
+            },
+          });
+      }
+    }
+  }
+
+  if (!biasAligned && !isFormingPairFloorContext(d, daCfg, side)) {
     return rejectEntry("tt_bias_not_aligned", {
       cloudAlignment: {
         D: cD_bias?.bull ? "bull" : cD_bias?.bear ? "bear" : "na",
@@ -3050,7 +3112,7 @@ export function evaluateEntry(ctx) {
 
     const dailyStConflict = (side === "LONG" && stDirD === 1)
       || (side === "SHORT" && stDirD === -1);
-    if (dailyStConflict) {
+    if (dailyStConflict && !isFormingPairFloorContext(d, daCfg, side)) {
       return rejectEntry("tt_daily_st_conflict", { stDirD });
     }
 
@@ -3122,6 +3184,49 @@ export function evaluateEntry(ctx) {
       hasStFlipBull,
       entrySupport: summarizeEntrySupport(entrySupportProfile),
     });
+  }
+
+  // ── FORMING PAIR (2026-08-29) — LTF fast clock + complementary HTF slow clock.
+  // Unblocks TSLA Aug 13 (HTF_BEAR_LTF_PULLBACK, 4H ST + daily 21, inferSide
+  // used to lock SHORT) and TEAM-style continuation (HTF already formed,
+  // LTF re-forming). Does NOT fire AAPL-June dumps (LTF 15m+30m broken).
+  // Placed before the pullback/momentum rejection cascade for the same
+  // reason as tt_htf_reclaim: forming days score low on HTF color / rank.
+  if (formingPairEntryEnabled(daCfg) && !inOpeningNoise && !_jaLtfStructBlock) {
+    const _fp = d?._mtf_forming?.complementary ? d._mtf_forming : resolveFormingPair(d);
+    const _fpSide = _fp?.side;
+    const _fpGreenLtfShort = side === "SHORT" && Number(d?.ltf_score) > 4;
+    if (_fp?.complementary && _fpSide === side && !_fpGreenLtfShort) {
+      const _fpLtfConfirm = side === "LONG"
+        ? !!(c10_8?.crossUp || (c10_5?.bull && Number(c10_5?.fastSlope) >= 0)
+          || hasStFlipBull || hasEmaCrossBull || Number(tf?.m30?.stDir) === -1
+          || Number(tf?.m10?.stDir) === -1)
+        : !!(c10_8?.crossDn || (c10_5?.bear && Number(c10_5?.fastSlope) <= 0)
+          || hasStFlipBear || hasEmaCrossBear || Number(tf?.m30?.stDir) === 1
+          || Number(tf?.m10?.stDir) === 1);
+      if (_fpLtfConfirm) {
+        const _fpDs = d?.daily_structure || {};
+        const _fpE21 = Number(_fpDs.e21);
+        if (d && Number.isFinite(_fpE21) && _fpE21 > 0 && side === "LONG") {
+          d.__ja_reclaim_level = _fpE21;
+        }
+        return qualifyEntry("tt_forming_pair", _fp.mode === "turn" ? "high" : "medium",
+          _fp.mode === "turn" ? "ltf_fast_htf_slow_turn" : "htf_formed_ltf_reform", {
+            pdz: 1.0, meanRevert: 1.0, regime: 1.0, danger: 1.0,
+            rvol: 1.0, spy: 1.0, orb: 1.0, internals: 1.0,
+          }, {
+            triggerType: "forming_pair",
+            forming: {
+              side: _fp.side,
+              mode: _fp.mode,
+              reason: _fp.reason,
+              ltf_cues: _fp.ltf?.cues || [],
+              htf_cues: _fp.htf?.cues || [],
+              pct_above_e21: Number.isFinite(Number(_fpDs.pct_above_e21)) ? Number(_fpDs.pct_above_e21) : null,
+            },
+          });
+      }
+    }
   }
 
   // ── JULY-2026 AUTOPSY — HTF RECLAIM ENTRY (P15, flag-gated, default OFF) ──

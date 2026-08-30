@@ -507,6 +507,37 @@ describe("scoreRootConfluence ST hold gate", () => {
     expect(c.supertrend_trigger.triggered).toBe(false);
   });
 
+  it("exempts LTF ignition when complementary HTF is forming (TSLA Aug 13)", () => {
+    const c = scoreRootConfluence(confluenceLongBase({
+      htf_score: -9.6,
+      ltf_score: 13.3,
+      state: "HTF_BEAR_LTF_PULLBACK",
+      daily_structure: { pct_above_e21: 0.35, e21_slope_5d_pct: 0.2, days_above_e21: 1 },
+      st_hold_setup: null,
+      tf_tech: {
+        D: {
+          ew: { dir: 1, fiboMatch: 1.618, detected: true },
+          fvg: { activeBull: 4, activeBear: 0, inBullGap: true },
+          pdz: { zone: "discount" },
+          sma200: 2000,
+          sq: { r: 1 },
+          ema: { ema21: 2550, structure: -0.1 },
+          stDir: 1,
+          stSlope: 0,
+          ripster: { c72_89: { above: true } },
+        },
+        "4H": { stDir: 1, stSlope: 0, ema: { structure: 0.2 }, fvg: { activeBull: 2, activeBear: 0 } },
+        "1H": { stDir: 0, stSlope: 0, ema: { structure: 0.1 } },
+        "10": { stDir: -1, stSlope: 1, ema: { structure: 0.4 }, ripster: { c5_12: { bull: true, above: true, fastSlope: 1 } } },
+        "30": { stDir: -1, stSlope: 1, ema: { structure: 0.2 } },
+        W: { stDir: 1, stSlope: 0 },
+      },
+    }));
+    expect(c.supertrend_trigger.freshness).toBe("htf_forming");
+    expect(c.supertrend_trigger.triggered).toBe(true);
+    expect(c.supertrend_trigger.side).toBe("LONG");
+  });
+
   it("keeps a weekly slope trigger when daily SuperTrend is against", () => {
     const c = scoreRootConfluence(confluenceLongBase({
       st_hold_setup: null,

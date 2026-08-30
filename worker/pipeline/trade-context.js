@@ -5,6 +5,7 @@
 import { normalizeTfKey } from "../ingest.js";
 import { resolveTickerProfileContext } from "../profile-resolution.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
+import { formingPairEnabled, resolveFormingPair, resolveHtfForming, isFormingPairEntryPath } from "../mtf-forming.js";
 
 export function buildTradeContext(tickerData, asOfTs = null) {
   const d = tickerData || {};
@@ -255,7 +256,37 @@ export function buildTradeContext(tickerData, asOfTs = null) {
   };
 }
 
-function inferSide(d, state) {
+export function inferSide(d, state) {
+  const daCfg = d?._env?._deepAuditConfig || d?._deepAuditConfig || {};
+  const ltfNow = Number(d?.ltf_score);
+  if (formingPairEnabled(daCfg)) {
+    let pair = d?._mtf_forming;
+    const stampContradictsLtf = pair?.complementary
+      && pair.side === "SHORT"
+      && Number.isFinite(ltfNow)
+      && ltfNow > 4;
+    if (!pair?.complementary || stampContradictsLtf) {
+      pair = resolveFormingPair(d);
+    }
+    if (pair?.complementary && pair.side === "SHORT" && Number.isFinite(ltfNow) && ltfNow > 4) {
+      pair = { ...pair, complementary: false, side: null };
+    }
+    if (pair?.complementary && (pair.side === "LONG" || pair.side === "SHORT")) {
+      return pair.side;
+    }
+    // HTF_BEAR_LTF_PULLBACK with LTF already green is a LONG turn even
+    // when the slow clock has only one cue. Do not let the BEAR
+    // substring fade TSLA Aug 13.
+    const st = String(state || d?.state || "").toUpperCase();
+    if (st.includes("HTF_BEAR_LTF_PULLBACK") && Number.isFinite(ltfNow) && ltfNow > 0) {
+      const htf = resolveHtfForming(d, "LONG");
+      if (!htf.wm_against) return "LONG";
+    }
+  }
+  if (Number.isFinite(ltfNow) && ltfNow > 4) {
+    const st = String(state || d?.state || "").toUpperCase();
+    if (st.includes("HTF_BEAR_LTF_PULLBACK") || st.includes("LTF_BULL")) return "LONG";
+  }
   const consensusDir = d.swing_consensus?.direction;
   if (consensusDir === "LONG" || consensusDir === "SHORT") return consensusDir;
   if (state.includes("BULL")) return "LONG";
@@ -267,6 +298,40 @@ function inferSide(d, state) {
   }
   return null;
 }
+
+/**
+ * Direction written onto a new paper/live trade.
+ *
+ * `getTradeDirection(state)` is BULL→LONG / BEAR→SHORT. That fades
+ * TSLA Aug 13: evaluateEntry qualifies `tt_forming_pair` as LONG
+ * (LTF +15, 4H ST bull) but persist used the BEAR substring and
+ * opened SHORT. Path `tt_forming_pair` has neither "long" nor
+ * "short", so the old fallback was the state string.
+ */
+export function resolveEntryPersistDirection(d, entryPath) {
+  const path = String(entryPath ?? d?.__entry_path ?? d?.entry_path ?? "").toLowerCase();
+  const inferred = inferSide(d, String(d?.state || ""));
+  if (path.includes("mean_revert")) {
+    const mr = String(d?.mean_revert_td9?.direction || "").toUpperCase();
+    if (mr === "LONG" || mr === "SHORT") return mr;
+    return inferred || "LONG";
+  }
+  if (path.includes("forming_pair") && (inferred === "LONG" || inferred === "SHORT")) {
+    return inferred;
+  }
+  if (path.includes("short")) return "SHORT";
+  if (path.includes("long")) return "LONG";
+  return inferred || stateSubstringDirection(d?.state);
+}
+
+function stateSubstringDirection(state) {
+  const s = String(state || "");
+  if (s.includes("BULL")) return "LONG";
+  if (s.includes("BEAR")) return "SHORT";
+  return null;
+}
+
+export { isFormingPairEntryPath };
 
 function resolveLeadingLtf(d, env) {
   const requested = normalizeTfKey(

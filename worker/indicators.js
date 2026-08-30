@@ -23,11 +23,12 @@ import {
   refreshStHoldSetup,
 } from "./supertrend-hold.js";
 import { synthesizeNineHourBars, synthesizeRthSessionBars } from "./session-tfs.js";
+import { resolveFormingPair } from "./mtf-forming.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
 // this version let us know exactly which logic produced them.
-export const SCORING_VERSION = "2.1.1-2026-08-21";
+export const SCORING_VERSION = "2.1.2-2026-08-29";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)
@@ -5131,7 +5132,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const overnightGap = computeOvernightGapContext(orbIntradayBars, rawDailyBars, price, opts?.asOfTs || null);
   const orb = computeORB(orbIntradayBars, price, opts?.asOfTs || null);
 
-  return {
+  const assembled = {
     ...base,
     ticker: ticker.toUpperCase(),
     ts: Date.now(),
@@ -5432,6 +5433,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       };
     })() : undefined,
   };
+  assembled._mtf_forming = resolveFormingPair(assembled);
+  return assembled;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
