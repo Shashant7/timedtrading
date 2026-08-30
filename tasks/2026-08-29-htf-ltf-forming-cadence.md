@@ -92,7 +92,18 @@ even after inferSide was LONG on the live fill snapshot (`htf -10`, `ltf +15.7`,
 4H ST bull). The bind was persist, not qualify: `tt_forming_pair` has no
 `long`/`short` suffix, so `processTradeSimulation` used `getTradeDirection(state)`
 (BEAR substring → SHORT). `resolveEntryPersistDirection` now writes inferSide.
-Do not treat another floor tweak as the next step.
+
+### August ON v6 (persist fix, preprod `cc223f03`)
+
+Zero shorts. Canaries all LONG `tt_forming_pair`:
+
+| Ticker | n | Realized $ | Open mark $ | Turn / continuation |
+|---|---|---|---|---|
+| TEAM | 7 | +39 | +858 (`replay_end_close` Aug 26 @ 168.26) | Continuation from Aug 3 @ 105.93 |
+| TSLA | 5 | +244 | 0 | **Aug 13 14:30 LONG @ 333.69, +$284** (was SHORT in v3–v5). Aug 10 also LONG @ 329.66. |
+| AAPL | 7 | +126 | +207 | Complementary longs; no dump shape in August |
+
+Book realized ~+$409; open mark ~+$1,065. Management (early TEAM exits vs the full rip) is still out of scope.
 
 ```
 scripts/monthly-slice.sh \
