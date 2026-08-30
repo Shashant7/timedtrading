@@ -80,3 +80,8 @@ curl -s https://timed-trading.com/timed/move-discovery | jq '.summary, .gameplan
 - Worker report `patterns` has move-level aggregates only; trail-backed
   HTF/LTF/rank comparisons exist only on CLI deep-dive reports
   (`scripts/discover-moves.js`).
+- Jun–Aug 2026 operator review (why the universe + MTF stack does not
+  spot a forming move): `tasks/2026-08-29-june-present-move-review.md`.
+  Binding constraint was CONVICTION_TOO_LOW / idle continuation, not
+  missing candles. Do not apply the 60→55 accumulate knob from that
+  gameplan without a replay.
