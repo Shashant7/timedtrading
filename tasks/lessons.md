@@ -6,6 +6,25 @@
 
 ---
 
+## Index Swings exits are price action, not FSD month-end [2026-08-31]
+
+**Symptom:** TNA W36 paper-bought IWM at $293.23 with stop $297.27
+already through, then the FSD month-end stamp (`21:00 UTC` last calendar
+day) was about to flatten the 29-share catch-up solely because the
+clock passed — no stop, target, or trail.
+
+**Cause:** `classifyIndexTrendPaperEvent` treated `target_deadline_ms`
+as a hard EXIT. FSD rally window is research guidance; the replay
+lesson already says `replay_end_close` (runners held past month-end)
+carried most of the PnL.
+
+**Fix:** Deadline only blocks new DCA. Flatten on underlying
+invalidation / target / trail only. Refuse first BUY when spot is
+already through the stop.
+
+**Do not:** calendar-flatten Index Swings because FSD printed a
+month-end target; use FSD to size the *window* (adds on, adds off).
+
 ## Forming-pair LONG below the daily 21 is a failed reclaim [2026-08-30]
 
 **Symptom:** After #1385 deferred Phase-I / bias-flip, AAPL Aug 6 still

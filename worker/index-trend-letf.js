@@ -110,7 +110,9 @@ export function buildIndexTrendManagement({
     dca_note: fsdMacro?.rally_active
       ? "Add on compression dips while FSD rally window active (do not average into chop)"
       : null,
-    exit_by: deadlineLabel ? `Month-end target (${deadlineLabel}) or invalidation` : "Invalidation or ST flip",
+    exit_by: deadlineLabel
+      ? `FSD month-end target (${deadlineLabel}) is guidance — hold until invalidation or target`
+      : "Invalidation or ST flip",
     target_deadline_ms: deadlineMs,
     doctrine_version: "index-trend-letf-1",
   };
