@@ -57,6 +57,39 @@ export function modelRowFromDayTradeAction(a) {
   };
 }
 
+const PAPER_MIRROR_DECISION_MAP = {
+  mirrored: "mirrored",
+  placed: "forwarded",
+  pending: "pending",
+  rejected: "rejected",
+  error: "rejected",
+  skipped: "skipped",
+};
+
+/** BUY / DCA_ADD are opens; TRIM / EXIT / STOP are closes. */
+export function paperMirrorLogSide(row) {
+  const explicit = String(row?.side || "").toLowerCase();
+  if (explicit === "buy" || explicit === "sell") return explicit;
+  const ev = String(row?.event || "").toUpperCase();
+  return (ev === "BUY" || ev === "DCA_ADD") ? "buy" : "sell";
+}
+
+/**
+ * Map a paper-lane mirror-log row onto the Broker Connections chip.
+ * Index day-trade writes `decision`; index-trend may only have `skipped`.
+ */
+export function applyPaperMirrorLog(logHit) {
+  if (!logHit) return null;
+  const decision = logHit.decision
+    || (logHit.skipped ? "skipped" : (logHit.reason ? "skipped" : null));
+  if (!decision) return null;
+  return {
+    mirror: PAPER_MIRROR_DECISION_MAP[decision] || "skipped",
+    mirrorReason: decision === "mirrored" ? null : (logHit.reason || null),
+    mirrorNote: logHit.note || null,
+  };
+}
+
 export function modelRowFromIndexTrendAction(a) {
   const ev = String(a?.event || "").toUpperCase();
   const event_type = ev === "BUY" || ev === "DCA_ADD" ? "ENTRY" : (ev === "TRIM" ? "TRIM" : "EXIT");

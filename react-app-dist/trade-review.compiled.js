@@ -1003,6 +1003,6 @@ root.render(AuthGate ? React.createElement(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "admin"
 }, () => React.createElement(App, null)) : React.createElement(App, null));
-// cache-bust:1787914492508:218120180
+// cache-bust:1788209866338:99473957
 
-// cache-bust:1787914492508:218120180
+// cache-bust:1788209866338:99473957

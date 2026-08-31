@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction } from "./broker-day-actions-join.js";
+import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction, applyPaperMirrorLog, paperMirrorLogSide } from "./broker-day-actions-join.js";
 
 describe("extraActionFromLedger", () => {
   it("surfaces reject reason on unmatched options SELL extras", () => {
@@ -48,6 +48,27 @@ describe("modelRowFromDayTradeAction", () => {
     expect(sell.event_type).toBe("EXIT");
     expect(sell.position_id).toBe("dt:QQQ:x");
     expect(sell.instrument).toBe("option");
+  });
+});
+
+describe("applyPaperMirrorLog", () => {
+  it("maps a skipped index-trend row without a decision field", () => {
+    const applied = applyPaperMirrorLog({
+      signal_id: "it:SPY:SPYU:LONG:2026-W36",
+      event: "BUY",
+      skipped: true,
+      reason: "daily_cap_3_reached",
+    });
+    expect(applied.mirror).toBe("skipped");
+    expect(applied.mirrorReason).toBe("daily_cap_3_reached");
+    expect(paperMirrorLogSide({ event: "DCA_ADD" })).toBe("buy");
+    expect(paperMirrorLogSide({ event: "STOP" })).toBe("sell");
+  });
+
+  it("maps a placed day-trade decision to forwarded", () => {
+    const applied = applyPaperMirrorLog({ decision: "placed", reason: null });
+    expect(applied.mirror).toBe("forwarded");
+    expect(applied.mirrorReason).toBe(null);
   });
 });
 
