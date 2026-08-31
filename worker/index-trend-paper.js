@@ -123,6 +123,14 @@ export function classifyIndexTrendPaperEvent({
   const canEnter = (status === "flat" || status === "closed") && !book?.needs_wait;
   if (canEnter && activate && isNyRegularMarketOpenStatic(new Date(now))) {
     if (!(letfPx > 0) || !(ulPx > 0)) return { event: null, nextBook: null };
+    // Price action first: do not open a book that is already through the stop
+    // (TNA 2026-08-31: IWM $293.23 vs stop $297.27 — FSD still said BUY).
+    if (stopUl != null && ulPx != null) {
+      const alreadyDead = dir === "LONG" ? ulPx <= stopUl + 1e-9 : ulPx >= stopUl - 1e-9;
+      if (alreadyDead) {
+        return { event: null, nextBook: book || null, reason: "already_invalidated" };
+      }
+    }
     return {
       event: "BUY",
       nextBook: {
@@ -173,10 +181,10 @@ export function classifyIndexTrendPaperEvent({
     }
   }
 
-  // Month-end / macro deadline.
-  if (deadlineMs != null && now >= deadlineMs) {
-    return closed("EXIT", "target_deadline", { ...stamped, peak_underlying_r: peakR });
-  }
+  // FSD month-end is guidance, not a flatten. Replay `replay_end_close`
+  // runners held past month-end carried most of the PnL. Price action
+  // (stop / target / trail) drives EXIT. After the deadline, stop adding.
+  const pastDeadline = deadlineMs != null && now >= deadlineMs;
 
   // Target hit on underlying.
   if (targetUl != null && ulPx != null) {
@@ -224,8 +232,8 @@ export function classifyIndexTrendPaperEvent({
     }
   }
 
-  // DCA on compression dip while rally window active.
-  if (mgmt.dca_on_dip && r != null && r >= -0.25 && r <= 0.5
+  // DCA on compression dip while rally window active (not after FSD month-end).
+  if (!pastDeadline && mgmt.dca_on_dip && r != null && r >= -0.25 && r <= 0.5
     && (Number(book.dca_count) || 0) < 1
     && isNyRegularMarketOpenStatic(new Date(now))) {
     const addQty = Math.max(1, Math.round(defaultShares * 0.5));

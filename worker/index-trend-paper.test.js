@@ -98,6 +98,51 @@ describe("index-trend-paper", () => {
     expect(d.nextBook?.shares_remaining).toBe(0);
   });
 
+  it("does not flatten an open book solely because FSD month-end passed", () => {
+    const book = {
+      status: "open",
+      direction: "LONG",
+      entry_underlying_price: 293.23,
+      entry_letf_price: 68.15,
+      stop_underlying: 280,
+      shares: 29,
+      shares_remaining: 29,
+      trims_fired: [],
+    };
+    const d = classifyIndexTrendPaperEvent({
+      book,
+      letfPrice: 68.15,
+      underlyingPrice: 293.23,
+      management: {
+        stop_underlying: 280,
+        target_underlying: 308.67,
+        target_deadline_ms: Date.UTC(2026, 7, 31, 21, 0, 0),
+        dca_on_dip: true,
+      },
+      direction: "LONG",
+      activate: true,
+      now: Date.UTC(2026, 7, 31, 21, 30, 0),
+    });
+    expect(d.event).toBe(null);
+    expect(d.nextBook?.status).toBe("open");
+  });
+
+  it("does not BUY when the underlying is already through the stop", () => {
+    const now = Date.UTC(2026, 7, 31, 16, 0, 0); // 12:00 PM ET
+    const d = classifyIndexTrendPaperEvent({
+      book: null,
+      letfPrice: 68.15,
+      underlyingPrice: 293.23,
+      management: { stop_underlying: 297.27, target_underlying: 308.67 },
+      direction: "LONG",
+      activate: true,
+      now,
+      shares: 29,
+    });
+    expect(d.event).toBe(null);
+    expect(d.reason).toBe("already_invalidated");
+  });
+
   it("does not re-BUY the same weekly play after trail_giveback EXIT", () => {
     const book = {
       status: "trimmed",

@@ -251,6 +251,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 - Paper EXIT/STOP sets `needs_wait` and keeps it while the weekly play is
   still live so trail-giveback cannot flatten then immediately re-BUY.
 - Discord EXIT must show remaining 0, not fall back to original share count.
+- **PA drives exits, not FSD calendar (2026-08-31):** `target_deadline_ms`
+  is guidance (no new DCA after it). Flatten only on underlying stop /
+  target / trail. Do not BUY a weekly book already through the stop
+  (TNA 8/31: IWM $293 vs stop $297).
 
 **Model LT card must not inherit ST realized loss (2026-08-27)**
 - Same-ticker ST close (AMZN max-loss) + open investor lot → Bought card
