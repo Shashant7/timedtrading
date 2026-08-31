@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { maybeAutoMirrorIndexTrendEvent, indexTrendNeedsEntryCatchUp, INDEX_TREND_MIRROR_LOG_KEY } from "./index-trend-auto-mirror.js";
+import { maybeAutoMirrorIndexTrendEvent, indexTrendNeedsEntryCatchUp, indexTrendCatchUpPlaced, INDEX_TREND_MIRROR_LOG_KEY } from "./index-trend-auto-mirror.js";
 import { forwardOrderToBridge } from "./broker-bridge-client.js";
 
 vi.mock("./broker-bridge-client.js", () => ({
@@ -68,6 +68,12 @@ describe("index-trend-auto-mirror", () => {
     expect(r.qty).toBe(29);
     expect(forwardOrderToBridge).toHaveBeenCalled();
     expect(await indexTrendNeedsEntryCatchUp(env, "it:IWM:TNA:LONG:2026-W36")).toBe(false);
+  });
+
+  it("treats a forwarded catch-up as placed", () => {
+    expect(indexTrendCatchUpPlaced({ skipped: false, fired: { ok: true } })).toBe(true);
+    expect(indexTrendCatchUpPlaced({ skipped: true, reason: "no_mirrored_entry" })).toBe(false);
+    expect(indexTrendCatchUpPlaced({ skipped: false, fired: { ok: false, skip: "no_bridge_url" } })).toBe(false);
   });
 
   it("still blocks a fresh BUY outside RTH", async () => {

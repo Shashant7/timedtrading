@@ -28,6 +28,8 @@ describe("index day-trade dispatch scope", () => {
     expect(block).toMatch(/queueBackground\(maybeAutoMirrorIndexDayTradeEvent/);
     expect(block).toMatch(/await _itAutoMirror\(/);
     expect(block).toMatch(/indexTrendNeedsEntryCatchUp/);
+    expect(block).toMatch(/indexTrendCatchUpPlaced/);
+    expect(block.indexOf("indexTrendNeedsEntryCatchUp")).toBeLessThan(block.indexOf("_itNotifyPaper"));
   });
 
   it("joins idx-trend-mirror-log onto it: day-action rows", () => {
