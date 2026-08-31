@@ -836,7 +836,8 @@ import {
   combineAccountBooks as _combineAccountBooks,
   applyLiveMarkToEquityPoints as _applyLiveMarkToEquityPoints,
 } from "./account-summary.js";
-import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction } from "./broker-day-actions-join.js";
+import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction, applyPaperMirrorLog, paperMirrorLogSide } from "./broker-day-actions-join.js";
+import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendNeedsEntryCatchUp } from "./index-trend-auto-mirror.js";
 import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
@@ -40625,6 +40626,13 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
     optDtMirrorLog = ((await kvGetJSON(env.KV_TIMED, "timed:opt-dt-mirror-log")) || [])
       .filter((e) => Number(e?.ts) >= sinceMs);
   } catch (_) { optDtMirrorLog = []; }
+  // Index-trend LETF share plays write here. Without this join the
+  // timeline shows a bare NOT MIRRORED even when the skip reason exists.
+  let idxTrendMirrorLog = [];
+  try {
+    idxTrendMirrorLog = ((await kvGetJSON(env.KV_TIMED, INDEX_TREND_MIRROR_LOG_KEY)) || [])
+      .filter((e) => Number(e?.ts) >= sinceMs);
+  } catch (_) { idxTrendMirrorLog = []; }
   // 3. Per-account outcomes from the bridge.
   const bridgeHours = Math.max(1, Math.ceil((Date.now() - sinceMs) / 3600000));
   let bridge = { accounts: [], ledger: [], audit: [] };
@@ -40733,21 +40741,19 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
     // opt-dt decision log: skipped/rejected/pending/error each get a reason,
     // and adaptive-sizing notes (downsized, single-lot-over-cap) ride along,
     // instead of a bare "NOT MIRRORED".
-    if (mirror === "not_mirrored" && String(m.position_id || "").toLowerCase().startsWith("dt:")) {
-      const logHit = optDtMirrorLog.find((e) =>
-        _normId(e.signal_id) === mid && near(e.ts) && _sideFamily(e.side) === fam);
-      if (logHit && logHit.decision) {
-        const _dtMirrorMap = {
-          mirrored: "mirrored",
-          placed: "forwarded",
-          pending: "pending",
-          rejected: "rejected",
-          error: "rejected",
-          skipped: "skipped",
-        };
-        mirror = _dtMirrorMap[logHit.decision] || "skipped";
-        mirrorReason = logHit.decision === "mirrored" ? null : (logHit.reason || null);
-        mirrorNote = logHit.note || null;
+    if (mirror === "not_mirrored") {
+      const pid = String(m.position_id || "").toLowerCase();
+      const paperLog = pid.startsWith("dt:") ? optDtMirrorLog
+        : (pid.startsWith("it:") ? idxTrendMirrorLog : null);
+      if (paperLog) {
+        const logHit = paperLog.find((e) =>
+          _normId(e.signal_id) === mid && near(e.ts) && _sideFamily(paperMirrorLogSide(e)) === fam);
+        const applied = applyPaperMirrorLog(logHit);
+        if (applied) {
+          mirror = applied.mirror;
+          mirrorReason = applied.mirrorReason;
+          mirrorNote = applied.mirrorNote;
+        }
       }
     }
     return {
@@ -96168,6 +96174,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       loadedBook: loaded,
                     });
                     if (ev?.book) _itBookAfter = ev.book;
+                    const _itMirrorCtx = {
+                      reason: ev?.reason,
+                      signal_id: _itSid,
+                      underlying: _itSym,
+                      letf_ticker: _itLetf,
+                      direction: _itDir,
+                      letf_price: letfPx,
+                      management: _itMgmt,
+                      play: playRow?.play || null,
+                      book: ev?.book || _itBookAfter,
+                      now: Date.now(),
+                    };
                     if (ev?.event) {
                       d1InsertNotification(env, {
                         email: null,
@@ -96180,23 +96198,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         engine: "index_trend_letf",
                         exec_state: ev.event,
                       }).catch(() => {});
-                      queueBackground((async () => {
+                      // Await on the request path. queueBackground + in-process
+                      // self-fetch waitUntil was returning before the decision
+                      // (and timed:idx-trend-mirror-log) was written, so Broker
+                      // Connections showed a bare NOT MIRRORED for SPYU/TNA.
+                      try {
+                        await _itAutoMirror(env, { ..._itMirrorCtx, event: ev.event, book: ev.book });
+                      } catch (_) { /* never block index trend paper */ }
+                    } else {
+                      const _itOpen = _itBookAfter
+                        && (_itBookAfter.status === "open" || _itBookAfter.status === "trimmed");
+                      if (_itOpen && _itSid && await indexTrendNeedsEntryCatchUp(env, _itSid)) {
                         try {
-                          const { maybeAutoMirrorIndexTrendEvent } = await import("./index-trend-auto-mirror.js");
-                          await maybeAutoMirrorIndexTrendEvent(env, {
-                            event: ev.event,
-                            reason: ev.reason,
-                            signal_id: _itSid,
-                            underlying: _itSym,
-                            letf_ticker: _itLetf,
-                            direction: _itDir,
-                            letf_price: letfPx,
-                            management: _itMgmt,
-                            play: playRow?.play || null,
-                            book: ev.book,
-                          });
-                        } catch (_) { /* never block index trend mirror */ }
-                      })());
+                          await _itAutoMirror(env, { ..._itMirrorCtx, event: "BUY", catch_up: true, book: _itBookAfter });
+                        } catch (_) { /* never block index trend paper */ }
+                      }
                     }
                   } catch (_itErr) {
                     console.warn(`[INDEX-TREND] ${_itSym}:`, String(_itErr?.message || _itErr).slice(0, 120));

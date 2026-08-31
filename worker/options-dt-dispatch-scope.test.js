@@ -26,7 +26,14 @@ describe("index day-trade dispatch scope", () => {
     expect(block).toMatch(/const queueBackground = \(promise\) =>/);
     expect(block).toMatch(/_dtDispatchAllowed\) queueBackground\(_optDtNotifyPaper/);
     expect(block).toMatch(/queueBackground\(maybeAutoMirrorIndexDayTradeEvent/);
-    expect(block).toMatch(/queueBackground\(\(async \(\) => \{/);
+    expect(block).toMatch(/await _itAutoMirror\(/);
+    expect(block).toMatch(/indexTrendNeedsEntryCatchUp/);
+  });
+
+  it("joins idx-trend-mirror-log onto it: day-action rows", () => {
+    expect(src).toMatch(/INDEX_TREND_MIRROR_LOG_KEY/);
+    expect(src).toMatch(/applyPaperMirrorLog/);
+    expect(src).toMatch(/startsWith\("it:"\)/);
   });
 
   it("runs the */1 day-trade lane through the options sell window (not RTH-only)", () => {

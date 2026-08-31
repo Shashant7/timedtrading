@@ -64,6 +64,9 @@ function humanizeReason(raw) {
   if (/flag_off|indices_paused/.test(r)) return "Index options auto-mirror is globally paused";
   if (/no_mirrored_entry|entry_fill_rejected|entry_fill_pending/.test(r)) return "The entry never mirrored, so this exit was skipped";
   if (/entry_already_mirrored/.test(r)) return "Already mirrored";
+  if (/vehicle_daily_cap_\d+_reached/.test(r)) return "Index Swings daily cap reached for this vehicle";
+  if (/^daily_cap_\d+_reached$/.test(r)) return "Shared auto-mirror daily cap reached";
+  if (/outside_rth_buy_window/.test(r)) return "Index Swings entries only fire during regular hours";
   {
     const mNot = r.match(/index_dt_one_lot_notional_(\d+)_over_max_per_order_(\d+)/);
     if (mNot) return `One contract costs $${mNot[1]}, above the $${mNot[2]} Max/order limit — raise it to mirror this index day-trade`;
@@ -3328,6 +3331,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787914492508:218120180
+// cache-bust:1788209866338:99473957
 
-// cache-bust:1787914492508:218120180
+// cache-bust:1788209866338:99473957

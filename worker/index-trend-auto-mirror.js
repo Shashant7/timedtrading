@@ -13,8 +13,14 @@ import { isNyRegularMarketOpenStatic } from "./market-calendar.js";
 
 const VEHICLE_KEY = "index_trend_letf";
 const MIRROR_TTL = 21 * 86400;
-const MIRROR_LOG_KEY = "timed:idx-trend-mirror-log";
+export const INDEX_TREND_MIRROR_LOG_KEY = "timed:idx-trend-mirror-log";
+const MIRROR_LOG_KEY = INDEX_TREND_MIRROR_LOG_KEY;
 const MIRROR_LOG_MAX = 120;
+
+export async function indexTrendNeedsEntryCatchUp(env, signalId) {
+  const existing = await loadMirror(env, signalId);
+  return !existing?.entry_fired;
+}
 
 export function indexTrendMirrorKey(signalId) {
   return `timed:idx-trend-mirror:${String(signalId || "").trim()}`;
@@ -43,14 +49,20 @@ async function recordMirrorDecision(env, ctx, result) {
   try {
     const raw = await KV.get(MIRROR_LOG_KEY);
     const list = raw ? JSON.parse(raw) : [];
+    const event = String(ctx.event || "").toUpperCase();
+    const skipped = !!result?.skipped;
+    const firedSkip = result?.fired?.skip || null;
+    const rejected = !skipped && (result?.fired?.ok === false || !!firedSkip);
     list.unshift({
       ts: Date.now(),
-      event: String(ctx.event || "").toUpperCase(),
+      event,
+      side: (event === "BUY" || event === "DCA_ADD") ? "buy" : "sell",
       signal_id: String(ctx.signal_id || ""),
       underlying: String(ctx.underlying || ctx.ticker || "").toUpperCase(),
       letf_ticker: String(ctx.letf_ticker || "").toUpperCase(),
-      skipped: !!result?.skipped,
-      reason: result?.reason || result?.error || null,
+      skipped,
+      decision: skipped ? "skipped" : (rejected ? "rejected" : "placed"),
+      reason: result?.reason || result?.error || firedSkip || null,
     });
     if (list.length > MIRROR_LOG_MAX) list.length = MIRROR_LOG_MAX;
     await KV.put(MIRROR_LOG_KEY, JSON.stringify(list), { expirationTtl: 30 * 86400 });
@@ -148,7 +160,9 @@ async function runIndexTrendMirror(env, ctx = {}) {
   const letfPrice = Number(ctx.letf_price);
 
   if (event === "BUY" || event === "DCA_ADD") {
-    if (!isNyBuyWindow(ctx.now)) {
+    // Catch-up of an already-open paper book (the original BUY's waitUntil
+    // died) may run after the cash session — Webull can still take the share.
+    if (!ctx.catch_up && !isNyBuyWindow(ctx.now)) {
       return { skipped: true, reason: "outside_rth_buy_window" };
     }
   }
