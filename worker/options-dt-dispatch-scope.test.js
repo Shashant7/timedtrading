@@ -45,4 +45,13 @@ describe("index day-trade dispatch scope", () => {
     expect(slice).toMatch(/_isOptionsSellWindowEt\(/);
     expect(slice).toMatch(/dt_only=1/);
   });
+
+  it("runs */15 index-trend it_only through operating hours, not RTH-only", () => {
+    const idx = src.indexOf("*/15 index trend LETF dispatch");
+    expect(idx).toBeGreaterThan(-1);
+    const slice = src.slice(idx, idx + 900);
+    expect(slice).toMatch(/it_only=1/);
+    expect(slice).toMatch(/isWithinOperatingHours\(/);
+    expect(slice).not.toMatch(/isNyRegularMarketOpen\(/);
+  });
 });

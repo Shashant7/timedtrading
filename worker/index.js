@@ -104302,8 +104302,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
     // 2026-08-27 — */15 index trend LETF dispatch (piggybacks on */5 cron
     // when minute % 15 === 0). Swing book does not need */1 cadence.
+    // Operating hours (not RTH-only): after the cash close the lean
+    // it_only path is what catch-up / month-end EXIT actually reach.
+    // The heavy options/all prewarm often dies before the index-trend
+    // tail, so gating this on isNyRegularMarketOpen left TNA unmirrored
+    // after 4:00 PM ET.
     if (_isEvery5Min && (_utcM % 15 === 0) && !_isDedicatedEngine
-        && (typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false)) {
+        && (typeof isWithinOperatingHours === "function" ? isWithinOperatingHours() : false)) {
       ctx.waitUntil((async () => {
         try {
           await _selfDispatch("/timed/options/all?it_only=1&_nocache=1").catch(() => {});
