@@ -110,7 +110,7 @@ root redirect lives in `react-app/_worker.js`.
 | Active Trader | `/active-trader.html` | Kanban lanes + narrative brief |
 | Investor | `/investor.html` | Investor cards + search/filter |
 | Portfolio | `/portfolio.html` | Equity curves, calendar, open positions tables |
-| Insights | `/insights.html` | System Intelligence + CIO Watchlist |
+| Insights | `/insights.html` | TT model analysis + CIO Watchlist (no FSD / playbook-deck branding) |
 | Learn | `/learn.html` | Step Zero educational walkthrough |
 | Splash | `/splash.html` | Public landing |
 | Index | `/index-react.html` | **RETIRED 2026-06-11 (operator-approved)** — ships as a redirect stub to `/today.html` (query preserved for `?ticker=` deep links). `index-react.source.html` stays in-repo as the component-logic reference but is no longer compiled or shipped. `/investor-dashboard.html` likewise redirects to `/investor.html`. |
@@ -255,6 +255,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   is guidance (no new DCA after it). Flatten only on underlying stop /
   target / trail. Do not BUY a weekly book already through the stop
   (TNA 8/31: IWM $293 vs stop $297).
+
+**Insights UI is TT model voice (2026-08-31)**
+- Insights must not name FSD / Fundstrat / editorial playbook decks.
+  Research ingest stays a silent input. Relabel as model stance / TT analysis.
 
 **Model LT card must not inherit ST realized loss (2026-08-27)**
 - Same-ticker ST close (AMZN max-loss) + open investor lot → Bought card
@@ -1103,6 +1107,7 @@ The system's editorial playbook lives at `worker/strategy-context.js` and feeds:
 - **AI CIO prompt** + **Daily Brief prompt** — both open with `getStrategyBrief()` so the LLM speaks from a single macro view.
 - **Promotion-queue scoring** — boost tier-1 theme candidates.
 - **Right Rail "Active Strategy" chip** + **Learn page** — `getStrategyDigest()` exposes the full payload at `/timed/strategy`.
+- **Insights** surfaces that digest as TT model analysis. Do not put FSD / Fundstrat / "editorial playbook" labels on the page.
 
 Two vintages run in parallel: `STRATEGY_VINTAGE` (structural — sector/theme/SMID tilts, rolls forward on each Year-Ahead deck) and `STRATEGY_TACTICAL_VINTAGE` (refreshes per Daily Technical Strategy publication). When FSD publishes a new Daily Technical Strategy note, edit `TACTICAL_SIGNALS[]`, bump `STRATEGY_TACTICAL_VINTAGE`, refresh affected theme playbook strings, add any new `ACTIVE_RISKS` entries, and add `EDUCATION_SNIPPETS` for any new technical vocabulary (TD Buy Setup, RSP/SPY, MAGS, etc.). The header-comment vintage-history block in `strategy-context.js` is the canonical changelog. Source PDFs live in `docs/reference-pdfs/` for inventory parity.
 

@@ -6,6 +6,28 @@ const {
 } = React;
 const h = React.createElement;
 const API_BASE = "";
+function sanitizeInsightsCopy(text) {
+  if (text == null || text === "") return text;
+  let t = String(text);
+  t = t.replace(/\bfsd_macro_risk_off\b/gi, "macro_risk_off");
+  t = t.replace(/\bfsd_macro_risk_on\b/gi, "macro_risk_on");
+  t = t.replace(/\[\s*FSD\s*:\s*([^\]]*)\]/gi, "$1");
+  t = t.replace(/\(\s*FSD\s*:\s*([^)]*)\)/gi, "($1)");
+  t = t.replace(/Fundstrat\s+Direct/gi, "");
+  t = t.replace(/\bFundstrat\b/gi, "");
+  t = t.replace(/\bTom\s+Lee\b/gi, "");
+  t = t.replace(/\bFSD\s*\/\s*/gi, "");
+  t = t.replace(/\bFSD\b/gi, "");
+  t = t.replace(/\s*\(docs\/reference-pdfs\/[^)]+\)/gi, "");
+  t = t.replace(/\bTT Editorial Playbook\b/gi, "TT model");
+  t = t.replace(/\beditorial playbook\b/gi, "model");
+  t = t.replace(/\bactive playbook\b/gi, "model");
+  t = t.replace(/\blong-term playbook\b/gi, "model stance");
+  t = t.replace(/\bthe playbook\b/gi, "the model");
+  t = t.replace(/\bplaybook\b/gi, "model");
+  t = t.replace(/\s{2,}/g, " ").replace(/\s+([.,;:])/g, "$1").trim();
+  return t;
+}
 const fmtUsd = n => Number.isFinite(n) ? `${n >= 0 ? "+" : "-"}$${Math.abs(Math.round(n)).toLocaleString("en-US")}` : "—";
 const fmtUsdPlain = n => Number.isFinite(n) ? `$${Math.abs(Math.round(n)).toLocaleString("en-US")}` : "—";
 const fmtPct = (n, d = 2) => Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n.toFixed(d)}%` : "—";
@@ -509,7 +531,7 @@ function CIOWatchlist({
     style: {
       marginBottom: 14
     }
-  }, "Live board posture, names on deck for confirmation, and setup-level learnings the CIO has already acted on. ", "This is guidance from the playbook and open risk — not a trade signal.")), h("div", {
+  }, "Live board posture, names on deck for confirmation, and setup-level learnings the CIO has already acted on. ", "This is the model's current stance and open risk — not a trade signal.")), h("div", {
     className: "cio-grid"
   }, h("div", {
     className: "cio-card"
@@ -961,7 +983,7 @@ function UniverseChanges({
 function StoryNav() {
   const links = [{
     href: "#chapter-playbook",
-    label: "1 · Playbook"
+    label: "1 · Model"
   }, {
     href: "#chapter-desk",
     label: "2 · Desk now"
@@ -1271,20 +1293,20 @@ function ActiveStrategyPanel({
     style: {
       marginBottom: 4
     }
-  }, data.title || "Active Strategy"), h("div", {
+  }, sanitizeInsightsCopy(data.title) || "Model stance"), h("div", {
     style: {
       fontSize: 11,
       color: "var(--tt-text-muted)",
       fontFamily: "var(--tt-font-mono)"
     }
-  }, "Vintage ", data.vintage || "—", data.source ? ` · ${data.source}` : ""))), headline && h("p", {
+  }, "Vintage ", data.vintage || "—", sanitizeInsightsCopy(data.source) ? ` · ${sanitizeInsightsCopy(data.source)}` : ""))), headline && h("p", {
     style: {
       fontSize: 14,
       color: "var(--tt-text)",
       lineHeight: 1.55,
       margin: 0
     }
-  }, headline), h("div", {
+  }, sanitizeInsightsCopy(headline)), h("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
@@ -1311,7 +1333,7 @@ function ActiveStrategyPanel({
       fontWeight: 700,
       color: "var(--tt-text)"
     }
-  }, phase.label)), Number.isFinite(targets.base_case) && h("div", {
+  }, sanitizeInsightsCopy(phase.label))), Number.isFinite(targets.base_case) && h("div", {
     style: {
       padding: 12,
       background: "rgba(52,211,153,0.06)",
@@ -1406,7 +1428,7 @@ function ActiveStrategyPanel({
       color: "var(--tt-text-muted)",
       lineHeight: 1.4
     }
-  }, s.rationale_short))), uwSectors.map(s => h("div", {
+  }, sanitizeInsightsCopy(s.rationale_short)))), uwSectors.map(s => h("div", {
     key: `uw-${s.name}`,
     style: {
       padding: 10,
@@ -1439,7 +1461,7 @@ function ActiveStrategyPanel({
       color: "var(--tt-text-muted)",
       lineHeight: 1.4
     }
-  }, s.rationale_short)))))), tier1.length > 0 && h(Disclosure, {
+  }, sanitizeInsightsCopy(s.rationale_short))))))), tier1.length > 0 && h(Disclosure, {
     id: "strategy-themes",
     title: "Tier-1 buy themes",
     sub: `${tier1.length} theme${tier1.length === 1 ? "" : "s"}`
@@ -1451,7 +1473,7 @@ function ActiveStrategyPanel({
     }
   }, tier1.map(t => h("div", {
     key: t.name,
-    title: t.playbook,
+    title: sanitizeInsightsCopy(t.playbook) || "",
     style: {
       padding: "6px 10px",
       borderRadius: 999,
@@ -1470,7 +1492,7 @@ function ActiveStrategyPanel({
       color: "var(--tt-text-muted)",
       marginLeft: 6
     }
-  }, t.playbook)))))), risks.length > 0 && h(Disclosure, {
+  }, sanitizeInsightsCopy(t.playbook))))))), risks.length > 0 && h(Disclosure, {
     id: "strategy-risks",
     title: "Active risks",
     sub: `${risks.length} on the watch list`
@@ -1514,7 +1536,7 @@ function ActiveStrategyPanel({
       color: "var(--tt-text-muted)",
       lineHeight: 1.4
     }
-  }, r.note)))))), h("div", {
+  }, sanitizeInsightsCopy(r.note))))))), h("div", {
     style: {
       fontSize: 10,
       color: "var(--tt-text-faint)",
@@ -1522,7 +1544,7 @@ function ActiveStrategyPanel({
       paddingTop: 8,
       borderTop: "1px solid var(--tt-border)"
     }
-  }, "The playbook biases the AI CIO, Daily Brief, and Discovery scoring. It is editorial guidance — not a guarantee. Update when the underlying research deck changes."));
+  }, "The model stance informs the AI CIO, Daily Brief, and Discovery scoring. It is analysis — not a guarantee."));
   if (embedded) return card;
   return h("section", {
     className: "tt-row"
@@ -1577,13 +1599,13 @@ function ResearchNotePanel({
       lineHeight: 1.6,
       margin: 0
     }
-  }, note.verdict) : h("p", {
+  }, sanitizeInsightsCopy(note.verdict)) : h("p", {
     style: {
       fontSize: 13,
       color: "var(--tt-text-muted)",
       margin: 0
     }
-  }, "Today's research note posts after the market-close synthesis. Concepts below explain the current playbook."), obs.length > 0 && h("div", null, h("div", {
+  }, "Today's research note posts after the market-close synthesis. Concepts below explain the current model stance."), obs.length > 0 && h("div", null, h("div", {
     className: "tt-sec-title",
     style: {
       marginBottom: 6
@@ -1613,20 +1635,20 @@ function ResearchNotePanel({
       fontSize: 12,
       color: "var(--tt-text)"
     }
-  }, o.section || ""), o.source && h("span", {
+  }, sanitizeInsightsCopy(o.section) || ""), sanitizeInsightsCopy(o.source) && h("span", {
     style: {
       fontSize: 10,
       color: "var(--tt-text-faint)",
       fontFamily: "var(--tt-font-mono)"
     }
-  }, o.source)), h("div", {
+  }, sanitizeInsightsCopy(o.source))), h("div", {
     style: {
       fontSize: 12,
       color: "var(--tt-text-muted)",
       lineHeight: 1.45,
       marginTop: 3
     }
-  }, o.text || ""))))), indicators.length > 0 && h("div", null, h("div", {
+  }, sanitizeInsightsCopy(o.text) || ""))))), indicators.length > 0 && h("div", null, h("div", {
     className: "tt-sec-title",
     style: {
       marginBottom: 6
@@ -1648,7 +1670,7 @@ function ResearchNotePanel({
     style: {
       color: "var(--tt-text)"
     }
-  }, e.indicator || ""), " — ", e.implication || "")))), edu.length > 0 && h("div", null, h("div", {
+  }, sanitizeInsightsCopy(e.indicator) || ""), " — ", sanitizeInsightsCopy(e.implication) || "")))), edu.length > 0 && h("div", null, h("div", {
     className: "tt-sec-title",
     style: {
       marginBottom: 6
@@ -1679,7 +1701,7 @@ function ResearchNotePanel({
       fontSize: 12,
       color: "var(--tt-text)"
     }
-  }, e.term), e.fresh && h("span", {
+  }, sanitizeInsightsCopy(e.term)), e.fresh && h("span", {
     style: {
       fontSize: 9,
       fontWeight: 700,
@@ -1692,7 +1714,7 @@ function ResearchNotePanel({
       color: "var(--tt-text-muted)",
       lineHeight: 1.45
     }
-  }, e.plain))))), h("div", {
+  }, sanitizeInsightsCopy(e.plain)))))), h("div", {
     style: {
       fontSize: 10,
       color: "var(--tt-text-faint)",
@@ -2066,7 +2088,7 @@ function InsightsApp({
     className: "label"
   }, "INSIGHTS"), h("h1", null, "How the desk thinks"), h("div", {
     className: "sub"
-  }, "Read top to bottom: the long-term playbook, what the CIO is weighing now, names the engine is avoiding, then background on research and universe changes. ", "Closed-trade performance lives on Model Performance", isAdmin ? " (admin link below)." : "."), isAdmin && h("p", {
+  }, "Read top to bottom: the Timed Trading model stance, what the CIO is weighing now, names the engine is avoiding, then background on research and universe changes. ", "Closed-trade performance lives on Model Performance", isAdmin ? " (admin link below)." : "."), isAdmin && h("p", {
     style: {
       marginTop: 10,
       fontSize: 12
@@ -2080,8 +2102,8 @@ function InsightsApp({
   }, "Open Model Performance (admin)")))), h(StoryNav), h(Chapter, {
     id: "chapter-playbook",
     num: "Chapter 1",
-    title: "The playbook",
-    lede: "The editorial frame for the next 6–12 months — phase, targets, and scenario weights. Sector tilts, themes, and risks sit behind expanders so the headline read stays clean."
+    title: "The model",
+    lede: "How Timed Trading is positioned for the next 6–12 months — phase, targets, and scenario weights. Sector tilts, themes, and risks sit behind expanders so the headline read stays clean."
   }, h(ActiveStrategyPanel, {
     data: strategy,
     embedded: true
@@ -2106,7 +2128,7 @@ function InsightsApp({
   })), h(Disclosure, {
     id: "research-note",
     title: "Research desk daily read",
-    sub: "CRO synthesis + concept education"
+    sub: "Desk synthesis + concept education"
   }, h(ResearchNotePanel, {
     note: croNote,
     education,
@@ -2152,6 +2174,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1788209866338:99473957
+// cache-bust:1788212703714:24421599
 
-// cache-bust:1788209866338:99473957
+// cache-bust:1788212703714:24421599

@@ -100,11 +100,11 @@ export { loadStrategyOverrideCache };
 
 // ── Vintage / provenance ───────────────────────────────────────────────────
 // STRATEGY_SOURCE is user-visible (Insights, Learn, /timed/strategy). It must
-// describe the playbook generically — no external firm or author names. The
+// describe the model generically — no external firm or author names. The
 // internal commit history and CONTEXT.md record the underlying research feed
-// for engineering provenance.
+// for engineering provenance. Insights UI must stay TT model voice.
 export const STRATEGY_VINTAGE = "2026-07-07";
-export const STRATEGY_SOURCE = "TT Editorial Playbook · 2026 Year Ahead";
+export const STRATEGY_SOURCE = "TT model · 2026 Year Ahead";
 export const STRATEGY_TITLE = "Resilience & US Exceptionalism — July Sector Allocation Refresh";
 
 // Tactical-overlay vintage — refreshed per-publication. The structural
@@ -114,14 +114,14 @@ export const STRATEGY_TITLE = "Resilience & US Exceptionalism — July Sector Al
 // can see which signals are "fresh" (today's note) vs. "structural"
 // (whole-year thesis).
 export const STRATEGY_TACTICAL_VINTAGE = "2026-08-19";
-export const STRATEGY_TACTICAL_SOURCE  = "Market Update & Core Stock Ideas · 8/19/2026 (docs/reference-pdfs/20260819-Market-UpdatevFSD.pdf)";
+export const STRATEGY_TACTICAL_SOURCE  = "TT model overlay · 8/19/2026";
 export const STRATEGY_TACTICAL_TITLE   = "Yields-Surging Watch · New Top/Bottom Large-Cap and SMID Core Ideas";
 
 // ── 1. Headline thesis ─────────────────────────────────────────────────────
 // One paragraph. Used verbatim in Daily Brief, Right Rail "Active Strategy",
 // and Learn page. Keep <= 600 chars so it fits a Discord embed description.
 export const STRATEGY_HEADLINE = [
-  "Our active playbook tracks a back-ended 2026 rally:",
+  "The Timed Trading model tracks a back-ended 2026 rally:",
   "S&P 500 base case 7,300 → aspirational 7,700 by year-end, with a possible",
   "mid-year round-trip lower as markets test the new Fed (Warsh) and digest",
   "Iran-war shocks before resuming. US exceptionalism is the throughline:",
