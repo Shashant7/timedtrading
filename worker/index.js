@@ -837,7 +837,7 @@ import {
   applyLiveMarkToEquityPoints as _applyLiveMarkToEquityPoints,
 } from "./account-summary.js";
 import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction, applyPaperMirrorLog, paperMirrorLogSide } from "./broker-day-actions-join.js";
-import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendNeedsEntryCatchUp } from "./index-trend-auto-mirror.js";
+import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendNeedsEntryCatchUp, indexTrendCatchUpPlaced } from "./index-trend-auto-mirror.js";
 import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
@@ -96158,24 +96158,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 let _itBookAfter = openBook;
                 if (_dtDispatchAllowed) {
                   try {
-                    const ev = await _itNotifyPaper(env, {
-                      profile,
-                      signal_id: _itSid,
-                      underlying: _itSym,
-                      ticker: _itSym,
-                      letf_ticker: _itLetf,
-                      direction: _itDir,
-                      underlying_price: ulPx,
-                      letf_price: letfPx,
-                      management: _itMgmt,
-                      play: playRow?.play || null,
-                      activate: !!playRow,
-                      now: Date.now(),
-                      loadedBook: loaded,
-                    });
-                    if (ev?.book) _itBookAfter = ev.book;
-                    const _itMirrorCtx = {
-                      reason: ev?.reason,
+                    const _itMirrorBase = {
                       signal_id: _itSid,
                       underlying: _itSym,
                       letf_ticker: _itLetf,
@@ -96183,34 +96166,72 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       letf_price: letfPx,
                       management: _itMgmt,
                       play: playRow?.play || null,
-                      book: ev?.book || _itBookAfter,
+                      book: openBook,
                       now: Date.now(),
                     };
-                    if (ev?.event) {
-                      d1InsertNotification(env, {
-                        email: null,
-                        type: paperEventToNotifType(ev.event),
-                        title: ev.embed?.title || `${ev.event} ${_itLetf} index trend`,
-                        body: String(ev.embed?.description || ev.event).replace(/\*/g, "").slice(0, 280),
-                        link: "/today.html",
-                        alert_class: "trade_signal",
-                        severity: ev.event === "STOP" ? "high" : "info",
-                        engine: "index_trend_letf",
-                        exec_state: ev.event,
-                      }).catch(() => {});
-                      // Await on the request path. queueBackground + in-process
-                      // self-fetch waitUntil was returning before the decision
-                      // (and timed:idx-trend-mirror-log) was written, so Broker
-                      // Connections showed a bare NOT MIRRORED for SPYU/TNA.
+                    // Heal a missed entry BEFORE paper classifies EXIT/STOP.
+                    // TNA W36 was still open after the month-end deadline;
+                    // notify-first would close the book and skip catch-up
+                    // (EXIT requires entry_fired).
+                    const _itOpenBefore = openBook
+                      && (openBook.status === "open" || openBook.status === "trimmed");
+                    let _itHealedEntry = false;
+                    if (_itOpenBefore && _itSid && await indexTrendNeedsEntryCatchUp(env, _itSid)) {
                       try {
-                        await _itAutoMirror(env, { ..._itMirrorCtx, event: ev.event, book: ev.book });
-                      } catch (_) { /* never block index trend paper */ }
+                        const _heal = await _itAutoMirror(env, {
+                          ..._itMirrorBase,
+                          event: "BUY",
+                          catch_up: true,
+                          book: openBook,
+                        });
+                        _itHealedEntry = indexTrendCatchUpPlaced(_heal);
+                      } catch (_) { /* fall through to notify */ }
+                    }
+                    if (_itHealedEntry) {
+                      // Same-tick EXIT would buy-and-sell after hours. Let
+                      // the next tick classify the close now that entry_fired
+                      // is set so the broker exit can actually place.
                     } else {
-                      const _itOpen = _itBookAfter
-                        && (_itBookAfter.status === "open" || _itBookAfter.status === "trimmed");
-                      if (_itOpen && _itSid && await indexTrendNeedsEntryCatchUp(env, _itSid)) {
+                      const ev = await _itNotifyPaper(env, {
+                        profile,
+                        signal_id: _itSid,
+                        underlying: _itSym,
+                        ticker: _itSym,
+                        letf_ticker: _itLetf,
+                        direction: _itDir,
+                        underlying_price: ulPx,
+                        letf_price: letfPx,
+                        management: _itMgmt,
+                        play: playRow?.play || null,
+                        activate: !!playRow,
+                        now: Date.now(),
+                        loadedBook: loaded,
+                      });
+                      if (ev?.book) _itBookAfter = ev.book;
+                      const _itMirrorCtx = {
+                        ..._itMirrorBase,
+                        reason: ev?.reason,
+                        book: ev?.book || _itBookAfter,
+                        now: Date.now(),
+                      };
+                      if (ev?.event) {
+                        d1InsertNotification(env, {
+                          email: null,
+                          type: paperEventToNotifType(ev.event),
+                          title: ev.embed?.title || `${ev.event} ${_itLetf} index trend`,
+                          body: String(ev.embed?.description || ev.event).replace(/\*/g, "").slice(0, 280),
+                          link: "/today.html",
+                          alert_class: "trade_signal",
+                          severity: ev.event === "STOP" ? "high" : "info",
+                          engine: "index_trend_letf",
+                          exec_state: ev.event,
+                        }).catch(() => {});
+                        // Await on the request path. queueBackground + in-process
+                        // self-fetch waitUntil was returning before the decision
+                        // (and timed:idx-trend-mirror-log) was written, so Broker
+                        // Connections showed a bare NOT MIRRORED for SPYU/TNA.
                         try {
-                          await _itAutoMirror(env, { ..._itMirrorCtx, event: "BUY", catch_up: true, book: _itBookAfter });
+                          await _itAutoMirror(env, { ..._itMirrorCtx, event: ev.event, book: ev.book });
                         } catch (_) { /* never block index trend paper */ }
                       }
                     }

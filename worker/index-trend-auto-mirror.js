@@ -22,6 +22,14 @@ export async function indexTrendNeedsEntryCatchUp(env, signalId) {
   return !existing?.entry_fired;
 }
 
+/** True when a catch-up BUY actually forwarded (not skipped/rejected). */
+export function indexTrendCatchUpPlaced(result) {
+  if (!result || result.skipped) return false;
+  const fired = result.fired;
+  if (!fired) return false;
+  return fired.ok !== false && !fired.skip;
+}
+
 export function indexTrendMirrorKey(signalId) {
   return `timed:idx-trend-mirror:${String(signalId || "").trim()}`;
 }
