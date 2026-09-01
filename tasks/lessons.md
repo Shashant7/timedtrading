@@ -6,6 +6,23 @@
 
 ---
 
+## Scored universe cards clip bottom MTF chips at 118px [2026-09-01]
+
+**Symptom:** Today "Scored universe" lane cards cut off the bottom EMA
+row (1H / D 21 / D 55 / MTF stack).
+
+**Cause:** `.ds-tickercard.tt-lane-card` locks `height` *and* `max-height`
+to `--tt-lane-card-h: 118px` with `overflow: hidden`. `mtfBelow` moved
+chips under the header (so they would not clip there) but never grew
+the card. Today `.vp-lane` / `.vp-list` set `height: auto` and left
+`max-height: 118px`.
+
+**Fix:** `tt-lane-card--mtf-below` → `max-height: none`. Same override
+on the viewport lane.
+
+**Do not:** only set `height: auto` on a token that still caps
+`max-height`.
+
 ## Earnings lotto scan cannot call buildTraderPredictionContract [2026-09-01]
 
 **Symptom:** DELL and CRDO reported AMC 2026-09-01. Calendar had both

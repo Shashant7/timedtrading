@@ -286,11 +286,12 @@
     const metrics = Array.isArray(p.metrics) ? p.metrics.filter(Boolean) : [];
     const hasMid = !!p.midBody;
     const extraClass = p.button?.className ? ` ${p.button.className}` : "";
+    const mtfBelowClass = p.mtfBelow ? " tt-lane-card--mtf-below" : "";
 
     return h("button", {
       onClick: p.button?.onClick,
       onKeyDown: p.button?.onKeyDown,
-      className: `ds-tickercard tt-lane-card${hasMid ? " tt-lane-card--active" : ""}${extraClass}`,
+      className: `ds-tickercard tt-lane-card${hasMid ? " tt-lane-card--active" : ""}${mtfBelowClass}${extraClass}`,
       style: p.button?.style,
       title: p.button?.title,
     },
@@ -345,4 +346,4 @@
   boot();
 })();
 
-// cache-bust:1788269205017:473995601
+// cache-bust:1788297048088:88697677
