@@ -6,6 +6,38 @@
 
 ---
 
+## CRDO earnings lotto vanished because KV calendar dropped a live D1 print [2026-09-01]
+
+**Symptom:** After the lotto-scan CPU fix, DELL appeared on Options lotto &
+moonshots. CRDO (same-day AMC, D1 `scheduled`, rank 100) did not. The
+convexity `diag` 20-name pass never mentioned CRDO.
+
+**Cause:** The scan built `earnBySym` from `timed:earnings:upcoming` only.
+Finnhub's calendar for CRDO went empty the same evening; the upcoming
+API response had no CRDO even though D1 `market_events` still had
+2026-09-01 AMC `$1.1874 EPS`. Failed gates also omitted silently
+(`no suppressed list`). Separately, `mergeEarningsEventLists` split
+`_source` on commas only, so `finnhub+d1` compounded into a 28MB
+payload that can fail the 25MB KV write.
+
+**Fix:** Merge D1 scheduled rows into the convexity earnings window.
+Always return `scan.omitted` (reason + confluence). Upcoming API upserts
+D1 instead of skip-if-have. Tokenize sources on `+` and `,`.
+
+**Do not:** treat KV upcoming as the only earnings source, or hide
+same-day AMC skips behind `diag=1`.
+
+## Scored universe MTF chips wrap because the card is 20px narrower [2026-09-01]
+
+**Symptom:** Lotto strip chips stay on one row. Scored universe shows
+three chips and clips/wraps the fourth (`MTF n/3`).
+
+**Cause:** Viewport lane cards were 280px; lotto strip cards are 300px.
+Four `1H EMA` / `D 21 EMA` / `D 55 EMA` / `MTF` chips do not fit at
+280px, so `flex-wrap: wrap` put the stack chip on a hidden second line.
+
+**Fix:** 300px lane cards, `flex-wrap: nowrap`, 9px chips — same as lotto.
+
 ## Scored universe cards clip bottom MTF chips at 118px [2026-09-01]
 
 **Symptom:** Today "Scored universe" lane cards cut off the bottom EMA

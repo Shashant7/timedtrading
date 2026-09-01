@@ -15,6 +15,8 @@ import {
   selectConvexityScanUniverse,
   convexityContractFromSnapshot,
   isConvexityInvestorLane,
+  earningsWindowFromEvents,
+  summarizeConvexityScan,
 } from "./options-convexity.js";
 import {
   shouldActivateLotto,
@@ -158,6 +160,32 @@ describe("shouldActivateEarningsPrepLotto", () => {
     });
     expect(r.activate).toBe(true);
     expect(r.h4_close_pending).toBe(false);
+  });
+});
+
+describe("earningsWindowFromEvents / summarizeConvexityScan", () => {
+  it("keeps a same-day D1 AMC name even when KV upcoming omitted it", () => {
+    const { bySym, eventBySym } = earningsWindowFromEvents([
+      { symbol: "DELL", date: "2026-09-01", hour: "amc", _source: "finnhub" },
+      { symbol: "CRDO", date: "2026-09-01", hour: "amc", epsEstimate: 1.18, _source: "d1_market_events" },
+    ], "2026-09-01");
+    expect(bySym).toEqual({ DELL: 0, CRDO: 0 });
+    expect(eventBySym.CRDO.hour).toBe("amc");
+  });
+
+  it("flags an earnings name that never entered the 20-name scan", () => {
+    const sum = summarizeConvexityScan({
+      scannedTickers: ["DELL", "AVGO"],
+      earnBySym: { DELL: 0, CRDO: 0, AVGO: 1 },
+      earnEventBySym: { CRDO: { hour: "amc" } },
+      skipReasons: [{ ticker: "AVGO", reason: "no_convexity_leg", confluence_mode: "WAIT" }],
+      playTickers: ["DELL"],
+    });
+    const crdo = sum.omitted.find((o) => o.ticker === "CRDO");
+    const avgo = sum.omitted.find((o) => o.ticker === "AVGO");
+    expect(crdo.reason).toBe("not_in_scan");
+    expect(avgo.reason).toBe("no_convexity_leg");
+    expect(sum.omitted.map((o) => o.ticker)).not.toContain("DELL");
   });
 });
 

@@ -548,6 +548,77 @@ export const CONVEXITY_SCAN_MAX = 20;
 export const CONVEXITY_SCAN_EARN_LIMIT = 12;
 
 /**
+ * 0–5d earnings window from calendar rows. Same-day names stay even after
+ * a vendor actual lands — dropping them is how CRDO vanished from the
+ * lotto scan while D1 still had the AMC print scheduled.
+ */
+export function earningsWindowFromEvents(events = [], todayEt) {
+  const today = String(todayEt || "").slice(0, 10);
+  const todayMs = Date.parse(`${today}T12:00:00Z`);
+  const bySym = {};
+  const eventBySym = {};
+  if (!today || !Number.isFinite(todayMs)) return { bySym, eventBySym };
+  for (const e of events || []) {
+    const sym = String(e?.symbol || e?.ticker || "").toUpperCase();
+    const d = String(e?.date || "").slice(0, 10);
+    if (!sym || !d) continue;
+    const days = Math.round((Date.parse(`${d}T12:00:00Z`) - todayMs) / 86400000);
+    if (!Number.isFinite(days) || days < 0 || days > 5) continue;
+    if (Number.isFinite(bySym[sym]) && bySym[sym] <= days) continue;
+    bySym[sym] = days;
+    eventBySym[sym] = {
+      date: d,
+      hour: e?.hour || e?.session || null,
+      days_to_print: days,
+      source: e?._source || null,
+    };
+  }
+  return { bySym, eventBySym };
+}
+
+/** Earnings names that were in the window but produced no lotto/moonshot card. */
+export function summarizeConvexityScan({
+  scannedTickers = [],
+  earnBySym = {},
+  earnEventBySym = {},
+  skipReasons = [],
+  playTickers = [],
+} = {}) {
+  const scannedSet = new Set((scannedTickers || []).map((s) => String(s || "").toUpperCase()));
+  const playSet = new Set((playTickers || []).map((s) => String(s || "").toUpperCase()));
+  const skipBySym = {};
+  const reasonCounts = {};
+  for (const row of skipReasons || []) {
+    const sym = String(row?.ticker || "").toUpperCase();
+    if (sym && !skipBySym[sym]) skipBySym[sym] = row;
+    const r = String(row?.reason || "unknown");
+    reasonCounts[r] = (reasonCounts[r] || 0) + 1;
+  }
+  const omitted = [];
+  for (const [sym, days] of Object.entries(earnBySym || {})) {
+    if (playSet.has(sym)) continue;
+    const skip = skipBySym[sym] || {};
+    omitted.push({
+      ticker: sym,
+      days: Number(days),
+      hour: earnEventBySym?.[sym]?.hour || null,
+      reason: skip.reason || (scannedSet.has(sym) ? "no_card" : "not_in_scan"),
+      confluence_mode: skip.confluence_mode || null,
+      confluence_side: skip.confluence_side || null,
+      moonshot_reason: skip.moonshot_reason || null,
+    });
+  }
+  omitted.sort((a, b) => (Number(a.days) - Number(b.days)) || a.ticker.localeCompare(b.ticker));
+  return {
+    scanned: scannedSet.size,
+    cards: playSet.size,
+    earnings_window: Object.keys(earnBySym || {}).length,
+    omitted,
+    reason_counts: reasonCounts,
+  };
+}
+
+/**
  * Earnings 0–5d first (same-day AMC included), then rank/eq fill.
  * Caps the scan so /timed/options/convexity cannot 1102.
  */
