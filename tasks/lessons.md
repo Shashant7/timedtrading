@@ -12,11 +12,17 @@
 the same silent research input. Visual/copy only — do not strip the
 pipeline.
 
+**Correction (2026-09-01):** Relabeling Playbook → Model left the
+Year Ahead digest on screen (SPX 7,300/7,700/15,000, Phase 1
+back-ended rally, grind/round-trip/bear weights, MAG7 buy-dips
+headline). That *is* FSD guidance. Do not fetch or render
+`/timed/strategy` on Insights. Chapter 1 is engine snapshot from
+`/timed/all` + `/timed/ledger/summary` only.
+
 **Do not:** put Fundstrat / Tom Lee / FSD / "editorial deck" / Playbook
-chapter labels on Insights. Relabel as model stance / TT analysis.
-Sanitize `/timed/strategy` source + headline strings the page renders.
-`STRATEGY_SOURCE` / `STRATEGY_TACTICAL_SOURCE` must stay generic (no
-PDF paths, no firm names).
+chapter labels on Insights. Do not show year-ahead targets, phases, or
+scenario weights. `STRATEGY_SOURCE` / `STRATEGY_TACTICAL_SOURCE` must
+stay generic (no PDF paths, no firm names).
 
 ## Index Swings exits are price action, not FSD month-end [2026-08-31]
 

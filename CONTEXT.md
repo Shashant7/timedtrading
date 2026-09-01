@@ -258,7 +258,11 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 **Insights UI is TT model voice (2026-08-31)**
 - Insights must not name FSD / Fundstrat / editorial playbook decks.
-  Research ingest stays a silent input. Relabel as model stance / TT analysis.
+  Research ingest stays a silent input.
+- **Do not render `/timed/strategy` on Insights (2026-09-01):** renaming
+  Playbook → Model is not enough. The digest is still Year Ahead
+  targets / phases / scenario weights. Chapter 1 is engine snapshot
+  from `/timed/all` + ledger only.
 
 **Model LT card must not inherit ST realized loss (2026-08-27)**
 - Same-ticker ST close (AMZN max-loss) + open investor lot → Bought card

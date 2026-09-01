@@ -197,7 +197,8 @@ function prettySetupName(name) {
 }
 function SetupBreakdown({
   history,
-  dim
+  dim,
+  embedded
 }) {
   const rows = useMemo(() => {
     if (!Array.isArray(history)) return [];
@@ -241,31 +242,7 @@ function SetupBreakdown({
     }).sort((a, b) => b.pnl - a.pnl);
   }, [history, dim]);
   const total = rows.reduce((acc, r) => acc + r.pnl, 0);
-  return h("section", {
-    className: "tt-row"
-  }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      marginBottom: 10,
-      flexWrap: "wrap",
-      gap: 12
-    }
-  }, h("div", null, h("div", {
-    className: "tt-sec-title"
-  }, "PERFORMANCE BREAKDOWN"), h("div", {
-    className: "tt-sec-h",
-    style: {
-      margin: 0
-    }
-  }, dim === "setup_name" ? "By setup" : dim === "setup_grade" ? "By setup grade" : "By exit reason")), h("div", {
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 12,
-      color: total >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)"
-    }
-  }, "Net ", fmtUsd(total))), h("div", {
+  const table = h("div", {
     className: "tbl-scroll"
   }, h("table", {
     className: "tbl"
@@ -305,7 +282,34 @@ function SetupBreakdown({
     }, fmtUsd(r.expectancy)), h("td", null, Number.isFinite(r.pf) ? r.pf.toFixed(2) : r.pf > 0 ? "∞" : "0.00"), h("td", {
       className: r.pnl >= 0 ? "up" : "dn"
     }, fmtUsd(r.pnl)));
-  })))));
+  }))));
+  const head = h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      marginBottom: 10,
+      flexWrap: "wrap",
+      gap: 12
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "PERFORMANCE BREAKDOWN"), h("div", {
+    className: "tt-sec-h",
+    style: {
+      margin: 0
+    }
+  }, dim === "setup_name" ? "By setup" : dim === "setup_grade" ? "By setup grade" : "By exit reason")), h("div", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 12,
+      color: total >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)"
+    }
+  }, "Net ", fmtUsd(total)));
+  if (embedded) return table;
+  return h("section", {
+    className: "tt-row"
+  }, head, table);
 }
 function CIOWatchlist({
   allMeta,
@@ -982,7 +986,7 @@ function UniverseChanges({
 }
 function StoryNav() {
   const links = [{
-    href: "#chapter-playbook",
+    href: "#chapter-model",
     label: "1 · Model"
   }, {
     href: "#chapter-desk",
@@ -1244,37 +1248,43 @@ function StretchedNamesPanel({
     }
   }, t.exhaustionWarnings.slice(0, 3).join(", ") + (t.exhaustionWarnings.length > 3 ? ` +${t.exhaustionWarnings.length - 3}` : ""))))))));
 }
-function ActiveStrategyPanel({
-  data,
-  embedded
+function ModelAnalysisPanel({
+  allMeta,
+  summary,
+  history
 }) {
-  if (!data) return null;
-  const phase = data.phase || {};
-  const headline = data.headline || "";
-  const owSectors = Object.entries(data.sector_tilts || {}).filter(([, v]) => v.stance === "overweight").map(([k, v]) => ({
-    name: k,
-    ...v
-  }));
-  const uwSectors = Object.entries(data.sector_tilts || {}).filter(([, v]) => v.stance === "underweight").map(([k, v]) => ({
-    name: k,
-    ...v
-  }));
-  const tier1 = Object.entries(data.theme_tilts || {}).filter(([, v]) => v.tier === "tier_1" && v.stance === "overweight").map(([k, v]) => ({
-    name: k,
-    ...v
-  }));
-  const risks = data.active_risks || [];
-  const targets = phase.spx_targets || {};
-  const scenarios = phase.scenario_weights || {};
-  const sectionTitle = s => h("div", {
-    className: "tt-sec-title",
-    style: {
-      marginBottom: 6
-    }
-  }, s);
-  const card = h("div", {
+  const totals = summary?.totals || {};
+  const builtAt = Number(allMeta?.built_at);
+  const tickerCount = Number(allMeta?.count) || (allMeta?.data ? Object.keys(allMeta.data).length : 0);
+  const healthOk = Number.isFinite(builtAt) && Date.now() - builtAt < 30 * 60 * 1000;
+  const closed = Number(totals.closedTrades);
+  const openN = Number(totals.openTrades);
+  const wr = Number(totals.winRate);
+  const pnl = Number(totals.closedPnl);
+  const exp = Number(totals.expectancy);
+  const pf = Number(totals.profitFactor);
+  const bits = [];
+  if (tickerCount > 0) bits.push(`The engine is scoring ${tickerCount.toLocaleString("en-US")} names.`);
+  if (Number.isFinite(builtAt)) bits.push(`Last scoring run ${fmtRelativeTime(builtAt)}.`);
+  if (Number.isFinite(openN)) bits.push(`Short-term book: ${openN} open.`);
+  if (Number.isFinite(closed) && closed > 0) {
+    const wrBit = Number.isFinite(wr) ? `win rate ${wr.toFixed(0)}%` : null;
+    const expBit = Number.isFinite(exp) ? `expectancy ${fmtUsd(exp)}` : null;
+    bits.push(`Closed book: ${closed.toLocaleString("en-US")} trades${wrBit ? `, ${wrBit}` : ""}${expBit ? `, ${expBit}` : ""}.`);
+  }
+  const lede = bits.length > 0 ? bits.join(" ") : "Scoring and ledger totals load with the engine snapshot.";
+  const kpi = (label, value, sub, tone) => h("div", {
+    className: "status-card"
+  }, h("div", {
+    className: "l"
+  }, label), h("div", {
+    className: tone === "up" ? "v up" : tone === "dn" ? "v dn" : "v"
+  }, value), sub ? h("div", {
+    className: "s"
+  }, sub) : null);
+  return h("div", {
     className: "tt-card tt-card-pad",
-    id: "active-strategy",
+    id: "tt-model-analysis",
     style: {
       display: "flex",
       flexDirection: "column",
@@ -1288,255 +1298,36 @@ function ActiveStrategyPanel({
       justifyContent: "space-between",
       gap: 8
     }
-  }, h("div", null, h("div", {
+  }, h("div", {
     className: "tt-sec-h2",
     style: {
-      marginBottom: 4
+      marginBottom: 0
     }
-  }, sanitizeInsightsCopy(data.title) || "Model stance"), h("div", {
+  }, "Engine snapshot"), h("div", {
+    className: `health-pill ${healthOk ? "ok" : "warn"}`
+  }, h("div", {
+    className: "dot",
     style: {
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      fontFamily: "var(--tt-font-mono)"
+      background: "currentColor"
     }
-  }, "Vintage ", data.vintage || "—", sanitizeInsightsCopy(data.source) ? ` · ${sanitizeInsightsCopy(data.source)}` : ""))), headline && h("p", {
+  }), healthOk ? "Healthy" : Number.isFinite(builtAt) ? "Stale snapshot" : "Waiting")), h("p", {
     style: {
       fontSize: 14,
       color: "var(--tt-text)",
       lineHeight: 1.55,
       margin: 0
     }
-  }, sanitizeInsightsCopy(headline)), h("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-      gap: 12
-    }
-  }, phase.label && h("div", {
-    style: {
-      padding: 12,
-      background: "rgba(56,242,161,0.06)",
-      border: "1px solid rgba(56,242,161,0.20)",
-      borderRadius: 8
-    }
-  }, h("div", {
-    style: {
-      fontSize: 9,
-      fontWeight: 700,
-      color: "var(--tt-accent)",
-      letterSpacing: "0.06em",
-      marginBottom: 4
-    }
-  }, "PHASE"), h("div", {
-    style: {
-      fontSize: 14,
-      fontWeight: 700,
-      color: "var(--tt-text)"
-    }
-  }, sanitizeInsightsCopy(phase.label))), Number.isFinite(targets.base_case) && h("div", {
-    style: {
-      padding: 12,
-      background: "rgba(52,211,153,0.06)",
-      border: "1px solid rgba(52,211,153,0.20)",
-      borderRadius: 8
-    }
-  }, h("div", {
-    style: {
-      fontSize: 9,
-      fontWeight: 700,
-      color: "var(--tt-up-soft)",
-      letterSpacing: "0.06em",
-      marginBottom: 4
-    }
-  }, "S&P 500 TARGETS"), h("div", {
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 14,
-      fontWeight: 700,
-      color: "var(--tt-text)"
-    }
-  }, targets.base_case.toLocaleString(), " base · ", targets.aspirational?.toLocaleString() || "—", " stretch"), Number.isFinite(targets.long_horizon_2030) && h("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      marginTop: 4
-    }
-  }, "Long-horizon 2030: ", targets.long_horizon_2030.toLocaleString())), Object.keys(scenarios).length > 0 && h("div", {
-    style: {
-      padding: 12,
-      background: "rgba(167,139,250,0.06)",
-      border: "1px solid rgba(167,139,250,0.20)",
-      borderRadius: 8
-    }
-  }, h("div", {
-    style: {
-      fontSize: 9,
-      fontWeight: 700,
-      color: "var(--tt-violet)",
-      letterSpacing: "0.06em",
-      marginBottom: 4
-    }
-  }, "SCENARIO WEIGHTS"), h("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 2,
-      fontSize: 12,
-      color: "var(--tt-text)",
-      fontFamily: "var(--tt-font-mono)"
-    }
-  }, h("div", null, "Grind higher  ", h("strong", null, `${Math.round((scenarios.grind_higher_to_target || 0) * 100)}%`)), h("div", null, "Round-trip    ", h("strong", null, `${Math.round((scenarios.round_trip_then_rally || 0) * 100)}%`)), h("div", null, "Bear retest   ", h("strong", null, `${Math.round((scenarios.bear_case_retest_lows || 0) * 100)}%`))))), (owSectors.length > 0 || uwSectors.length > 0) && h(Disclosure, {
-    id: "strategy-sectors",
-    title: "Sector tilts",
-    sub: `${owSectors.length} overweight · ${uwSectors.length} underweight`
-  }, h("div", null, sectionTitle("SECTOR TILTS"), h("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-      gap: 8
-    }
-  }, owSectors.map(s => h("div", {
-    key: `ow-${s.name}`,
-    style: {
-      padding: 10,
-      borderRadius: 8,
-      background: "rgba(52,211,153,0.05)",
-      border: "1px solid rgba(52,211,153,0.20)"
-    }
-  }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      marginBottom: 4
-    }
-  }, h("strong", {
-    style: {
-      fontSize: 13,
-      color: "var(--tt-text)"
-    }
-  }, s.name), h("span", {
-    style: {
-      fontSize: 10,
-      fontWeight: 700,
-      color: "var(--tt-up-soft)",
-      letterSpacing: "0.05em"
-    }
-  }, `OW ×${s.multiplier.toFixed(2)}`)), h("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      lineHeight: 1.4
-    }
-  }, sanitizeInsightsCopy(s.rationale_short)))), uwSectors.map(s => h("div", {
-    key: `uw-${s.name}`,
-    style: {
-      padding: 10,
-      borderRadius: 8,
-      background: "rgba(244,63,94,0.05)",
-      border: "1px solid rgba(244,63,94,0.20)"
-    }
-  }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      marginBottom: 4
-    }
-  }, h("strong", {
-    style: {
-      fontSize: 13,
-      color: "var(--tt-text)"
-    }
-  }, s.name), h("span", {
-    style: {
-      fontSize: 10,
-      fontWeight: 700,
-      color: "var(--tt-dn-soft)",
-      letterSpacing: "0.05em"
-    }
-  }, `UW ×${s.multiplier.toFixed(2)}`)), h("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      lineHeight: 1.4
-    }
-  }, sanitizeInsightsCopy(s.rationale_short))))))), tier1.length > 0 && h(Disclosure, {
-    id: "strategy-themes",
-    title: "Tier-1 buy themes",
-    sub: `${tier1.length} theme${tier1.length === 1 ? "" : "s"}`
-  }, h("div", null, sectionTitle("TIER-1 BUY THEMES"), h("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 6
-    }
-  }, tier1.map(t => h("div", {
-    key: t.name,
-    title: sanitizeInsightsCopy(t.playbook) || "",
-    style: {
-      padding: "6px 10px",
-      borderRadius: 999,
-      background: "rgba(52,211,153,0.08)",
-      border: "1px solid rgba(52,211,153,0.25)",
-      fontSize: 11
-    }
-  }, h("strong", {
-    style: {
-      color: "var(--tt-up-soft)",
-      fontFamily: "var(--tt-font-mono)",
-      letterSpacing: "0.02em"
-    }
-  }, t.name), h("span", {
-    style: {
-      color: "var(--tt-text-muted)",
-      marginLeft: 6
-    }
-  }, sanitizeInsightsCopy(t.playbook))))))), risks.length > 0 && h(Disclosure, {
-    id: "strategy-risks",
-    title: "Active risks",
-    sub: `${risks.length} on the watch list`
-  }, h("div", null, sectionTitle("ACTIVE RISKS"), h("div", {
-    style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 6
-    }
-  }, risks.map(r => h("div", {
-    key: r.name,
-    style: {
-      padding: 10,
-      borderRadius: 8,
-      background: "rgba(56,242,161,0.04)",
-      border: "1px solid rgba(56,242,161,0.18)"
-    }
-  }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      marginBottom: 3
-    }
-  }, h("strong", {
-    style: {
-      fontSize: 12,
-      color: "var(--tt-text)",
-      fontFamily: "var(--tt-font-mono)"
-    }
-  }, r.name), h("span", {
-    style: {
-      fontSize: 9,
-      fontWeight: 700,
-      letterSpacing: "0.06em",
-      color: r.severity === "high" ? "var(--tt-dn-soft)" : r.severity === "medium" ? "var(--tt-accent)" : "var(--tt-text-muted)"
-    }
-  }, String(r.severity || "").toUpperCase())), h("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      lineHeight: 1.4
-    }
-  }, sanitizeInsightsCopy(r.note))))))), h("div", {
+  }, lede), h("div", {
+    className: "status-grid status-grid--model"
+  }, kpi("Tickers scored", tickerCount > 0 ? tickerCount.toLocaleString("en-US") : "—", "Active universe"), kpi("Last scoring", Number.isFinite(builtAt) ? fmtRelativeTime(builtAt) : "—", Number.isFinite(builtAt) ? new Date(builtAt).toISOString().slice(0, 16).replace("T", " ") + " UTC" : ""), kpi("Open (ST)", Number.isFinite(openN) ? String(openN) : "—", "Short-term book"), kpi("Closed win rate", Number.isFinite(wr) && closed > 0 ? fmtPctRaw(wr, 0) : "—", Number.isFinite(closed) && closed > 0 ? `${closed.toLocaleString("en-US")} closed` : "Closed book"), kpi("Closed P&L", Number.isFinite(pnl) ? fmtUsd(pnl) : "—", Number.isFinite(pf) && pf > 0 ? `PF ${Number.isFinite(pf) ? pf.toFixed(2) : "—"}` : "Short-term ledger", Number.isFinite(pnl) ? pnl >= 0 ? "up" : "dn" : null), kpi("Expectancy", Number.isFinite(exp) && closed > 0 ? fmtUsd(exp) : "—", "Per closed trade", Number.isFinite(exp) ? exp >= 0 ? "up" : "dn" : null)), h(Disclosure, {
+    id: "model-setups",
+    title: "Setup performance",
+    sub: "Closed-book results by setup"
+  }, h(SetupBreakdown, {
+    history,
+    dim: "setup_name",
+    embedded: true
+  })), h("div", {
     style: {
       fontSize: 10,
       color: "var(--tt-text-faint)",
@@ -1544,11 +1335,7 @@ function ActiveStrategyPanel({
       paddingTop: 8,
       borderTop: "1px solid var(--tt-border)"
     }
-  }, "The model stance informs the AI CIO, Daily Brief, and Discovery scoring. It is analysis — not a guarantee."));
-  if (embedded) return card;
-  return h("section", {
-    className: "tt-row"
-  }, card);
+  }, "Numbers come from the live scoring snapshot and the short-term ledger. Analysis of this account — not a forecast."));
 }
 function ResearchNotePanel({
   note,
@@ -2044,7 +1831,6 @@ function InsightsApp({
   const [allMeta, setAllMeta] = useState(null);
   const [summary, setSummary] = useState(null);
   const [universeChanges, setUniverseChanges] = useState(null);
-  const [strategy, setStrategy] = useState(null);
   const [croNote, setCroNote] = useState(null);
   const [education, setEducation] = useState(null);
   const [history, setHistory] = useState(null);
@@ -2053,9 +1839,7 @@ function InsightsApp({
     let alive = true;
     (async () => {
       try {
-        const [a, u, s, sg, cn, ed, h_] = await Promise.all([fetchAllMeta(), fetchUniverseChanges(), fetchLedgerSummary(), fetch(`${API_BASE}/timed/strategy`, {
-          credentials: "include"
-        }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/cro/latest`, {
+        const [a, u, s, cn, ed, h_] = await Promise.all([fetchAllMeta(), fetchUniverseChanges(), fetchLedgerSummary(), fetch(`${API_BASE}/timed/cro/latest`, {
           credentials: "include"
         }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/cro/education`, {
           credentials: "include"
@@ -2064,7 +1848,6 @@ function InsightsApp({
         if (a) setAllMeta(a);
         if (u?.ok) setUniverseChanges(u.events || []);
         if (s?.ok) setSummary(s);
-        if (sg?.ok) setStrategy(sg);
         if (cn) setCroNote(cn);
         if (ed) setEducation(ed);
         if (h_?.ok) setHistory(h_.trades || []);else if (h_) setHistory([]);
@@ -2076,7 +1859,7 @@ function InsightsApp({
       alive = false;
     };
   }, []);
-  const loading = !strategy && !allMeta && !error;
+  const loading = !allMeta && !summary && !error;
   const isAdmin = user && (user.role === "admin" || user.tier === "admin");
   return h(React.Fragment, null, loading && h("div", {
     className: "tt-loadbar",
@@ -2088,7 +1871,7 @@ function InsightsApp({
     className: "label"
   }, "INSIGHTS"), h("h1", null, "How the desk thinks"), h("div", {
     className: "sub"
-  }, "Read top to bottom: the Timed Trading model stance, what the CIO is weighing now, names the engine is avoiding, then background on research and universe changes. ", "Closed-trade performance lives on Model Performance", isAdmin ? " (admin link below)." : "."), isAdmin && h("p", {
+  }, "Read top to bottom: how the engine is running, what the CIO is weighing now, names the engine is avoiding, then background on universe changes. ", "Closed-trade performance lives on Model Performance", isAdmin ? " (admin link below)." : "."), isAdmin && h("p", {
     style: {
       marginTop: 10,
       fontSize: 12
@@ -2099,14 +1882,24 @@ function InsightsApp({
       color: "var(--tt-accent)",
       textDecoration: "underline"
     }
-  }, "Open Model Performance (admin)")))), h(StoryNav), h(Chapter, {
+  }, "Open Model Performance (admin)")))), h(StoryNav), h("div", {
     id: "chapter-playbook",
+    style: {
+      position: "absolute",
+      width: 0,
+      height: 0,
+      overflow: "hidden"
+    },
+    "aria-hidden": "true"
+  }), h(Chapter, {
+    id: "chapter-model",
     num: "Chapter 1",
     title: "The model",
-    lede: "How Timed Trading is positioned for the next 6–12 months — phase, targets, and scenario weights. Sector tilts, themes, and risks sit behind expanders so the headline read stays clean."
-  }, h(ActiveStrategyPanel, {
-    data: strategy,
-    embedded: true
+    lede: "Scoring freshness and closed-book results from the Timed Trading engine."
+  }, h(ModelAnalysisPanel, {
+    allMeta,
+    summary,
+    history
   })), h(Chapter, {
     id: "chapter-desk",
     num: "Chapter 2",
@@ -2174,6 +1967,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1788212703714:24421599
+// cache-bust:1788260326780:162643245
 
-// cache-bust:1788212703714:24421599
+// cache-bust:1788260326780:162643245
