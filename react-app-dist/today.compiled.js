@@ -2357,6 +2357,30 @@ function actionChipClass(action) {
   if (a === "SELL" || a === "FLAT") return "ds-chip ds-chip--sm ds-chip--dn";
   return "ds-chip ds-chip--sm ds-chip--solid";
 }
+function convexityOmitReason(row) {
+  const r = String(row?.reason || "");
+  if (r === "not_in_scan") return "not on the scan calendar";
+  if (r === "no_convexity_leg") {
+    const mode = String(row?.confluence_mode || "").toUpperCase();
+    const side = String(row?.confluence_side || "").toLowerCase();
+    if (mode && side && side !== "neutral") return `no lotto (${mode} ${side})`;
+    if (mode) return `no lotto (${mode})`;
+    return "no lotto leg";
+  }
+  if (r === "not_actionable") return "lotto built, gate blocked";
+  if (r === "no_price") return "no price";
+  if (r === "exception") return "scan error";
+  return r.replace(/_/g, " ") || "omitted";
+}
+function convexityOmittedLine(scan) {
+  const rows = Array.isArray(scan?.omitted) ? scan.omitted : [];
+  const near = rows.filter(o => Number(o?.days) >= 0 && Number(o.days) <= 1).slice(0, 8);
+  if (!near.length) return null;
+  const bits = near.map(o => `${o.ticker} — ${convexityOmitReason(o)}`);
+  return h("p", {
+    className: "tt-convexity-omitted"
+  }, h("strong", null, "Earnings without a lotto: "), bits.join(" · "));
+}
 function convexityPlanCopy(card) {
   const ticker = String(card?.ticker || "").toUpperCase();
   const isMoon = card?.play_class === "moonshot";
@@ -2492,6 +2516,7 @@ function ConvexityPlaysStrip({
   const seed = CACHE && window._ttIsPro ? CACHE.peek(url) : null;
   const seedPlays = seed && Array.isArray(seed.plays) && seed.plays.length ? seed.plays : null;
   const [plays, setPlays] = useState(seedPlays);
+  const [scan, setScan] = useState(seed && seed.scan ? seed.scan : null);
   const [publishedAt, setPublishedAt] = useState(seed ? Number(seed.generated_at) || null : null);
   const [loading, setLoading] = useState(!seedPlays);
   useEffect(() => {
@@ -2519,12 +2544,14 @@ function ConvexityPlaysStrip({
         if (!alive) return;
         if (j?.ok && Array.isArray(j.plays)) {
           setPlays(j.plays);
+          setScan(j.scan || null);
           setPublishedAt(Number(j.generated_at) || null);
           try {
             window.TTFetchCache?.put?.(url, j);
           } catch (_) {}
         } else if (!seedPlays) {
           setPlays([]);
+          setScan(j?.scan || null);
         }
       } catch (_) {
         if (alive && !seedPlays) setPlays([]);
@@ -2539,6 +2566,7 @@ function ConvexityPlaysStrip({
     const onAuth = e => {
       if (e?.detail?.isPro) load();else if (alive) {
         setPlays([]);
+        setScan(null);
         setLoading(false);
       }
     };
@@ -2591,7 +2619,7 @@ function ConvexityPlaysStrip({
       style: {
         marginTop: 8
       }
-    }, "No options lotto/moonshot alignments right now — the strip stays empty until direction, floor, and timing clear together.")));
+    }, "No options lotto/moonshot alignments right now — the strip stays empty until direction, floor, and timing clear together."), convexityOmittedLine(scan)));
   }
   const LaneCard = window.TTLaneCard;
   const VU = window.TimedVerdictUI;
@@ -2705,7 +2733,7 @@ function ConvexityPlaysStrip({
     }, h("div", {
       className: "tt-dt-plan"
     }, footPlanChildren));
-  }))));
+  })), convexityOmittedLine(scan)));
 }
 function IndexDayTradeStrip({
   onSelectTicker,
@@ -7462,7 +7490,7 @@ function ViewportCard({
   const sparkPointsRaw = sparkClosesFromCacheEntry(sparkSrc);
   const sparkPoints = sparkPointsRaw && sparkPointsRaw.length >= 2 ? sparkPointsRaw : [price || 0, price || 0];
   const sparkSvg = window.DS && Number.isFinite(price) && price > 0 ? window.DS.sparklineSvg(sparkPoints, {
-    width: 280,
+    width: 300,
     height: 44,
     direction: dir,
     strokeWidth: 1.4
@@ -9645,6 +9673,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1788297048088:88697677
+// cache-bust:1788299207104:417382883
 
-// cache-bust:1788297048088:88697677
+// cache-bust:1788299207104:417382883
