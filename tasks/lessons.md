@@ -6,6 +6,18 @@
 
 ---
 
+## Insights page is TT model analysis, not an FSD playbook [2026-08-31]
+
+**Ask:** Cleanse Insights of FSD Playbook language. FSD ingest stays as
+the same silent research input. Visual/copy only — do not strip the
+pipeline.
+
+**Do not:** put Fundstrat / Tom Lee / FSD / "editorial deck" / Playbook
+chapter labels on Insights. Relabel as model stance / TT analysis.
+Sanitize `/timed/strategy` source + headline strings the page renders.
+`STRATEGY_SOURCE` / `STRATEGY_TACTICAL_SOURCE` must stay generic (no
+PDF paths, no firm names).
+
 ## Index Swings exits are price action, not FSD month-end [2026-08-31]
 
 **Symptom:** TNA W36 paper-bought IWM at $293.23 with stop $297.27
