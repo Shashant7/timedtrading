@@ -12,6 +12,9 @@ import {
   buildConvexityShotReason,
   overlayConvexityCardPremium,
   chainStrikeRangeForPlay,
+  selectConvexityScanUniverse,
+  convexityContractFromSnapshot,
+  isConvexityInvestorLane,
 } from "./options-convexity.js";
 import {
   shouldActivateLotto,
@@ -155,6 +158,77 @@ describe("shouldActivateEarningsPrepLotto", () => {
     });
     expect(r.activate).toBe(true);
     expect(r.h4_close_pending).toBe(false);
+  });
+});
+
+describe("selectConvexityScanUniverse", () => {
+  it("puts same-day AMC names first even when 40 higher-rank names exist", () => {
+    const filler = Array.from({ length: 40 }, (_, i) => ({
+      ticker: `R${String(i).padStart(2, "0")}`,
+      rank: 100,
+      entry_quality: { score: 90 },
+    }));
+    const tickers = [
+      ...filler,
+      { ticker: "DELL", rank: 82, entry_quality: { score: 71 }, state: "HTF_BULL_LTF_BULL" },
+      { ticker: "CRDO", rank: 100, entry_quality: { score: 62 }, state: "HTF_BULL_LTF_BULL" },
+    ];
+    const picked = selectConvexityScanUniverse(tickers, { DELL: 0, CRDO: 0 }, { maxTotal: 20, earnLimit: 12 });
+    expect(picked.map((t) => t.ticker).slice(0, 2)).toEqual(["CRDO", "DELL"]);
+    expect(picked.length).toBe(20);
+  });
+
+  it("includes a 0–5d earnings name with no rank or entry_quality", () => {
+    const picked = selectConvexityScanUniverse(
+      [{ ticker: "AVGO" }, { ticker: "AAPL", rank: 74, entry_quality: { score: 85 } }],
+      { AVGO: 1 },
+      { maxTotal: 8, earnLimit: 4 },
+    );
+    expect(picked.map((t) => t.ticker)).toContain("AVGO");
+    expect(picked[0].ticker).toBe("AVGO");
+  });
+});
+
+describe("convexityContractFromSnapshot / investor lane", () => {
+  it("does not treat trader watch as the Investor LEAP lane", () => {
+    expect(isConvexityInvestorLane({ investor_stage: "watch", kanban_stage: "watch" })).toBe(false);
+    expect(isConvexityInvestorLane({ investor_stage: "accumulate" })).toBe(true);
+  });
+
+  it("infers SHORT from a bear state and keeps earnings hour", () => {
+    const c = convexityContractFromSnapshot({
+      ticker: "DELL",
+      price: 424.68,
+      sl: 400,
+      state: "HTF_BEAR_LTF_BEAR",
+      earnings_dte: 0,
+      earnings_hour: "amc",
+    });
+    expect(c.direction).toBe("SHORT");
+    expect(c.earnings_dte).toBe(0);
+    expect(c.earnings_hour).toBe("amc");
+  });
+
+  it("builds an earnings-prep lotto from the snapshot contract (no prediction-contract KV)", () => {
+    const snap = {
+      ticker: "DELL",
+      price: 424.68,
+      sl: 400,
+      state: "HTF_BULL_LTF_BULL",
+      earnings_dte: 0,
+      earnings_hour: "amc",
+      investor_stage: "watch",
+    };
+    const contract = convexityContractFromSnapshot(snap);
+    const ladder = buildOptionsLadder(contract, {
+      profile: "speculator",
+      confluence: { mode: "WAIT", side: "LONG", timing: {} },
+      tickerData: snap,
+      now: Date.parse("2026-09-01T15:00:00-04:00"),
+    });
+    const ex = extractConvexityPlayFromLadder(ladder);
+    expect(ex?.play_class).toBe("lotto");
+    expect(ex?.play?._earnings_prep).toBe(true);
   });
 });
 

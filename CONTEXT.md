@@ -596,6 +596,12 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   First RTH 4H (09:30–13:30 ET) still open → card stays WAIT; after the
   1:30 PM ET close, FADE earnings-prep maps to BUY. Contract remains
   next-Friday weekly (never 0 DTE).
+  **Convexity scan must stay cheap (2026-09-01):** DELL/CRDO AMC printed
+  and the lotto strip stayed empty. `/timed/options/convexity` ran
+  `buildTraderPredictionContract` (regime KV fan-out) on 36 names →
+  1102 / all-exception. Snapshot contract + earnings-first cap (20).
+  Do not treat kanban `watch` as Investor. Do not scan 40 names on the
+  request path.
   **IV crush (2026-08-25):** `buildCrushBlock()` measures the crush
   instead of warning about it. Post-print vol = next expiration's ATM IV
   (term structure) else the ATR×√252 realized proxy; `crush_pct`,

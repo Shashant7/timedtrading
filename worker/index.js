@@ -1216,6 +1216,9 @@ import {
   toConvexityCard as _toConvexityCard,
   rankConvexityCards as _rankConvexityCards,
   enrichConvexityChainPremiums as _enrichConvexityChainPremiums,
+  selectConvexityScanUniverse as _selectConvexityScanUniverse,
+  convexityContractFromSnapshot as _convexityContractFromSnapshot,
+  isConvexityInvestorLane as _isConvexityInvestorLane,
 } from "./options-convexity.js";
 import { enrichEarningsPlayCards as _enrichEarningsPlayCards } from "./earnings-play.js";
 import {
@@ -95324,7 +95327,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
           const limit = Math.min(10, Math.max(1, Number(url.searchParams.get("limit")) || 10));
           const profile = "speculator";
-          const _cxCacheKey = `timed:options:convexity:v3:${limit}`;
+          const _cxCacheKey = `timed:options:convexity:v4:${limit}`;
           const _bypassCx = String(url.searchParams.get("_nocache") || "0") === "1";
           if (!_bypassCx) {
             const cached = await kvGetJSON(env.KV_TIMED, _cxCacheKey).catch(() => null);
@@ -95342,19 +95345,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               .filter(([k, v]) => k && !k.startsWith("__") && v && typeof v === "object")
               .map(([k, v]) => (v.ticker ? v : { ticker: String(k).toUpperCase(), ...v }));
           };
-          const tickersRaw = _flattenCx(all)
-            .filter((t) => {
-              const eq = Number(t?.entry_quality?.score || 0);
-              const rk = Number(t?.rank || 0);
-              return eq > 0 || rk > 0;
-            });
+          const tickersAll = _flattenCx(all);
           // Bias the scan toward names with earnings in 0–5d so prep-lotto
-          // candidates (AEHR-class pullback-into-print, same-day AMC) are
-          // not starved by the plain entry_quality top-30 cut.
+          // candidates (same-day AMC DELL/CRDO-class) run first. Do not call
+          // buildTraderPredictionContract here — 36× regime KV fan-out 1102s
+          // the worker and the lotto strip stays empty (2026-09-01).
           let _cxEarnBySym = {};
-          // Full event (date + session) is kept alongside the day count so
-          // the earnings-play block can name the catalyst, not just the
-          // window. Same KV read either way.
           const _cxEarnEventBySym = {};
           try {
             const _up = await kvGetJSON(env.KV_TIMED, "timed:earnings:upcoming");
@@ -95383,24 +95379,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               earnings_hour: ev.hour || t.earnings_hour || null,
             };
           };
-          const ranked = [...tickersRaw]
-            .sort((a, b) => {
-              const aScore = Math.max(Number(a?.entry_quality?.score || 0), Number(a?.rank || 0));
-              const bScore = Math.max(Number(b?.entry_quality?.score || 0), Number(b?.rank || 0));
-              return bScore - aScore;
-            })
-            .slice(0, Math.min(30, limit * 3))
-            .map(stampEarn);
-          const rankedSyms = new Set(ranked.map((t) => String(t?.ticker || "").toUpperCase()));
-          const earnExtras = [];
-          for (const t of tickersRaw) {
-            if (earnExtras.length + ranked.length >= 40) break;
-            const sym = String(t?.ticker || "").toUpperCase();
-            if (!sym || rankedSyms.has(sym) || !Number.isFinite(_cxEarnBySym[sym])) continue;
-            rankedSyms.add(sym);
-            earnExtras.push(stampEarn(t));
-          }
-          const tickers = [...ranked, ...earnExtras];
+          const tickers = _selectConvexityScanUniverse(tickersAll, _cxEarnBySym, {
+            maxTotal: 20,
+            earnLimit: 12,
+          }).map(stampEarn);
           let _cxPricesMap = {};
           let _cxMarketOpen = true;
           try {
@@ -95422,11 +95404,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             };
             try {
               if (!sym) return note("no_ticker");
-              const contract = await buildTraderPredictionContract(env, sym);
-              if (!contract) return note("no_contract");
-              const invStage = String(t?.investor_stage || t?.kanban_stage || "").toLowerCase();
-              const useInvestor = invStage.includes("accumulate") || invStage.includes("core")
-                || invStage.includes("watch");
+              const contract = _convexityContractFromSnapshot(t);
+              if (!contract?.ticker) return note("no_contract");
+              const useInvestor = _isConvexityInvestorLane(t);
               const ladderInput = _contractToLadderInput(contract, t, {
                 ticker: sym,
                 mode: useInvestor ? "investor" : "trader",

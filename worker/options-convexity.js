@@ -512,6 +512,86 @@ export async function enrichConvexityChainPremiums(env, cards, opts = {}) {
   return list;
 }
 
+/** Investor Accumulate / Core only. Trader `watch` is the default kanban — not a LEAP lane. */
+export function isConvexityInvestorLane(ticker = {}) {
+  const stage = String(ticker?.investor_stage || "").toLowerCase();
+  return stage.includes("accumulate") || stage.includes("core");
+}
+
+/** Cheap contract for the universe scan — no per-ticker KV / regime fan-out. */
+export function convexityContractFromSnapshot(t = {}) {
+  const consensusDir = String(t?.swing_consensus?.direction || "").toUpperCase();
+  const triggerDir = String(t?.trigger_dir || t?.direction || "").toUpperCase();
+  const state = String(t?.state || "").toUpperCase();
+  let direction = "LONG";
+  if (consensusDir === "BEARISH" || consensusDir === "SHORT") direction = "SHORT";
+  else if (consensusDir === "BULLISH" || consensusDir === "LONG") direction = "LONG";
+  else if (triggerDir === "SHORT" || triggerDir === "LONG") direction = triggerDir;
+  else if (state.includes("BEAR")) direction = "SHORT";
+  const sl = Number(t?.sl);
+  const px = Number(t?.price);
+  return {
+    ticker: String(t?.ticker || "").toUpperCase(),
+    price: Number.isFinite(px) && px > 0 ? px : null,
+    direction,
+    sl: Number.isFinite(sl) && sl > 0 ? sl : null,
+    risk: { stop_loss: Number.isFinite(sl) && sl > 0 ? sl : null },
+    earnings_dte: t?.earnings_dte ?? t?.days_to_earnings ?? null,
+    earnings_hour: t?.earnings_hour ?? t?.hour ?? null,
+    state: t?.state || null,
+    kanban_stage: t?.kanban_stage || null,
+    investor_stage: t?.investor_stage || null,
+  };
+}
+
+export const CONVEXITY_SCAN_MAX = 20;
+export const CONVEXITY_SCAN_EARN_LIMIT = 12;
+
+/**
+ * Earnings 0–5d first (same-day AMC included), then rank/eq fill.
+ * Caps the scan so /timed/options/convexity cannot 1102.
+ */
+export function selectConvexityScanUniverse(tickersAll = [], earnBySym = {}, opts = {}) {
+  const maxTotal = Math.max(4, Math.min(40, Number(opts.maxTotal) || CONVEXITY_SCAN_MAX));
+  const earnLimit = Math.max(1, Math.min(maxTotal, Number(opts.earnLimit) || CONVEXITY_SCAN_EARN_LIMIT));
+  const scoreOf = (t) => Math.max(Number(t?.entry_quality?.score || 0), Number(t?.rank || 0));
+
+  const earn = [];
+  const ranked = [];
+  for (const t of tickersAll || []) {
+    const sym = String(t?.ticker || "").toUpperCase();
+    if (!sym) continue;
+    const days = Number(earnBySym[sym]);
+    const row = { ...t, ticker: sym };
+    if (Number.isFinite(days) && days >= 0 && days <= 5) {
+      earn.push({ ...row, earnings_dte: days, days_to_earnings: days });
+    }
+    if (scoreOf(t) > 0) ranked.push(row);
+  }
+  earn.sort((a, b) => {
+    const d = (Number(a.earnings_dte) || 0) - (Number(b.earnings_dte) || 0);
+    if (d !== 0) return d;
+    return scoreOf(b) - scoreOf(a);
+  });
+  ranked.sort((a, b) => scoreOf(b) - scoreOf(a));
+
+  const out = [];
+  const seen = new Set();
+  const push = (t) => {
+    if (!t || seen.has(t.ticker) || out.length >= maxTotal) return false;
+    seen.add(t.ticker);
+    out.push(t);
+    return true;
+  };
+  let earnPushed = 0;
+  for (const t of earn) {
+    if (earnPushed >= earnLimit) break;
+    if (push(t)) earnPushed += 1;
+  }
+  for (const t of ranked) push(t);
+  return out;
+}
+
 export function rankConvexityCards(cards = []) {
   const list = Array.isArray(cards) ? [...cards] : [];
   list.sort((a, b) => {
