@@ -673,6 +673,7 @@ import {
   overlayTimedPricesRow as feedOverlayTimedPricesRow,
   overlayLivePricesOntoMap as feedOverlayLivePricesOntoMap,
   isPriceFeedTickFresh as feedIsPriceFeedTickFresh,
+  mergeLiveCandlePriorityTickers,
 } from "./feed/feed-outputs.js";
 /* Phase C — Stage 0c/0d/0e (2026-05-02) — Self-adapting loops.
    All three loops live in worker/phase-c-loops.js. They are imported here
@@ -3301,7 +3302,7 @@ async function collectPriorityChartTickers(env) {
       }
     }
   } catch (_) {}
-  return Array.from(out);
+  return mergeLiveCandlePriorityTickers(Array.from(out));
 }
 
 /** Backfill structural chart TFs (4H/D/W) for alerted / open tickers. */

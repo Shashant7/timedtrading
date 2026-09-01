@@ -47,6 +47,7 @@ import {
 } from "./candle-chain-heal.js";
 import {
   decideValueFreshnessPage,
+  liveCandleSyncScope,
   resolveRestQuoteReceiptTs,
   usesAggressiveQuoteSweep,
 } from "./feed-outputs.js";
@@ -790,10 +791,10 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
 
         // Merge live quotes into chart TFs so right-rail charts and freshness
         // grades track between */5 REST bar fetches. P0.7 D1-COST (2026-07-09):
-        // run on */5 boundaries only — aligns with the bar cron cadence and cuts
-        // ~80% of ON CONFLICT reads/writes. UI headline prices are unaffected
-        // (they come from timed:prices KV, not D1 candles).
-        if (_marketOpen && env?.DB && Number(utcMinute) % 5 === 0) {
+        // full-universe sync stays on */5. Sentinels (SPY/QQQ/IWM/DIA/AAPL)
+        // patch every RTH minute so 10m cannot freeze on a lagged vendor `t`
+        // and flip chain-smoke scoring to STALE (2026-09-01 10:42 ET).
+        if (_marketOpen && env?.DB) {
           ctx.waitUntil((async () => {
             try {
               let priorityTickers = [];
@@ -806,11 +807,10 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                   priorityTickers = openTrades.map((t) => String(t?.ticker || "").toUpperCase()).filter(Boolean);
                 }
               } catch (_) {}
-              await deps.syncLivePricesToChartCandles(env, prices, {
-                priorityTickers,
-                // B3: cap covers the whole ~300-ticker universe; any overflow
-                // rotates per tick inside syncLivePricesToChartCandles.
-                maxTickers: 300,
+              const scope = liveCandleSyncScope(utcMinute, prices, priorityTickers);
+              await deps.syncLivePricesToChartCandles(env, scope.prices, {
+                priorityTickers: scope.priorityTickers,
+                maxTickers: scope.maxTickers,
               });
             } catch (syncErr) {
               console.warn("[LIVE_CANDLE_SYNC] price-feed hook failed:", String(syncErr?.message || syncErr).slice(0, 200));

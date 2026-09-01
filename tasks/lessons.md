@@ -6,6 +6,27 @@
 
 ---
 
+## Index 10m live-sync must paint the current bucket [2026-09-01]
+
+**Symptom:** Health watchdog `probe /timed/health` failed at 10:42 ET
+(`chain-smoke: scoring: SPY:grade=STALE, QQQ:grade=STALE`). Feed/overlay
+were fine. `minutesSinceScoring≈3` so self-heal skipped rescore. D1 newest
+10m for SPY/QQQ/DIA sat on the 10:00 ET bar while AAPL/IWM had 10:30.
+
+**Cause:** `syncLivePricesToChartCandles` bucketed intraday TFs from
+`snap.t`. TwelveData quantized `last_quote_at` can remain on a completed
+10m open, so the writer kept rewriting the old row and never opened the
+current bucket. Full-universe sync also ran only on `utcMinute % 5 === 0`
+and priority was open trades only — indexes with no open ticket missed
+the rotation when that */5 `waitUntil` was shed.
+
+**Fix:** Anchor forming bars to wall clock (`liveCandleSyncAnchorTs`).
+Always union SPY/QQQ/IWM/DIA/AAPL. Price-feed runs live sync every RTH
+minute: sentinels on off-cycle, full map on */5 (keep P0.7 D1-COST).
+
+**Do not:** treat chain-smoke STALE as a false alarm when ingest is
+fresh — STALE means quarantine. Do not full-universe sync every minute.
+
 ## QQQ EXT 717 was last-AH leftover, not the live 706 print [2026-09-01]
 
 **Symptom:** Index Day Trade showed QQQ EXT $717.04 (+0.04%) at 9:07 ET

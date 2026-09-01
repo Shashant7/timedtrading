@@ -99,6 +99,20 @@ curl -s "https://timed-trading.com/timed/latest?ticker=DELL" | jq ._freshness
 wrangler kv key get "timed:freshness:heal:DELL" --binding KV_TIMED
 ```
 
+## Live forming-bar sync (not REST bars)
+
+PriceStream writes KV `timed:prices` only. Forming 5/10/15/30/60/240 + D
+rows in `ticker_candles` come from `syncLivePricesToChartCandles` on the
+*/1 price-feed cron. If those rows freeze, 10m (CRITICAL_RTH) ages past
+60 min → `_freshness.grade=STALE` → chain-smoke pages even while live
+quotes are current.
+
+- Bucket from **wall clock**, never vendor `t` / `last_quote_at` (can sit
+  on a completed 10m open — SPY/QQQ 2026-09-01 10:42 ET).
+- Sentinels SPY/QQQ/IWM/DIA/AAPL patch every RTH minute. Full universe
+  stays */5 (D1-COST). Do not skip the minute tick to save writes.
+- Do not soften chain-smoke when ingest is fresh. Heal the candles.
+
 ## Rules when extending
 
 1. New freshness check needed? Add the TF/threshold to `worker/freshness.js`

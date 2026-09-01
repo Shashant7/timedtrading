@@ -442,10 +442,53 @@ export function overlayLivePricesOntoMap(map, livePrices, opts = {}) {
   return { overlaid };
 }
 
-function candleBucketTsMs(tsMs, tfMinutes) {
+export function candleBucketTsMs(tsMs, tfMinutes) {
   const bucketMs = Number(tfMinutes) * 60 * 1000;
   if (!Number.isFinite(bucketMs) || bucketMs <= 0) return 0;
   return Math.floor(Number(tsMs) / bucketMs) * bucketMs;
+}
+
+/** Chain-smoke sentinels + Index Day Trade. Never rotate these off live 10m. */
+export const LIVE_CANDLE_PRIORITY_TICKERS = ["SPY", "QQQ", "IWM", "DIA", "AAPL"];
+
+export function mergeLiveCandlePriorityTickers(extra = []) {
+  const out = new Set(LIVE_CANDLE_PRIORITY_TICKERS);
+  for (const t of extra) {
+    const s = String(t || "").toUpperCase();
+    if (s) out.add(s);
+  }
+  return [...out];
+}
+
+/**
+ * Forming-bar clock for live candle sync.
+ * Vendor `t` / last-trade can sit on a completed 10m open (TD quantized
+ * last_quote_at). Painting that stamp keeps rewriting the old bucket and
+ * never opens the current one — SPY/QQQ 10m froze at 10:00 ET and
+ * freshness went STALE at 10:42 (watchdog 2026-09-01).
+ */
+export function liveCandleSyncAnchorTs(nowMs = Date.now()) {
+  const n = Number(nowMs);
+  return n > 0 ? n : Date.now();
+}
+
+/** Full-universe live sync on */5; sentinel/priority-only on the other minutes. */
+export function liveCandleSyncScope(utcMinute, prices, priorityTickers = []) {
+  const priority = mergeLiveCandlePriorityTickers(priorityTickers);
+  const full = Number(utcMinute) % 5 === 0;
+  if (full) {
+    return { prices, priorityTickers: priority, maxTickers: 300, full: true };
+  }
+  const sliced = {};
+  for (const s of priority) {
+    if (prices?.[s] && Number(prices[s].p) > 0) sliced[s] = prices[s];
+  }
+  return {
+    prices: sliced,
+    priorityTickers: priority,
+    maxTickers: Math.max(20, priority.length),
+    full: false,
+  };
 }
 
 /**
@@ -602,7 +645,7 @@ export async function syncLivePricesToChartCandles(env, pricesMap, opts = {}, ho
   const marketOpen = typeof hooks.isNyRegularMarketOpen === "function" ? hooks.isNyRegularMarketOpen() : true;
   if (!marketOpen && !opts.force) return { upserted: 0, skipped: "market_closed" };
 
-  const priority = new Set((opts.priorityTickers || []).map((t) => String(t || "").toUpperCase()).filter(Boolean));
+  const priority = new Set(mergeLiveCandlePriorityTickers(opts.priorityTickers));
   const all = Object.entries(pricesMap)
     .map(([sym, snap]) => [String(sym).toUpperCase(), snap])
     .filter(([sym, snap]) => sym && Number(snap?.p) > 0);
@@ -614,9 +657,10 @@ export async function syncLivePricesToChartCandles(env, pricesMap, opts = {}, ho
   // B3 (2026-07-03 stabilization plan): the universe (~300+) can exceed the
   // cap, and the old stable ordering starved the SAME tail tickers on every
   // tick (they'd never get their forming bars patched → perpetual AGING).
-  // Now: priority tickers (open positions) always included; the non-priority
-  // remainder ROTATES by a minute-derived offset so overflow spreads evenly —
-  // with cap 300 and universe 330, every ticker is covered within 2 ticks.
+  // Now: sentinels (SPY/QQQ/IWM/DIA/AAPL) + open positions always included;
+  // the remainder ROTATES by a minute-derived offset so overflow spreads
+  // evenly — with cap 300 and universe 330, every ticker is covered within
+  // 2 ticks.
   const maxTickers = Math.max(10, Math.min(400, Number(opts.maxTickers) || 300));
   const nowMs = Date.now();
   const priorityEntries = all.filter(([sym]) => priority.has(sym));
@@ -679,7 +723,7 @@ export async function syncLivePricesToChartCandles(env, pricesMap, opts = {}, ho
     //    get covered within a few ticks (cap * TF-count keeps D1 CPU bounded).
     for (const [sym, snap] of entries.slice(0, maxTickers)) {
       const px = Math.round(Number(snap.p) * 100) / 100;
-      const ts = Number(snap.t) || nowMs;
+      const ts = liveCandleSyncAnchorTs(nowMs);
       for (const tfMin of intradayTfs) {
         const tfKey = normalizeTfKey(String(tfMin));
         const bucketTs = candleBucketTsMs(ts, tfMin);

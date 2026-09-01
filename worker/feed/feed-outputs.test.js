@@ -8,6 +8,8 @@ import {
   overlayLivePricesOntoMap,
   PF_FRESH_MS,
   PF_STALE_JITTER_MAX_MS,
+  candleBucketTsMs,
+  liveCandleSyncScope,
   priceValueTimestamp,
   quoteReceiptTimestamp,
   resolveRestQuoteReceiptTs,
@@ -593,6 +595,68 @@ describe("syncLivePricesToChartCandles coverage rotation", () => {
     const w2 = new Set(db2.batches.filter((s) => s.args[1] !== "D").map((s) => s.args[0]));
     const overlap = [...w1].filter((t) => w2.has(t));
     expect(overlap.length).toBe(0);
+  });
+
+  it("paints the current 10m bucket when vendor t sits on a completed open", async () => {
+    // Watchdog 2026-09-01 10:42 ET: QQQ 10m froze on the 10:00 ET stamp.
+    const nowMs = new Date("2026-09-01T14:42:00.000Z").getTime();
+    const vendorT = new Date("2026-09-01T14:00:00.000Z").getTime();
+    vi.setSystemTime(nowMs);
+    const db = mockDb();
+    await syncLivePricesToChartCandles(
+      { DB: db },
+      { QQQ: { p: 706.94, t: vendorT } },
+      { log: false },
+      openHook,
+    );
+    const row10 = db.batches.find((s) => s.args[0] === "QQQ" && s.args[1] === "10");
+    expect(row10).toBeTruthy();
+    expect(row10.args[2]).toBe(candleBucketTsMs(nowMs, 10));
+    expect(row10.args[2]).not.toBe(candleBucketTsMs(vendorT, 10));
+    expect(row10.args[2]).toBe(new Date("2026-09-01T14:40:00.000Z").getTime());
+  });
+
+  it("always writes sentinel 10m even over the cap without opts.priorityTickers", async () => {
+    const filler = Array.from({ length: 30 }, (_, i) => `Z${String(i).padStart(2, "0")}`);
+    const db = mockDb();
+    await syncLivePricesToChartCandles(
+      { DB: db },
+      pricesFor([...filler, "SPY", "QQQ"]),
+      { log: false, maxTickers: 8, rotationOffset: 0 },
+      openHook,
+    );
+    const intraday = new Set(db.batches.filter((s) => s.args[1] !== "D").map((s) => s.args[0]));
+    expect(intraday.has("SPY")).toBe(true);
+    expect(intraday.has("QQQ")).toBe(true);
+    expect(intraday.size).toBe(8);
+  });
+});
+
+describe("liveCandleSyncScope", () => {
+  const prices = {
+    SPY: { p: 600 },
+    QQQ: { p: 400 },
+    AAA: { p: 10 },
+    BBB: { p: 11 },
+  };
+
+  it("passes the full map on */5 with sentinel priority", () => {
+    const scope = liveCandleSyncScope(10, prices, ["TSLA"]);
+    expect(scope.full).toBe(true);
+    expect(scope.prices).toBe(prices);
+    expect(scope.maxTickers).toBe(300);
+    expect(scope.priorityTickers).toEqual(
+      expect.arrayContaining(["SPY", "QQQ", "IWM", "DIA", "AAPL", "TSLA"]),
+    );
+  });
+
+  it("slices to sentinels and extra priority on off-cycle minutes", () => {
+    const scope = liveCandleSyncScope(11, prices, ["TSLA"]);
+    expect(scope.full).toBe(false);
+    expect(Object.keys(scope.prices).sort()).toEqual(["QQQ", "SPY"]);
+    expect(scope.prices.AAA).toBeUndefined();
+    expect(scope.priorityTickers).toContain("TSLA");
+    expect(scope.maxTickers).toBeGreaterThanOrEqual(scope.priorityTickers.length);
   });
 });
 
