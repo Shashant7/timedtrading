@@ -75,6 +75,30 @@
     }
   }
 
+  function ahFieldsChanged(existing, p) {
+    const ahp = Number(p?.ahp);
+    if (Number.isFinite(ahp) && ahp > 0 && existing._ah_price !== ahp) return true;
+    const ahdc = Number(p?.ahdc);
+    if (Number.isFinite(ahdc) && existing._ah_change !== ahdc) return true;
+    const ahdp = Number(p?.ahdp);
+    if (Number.isFinite(ahdp) && existing._ah_change_pct !== ahdp) return true;
+    return false;
+  }
+
+  function priceFeedTickUnchanged(existing, feedP, symTs, p) {
+    if (existing._live_price !== feedP) return false;
+    if (existing._price_updated_at !== symTs) return false;
+    return !ahFieldsChanged(existing, p);
+  }
+
+  function extLooksLeftover(ahp, rth) {
+    try {
+      return window.TimedPriceUtils?.extPrintLooksLeftover?.(ahp, rth) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function shouldApplyDayChangeFromTick(p, marketOpen) {
     try {
       return window.TimedPriceUtils?.shouldApplyDayChangeFromTick?.(p, marketOpen) ?? true;
@@ -120,6 +144,20 @@
         ];
         for (const k of overlayKeys) {
           if (existing[k] !== undefined) merged[k] = existing[k];
+        }
+        if (!marketOpen) {
+          const rth = Number(
+            existing.close ?? existing._live_price ?? existing.price
+            ?? row.close ?? row.price
+          );
+          const existingAh = Number(existing._ah_price);
+          const incomingAh = Number(row._ah_price);
+          const incomingDistinct = incomingAh > 0 && rth > 0 && !extLooksLeftover(incomingAh, rth);
+          if (extLooksLeftover(existingAh, rth) && incomingDistinct) {
+            merged._ah_price = incomingAh;
+            if (row._ah_change !== undefined) merged._ah_change = row._ah_change;
+            if (row._ah_change_pct !== undefined) merged._ah_change_pct = row._ah_change_pct;
+          }
         }
         if (existing._price_updated_at && existing._price_updated_at > (row.ts || 0)) {
           if (existing._live_price !== undefined) {
@@ -194,8 +232,9 @@
             const marketOpen = readMarketOpen();
             const maxAgeMs = priceReceiptMaxAgeMs(marketOpen);
             if (symTs > 0 && (Date.now() - symTs) > maxAgeMs) continue;
-            // No-op when nothing changed
-            if (existing._live_price === feedP && existing._price_updated_at === symTs) continue;
+            // No-op when headline AND EXT are unchanged. A leftover 717
+            // sitting on the RTH close must still yield to ahp 706.
+            if (priceFeedTickUnchanged(existing, feedP, symTs, p)) continue;
             // Don't roll back a more recent push (WebSocket or in-flight fetch)
             if (existing._price_updated_at && existing._price_updated_at > symTs) continue;
 
@@ -328,7 +367,7 @@
           if (!(symTs > 0)) continue;
           const maxAgeMs = priceReceiptMaxAgeMs(marketOpen);
           if (symTs > 0 && (Date.now() - symTs) > maxAgeMs) continue;
-          if (existing._live_price === feedP && existing._price_updated_at === symTs) continue;
+          if (priceFeedTickUnchanged(existing, feedP, symTs, p)) continue;
           if (existing._price_updated_at && existing._price_updated_at > symTs) continue;
           if (!changed) { next = { ...prev }; changed = true; }
           const feedPc = Number(p.pc);
@@ -423,7 +462,13 @@
     return { wsConnected };
   }
 
-  window.TimedLiveData = { usePriceFeed, useTickerRefresh, usePriceWebSocket, mergeTimedAllRefresh };
+  window.TimedLiveData = {
+    usePriceFeed,
+    useTickerRefresh,
+    usePriceWebSocket,
+    mergeTimedAllRefresh,
+    priceFeedTickUnchanged,
+  };
 })();
 
-// cache-bust:1788260326780:162643245
+// cache-bust:1788269205017:473995601

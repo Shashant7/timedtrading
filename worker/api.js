@@ -769,7 +769,10 @@ const LIVE_PRICE_SNAPSHOT_FIELDS = new Set([
   "price", "close", "open", "high", "low", "volume",
   "prev_close", "prevClose", "p", "pc", "dc", "dp", "dh", "dl", "dv",
   "day_change", "day_change_pct", "dailyChg", "dailyChgPct",
-  "ahp", "ahdc", "ahdp", "_ah_change_pct", "extended_price",
+  "ahp", "ahdc", "ahdp",
+  "_ah_price", "_ah_change", "_ah_change_pct",
+  "ah_price", "ah_change", "ah_change_pct",
+  "extended_price", "extended_change", "extended_percent_change",
   "_live_prev_close", "_live_price", "_price_updated_at",
   "vwap",
 ]);
