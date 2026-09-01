@@ -95391,6 +95391,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             _cxMarketOpen = (typeof isNyRegularMarketOpen === "function") ? isNyRegularMarketOpen() : true;
           } catch (_) { /* best-effort */ }
           const _lottoMax = Number(env?.CONVEXITY_LOTTO_MAX_LOSS_USD) || 50;
+          let _optsFsdMacro = null;
+          try {
+            const { loadFsdMacroContext } = await import("./cro/cro-apply.js");
+            _optsFsdMacro = await loadFsdMacroContext(env);
+          } catch (_) { /* best-effort */ }
           const _diag = String(url.searchParams.get("diag") || "0") === "1";
           const _skipReasons = [];
           const _cxConfluenceBySym = {};
