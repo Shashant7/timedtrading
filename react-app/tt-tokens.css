@@ -827,13 +827,14 @@ input, button, select, textarea {
   max-height: none;
   min-height: 118px;
   overflow: visible;
+  padding-bottom: 10px;
 }
 .tt-lane-card__chiprow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  padding: 5px 0 1px;
+  padding: 5px 0 4px;
   margin-top: 4px;
   border-top: 1px solid var(--tt-border, rgba(255, 255, 255, 0.06));
   flex: 0 0 auto;
