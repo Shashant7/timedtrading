@@ -828,6 +828,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - No unbounded `ROW_NUMBER() OVER (PARTITION BY ticker)` on large tables
 - ALTER TABLE: wrap in try/catch (column may exist)
 - **80M rows-written billing alert (2026-06-22):** monthly cumulative, not incident — Jun 18 mining/replay burst + normal RTH crons; live prices = KV `timed:prices`, chart candle sync can lag ~5m; see `docs/d1-billing-investigation-2026-06-22.md`
+- **Index 10m live-sync uses wall clock, not vendor `t` (2026-09-01):** TD `last_quote_at` can sit on a completed 10m open. Painting `snap.t` rewrites the old bucket and never opens the current one — SPY/QQQ froze at 10:00 ET and chain-smoke scoring went STALE at 10:42. `liveCandleSyncAnchorTs` = now; sentinels (SPY/QQQ/IWM/DIA/AAPL) patch every RTH minute; full universe stays */5 (D1-COST). Do not soften chain-smoke when ingest is fresh.
 
 **Price / Frontend**
 - **Short Term rail (SETUP)**: Timing → Plan → Reference Levels only — never re-add Profile / Sector & Market / Sequence unless the operator explicitly asks (2026-07-22 misread restored them; corrected).
