@@ -25,5 +25,7 @@ describe("Scored universe lane card MTF row", () => {
     expect(today).toMatch(/\.vp-lane \.tt-lane-card__chiprow[\s\S]*flex-wrap:\s*nowrap/);
     expect(today).toContain("convexityOmittedLine");
     expect(today).toContain("Earnings without a lotto");
+    expect(today).toContain("omitted_near");
+    expect(today).toContain("same-day AMC missed the scan");
   });
 });

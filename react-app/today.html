@@ -5355,27 +5355,39 @@
       }
       function convexityOmitReason(row) {
         const r = String(row?.reason || "");
-        if (r === "not_in_scan") return "not on the scan calendar";
+        const prep = String(row?.earnings_prep_reason || "").replace(/_/g, " ");
+        if (r === "not_in_scan") {
+          const hour = String(row?.hour || "").toUpperCase();
+          if (Number(row?.days) === 0 && hour === "AMC") return "same-day AMC missed the scan";
+          return "not on the scan calendar";
+        }
         if (r === "no_convexity_leg") {
+          if (prep) return prep;
           const mode = String(row?.confluence_mode || "").toUpperCase();
           const side = String(row?.confluence_side || "").toLowerCase();
           if (mode && side && side !== "neutral") return `no lotto (${mode} ${side})`;
           if (mode) return `no lotto (${mode})`;
           return "no lotto leg";
         }
-        if (r === "not_actionable") return "lotto built, gate blocked";
+        if (r === "not_actionable") return prep || "lotto built, gate blocked";
         if (r === "no_price") return "no price";
         if (r === "exception") return "scan error";
         return r.replace(/_/g, " ") || "omitted";
       }
 
       function convexityOmittedLine(scan) {
-        const rows = Array.isArray(scan?.omitted) ? scan.omitted : [];
-        const near = rows.filter((o) => {
-          const sym = String(o?.ticker || "");
-          if (!/^[A-Z]{1,5}$/.test(sym)) return false;
-          return Number(o?.days) >= 0 && Number(o.days) <= 1;
-        }).slice(0, 8);
+        const near = Array.isArray(scan?.omitted_near) && scan.omitted_near.length
+          ? scan.omitted_near
+          : (Array.isArray(scan?.omitted) ? scan.omitted : []).filter((o) => {
+              const sym = String(o?.ticker || "");
+              if (!/^[A-Z]{1,5}$/.test(sym)) return false;
+              const days = Number(o?.days);
+              if (!(days >= 0 && days <= 1)) return false;
+              const r = String(o?.reason || "");
+              const hour = String(o?.hour || "").toLowerCase();
+              if (r === "not_in_scan") return days === 0 && hour === "amc";
+              return true;
+            }).slice(0, 8);
         if (!near.length) return null;
         const bits = near.map((o) => `${o.ticker} — ${convexityOmitReason(o)}`);
         return h("p", { className: "tt-convexity-omitted" },

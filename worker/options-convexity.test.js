@@ -19,6 +19,7 @@ import {
   filterEarningsWindow,
   pinEarningsTickers,
   summarizeConvexityScan,
+  pickConvexityOmittedForUi,
 } from "./options-convexity.js";
 import {
   shouldActivateLotto,
@@ -229,6 +230,17 @@ describe("earningsWindowFromEvents / summarizeConvexityScan", () => {
     expect(crdo.reason).toBe("not_in_scan");
     expect(avgo.reason).toBe("no_convexity_leg");
     expect(sum.omitted.map((o) => o.ticker)).not.toContain("DELL");
+    expect(sum.omitted_near.map((o) => o.ticker)).toEqual(["CRDO", "AVGO"]);
+  });
+
+  it("keeps same-day AMC misses on the desk line and drops BMO calendar junk", () => {
+    const near = pickConvexityOmittedForUi([
+      { ticker: "GTLB", days: 0, hour: "amc", reason: "no_convexity_leg", earnings_prep_reason: "no_directional_side" },
+      { ticker: "HMR", days: 0, hour: "bmo", reason: "not_in_scan" },
+      { ticker: "SPWH", days: 0, hour: "amc", reason: "not_in_scan" },
+      { ticker: "AVGO", days: 1, hour: "amc", reason: "not_in_scan" },
+    ]);
+    expect(near.map((o) => o.ticker)).toEqual(["GTLB", "SPWH"]);
   });
 });
 
@@ -322,6 +334,7 @@ describe("convexityContractFromSnapshot / investor lane", () => {
     const ex = extractConvexityPlayFromLadder(ladder);
     expect(ex?.play_class).toBe("lotto");
     expect(ex?.play?._earnings_prep).toBe(true);
+    expect(ladder.earnings_prep?.activated).toBe(true);
     expect(isConvexityPlayActionable({
       play: ex.play,
       play_class: "lotto",

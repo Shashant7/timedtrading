@@ -27,6 +27,28 @@ D1 instead of skip-if-have. Tokenize sources on `+` and `,`.
 **Do not:** treat KV upcoming as the only earnings source, or hide
 same-day AMC skips behind `diag=1`.
 
+## CRDO WAIT/NEUTRAL was a second silent drop after the calendar fix [2026-09-01]
+
+**Symptom:** After D1 merge + pin, CRDO was scanned and still had no
+card. `scan.omitted` said `no_convexity_leg` / WAIT / NEUTRAL. DELL
+(FADE LONG) had a card.
+
+**Cause:** `shouldActivateEarningsPrepLotto` used `confluence.side ||
+direction`. `NEUTRAL` is truthy, so it never fell back to contract
+LONG (`HTF_BULL`). WAIT then required a share-entry floor. CRDO sl
+226.77 sat above 206.95, and `h4Pending` is only before 13:30 ET.
+After the 4H close the print is still tonight — the floor gate hid a
+valid earnings-prep lotto.
+
+**Fix:** Ignore NEUTRAL; fall back to contract / state direction.
+Same-day AMC bypasses the share floor (`the print is the event`).
+`isConvexityPlayActionable` uses the same side rule. Ladder echoes
+`earnings_prep.reason` onto `scan.omitted`. Desk line uses
+`omitted_near` so BMO calendar junk cannot bury a same-day AMC miss.
+
+**Do not:** treat NEUTRAL as a trade side, or require a share floor
+on same-day AMC after 13:30 ET.
+
 ## Scored universe MTF chips wrap because the card is 20px narrower [2026-09-01]
 
 **Symptom:** Lotto strip chips stay on one row. Scored universe shows

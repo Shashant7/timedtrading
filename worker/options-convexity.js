@@ -110,7 +110,10 @@ export function isConvexityPlayActionable({
       : ["READY", "RIDE", "DRIFT"];
     if (!lottoModes.includes(mode)) return false;
     if (mode === "READY" || mode === "FADE" || (earnPrep && mode === "WAIT")) {
-      const side = String(confluence?.side || contract?.direction || "").toUpperCase();
+      const sideRaw = String(confluence?.side || "").toUpperCase();
+      const side = (sideRaw === "LONG" || sideRaw === "SHORT")
+        ? sideRaw
+        : String(contract?.direction || "").toUpperCase();
       const timing = timingLean(confluence);
       const floor = floorHeld({
         spot: spot ?? contract?.price,
@@ -120,7 +123,7 @@ export function isConvexityPlayActionable({
       const sameDayAmcPlay = earnPrep
       && Number(play.earnings_dte) === 0
       && String(play._earnings_session || "").toUpperCase() === "AMC";
-    if (mode === "WAIT" && !floor && !play._h4_close_pending && !sameDayAmcPlay) return false;
+      if (mode === "WAIT" && !floor && !play._h4_close_pending && !sameDayAmcPlay) return false;
       if ((mode === "READY" || mode === "FADE") && !floor && timing !== side) return false;
     }
   } else if (playClass === "moonshot") {
@@ -654,6 +657,7 @@ export function summarizeConvexityScan({
       confluence_mode: skip.confluence_mode || null,
       confluence_side: skip.confluence_side || null,
       moonshot_reason: skip.moonshot_reason || null,
+      earnings_prep_reason: skip.earnings_prep_reason || null,
     });
   }
   omitted.sort((a, b) => (Number(a.days) - Number(b.days)) || a.ticker.localeCompare(b.ticker));
@@ -662,8 +666,23 @@ export function summarizeConvexityScan({
     cards: playSet.size,
     earnings_window: Object.keys(earnBySym || {}).length,
     omitted,
+    omitted_near: pickConvexityOmittedForUi(omitted),
     reason_counts: reasonCounts,
   };
+}
+
+/** Desk line: scanned misses + same-day AMC that never entered the 20. */
+export function pickConvexityOmittedForUi(omitted = [], { maxDays = 1, limit = 8 } = {}) {
+  return (omitted || []).filter((o) => {
+    const sym = String(o?.ticker || "");
+    if (!/^[A-Z]{1,5}$/.test(sym)) return false;
+    const days = Number(o?.days);
+    if (!(days >= 0 && days <= maxDays)) return false;
+    const r = String(o?.reason || "");
+    const hour = String(o?.hour || "").toLowerCase();
+    if (r === "not_in_scan") return days === 0 && hour === "amc";
+    return true;
+  }).slice(0, limit);
 }
 
 /**

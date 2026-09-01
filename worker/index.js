@@ -95450,10 +95450,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const extracted = _extractConvexityPlayFromLadder(ladder);
               if (!extracted?.play) {
                 const moon = ladder?.moonshot;
+                const prep = ladder?.earnings_prep;
                 return note("no_convexity_leg", {
                   confluence_mode: confluence?.mode || null,
                   confluence_side: confluence?.side || null,
                   moonshot_reason: moon?.reason || null,
+                  earnings_prep_reason: prep?.reason || null,
                 });
               }
               const spot = Number(ladderInput.price);

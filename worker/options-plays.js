@@ -399,9 +399,9 @@ export function isFirstRth4hForming(now = Date.now()) {
  * Window: earnings in 1–5 calendar days, plus same-day AMC (lotto into
  * tonight's print). Same-day BMO is excluded — the print already landed.
  * Allows READY/RIDE/DRIFT/WAIT and FADE (FADE SHORT is the put at a local
- * top). WAIT needs the floor unless same-day AMC is still waiting on the
- * first 4H close. Requires floor, compression timing, or a reclaim/pullback
- * structure flag.
+ * top). WAIT needs the floor unless this is same-day AMC (the print is
+ * the event). NEUTRAL confluence falls back to contract / state direction.
+ * Requires floor, compression timing, a reclaim/pullback flag, or same-day AMC.
  */
 export function shouldActivateEarningsPrepLotto({
   confluence,
@@ -4047,6 +4047,14 @@ export function buildOptionsLadder(contract, opts = {}) {
       activated: !!moonshotDecision.activate,
       reason: moonshotDecision.reason || null,
       motion: moonshotDecision.motion || null,
+    },
+    earnings_prep: {
+      activated: !!earningsPrepDecision.activate,
+      reason: earningsPrepDecision.reason || null,
+      earnings_dte: Number.isFinite(Number(earningsPrepDecision.earnings_dte))
+        ? Number(earningsPrepDecision.earnings_dte)
+        : null,
+      session: earningsPrepDecision.earnings_session || null,
     },
     options_first_recommended: optionsFirstActive,
     ...(() => {
