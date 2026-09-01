@@ -655,6 +655,26 @@
     return Math.abs(pct - ahdp) <= Math.max(0.3, Math.abs(ahdp) * 0.05);
   }
 
+  // Last-AH pennies sitting on today's RTH close (QQQ 717.04 vs 716.76).
+  // Same 0.05% ratio the feed writer uses before publishing ahp.
+  var EXT_LEFTOVER_RATIO = 0.0005;
+
+  function extPrintLooksLeftover(px, headline) {
+    var a = Number(px);
+    var h = Number(headline);
+    if (!(a > 0) || !(h > 0)) return false;
+    return Math.abs(a - h) / h <= EXT_LEFTOVER_RATIO;
+  }
+
+  function extPrintIsDistinct(px, headline) {
+    var a = Number(px);
+    var h = Number(headline);
+    if (!(a > 0) || !(h > 0)) return false;
+    if (Math.abs(a - h) <= 0.001) return false;
+    if (extPrintLooksLeftover(a, h)) return false;
+    return true;
+  }
+
   // Extended-hours change resolver — single source of truth for
   // pre-market / after-hours display across cards + right rail.
   // Returns { pct, price, chg } or null.
@@ -681,7 +701,7 @@
       NaN
     );
 
-    var hasDistinctExtPx = headline > 0 && px > 0 && Math.abs(px - headline) > 0.001;
+    var hasDistinctExtPx = extPrintIsDistinct(px, headline);
 
     // When the extended print differs from today's RTH close, derive % from
     // price — never trust cached ahdp if it disagrees (GS: ahp below close
@@ -715,11 +735,11 @@
       // No extended print — fall back to cached ahdp only when ahp is absent.
       px = Math.round(headline * (1 + pct / 100) * 100) / 100;
       if (!Number.isFinite(chg)) chg = Math.round((px - headline) * 100) / 100;
-      hasDistinctExtPx = Math.abs(px - headline) > 0.001;
+      hasDistinctExtPx = extPrintIsDistinct(px, headline);
     } else if (headline > 0 && px > 0 && !Number.isFinite(pct)) {
       pct = Math.round(((px - headline) / headline) * 10000) / 100;
       chg = Math.round((px - headline) * 100) / 100;
-      hasDistinctExtPx = Math.abs(px - headline) > 0.001;
+      hasDistinctExtPx = extPrintIsDistinct(px, headline);
     }
 
     if (!hasDistinctExtPx) return null;
@@ -1121,7 +1141,8 @@
     }
 
     var ahp = Number(p.ahp);
-    var hasKvExt = Number.isFinite(ahp) && ahp > 0;
+    var incomingLeftover = Number.isFinite(ahp) && ahp > 0 && extPrintLooksLeftover(ahp, feedP);
+    var hasKvExt = Number.isFinite(ahp) && ahp > 0 && !incomingLeftover;
     var existingClose = Number(
       (existing && existing.close) ?? (existing && existing._live_price) ?? (existing && existing.price)
     );
@@ -1138,6 +1159,15 @@
       if (Number.isFinite(ahdc)) kvOverlay._ah_change = ahdc;
       if (Number.isFinite(ahdp)) kvOverlay._ah_change_pct = ahdp;
       return receiptStamp ? Object.assign(kvOverlay, receiptStamp) : kvOverlay;
+    }
+
+    var existingAh = Number(existing && existing._ah_price);
+    if (incomingLeftover || (existingAh > 0 && extPrintLooksLeftover(existingAh, feedP))) {
+      var clearLeftover = {
+        price: feedP, close: feedP, _live_price: feedP, _rth_session_close: feedP,
+        _ah_price: null, _ah_change: null, _ah_change_pct: null,
+      };
+      return receiptStamp ? Object.assign(clearLeftover, receiptStamp) : clearLeftover;
     }
 
     if (isAuthoritativeRthPoll(p)) {
@@ -1187,6 +1217,8 @@
     getPriceValueAgeMs: getPriceValueAgeMs,
     mergePriceSrc: mergePriceSrc,
     applyPriceFeedOverlay: applyPriceFeedOverlay,
+    extPrintLooksLeftover: extPrintLooksLeftover,
+    extPrintIsDistinct: extPrintIsDistinct,
     getDailyChange: getDailyChange,
     getExtChange: getExtChange,
     getBubbleFillChange: getBubbleFillChange,

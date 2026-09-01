@@ -28,6 +28,7 @@ import {
 } from "../market-calendar.js";
 import { etDateStr, tradingDateUtcMs, isTradingDay } from "../foundation/trading-calendar.js";
 import { adjustPrevCloseForSplit } from "./prev-close-reconcile.js";
+import { extPrintLooksLeftover } from "./extended-hours.js";
 
 /** RTH: quote older than 10m is stale (operator rule). Not poll `t` — GS refreshed `t` every minute while `p` stuck at 1090. */
 export const PF_FRESH_MS = 10 * 60 * 1000;
@@ -234,6 +235,15 @@ export function applyExtendedFieldsFromPriceRow(obj, pf, sym, marketOpen) {
   const pfAhDp = Number(pf.ahdp);
   const pfAhDc = Number(pf.ahdc);
   const pfAhP = Number(pf.ahp);
+  if (Number.isFinite(pfAhP) && pfAhP > 0 && extPrintLooksLeftover(pfAhP, pf.p)) {
+    delete obj._ah_price;
+    delete obj._ah_change;
+    delete obj._ah_change_pct;
+    delete obj.extended_price;
+    delete obj.extended_change;
+    delete obj.extended_percent_change;
+    return;
+  }
   const isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
   const absCap = isCrypto ? 200 : 50;
   if (Number.isFinite(pfAhDp) && pfAhDp !== 0 && Math.abs(pfAhDp) <= absCap) {
@@ -547,7 +557,11 @@ export async function mergeFreshnessIntoLatest(KV, prices, opts = {}) {
           const pfAhDp = Number(snap.ahdp);
           const isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
           const absCap = isCrypto ? 200 : 50;
-          if (Number.isFinite(pfAhDp) && pfAhDp !== 0 && Math.abs(pfAhDp) <= absCap) {
+          if (Number.isFinite(pfAhP) && pfAhP > 0 && extPrintLooksLeftover(pfAhP, snap.p)) {
+            delete updated._ah_price;
+            delete updated._ah_change;
+            delete updated._ah_change_pct;
+          } else if (Number.isFinite(pfAhDp) && pfAhDp !== 0 && Math.abs(pfAhDp) <= absCap) {
             if (Number.isFinite(pfAhP) && pfAhP > 0) updated._ah_price = pfAhP;
             if (Number.isFinite(pfAhDc)) updated._ah_change = pfAhDc;
             if (Number.isFinite(pfAhDp)) updated._ah_change_pct = pfAhDp;

@@ -52,6 +52,35 @@ describe("getExtChange", () => {
     expect(ext.pct).toBeCloseTo(-0.68, 1);
   });
 
+  it("hides leftover last-AH pennies sitting on the RTH close (QQQ 717.04 vs 716.76)", () => {
+    mockMarketClosed();
+    const leftover = utils.getExtChange(withFreshPrice({
+      ticker: "QQQ",
+      close: 716.76,
+      price: 716.76,
+      _live_price: 716.76,
+      _rth_session_close: 716.76,
+      _ah_price: 717.04,
+      _ah_change_pct: 0.04,
+      _ah_change: 0.28,
+    }));
+    expect(leftover).toBeNull();
+
+    const dump = utils.getExtChange(withFreshPrice({
+      ticker: "QQQ",
+      close: 716.76,
+      price: 716.76,
+      _live_price: 716.76,
+      _rth_session_close: 716.76,
+      _ah_price: 706.94,
+      _ah_change_pct: -1.37,
+      _ah_change: -9.82,
+    }));
+    expect(dump).not.toBeNull();
+    expect(dump.price).toBe(706.94);
+    expect(dump.pct).toBeLessThan(0);
+  });
+
   it("hides EXT line when extended price equals RTH close but ahdp is stale (MU case)", () => {
     mockMarketClosed();
     const ext = utils.getExtChange({

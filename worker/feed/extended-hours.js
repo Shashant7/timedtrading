@@ -94,6 +94,17 @@ export function cachedAhpLooksStale(displayPrice, prevAhp) {
   return Math.abs(p - a) / p > 0.015;
 }
 
+/** Same 0.05% gate buildExtendedHoursFields uses before publishing ahp. */
+export const EXT_LEFTOVER_RATIO = 0.0005;
+
+/** Last-AH pennies sitting on today's RTH close (QQQ 717.04 vs 716.76). */
+export function extPrintLooksLeftover(ahp, rth) {
+  const a = Number(ahp);
+  const p = Number(rth);
+  if (!(a > 0) || !(p > 0)) return false;
+  return Math.abs(a - p) / p <= EXT_LEFTOVER_RATIO;
+}
+
 /**
  * Decide whether to publish, preserve, or drop ahp/ahdc/ahdp on a KV row.
  * GS @ 1090: when RTH close rolls forward but TwelveData sends no fresh
@@ -103,12 +114,14 @@ export function cachedAhpLooksStale(displayPrice, prevAhp) {
  * quiet vendor poll does not wipe a live stream print.
  */
 export function resolveAhPersistence(prev, ext, displayPrice, marketClosed, pChanged) {
-  void displayPrice;
   const { extP = 0, extDc = 0, extDp = 0 } = ext || {};
   if (extDc !== 0 && extP > 0) {
     return { ahp: extP, ahdc: extDc, ahdp: extDp };
   }
   if (!marketClosed || pChanged) {
+    return {};
+  }
+  if (extPrintLooksLeftover(prev?.ahp, displayPrice)) {
     return {};
   }
   const out = {};

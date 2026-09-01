@@ -70,6 +70,31 @@ describe("redactTickerSnapshot — tier-aware price vs model gating", () => {
     expect(out.score).toBeUndefined();
     expect(out._redacted).toBe(true);
   });
+
+  it("strips EXT overlay aliases that used to leak past the live-price set", () => {
+    const out = redactTickerSnapshot({
+      ticker: "QQQ",
+      _ah_price: 706.94,
+      _ah_change: -9.82,
+      _ah_change_pct: -1.37,
+      ah_price: 701.29,
+      ah_change: -6.54,
+      ah_change_pct: -0.92,
+      extended_price: 706.94,
+      extended_change: -9.82,
+      extended_percent_change: -1.37,
+    }, "anon");
+    expect(out._ah_price).toBeUndefined();
+    expect(out._ah_change).toBeUndefined();
+    expect(out._ah_change_pct).toBeUndefined();
+    expect(out.ah_price).toBeUndefined();
+    expect(out.ah_change).toBeUndefined();
+    expect(out.ah_change_pct).toBeUndefined();
+    expect(out.extended_price).toBeUndefined();
+    expect(out.extended_change).toBeUndefined();
+    expect(out.extended_percent_change).toBeUndefined();
+    expect(out.ticker).toBe("QQQ");
+  });
 });
 
 describe("redactTickerMapForTier", () => {

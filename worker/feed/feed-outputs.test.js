@@ -315,6 +315,26 @@ describe("overlayTimedPricesRow", () => {
     expect(out._price_value_ts).toBeUndefined();
   });
 
+  it("does not overlay leftover last-AH pennies as EXT (QQQ 717.04 vs 716.76)", () => {
+    const now = Date.now();
+    const obj = { ticker: "QQQ", price: 716.76, close: 716.76, prev_close: 716.43 };
+    const pf = {
+      p: 716.76,
+      pc: 716.43,
+      dp: 0.05,
+      ahp: 717.04,
+      ahdc: 0.28,
+      ahdp: 0.04,
+      t: now,
+      p_ts: now - 60 * 1000,
+      q_ts: now - 60 * 1000,
+    };
+    const out = overlayTimedPricesRow(obj, pf, { sym: "QQQ", marketOpen: false });
+    expect(out.price).toBe(716.76);
+    expect(out._ah_price).toBeUndefined();
+    expect(out._ah_change_pct).toBeUndefined();
+  });
+
   it("overlays fresh p_ts and sets close outside RTH", () => {
     const now = Date.now();
     const obj = { ticker: "GS", price: 1020, close: 1020, prev_close: 1020 };

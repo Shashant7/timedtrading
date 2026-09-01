@@ -6,6 +6,26 @@
 
 ---
 
+## QQQ EXT 717 was last-AH leftover, not the live 706 print [2026-09-01]
+
+**Symptom:** Index Day Trade showed QQQ EXT $717.04 (+0.04%) at 9:07 ET
+while the tape was ~$706. Headline $716.76 (RTH close) was correct.
+
+**Cause:** TwelveData `extended_price` can sit 20–30 cents above the
+session close after the last AH print. The writer already refuses to
+*publish* a new ahp inside 0.05%, but `resolveAhPersistence` kept the
+prior leftover when `p` did not move. The client then glued it on:
+
+1. `usePriceFeed` no-op'd when `_live_price` (RTH close) and receipt ts
+   matched, so a later `ahp` 706 never replaced 717.
+2. `mergeTimedAllRefresh` always preferred the existing `_ah_*` overlay.
+3. `getExtChange` treated $0.28 as a distinct EXT line (`> $0.001`).
+4. Anon/Member redaction stripped `price` but leaked `_ah_price`.
+
+**Do not:** skip a `/timed/prices` tick just because `p` is unchanged
+outside RTH. Do not preserve ahp that is ≤0.05% from `p`. Do not leave
+`_ah_price` / `_ah_change` out of `LIVE_PRICE_SNAPSHOT_FIELDS`.
+
 ## Insights page is TT model analysis, not an FSD playbook [2026-08-31]
 
 **Ask:** Cleanse Insights of FSD Playbook language. FSD ingest stays as

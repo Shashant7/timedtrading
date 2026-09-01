@@ -3,6 +3,7 @@ import {
   buildExtendedHoursFields,
   cachedAhpLooksStale,
   extendedQuoteLooksStale,
+  extPrintLooksLeftover,
   isExtendedOperatingSession,
   lightweightRestRefreshDue,
   priceFeedPriceChanged,
@@ -117,6 +118,20 @@ describe("resolveAhPersistence", () => {
       priceFeedPriceChanged(prev.p, 1076.17),
     );
     expect(out).toEqual({});
+  });
+
+  it("drops leftover last-AH pennies sitting on the RTH close (QQQ 717.04 vs 716.76)", () => {
+    const prev = { p: 716.76, ahp: 717.04, ahdc: 0.28, ahdp: 0.04 };
+    const out = resolveAhPersistence(
+      prev,
+      { extP: 0, extDc: 0, extDp: 0 },
+      716.76,
+      true,
+      false,
+    );
+    expect(out).toEqual({});
+    expect(extPrintLooksLeftover(717.04, 716.76)).toBe(true);
+    expect(extPrintLooksLeftover(706.94, 716.76)).toBe(false);
   });
 
   it("preserves cached ahp overnight when p is unchanged and vendor is quiet", () => {

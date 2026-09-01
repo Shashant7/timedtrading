@@ -1889,6 +1889,11 @@
         };
       }
 
+      function priceFeedAhChanged(existing, ahp) {
+        const next = Number(ahp);
+        return Number.isFinite(next) && next > 0 && existing?._ah_price !== next;
+      }
+
       // ── Real-time price feed hook ──
       // Polls /timed/prices every 30 seconds for near-real-time Current Price and Daily Change.
       // Merges price data into the main tickerData object without replacing scoring data.
@@ -1933,7 +1938,7 @@
                 const normalizedSym = normTicker(sym);
                 const existing = updatedData[normalizedSym];
                 if (!existing || !(priceInfo.p > 0)) continue;
-                if (existing._live_price === priceInfo.p) continue;
+                if (existing._live_price === priceInfo.p && !priceFeedAhChanged(existing, priceInfo.ahp)) continue;
                 // Don't overwrite a more recent WS price with an older HTTP poll
                 if (existing._price_updated_at && existing._price_updated_at > feedTs) continue;
                 const feedPc = Number(priceInfo.pc);
@@ -2110,9 +2115,10 @@
                     const normalizedSym = normTicker(sym);
                     const existing = curData[normalizedSym];
                     if (!existing || !(priceInfo.p > 0)) continue;
-                    if (existing._live_price === priceInfo.p) continue;
+                    const ahChanged = priceFeedAhChanged(existing, priceInfo.ahp);
+                    if (existing._live_price === priceInfo.p && !ahChanged) continue;
                     const curPrice = Number(existing._live_price || existing.price || 0);
-                    if (curPrice > 0 && Math.abs(priceInfo.p - curPrice) / curPrice * 100 < MIN_PRICE_CHANGE_PCT) continue;
+                    if (!ahChanged && curPrice > 0 && Math.abs(priceInfo.p - curPrice) / curPrice * 100 < MIN_PRICE_CHANGE_PCT) continue;
                     const feedPc = Number(priceInfo.pc);
                     const feedP = Number(priceInfo.p);
                     const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0 && feedP > 0

@@ -69,6 +69,32 @@ describe("applyPriceFeedOverlay closed-market hardening", () => {
     expect(out.close).toBeUndefined();
   });
 
+  it("clears leftover last-AH pennies when the poll has no distinct ahp", () => {
+    const leftover = {
+      ticker: "QQQ",
+      close: 716.76,
+      price: 716.76,
+      _live_price: 716.76,
+      _ah_price: 717.04,
+      _ah_change: 0.28,
+      _ah_change_pct: 0.04,
+    };
+    const out = overlay(leftover, { p: 716.76 }, false);
+    expect(out._ah_price).toBeNull();
+    expect(out.price).toBe(716.76);
+  });
+
+  it("does not treat leftover KV ahp as a real EXT overlay", () => {
+    const leftover = {
+      ticker: "QQQ",
+      close: 716.76,
+      price: 716.76,
+      _live_price: 716.76,
+    };
+    const out = overlay(leftover, { p: 716.76, ahp: 717.04, ahdc: 0.28, ahdp: 0.04 }, false);
+    expect(out._ah_price).toBeNull();
+  });
+
   it("KV poll without ahp still updates poisoned close to authoritative p", () => {
     const poisoned = {
       ticker: "QQQ",
@@ -140,5 +166,77 @@ describe("getHeadlinePrice pre-market session close anchor", () => {
     });
     expect(px).toBeCloseTo(722.82, 2);
     expect(px).not.toBeCloseTo(709.43, 2);
+  });
+});
+
+describe("priceFeedTickUnchanged + leftover EXT merge", () => {
+  beforeAll(() => {
+    loadLiveData();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function mockPreMarket() {
+    vi.spyOn(Date.prototype, "toLocaleString").mockImplementation(function (loc, opts) {
+      if (opts && opts.timeZone === "America/New_York") {
+        return "9/1/2026, 09:07:00";
+      }
+      return "9/1/2026, 09:07:00";
+    });
+  }
+
+  it("does not skip a poll when only ahp changed", () => {
+    const existing = {
+      _live_price: 716.76,
+      _price_updated_at: 100,
+      _ah_price: 717.04,
+    };
+    expect(globalThis.TimedLiveData.priceFeedTickUnchanged(
+      existing,
+      716.76,
+      100,
+      { p: 716.76, ahp: 706.94, ahdp: -1.37 },
+    )).toBe(false);
+    expect(globalThis.TimedLiveData.priceFeedTickUnchanged(
+      existing,
+      716.76,
+      100,
+      { p: 716.76, ahp: 717.04 },
+    )).toBe(true);
+  });
+
+  it("replaces leftover existing EXT with a distinct /timed/all dump", () => {
+    mockPreMarket();
+    const prev = {
+      QQQ: {
+        ticker: "QQQ",
+        ts: 1,
+        close: 716.76,
+        price: 716.76,
+        _live_price: 716.76,
+        _ah_price: 717.04,
+        _ah_change: 0.28,
+        _ah_change_pct: 0.04,
+        kanban_stage: "watch",
+      },
+    };
+    const incoming = {
+      QQQ: {
+        ticker: "QQQ",
+        ts: 2,
+        close: 716.76,
+        price: 716.76,
+        _live_price: 716.76,
+        _ah_price: 706.94,
+        _ah_change: -9.82,
+        _ah_change_pct: -1.37,
+        kanban_stage: "watch",
+      },
+    };
+    const next = globalThis.TimedLiveData.mergeTimedAllRefresh(prev, incoming);
+    expect(next.QQQ._ah_price).toBe(706.94);
+    expect(next.QQQ._ah_change_pct).toBeCloseTo(-1.37, 2);
   });
 });
