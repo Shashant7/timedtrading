@@ -21,5 +21,11 @@ describe("Scored universe lane card MTF row", () => {
     const today = readFileSync(resolve("react-app/today.html"), "utf8");
     expect(today).toMatch(/\.vp-lane \.ds-tickercard\.tt-lane-card[\s\S]*max-height:\s*none/);
     expect(today).toMatch(/\.vp-list \.ds-tickercard\.tt-lane-card[\s\S]*max-height:\s*none/);
+    expect(today).toMatch(/\.vp-lane \.ds-tickercard\.tt-lane-card[\s\S]*width:\s*300px/);
+    expect(today).toMatch(/\.vp-lane \.tt-lane-card__chiprow[\s\S]*flex-wrap:\s*nowrap/);
+    expect(today).toContain("convexityOmittedLine");
+    expect(today).toContain("Earnings without a lotto");
+    expect(today).toContain("omitted_near");
+    expect(today).toContain("same-day AMC missed the scan");
   });
 });

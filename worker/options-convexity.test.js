@@ -15,6 +15,11 @@ import {
   selectConvexityScanUniverse,
   convexityContractFromSnapshot,
   isConvexityInvestorLane,
+  earningsWindowFromEvents,
+  filterEarningsWindow,
+  pinEarningsTickers,
+  summarizeConvexityScan,
+  pickConvexityOmittedForUi,
 } from "./options-convexity.js";
 import {
   shouldActivateLotto,
@@ -93,6 +98,27 @@ describe("shouldActivateEarningsPrepLotto", () => {
     expect(r.activate).toBe(true);
   });
 
+  it("activates same-day AMC WAIT/NEUTRAL using contract direction (CRDO)", () => {
+    const after4h = Date.parse("2026-09-01T17:30:00-04:00");
+    const r = shouldActivateEarningsPrepLotto({
+      profile: "speculator",
+      confluence: { mode: "WAIT", side: "NEUTRAL", timing: {} },
+      direction: "LONG",
+      contract: {
+        price: 206.95,
+        sl: 226.77,
+        direction: "LONG",
+        earnings_dte: 0,
+        earnings_hour: "amc",
+      },
+      tickerData: { state: "HTF_BULL_LTF_BULL", earnings_hour: "amc" },
+      now: after4h,
+    });
+    expect(r.activate).toBe(true);
+    expect(r.side).toBe("LONG");
+    expect(r.earnings_prep).toBe(true);
+  });
+
   it("rejects outside earnings window", () => {
     const r = shouldActivateEarningsPrepLotto({
       profile: "speculator",
@@ -158,6 +184,63 @@ describe("shouldActivateEarningsPrepLotto", () => {
     });
     expect(r.activate).toBe(true);
     expect(r.h4_close_pending).toBe(false);
+  });
+});
+
+describe("earningsWindowFromEvents / summarizeConvexityScan", () => {
+  it("keeps a same-day D1 AMC name even when KV upcoming omitted it", () => {
+    const { bySym, eventBySym } = earningsWindowFromEvents([
+      { symbol: "DELL", date: "2026-09-01", hour: "amc", _source: "finnhub" },
+      { symbol: "CRDO", date: "2026-09-01", hour: "amc", epsEstimate: 1.18, _source: "d1_market_events" },
+    ], "2026-09-01");
+    expect(bySym).toEqual({ DELL: 0, CRDO: 0 });
+    expect(eventBySym.CRDO.hour).toBe("amc");
+  });
+
+  it("drops ISIN junk and pins a universe AMC name missing from timed:all", () => {
+    const raw = earningsWindowFromEvents([
+      { symbol: "CRDO", date: "2026-09-01", hour: "amc", _source: "d1_market_events" },
+      { symbol: "AT0000A2X0K4", date: "2026-09-01", _source: "d1_market_events" },
+      { symbol: "1SMA", date: "2026-09-01", _source: "d1_market_events" },
+    ], "2026-09-01");
+    const kept = filterEarningsWindow(raw.bySym, raw.eventBySym, {
+      universeSet: new Set(["CRDO", "DELL"]),
+    });
+    expect(Object.keys(kept.bySym).sort()).toEqual(["CRDO"]);
+    const pinned = pinEarningsTickers(
+      [{ ticker: "DELL", rank: 82, earnings_dte: 0 }],
+      kept.bySym,
+      kept.eventBySym,
+    );
+    expect(pinned.map((t) => t.ticker)).toEqual(["DELL", "CRDO"]);
+    const scanned = selectConvexityScanUniverse(pinned, kept.bySym, { maxTotal: 20, earnLimit: 12 });
+    expect(scanned.map((t) => t.ticker)).toContain("CRDO");
+  });
+
+  it("flags an earnings name that never entered the 20-name scan", () => {
+    const sum = summarizeConvexityScan({
+      scannedTickers: ["DELL", "AVGO"],
+      earnBySym: { DELL: 0, CRDO: 0, AVGO: 1 },
+      earnEventBySym: { CRDO: { hour: "amc" } },
+      skipReasons: [{ ticker: "AVGO", reason: "no_convexity_leg", confluence_mode: "WAIT" }],
+      playTickers: ["DELL"],
+    });
+    const crdo = sum.omitted.find((o) => o.ticker === "CRDO");
+    const avgo = sum.omitted.find((o) => o.ticker === "AVGO");
+    expect(crdo.reason).toBe("not_in_scan");
+    expect(avgo.reason).toBe("no_convexity_leg");
+    expect(sum.omitted.map((o) => o.ticker)).not.toContain("DELL");
+    expect(sum.omitted_near.map((o) => o.ticker)).toEqual(["CRDO", "AVGO"]);
+  });
+
+  it("keeps same-day AMC misses on the desk line and drops BMO calendar junk", () => {
+    const near = pickConvexityOmittedForUi([
+      { ticker: "GTLB", days: 0, hour: "amc", reason: "no_convexity_leg", earnings_prep_reason: "no_directional_side" },
+      { ticker: "HMR", days: 0, hour: "bmo", reason: "not_in_scan" },
+      { ticker: "SPWH", days: 0, hour: "amc", reason: "not_in_scan" },
+      { ticker: "AVGO", days: 1, hour: "amc", reason: "not_in_scan" },
+    ]);
+    expect(near.map((o) => o.ticker)).toEqual(["GTLB", "SPWH"]);
   });
 });
 
@@ -229,6 +312,39 @@ describe("convexityContractFromSnapshot / investor lane", () => {
     const ex = extractConvexityPlayFromLadder(ladder);
     expect(ex?.play_class).toBe("lotto");
     expect(ex?.play?._earnings_prep).toBe(true);
+  });
+
+  it("builds an earnings-prep lotto for WAIT/NEUTRAL same-day AMC (CRDO)", () => {
+    const snap = {
+      ticker: "CRDO",
+      price: 206.95,
+      sl: 226.77,
+      state: "HTF_BULL_LTF_BULL",
+      earnings_dte: 0,
+      earnings_hour: "amc",
+      investor_stage: "watch",
+    };
+    const contract = convexityContractFromSnapshot(snap);
+    const ladder = buildOptionsLadder(contract, {
+      profile: "speculator",
+      confluence: { mode: "WAIT", side: "NEUTRAL", timing: {} },
+      tickerData: snap,
+      now: Date.parse("2026-09-01T17:30:00-04:00"),
+    });
+    const ex = extractConvexityPlayFromLadder(ladder);
+    expect(ex?.play_class).toBe("lotto");
+    expect(ex?.play?._earnings_prep).toBe(true);
+    expect(ladder.earnings_prep?.activated).toBe(true);
+    expect(isConvexityPlayActionable({
+      play: ex.play,
+      play_class: "lotto",
+      confluence: { mode: "WAIT", side: "NEUTRAL", timing: {} },
+      contract,
+      spot: 206.95,
+      chain_status: "not_attempted",
+      as_of_ms: Date.parse("2026-09-01T17:30:00-04:00"),
+      now: Date.parse("2026-09-01T17:30:00-04:00"),
+    })).toBe(true);
   });
 });
 

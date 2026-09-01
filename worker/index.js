@@ -1049,6 +1049,8 @@ import {
   normalizeTdEarningsHour,
   sanitizeUpcomingEarningsEvents,
   fetchRecentResolvedEarningsMap,
+  fetchEarningsFromD1,
+  mergeEarningsEventLists,
   d1EnsureBriefSchema,
 } from "./daily-brief.js";
 import { seedHistoricalMarketEvents, checkMarketEventsCoverage } from "./market-events-seed.js";
@@ -1219,6 +1221,10 @@ import {
   selectConvexityScanUniverse as _selectConvexityScanUniverse,
   convexityContractFromSnapshot as _convexityContractFromSnapshot,
   isConvexityInvestorLane as _isConvexityInvestorLane,
+  earningsWindowFromEvents as _earningsWindowFromEvents,
+  filterEarningsWindow as _filterEarningsWindow,
+  pinEarningsTickers as _pinEarningsTickers,
+  summarizeConvexityScan as _summarizeConvexityScan,
 } from "./options-convexity.js";
 import { enrichEarningsPlayCards as _enrichEarningsPlayCards } from "./earnings-play.js";
 import {
@@ -58536,19 +58542,17 @@ export default {
                    AND (status IS NULL OR status NOT IN ('resolved', 'canceled'))
                    AND ticker IS NOT NULL`
               ).bind(today, future).all().catch(() => ({ results: [] }));
-              const have = new Set(events.map(e => `${String(e.symbol || "").toUpperCase()}|${e.date}`));
+              const d1Mapped = [];
               for (const r of (d1Rows?.results || [])) {
                 const sym = String(r.ticker || "").toUpperCase();
                 if (!sym) continue;
-                const key = `${sym}|${r.date}`;
-                if (have.has(key)) continue;
                 // D1 stores estimate as "$2.73 EPS" string. Extract.
                 let epsEst = null;
                 if (r.estimate) {
                   const m = String(r.estimate).match(/\$?(-?\d+\.?\d*)/);
                   if (m) epsEst = Number(m[1]);
                 }
-                events.push({
+                d1Mapped.push({
                   symbol: sym,
                   date: r.date,
                   // "unknown" must not reach the UI as a session label.
@@ -58559,8 +58563,10 @@ export default {
                   revenueActual: null,
                   _source: "d1_market_events",
                 });
-                have.add(key);
               }
+              // Upsert — a ghost KV row must not block a scheduled D1 print
+              // (CRDO 2026-09-01 stayed in D1, vanished from KV).
+              events = mergeEarningsEventLists(events, d1Mapped);
             } catch (mergeErr) {
               console.warn("[EARNINGS] D1 merge failed:", String(mergeErr?.message || mergeErr).slice(0, 150));
             }
@@ -95311,8 +95317,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
 
       // ── GET /timed/options/convexity?limit=10 ───────────────────────────
-      // Universe scan: lotto + moonshot plays that pass the shared alignment
-      // contract. Pro-gated; no suppressed list — failed gates omit silently.
+          // Universe scan: lotto + moonshot plays that pass the shared alignment
+          // contract. Pro-gated. Earnings names that produce no card are
+          // returned on `scan.omitted` so same-day AMC drops are not silent.
       if (routeKey === "GET /timed/options/convexity") {
         try {
           const _cxTier = await resolveRequestDataTier(req, env);
@@ -95327,7 +95334,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
           const limit = Math.min(10, Math.max(1, Number(url.searchParams.get("limit")) || 10));
           const profile = "speculator";
-          const _cxCacheKey = `timed:options:convexity:v4:${limit}`;
+          const _cxCacheKey = `timed:options:convexity:v5:${limit}`;
           const _bypassCx = String(url.searchParams.get("_nocache") || "0") === "1";
           if (!_bypassCx) {
             const cached = await kvGetJSON(env.KV_TIMED, _cxCacheKey).catch(() => null);
@@ -95347,25 +95354,29 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           };
           const tickersAll = _flattenCx(all);
           // Bias the scan toward names with earnings in 0–5d so prep-lotto
-          // candidates (same-day AMC DELL/CRDO-class) run first. Do not call
+          // candidates (same-day AMC DELL/CRDO-class) run first. KV upcoming
+          // alone is not enough — Finnhub can drop a scheduled print while
+          // D1 market_events still has it (CRDO 2026-09-01). Do not call
           // buildTraderPredictionContract here — 36× regime KV fan-out 1102s
           // the worker and the lotto strip stays empty (2026-09-01).
           let _cxEarnBySym = {};
-          const _cxEarnEventBySym = {};
+          let _cxEarnEventBySym = {};
           try {
-            const _up = await kvGetJSON(env.KV_TIMED, "timed:earnings:upcoming");
             const _todayEt = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-            const _todayMs = Date.parse(`${_todayEt}T12:00:00Z`);
-            for (const e of (_up?.events || [])) {
-              const sym = String(e?.symbol || "").toUpperCase();
-              const d = String(e?.date || "").slice(0, 10);
-              if (!sym || !d) continue;
-              const days = Math.round((Date.parse(`${d}T12:00:00Z`) - _todayMs) / 86400000);
-              if (days >= 0 && days <= 5 && !Number.isFinite(_cxEarnBySym[sym])) {
-                _cxEarnBySym[sym] = days;
-                _cxEarnEventBySym[sym] = { date: d, hour: e?.hour || null, days_to_print: days };
-              }
-            }
+            const _futureEt = new Date(Date.now() + 5 * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+            const _up = await kvGetJSON(env.KV_TIMED, "timed:earnings:upcoming");
+            const _d1Earn = await fetchEarningsFromD1(env, _todayEt, _futureEt).catch(() => []);
+            const _win = _earningsWindowFromEvents(
+              mergeEarningsEventLists(_up?.events || [], _d1Earn || []),
+              _todayEt,
+            );
+            const _universeSet = new Set([
+              ...Object.keys(SECTOR_MAP || {}).map((s) => String(s).toUpperCase()),
+              ...tickersAll.map((t) => String(t?.ticker || "").toUpperCase()),
+            ]);
+            const _kept = _filterEarningsWindow(_win.bySym, _win.eventBySym, { universeSet: _universeSet });
+            _cxEarnBySym = _kept.bySym;
+            _cxEarnEventBySym = _kept.eventBySym;
           } catch (_) { /* best-effort */ }
           const stampEarn = (t) => {
             const sym = String(t?.ticker || "").toUpperCase();
@@ -95379,10 +95390,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               earnings_hour: ev.hour || t.earnings_hour || null,
             };
           };
-          const tickers = _selectConvexityScanUniverse(tickersAll, _cxEarnBySym, {
-            maxTotal: 20,
-            earnLimit: 12,
-          }).map(stampEarn);
+          const tickers = _selectConvexityScanUniverse(
+            _pinEarningsTickers(tickersAll, _cxEarnBySym, _cxEarnEventBySym),
+            _cxEarnBySym,
+            {
+              maxTotal: 20,
+              earnLimit: 12,
+            },
+          ).map(stampEarn);
           let _cxPricesMap = {};
           let _cxMarketOpen = true;
           try {
@@ -95404,7 +95419,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const _cxOne = async (t) => {
             const sym = String(t?.ticker || "").toUpperCase();
             const note = (reason, detail) => {
-              if (_diag) _skipReasons.push({ ticker: sym, reason, ...(detail || {}) });
+              _skipReasons.push({ ticker: sym, reason, ...(detail || {}) });
               return null;
             };
             try {
@@ -95435,10 +95450,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const extracted = _extractConvexityPlayFromLadder(ladder);
               if (!extracted?.play) {
                 const moon = ladder?.moonshot;
+                const prep = ladder?.earnings_prep;
                 return note("no_convexity_leg", {
                   confluence_mode: confluence?.mode || null,
                   confluence_side: confluence?.side || null,
                   moonshot_reason: moon?.reason || null,
+                  earnings_prep_reason: prep?.reason || null,
                 });
               }
               const spot = Number(ladderInput.price);
@@ -95515,15 +95532,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             count: plays.length,
             plays,
             generated_at: Date.now(),
+            scan: _summarizeConvexityScan({
+              scannedTickers: tickers.map((t) => t.ticker),
+              earnBySym: _cxEarnBySym,
+              earnEventBySym: _cxEarnEventBySym,
+              skipReasons: _skipReasons,
+              playTickers: plays.map((p) => p.ticker),
+            }),
           };
           if (_diag) {
-            const reasonCounts = {};
-            for (const r of _skipReasons) reasonCounts[r.reason] = (reasonCounts[r.reason] || 0) + 1;
             payload.diag = {
               scanned: tickers.length,
               cards: cards.length,
-              reason_counts: reasonCounts,
-              samples: _skipReasons.slice(0, 20),
+              reason_counts: payload.scan.reason_counts,
+              samples: _skipReasons.slice(0, 40),
             };
           }
           if (!_diag) {

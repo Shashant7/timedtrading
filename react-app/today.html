@@ -1514,8 +1514,8 @@
       .vp-lane::-webkit-scrollbar { height: 6px; }
       .vp-lane::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
       .vp-lane .ds-tickercard.tt-lane-card {
-        width: 280px !important;
-        flex: 0 0 280px;
+        width: 300px !important;
+        flex: 0 0 300px;
         scroll-snap-align: start;
         min-height: 118px;
         height: auto;
@@ -1971,6 +1971,16 @@
       .tt-universe-panel__confirm-stack,
       .tt-universe-panel__setup-families,
       .tt-universe-panel__convexity { margin: 0; }
+      .tt-convexity-omitted {
+        margin-top: 8px;
+        font-size: 11px;
+        line-height: 1.45;
+        color: var(--ds-text-muted, var(--tt-text-muted));
+      }
+      .tt-convexity-omitted strong {
+        color: var(--ds-text, var(--tt-text));
+        font-weight: 650;
+      }
       .tt-universe-panel .tt-ready-scroll,
       .tt-universe-panel .tt-opp-scroll {
         gap: 12px;
@@ -2112,12 +2122,21 @@
         flex-wrap: wrap;
         max-height: none;
       }
-      /* Viewport lane cards — same bottom MTF row as universe strips. */
+      /* Viewport lane cards — one MTF row, same 300px / 9px chips as lotto. */
       .vp-list .tt-lane-card__chiprow,
       .vp-lane .tt-lane-card__chiprow {
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: 3px;
         max-height: none;
+        overflow: visible;
+      }
+      .vp-list .tt-lane-card__chiprow .ds-chip,
+      .vp-lane .tt-lane-card__chiprow .ds-chip,
+      .vp-list .tt-lane-card__chiprow .tt-lane-badge,
+      .vp-lane .tt-lane-card__chiprow .tt-lane-badge {
+        white-space: nowrap;
+        flex-shrink: 0;
+        font-size: 9px;
       }
       .tt-universe-panel .tt-lane-card__metrics,
       .tt-universe-panel .tt-dt-plan__prem,
@@ -2523,8 +2542,8 @@
         padding-bottom: 6px;
       }
       .sk-lane-card {
-        flex: 0 0 280px;
-        width: 280px;
+        flex: 0 0 300px;
+        width: 300px;
         height: 118px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
@@ -5334,6 +5353,49 @@
         if (a === "SELL" || a === "FLAT") return "ds-chip ds-chip--sm ds-chip--dn";
         return "ds-chip ds-chip--sm ds-chip--solid";
       }
+      function convexityOmitReason(row) {
+        const r = String(row?.reason || "");
+        const prep = String(row?.earnings_prep_reason || "").replace(/_/g, " ");
+        if (r === "not_in_scan") {
+          const hour = String(row?.hour || "").toUpperCase();
+          if (Number(row?.days) === 0 && hour === "AMC") return "same-day AMC missed the scan";
+          return "not on the scan calendar";
+        }
+        if (r === "no_convexity_leg") {
+          if (prep) return prep;
+          const mode = String(row?.confluence_mode || "").toUpperCase();
+          const side = String(row?.confluence_side || "").toLowerCase();
+          if (mode && side && side !== "neutral") return `no lotto (${mode} ${side})`;
+          if (mode) return `no lotto (${mode})`;
+          return "no lotto leg";
+        }
+        if (r === "not_actionable") return prep || "lotto built, gate blocked";
+        if (r === "no_price") return "no price";
+        if (r === "exception") return "scan error";
+        return r.replace(/_/g, " ") || "omitted";
+      }
+
+      function convexityOmittedLine(scan) {
+        const near = Array.isArray(scan?.omitted_near) && scan.omitted_near.length
+          ? scan.omitted_near
+          : (Array.isArray(scan?.omitted) ? scan.omitted : []).filter((o) => {
+              const sym = String(o?.ticker || "");
+              if (!/^[A-Z]{1,5}$/.test(sym)) return false;
+              const days = Number(o?.days);
+              if (!(days >= 0 && days <= 1)) return false;
+              const r = String(o?.reason || "");
+              const hour = String(o?.hour || "").toLowerCase();
+              if (r === "not_in_scan") return days === 0 && hour === "amc";
+              return true;
+            }).slice(0, 8);
+        if (!near.length) return null;
+        const bits = near.map((o) => `${o.ticker} — ${convexityOmitReason(o)}`);
+        return h("p", { className: "tt-convexity-omitted" },
+          h("strong", null, "Earnings without a lotto: "),
+          bits.join(" · "),
+        );
+      }
+
       function convexityPlanCopy(card) {
         const ticker = String(card?.ticker || "").toUpperCase();
         const isMoon = card?.play_class === "moonshot";
@@ -5508,6 +5570,7 @@
         const seed = (CACHE && window._ttIsPro) ? CACHE.peek(url) : null;
         const seedPlays = seed && Array.isArray(seed.plays) && seed.plays.length ? seed.plays : null;
         const [plays, setPlays] = useState(seedPlays);
+        const [scan, setScan] = useState(seed && seed.scan ? seed.scan : null);
         const [publishedAt, setPublishedAt] = useState(seed ? (Number(seed.generated_at) || null) : null);
         const [loading, setLoading] = useState(!seedPlays);
         // Same auth race as SetupFamiliesStrip. Convexity is also
@@ -5540,10 +5603,12 @@
               if (!alive) return;
               if (j?.ok && Array.isArray(j.plays)) {
                 setPlays(j.plays);
+                setScan(j.scan || null);
                 setPublishedAt(Number(j.generated_at) || null);
                 try { window.TTFetchCache?.put?.(url, j); } catch (_) {}
               } else if (!seedPlays) {
                 setPlays([]);
+                setScan(j?.scan || null);
               }
             } catch (_) {
               if (alive && !seedPlays) setPlays([]);
@@ -5560,7 +5625,7 @@
           }, 5 * 60 * 1000);
           const onAuth = (e) => {
             if (e?.detail?.isPro) load();
-            else if (alive) { setPlays([]); setLoading(false); }
+            else if (alive) { setPlays([]); setScan(null); setLoading(false); }
           };
           window.addEventListener("tt-auth-bootstrap-updated", onAuth);
           return () => {
@@ -5599,6 +5664,7 @@
         if (!plays || plays.length === 0) {
           return wrap(h(React.Fragment, null, head,
             h("div", { className: "tt-ready__empty", style: { marginTop: 8 } }, "No options lotto/moonshot alignments right now — the strip stays empty until direction, floor, and timing clear together."),
+            convexityOmittedLine(scan),
           ));
         }
 
@@ -5723,6 +5789,7 @@
               );
             }),
           ),
+          convexityOmittedLine(scan),
         ));
       }
 
@@ -9877,7 +9944,7 @@
           ? sparkPointsRaw
           : [price || 0, price || 0];
         const sparkSvg = (window.DS && Number.isFinite(price) && price > 0)
-          ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
+          ? window.DS.sparklineSvg(sparkPoints, { width: 300, height: 44, direction: dir, strokeWidth: 1.4 })
           : "";
 
         const patternChips = (() => {

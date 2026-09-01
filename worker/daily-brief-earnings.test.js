@@ -7,6 +7,7 @@ import {
   normalizeTdEarningsHour,
   flattenTdEarningsCalendar,
   mergeEarningsEventLists,
+  tokenizeEarningsSources,
   isEarningsUpcomingCacheSparse,
   preferRicherEarningsUpcomingCache,
   isGhostUpcomingEarnings,
@@ -116,7 +117,26 @@ describe("flattenTdEarningsCalendar", () => {
   });
 });
 
+describe("tokenizeEarningsSources", () => {
+  it("does not compound already-joined source strings", () => {
+    const exploded = Array(20).fill("finnhub+d1_market_events").join("+");
+    expect(tokenizeEarningsSources(exploded).sort()).toEqual(["d1_market_events", "finnhub"]);
+  });
+});
+
 describe("mergeEarningsEventLists", () => {
+  it("keeps _source compact across repeated merges", () => {
+    let events = [{ symbol: "DELL", date: "2026-09-01", hour: "amc", _source: "finnhub" }];
+    for (let i = 0; i < 12; i++) {
+      events = mergeEarningsEventLists(events, [
+        { symbol: "DELL", date: "2026-09-01", hour: "amc", _source: "finnhub+d1_market_events" },
+      ]);
+    }
+    expect(events).toHaveLength(1);
+    expect(events[0]._source.split("+").sort()).toEqual(["d1_market_events", "finnhub"]);
+    expect(events[0]._source.length).toBeLessThan(40);
+  });
+
   it("unions by symbol|date and fills missing fields", () => {
     const merged = mergeEarningsEventLists(
       [{ symbol: "jpm", date: "2026-07-14", hour: "bmo", epsEstimate: 4.5, _source: "finnhub" }],

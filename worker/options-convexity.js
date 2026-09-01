@@ -110,14 +110,20 @@ export function isConvexityPlayActionable({
       : ["READY", "RIDE", "DRIFT"];
     if (!lottoModes.includes(mode)) return false;
     if (mode === "READY" || mode === "FADE" || (earnPrep && mode === "WAIT")) {
-      const side = String(confluence?.side || contract?.direction || "").toUpperCase();
+      const sideRaw = String(confluence?.side || "").toUpperCase();
+      const side = (sideRaw === "LONG" || sideRaw === "SHORT")
+        ? sideRaw
+        : String(contract?.direction || "").toUpperCase();
       const timing = timingLean(confluence);
       const floor = floorHeld({
         spot: spot ?? contract?.price,
         sl: contract?.sl,
         direction: side,
       });
-      if (mode === "WAIT" && !floor && !play._h4_close_pending) return false;
+      const sameDayAmcPlay = earnPrep
+      && Number(play.earnings_dte) === 0
+      && String(play._earnings_session || "").toUpperCase() === "AMC";
+      if (mode === "WAIT" && !floor && !play._h4_close_pending && !sameDayAmcPlay) return false;
       if ((mode === "READY" || mode === "FADE") && !floor && timing !== side) return false;
     }
   } else if (playClass === "moonshot") {
@@ -546,6 +552,138 @@ export function convexityContractFromSnapshot(t = {}) {
 
 export const CONVEXITY_SCAN_MAX = 20;
 export const CONVEXITY_SCAN_EARN_LIMIT = 12;
+
+/**
+ * 0–5d earnings window from calendar rows. Same-day names stay even after
+ * a vendor actual lands — dropping them is how CRDO vanished from the
+ * lotto scan while D1 still had the AMC print scheduled.
+ */
+export function earningsWindowFromEvents(events = [], todayEt) {
+  const today = String(todayEt || "").slice(0, 10);
+  const todayMs = Date.parse(`${today}T12:00:00Z`);
+  const bySym = {};
+  const eventBySym = {};
+  if (!today || !Number.isFinite(todayMs)) return { bySym, eventBySym };
+  for (const e of events || []) {
+    const sym = String(e?.symbol || e?.ticker || "").toUpperCase();
+    const d = String(e?.date || "").slice(0, 10);
+    if (!sym || !d) continue;
+    const days = Math.round((Date.parse(`${d}T12:00:00Z`) - todayMs) / 86400000);
+    if (!Number.isFinite(days) || days < 0 || days > 5) continue;
+    if (Number.isFinite(bySym[sym]) && bySym[sym] <= days) continue;
+    bySym[sym] = days;
+    eventBySym[sym] = {
+      date: d,
+      hour: e?.hour || e?.session || null,
+      days_to_print: days,
+      source: e?._source || null,
+    };
+  }
+  return { bySym, eventBySym };
+}
+
+export function isConvexityEarningsSymbol(sym) {
+  return /^[A-Z]{1,5}$/.test(String(sym || ""));
+}
+
+/** Drop ISIN / fund junk from D1 so they cannot crowd the 12 earnings slots. */
+export function filterEarningsWindow(bySym = {}, eventBySym = {}, { universeSet } = {}) {
+  const nextBy = {};
+  const nextEv = {};
+  for (const [raw, days] of Object.entries(bySym || {})) {
+    const sym = String(raw || "").toUpperCase();
+    if (!isConvexityEarningsSymbol(sym)) continue;
+    const ev = eventBySym?.[sym] || eventBySym?.[raw] || {};
+    const inUni = universeSet instanceof Set ? universeSet.has(sym) : false;
+    if (!inUni && !ev.hour) continue;
+    if (!inUni && !isConvexityEarningsSymbol(sym)) continue;
+    nextBy[sym] = days;
+    nextEv[sym] = ev;
+  }
+  return { bySym: nextBy, eventBySym: nextEv };
+}
+
+/** Pin window names that timed:all omitted so same-day AMC cannot vanish. */
+export function pinEarningsTickers(tickersAll = [], earnBySym = {}, extraBySym = {}) {
+  const out = [...(tickersAll || [])];
+  const have = new Set(out.map((t) => String(t?.ticker || "").toUpperCase()).filter(Boolean));
+  for (const [raw, days] of Object.entries(earnBySym || {})) {
+    const sym = String(raw || "").toUpperCase();
+    if (!sym || have.has(sym)) continue;
+    const extra = extraBySym[sym] || {};
+    out.push({
+      ticker: sym,
+      earnings_dte: days,
+      days_to_earnings: days,
+      earnings_hour: extra.hour || null,
+      price: extra.price ?? null,
+      sl: extra.sl ?? null,
+      rank: extra.rank ?? null,
+      entry_quality: extra.entry_quality ?? null,
+      state: extra.state || null,
+    });
+    have.add(sym);
+  }
+  return out;
+}
+
+/** Earnings names that were in the window but produced no lotto/moonshot card. */
+export function summarizeConvexityScan({
+  scannedTickers = [],
+  earnBySym = {},
+  earnEventBySym = {},
+  skipReasons = [],
+  playTickers = [],
+} = {}) {
+  const scannedSet = new Set((scannedTickers || []).map((s) => String(s || "").toUpperCase()));
+  const playSet = new Set((playTickers || []).map((s) => String(s || "").toUpperCase()));
+  const skipBySym = {};
+  const reasonCounts = {};
+  for (const row of skipReasons || []) {
+    const sym = String(row?.ticker || "").toUpperCase();
+    if (sym && !skipBySym[sym]) skipBySym[sym] = row;
+    const r = String(row?.reason || "unknown");
+    reasonCounts[r] = (reasonCounts[r] || 0) + 1;
+  }
+  const omitted = [];
+  for (const [sym, days] of Object.entries(earnBySym || {})) {
+    if (playSet.has(sym)) continue;
+    const skip = skipBySym[sym] || {};
+    omitted.push({
+      ticker: sym,
+      days: Number(days),
+      hour: earnEventBySym?.[sym]?.hour || null,
+      reason: skip.reason || (scannedSet.has(sym) ? "no_card" : "not_in_scan"),
+      confluence_mode: skip.confluence_mode || null,
+      confluence_side: skip.confluence_side || null,
+      moonshot_reason: skip.moonshot_reason || null,
+      earnings_prep_reason: skip.earnings_prep_reason || null,
+    });
+  }
+  omitted.sort((a, b) => (Number(a.days) - Number(b.days)) || a.ticker.localeCompare(b.ticker));
+  return {
+    scanned: scannedSet.size,
+    cards: playSet.size,
+    earnings_window: Object.keys(earnBySym || {}).length,
+    omitted,
+    omitted_near: pickConvexityOmittedForUi(omitted),
+    reason_counts: reasonCounts,
+  };
+}
+
+/** Desk line: scanned misses + same-day AMC that never entered the 20. */
+export function pickConvexityOmittedForUi(omitted = [], { maxDays = 1, limit = 8 } = {}) {
+  return (omitted || []).filter((o) => {
+    const sym = String(o?.ticker || "");
+    if (!/^[A-Z]{1,5}$/.test(sym)) return false;
+    const days = Number(o?.days);
+    if (!(days >= 0 && days <= maxDays)) return false;
+    const r = String(o?.reason || "");
+    const hour = String(o?.hour || "").toLowerCase();
+    if (r === "not_in_scan") return days === 0 && hour === "amc";
+    return true;
+  }).slice(0, limit);
+}
 
 /**
  * Earnings 0–5d first (same-day AMC included), then rank/eq fill.

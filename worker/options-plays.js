@@ -399,9 +399,9 @@ export function isFirstRth4hForming(now = Date.now()) {
  * Window: earnings in 1–5 calendar days, plus same-day AMC (lotto into
  * tonight's print). Same-day BMO is excluded — the print already landed.
  * Allows READY/RIDE/DRIFT/WAIT and FADE (FADE SHORT is the put at a local
- * top). WAIT needs the floor unless same-day AMC is still waiting on the
- * first 4H close. Requires floor, compression timing, or a reclaim/pullback
- * structure flag.
+ * top). WAIT needs the floor unless this is same-day AMC (the print is
+ * the event). NEUTRAL confluence falls back to contract / state direction.
+ * Requires floor, compression timing, a reclaim/pullback flag, or same-day AMC.
  */
 export function shouldActivateEarningsPrepLotto({
   confluence,
@@ -429,7 +429,13 @@ export function shouldActivateEarningsPrepLotto({
   if (!["READY", "RIDE", "DRIFT", "WAIT", "FADE"].includes(mode)) {
     return { activate: false, reason: `mode_${mode}_not_earnings_prep` };
   }
-  const side = String(confluence.side || direction || contract?.direction || "").toUpperCase();
+  // NEUTRAL is a confluence label, not a trade side. Fall back to the
+  // contract / state direction so same-day AMC names (CRDO 2026-09-01)
+  // are not silently dropped as no_directional_side.
+  const sideRaw = String(confluence.side || "").toUpperCase();
+  const side = (sideRaw === "LONG" || sideRaw === "SHORT")
+    ? sideRaw
+    : String(direction || contract?.direction || "").toUpperCase();
   if (side !== "LONG" && side !== "SHORT") {
     return { activate: false, reason: "no_directional_side" };
   }
@@ -446,11 +452,13 @@ export function shouldActivateEarningsPrepLotto({
     || /reclaim|pullback|bounce/.test(path)
     || !!(tickerData?.flags?.phase_leave)
     || !!(confluence?.supertrend_trigger?.reclaimed);
-  if (!floorOk && !timingOk && !reclaimOk) {
+  // Same-day AMC is the event. Do not require a share-entry floor after
+  // the 1:30 ET 4H close — that gate hid CRDO (WAIT / NEUTRAL, sl above px).
+  if (!floorOk && !timingOk && !reclaimOk && !sameDayAmc) {
     return { activate: false, reason: "no_floor_timing_or_reclaim" };
   }
   const h4Pending = sameDayAmc && isFirstRth4hForming(now);
-  if (mode === "WAIT" && !floorOk && !h4Pending) {
+  if (mode === "WAIT" && !floorOk && !h4Pending && !sameDayAmc) {
     return { activate: false, reason: "wait_requires_floor" };
   }
   const fsdRally = !!(tickerData?.fsd_macro?.rally_active);
@@ -3702,6 +3710,7 @@ export function buildOptionsLadder(contract, opts = {}) {
   const activateStandardLotto = lottoDecision.activate && !suppressDirectional && !moonshotDecision.activate;
   const activateEarningsPrepLotto = earningsPrepDecision.activate && !moonshotDecision.activate
     && !activateStandardLotto;
+  let earningsPrepReason = earningsPrepDecision.reason || null;
   if (activateStandardLotto || activateEarningsPrepLotto) {
     const lottoMax = Number(opts.lotto_max_loss_usd) || 50;
     // Earnings-prep pulls the strike closer to the money (higher delta) so it
@@ -3709,15 +3718,22 @@ export function buildOptionsLadder(contract, opts = {}) {
     const lottoDelta = activateEarningsPrepLotto
       ? EARNINGS_PREP_LOTTO_TARGET_DELTA
       : LOTTO_TARGET_DELTA;
+    const lottoDir = String(
+      (activateEarningsPrepLotto && earningsPrepDecision.side)
+        || activeDir
+        || playDirection
+        || "",
+    ).toUpperCase();
     const lotto = buildLotto(
-      { ...ctxEff, chain },
-      activeDir || playDirection,
+      { ...ctxEff, chain, direction: lottoDir || ctxEff.direction },
+      lottoDir,
       { lottoMaxLossUsd: lottoMax, targetDelta: lottoDelta },
     );
     if (lotto) {
       lotto._lotto_active = true;
       if (activateEarningsPrepLotto) {
         const ed = earningsPrepDecision.earnings_dte;
+        earningsPrepReason = null;
         lotto._earnings_prep = true;
         lotto.earnings_dte = ed;
         lotto._earnings_session = earningsPrepDecision.earnings_session || null;
@@ -3734,6 +3750,8 @@ export function buildOptionsLadder(contract, opts = {}) {
         ];
       }
       ladder.push(lotto);
+    } else if (activateEarningsPrepLotto) {
+      earningsPrepReason = earningsPrepReason || "lotto_build_failed";
     }
   }
 
@@ -4039,6 +4057,14 @@ export function buildOptionsLadder(contract, opts = {}) {
       activated: !!moonshotDecision.activate,
       reason: moonshotDecision.reason || null,
       motion: moonshotDecision.motion || null,
+    },
+    earnings_prep: {
+      activated: !!earningsPrepDecision.activate,
+      reason: earningsPrepReason,
+      earnings_dte: Number.isFinite(Number(earningsPrepDecision.earnings_dte))
+        ? Number(earningsPrepDecision.earnings_dte)
+        : null,
+      session: earningsPrepDecision.earnings_session || null,
     },
     options_first_recommended: optionsFirstActive,
     ...(() => {

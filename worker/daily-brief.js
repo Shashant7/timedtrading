@@ -898,6 +898,16 @@ export function flattenTdEarningsCalendar(tdRes) {
   return out;
 }
 
+/** Split `finnhub+d1_market_events,twelvedata` without compounding the joined string. */
+export function tokenizeEarningsSources(src) {
+  return [...new Set(
+    String(src || "")
+      .split(/[+ ,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+  )];
+}
+
 /** Union earnings rows by symbol|date, preferring non-null estimates/hour. */
 export function mergeEarningsEventLists(...lists) {
   const byKey = new Map();
@@ -910,12 +920,10 @@ export function mergeEarningsEventLists(...lists) {
       const key = `${symbol}|${date}`;
       const prev = byKey.get(key);
       if (!prev) {
-        byKey.set(key, { ...e, symbol, date });
+        byKey.set(key, { ...e, symbol, date, _source: tokenizeEarningsSources(e._source).join("+") || e._source });
         continue;
       }
-      const sources = [...new Set(
-        `${prev._source || ""},${e._source || ""}`.split(",").map((s) => s.trim()).filter(Boolean),
-      )];
+      const sources = tokenizeEarningsSources(`${prev._source || ""}+${e._source || ""}`);
       byKey.set(key, {
         ...prev,
         ...e,
@@ -1034,7 +1042,7 @@ async function fetchEarningsFromKvCache(env, fromDate, toDate) {
   }
 }
 
-async function fetchEarningsFromD1(env, fromDate, toDate) {
+export async function fetchEarningsFromD1(env, fromDate, toDate) {
   const db = env?.DB;
   if (!db) return [];
   try {
