@@ -3710,6 +3710,7 @@ export function buildOptionsLadder(contract, opts = {}) {
   const activateStandardLotto = lottoDecision.activate && !suppressDirectional && !moonshotDecision.activate;
   const activateEarningsPrepLotto = earningsPrepDecision.activate && !moonshotDecision.activate
     && !activateStandardLotto;
+  let earningsPrepReason = earningsPrepDecision.reason || null;
   if (activateStandardLotto || activateEarningsPrepLotto) {
     const lottoMax = Number(opts.lotto_max_loss_usd) || 50;
     // Earnings-prep pulls the strike closer to the money (higher delta) so it
@@ -3717,15 +3718,22 @@ export function buildOptionsLadder(contract, opts = {}) {
     const lottoDelta = activateEarningsPrepLotto
       ? EARNINGS_PREP_LOTTO_TARGET_DELTA
       : LOTTO_TARGET_DELTA;
+    const lottoDir = String(
+      (activateEarningsPrepLotto && earningsPrepDecision.side)
+        || activeDir
+        || playDirection
+        || "",
+    ).toUpperCase();
     const lotto = buildLotto(
-      { ...ctxEff, chain },
-      activeDir || playDirection,
+      { ...ctxEff, chain, direction: lottoDir || ctxEff.direction },
+      lottoDir,
       { lottoMaxLossUsd: lottoMax, targetDelta: lottoDelta },
     );
     if (lotto) {
       lotto._lotto_active = true;
       if (activateEarningsPrepLotto) {
         const ed = earningsPrepDecision.earnings_dte;
+        earningsPrepReason = null;
         lotto._earnings_prep = true;
         lotto.earnings_dte = ed;
         lotto._earnings_session = earningsPrepDecision.earnings_session || null;
@@ -3742,6 +3750,8 @@ export function buildOptionsLadder(contract, opts = {}) {
         ];
       }
       ladder.push(lotto);
+    } else if (activateEarningsPrepLotto) {
+      earningsPrepReason = earningsPrepReason || "lotto_build_failed";
     }
   }
 
@@ -4050,7 +4060,7 @@ export function buildOptionsLadder(contract, opts = {}) {
     },
     earnings_prep: {
       activated: !!earningsPrepDecision.activate,
-      reason: earningsPrepDecision.reason || null,
+      reason: earningsPrepReason,
       earnings_dte: Number.isFinite(Number(earningsPrepDecision.earnings_dte))
         ? Number(earningsPrepDecision.earnings_dte)
         : null,
