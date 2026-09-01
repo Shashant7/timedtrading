@@ -6,6 +6,29 @@
 
 ---
 
+## Earnings lotto scan cannot call buildTraderPredictionContract [2026-09-01]
+
+**Symptom:** DELL and CRDO reported AMC 2026-09-01. Calendar had both
+(`hour=amc`). Latest ranks were 82 / 100. Today "Options lotto &
+moonshots" stayed empty.
+
+**Cause:** Two stacked bugs. (1) The scan referenced `_optsFsdMacro`
+from the *next* route (`/timed/options/all`) — `ReferenceError` on
+every ticker (same class as the missing local `queueBackground` on
+OPTIONS-DT-PLAN). (2) It still called `buildTraderPredictionContract`
+→ `buildMarketRegimeEvidence` (VIX + FX + TICK + Carter sectors, per
+ticker) so a 36-name pass 1102'd and never wrote the 5-min cache.
+`investor_stage=watch` also forced the Investor LONG lane.
+
+**Fix:** Load FSD macro inside the convexity handler. Snapshot
+contract (`convexityContractFromSnapshot`). Scan earnings 0–5d first
+(cap 12) then rank fill (max 20). Investor lane is Accumulate/Core
+only. Cache key `v4`.
+
+**Do not:** fan out KV inside the universe scan; treat kanban `watch`
+as Investor; rely on a 5-min cache that never writes because the
+request never finishes.
+
 ## Index 10m live-sync must paint the current bucket [2026-09-01]
 
 **Symptom:** Health watchdog `probe /timed/health` failed at 10:42 ET
