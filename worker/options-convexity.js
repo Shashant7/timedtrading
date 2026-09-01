@@ -117,7 +117,10 @@ export function isConvexityPlayActionable({
         sl: contract?.sl,
         direction: side,
       });
-      if (mode === "WAIT" && !floor && !play._h4_close_pending) return false;
+      const sameDayAmcPlay = earnPrep
+      && Number(play.earnings_dte) === 0
+      && String(play._earnings_session || "").toUpperCase() === "AMC";
+    if (mode === "WAIT" && !floor && !play._h4_close_pending && !sameDayAmcPlay) return false;
       if ((mode === "READY" || mode === "FADE") && !floor && timing !== side) return false;
     }
   } else if (playClass === "moonshot") {

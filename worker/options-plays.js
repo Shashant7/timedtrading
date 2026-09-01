@@ -429,7 +429,13 @@ export function shouldActivateEarningsPrepLotto({
   if (!["READY", "RIDE", "DRIFT", "WAIT", "FADE"].includes(mode)) {
     return { activate: false, reason: `mode_${mode}_not_earnings_prep` };
   }
-  const side = String(confluence.side || direction || contract?.direction || "").toUpperCase();
+  // NEUTRAL is a confluence label, not a trade side. Fall back to the
+  // contract / state direction so same-day AMC names (CRDO 2026-09-01)
+  // are not silently dropped as no_directional_side.
+  const sideRaw = String(confluence.side || "").toUpperCase();
+  const side = (sideRaw === "LONG" || sideRaw === "SHORT")
+    ? sideRaw
+    : String(direction || contract?.direction || "").toUpperCase();
   if (side !== "LONG" && side !== "SHORT") {
     return { activate: false, reason: "no_directional_side" };
   }
@@ -446,11 +452,13 @@ export function shouldActivateEarningsPrepLotto({
     || /reclaim|pullback|bounce/.test(path)
     || !!(tickerData?.flags?.phase_leave)
     || !!(confluence?.supertrend_trigger?.reclaimed);
-  if (!floorOk && !timingOk && !reclaimOk) {
+  // Same-day AMC is the event. Do not require a share-entry floor after
+  // the 1:30 ET 4H close — that gate hid CRDO (WAIT / NEUTRAL, sl above px).
+  if (!floorOk && !timingOk && !reclaimOk && !sameDayAmc) {
     return { activate: false, reason: "no_floor_timing_or_reclaim" };
   }
   const h4Pending = sameDayAmc && isFirstRth4hForming(now);
-  if (mode === "WAIT" && !floorOk && !h4Pending) {
+  if (mode === "WAIT" && !floorOk && !h4Pending && !sameDayAmc) {
     return { activate: false, reason: "wait_requires_floor" };
   }
   const fsdRally = !!(tickerData?.fsd_macro?.rally_active);

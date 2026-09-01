@@ -97,6 +97,27 @@ describe("shouldActivateEarningsPrepLotto", () => {
     expect(r.activate).toBe(true);
   });
 
+  it("activates same-day AMC WAIT/NEUTRAL using contract direction (CRDO)", () => {
+    const after4h = Date.parse("2026-09-01T17:30:00-04:00");
+    const r = shouldActivateEarningsPrepLotto({
+      profile: "speculator",
+      confluence: { mode: "WAIT", side: "NEUTRAL", timing: {} },
+      direction: "LONG",
+      contract: {
+        price: 206.95,
+        sl: 226.77,
+        direction: "LONG",
+        earnings_dte: 0,
+        earnings_hour: "amc",
+      },
+      tickerData: { state: "HTF_BULL_LTF_BULL", earnings_hour: "amc" },
+      now: after4h,
+    });
+    expect(r.activate).toBe(true);
+    expect(r.side).toBe("LONG");
+    expect(r.earnings_prep).toBe(true);
+  });
+
   it("rejects outside earnings window", () => {
     const r = shouldActivateEarningsPrepLotto({
       profile: "speculator",
@@ -279,6 +300,38 @@ describe("convexityContractFromSnapshot / investor lane", () => {
     const ex = extractConvexityPlayFromLadder(ladder);
     expect(ex?.play_class).toBe("lotto");
     expect(ex?.play?._earnings_prep).toBe(true);
+  });
+
+  it("builds an earnings-prep lotto for WAIT/NEUTRAL same-day AMC (CRDO)", () => {
+    const snap = {
+      ticker: "CRDO",
+      price: 206.95,
+      sl: 226.77,
+      state: "HTF_BULL_LTF_BULL",
+      earnings_dte: 0,
+      earnings_hour: "amc",
+      investor_stage: "watch",
+    };
+    const contract = convexityContractFromSnapshot(snap);
+    const ladder = buildOptionsLadder(contract, {
+      profile: "speculator",
+      confluence: { mode: "WAIT", side: "NEUTRAL", timing: {} },
+      tickerData: snap,
+      now: Date.parse("2026-09-01T17:30:00-04:00"),
+    });
+    const ex = extractConvexityPlayFromLadder(ladder);
+    expect(ex?.play_class).toBe("lotto");
+    expect(ex?.play?._earnings_prep).toBe(true);
+    expect(isConvexityPlayActionable({
+      play: ex.play,
+      play_class: "lotto",
+      confluence: { mode: "WAIT", side: "NEUTRAL", timing: {} },
+      contract,
+      spot: 206.95,
+      chain_status: "not_attempted",
+      as_of_ms: Date.parse("2026-09-01T17:30:00-04:00"),
+      now: Date.parse("2026-09-01T17:30:00-04:00"),
+    })).toBe(true);
   });
 });
 
