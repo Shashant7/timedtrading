@@ -618,17 +618,17 @@ describe("syncLivePricesToChartCandles coverage rotation", () => {
 
   it("always writes sentinel 10m even over the cap without opts.priorityTickers", async () => {
     const filler = Array.from({ length: 30 }, (_, i) => `Z${String(i).padStart(2, "0")}`);
+    const sentinels = ["SPY", "QQQ", "IWM", "DIA", "AAPL"];
     const db = mockDb();
     await syncLivePricesToChartCandles(
       { DB: db },
-      pricesFor([...filler, "SPY", "QQQ"]),
-      { log: false, maxTickers: 8, rotationOffset: 0 },
+      pricesFor([...filler, ...sentinels]),
+      { log: false, maxTickers: 10, rotationOffset: 0 },
       openHook,
     );
     const intraday = new Set(db.batches.filter((s) => s.args[1] !== "D").map((s) => s.args[0]));
-    expect(intraday.has("SPY")).toBe(true);
-    expect(intraday.has("QQQ")).toBe(true);
-    expect(intraday.size).toBe(8);
+    for (const s of sentinels) expect(intraday.has(s)).toBe(true);
+    expect(intraday.size).toBe(10);
   });
 });
 

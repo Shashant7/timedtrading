@@ -472,7 +472,7 @@ export function liveCandleSyncAnchorTs(nowMs = Date.now()) {
   return n > 0 ? n : Date.now();
 }
 
-/** Full-universe live sync on */5; sentinel/priority-only on the other minutes. */
+/** Full-universe live sync on minute % 5 === 0; sentinels on the other minutes. */
 export function liveCandleSyncScope(utcMinute, prices, priorityTickers = []) {
   const priority = mergeLiveCandlePriorityTickers(priorityTickers);
   const full = Number(utcMinute) % 5 === 0;
