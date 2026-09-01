@@ -1222,6 +1222,8 @@ import {
   convexityContractFromSnapshot as _convexityContractFromSnapshot,
   isConvexityInvestorLane as _isConvexityInvestorLane,
   earningsWindowFromEvents as _earningsWindowFromEvents,
+  filterEarningsWindow as _filterEarningsWindow,
+  pinEarningsTickers as _pinEarningsTickers,
   summarizeConvexityScan as _summarizeConvexityScan,
 } from "./options-convexity.js";
 import { enrichEarningsPlayCards as _enrichEarningsPlayCards } from "./earnings-play.js";
@@ -95368,8 +95370,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               mergeEarningsEventLists(_up?.events || [], _d1Earn || []),
               _todayEt,
             );
-            _cxEarnBySym = _win.bySym;
-            _cxEarnEventBySym = _win.eventBySym;
+            const _universeSet = new Set([
+              ...Object.keys(SECTOR_MAP || {}).map((s) => String(s).toUpperCase()),
+              ...tickersAll.map((t) => String(t?.ticker || "").toUpperCase()),
+            ]);
+            const _kept = _filterEarningsWindow(_win.bySym, _win.eventBySym, { universeSet: _universeSet });
+            _cxEarnBySym = _kept.bySym;
+            _cxEarnEventBySym = _kept.eventBySym;
           } catch (_) { /* best-effort */ }
           const stampEarn = (t) => {
             const sym = String(t?.ticker || "").toUpperCase();
@@ -95383,10 +95390,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               earnings_hour: ev.hour || t.earnings_hour || null,
             };
           };
-          const tickers = _selectConvexityScanUniverse(tickersAll, _cxEarnBySym, {
-            maxTotal: 20,
-            earnLimit: 12,
-          }).map(stampEarn);
+          const tickers = _selectConvexityScanUniverse(
+            _pinEarningsTickers(tickersAll, _cxEarnBySym, _cxEarnEventBySym),
+            _cxEarnBySym,
+            {
+              maxTotal: 20,
+              earnLimit: 12,
+            },
+          ).map(stampEarn);
           let _cxPricesMap = {};
           let _cxMarketOpen = true;
           try {

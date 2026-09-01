@@ -2374,7 +2374,11 @@ function convexityOmitReason(row) {
 }
 function convexityOmittedLine(scan) {
   const rows = Array.isArray(scan?.omitted) ? scan.omitted : [];
-  const near = rows.filter(o => Number(o?.days) >= 0 && Number(o.days) <= 1).slice(0, 8);
+  const near = rows.filter(o => {
+    const sym = String(o?.ticker || "");
+    if (!/^[A-Z]{1,5}$/.test(sym)) return false;
+    return Number(o?.days) >= 0 && Number(o.days) <= 1;
+  }).slice(0, 8);
   if (!near.length) return null;
   const bits = near.map(o => `${o.ticker} — ${convexityOmitReason(o)}`);
   return h("p", {
@@ -9673,6 +9677,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1788299207104:417382883
+// cache-bust:1788299400568:225746215
 
-// cache-bust:1788299207104:417382883
+// cache-bust:1788299400568:225746215

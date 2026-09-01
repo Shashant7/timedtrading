@@ -5371,7 +5371,11 @@
 
       function convexityOmittedLine(scan) {
         const rows = Array.isArray(scan?.omitted) ? scan.omitted : [];
-        const near = rows.filter((o) => Number(o?.days) >= 0 && Number(o.days) <= 1).slice(0, 8);
+        const near = rows.filter((o) => {
+          const sym = String(o?.ticker || "");
+          if (!/^[A-Z]{1,5}$/.test(sym)) return false;
+          return Number(o?.days) >= 0 && Number(o.days) <= 1;
+        }).slice(0, 8);
         if (!near.length) return null;
         const bits = near.map((o) => `${o.ticker} — ${convexityOmitReason(o)}`);
         return h("p", { className: "tt-convexity-omitted" },

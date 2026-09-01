@@ -16,6 +16,8 @@ import {
   convexityContractFromSnapshot,
   isConvexityInvestorLane,
   earningsWindowFromEvents,
+  filterEarningsWindow,
+  pinEarningsTickers,
   summarizeConvexityScan,
 } from "./options-convexity.js";
 import {
@@ -171,6 +173,26 @@ describe("earningsWindowFromEvents / summarizeConvexityScan", () => {
     ], "2026-09-01");
     expect(bySym).toEqual({ DELL: 0, CRDO: 0 });
     expect(eventBySym.CRDO.hour).toBe("amc");
+  });
+
+  it("drops ISIN junk and pins a universe AMC name missing from timed:all", () => {
+    const raw = earningsWindowFromEvents([
+      { symbol: "CRDO", date: "2026-09-01", hour: "amc", _source: "d1_market_events" },
+      { symbol: "AT0000A2X0K4", date: "2026-09-01", _source: "d1_market_events" },
+      { symbol: "1SMA", date: "2026-09-01", _source: "d1_market_events" },
+    ], "2026-09-01");
+    const kept = filterEarningsWindow(raw.bySym, raw.eventBySym, {
+      universeSet: new Set(["CRDO", "DELL"]),
+    });
+    expect(Object.keys(kept.bySym).sort()).toEqual(["CRDO"]);
+    const pinned = pinEarningsTickers(
+      [{ ticker: "DELL", rank: 82, earnings_dte: 0 }],
+      kept.bySym,
+      kept.eventBySym,
+    );
+    expect(pinned.map((t) => t.ticker)).toEqual(["DELL", "CRDO"]);
+    const scanned = selectConvexityScanUniverse(pinned, kept.bySym, { maxTotal: 20, earnLimit: 12 });
+    expect(scanned.map((t) => t.ticker)).toContain("CRDO");
   });
 
   it("flags an earnings name that never entered the 20-name scan", () => {

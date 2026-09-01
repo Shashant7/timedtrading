@@ -576,6 +576,51 @@ export function earningsWindowFromEvents(events = [], todayEt) {
   return { bySym, eventBySym };
 }
 
+export function isConvexityEarningsSymbol(sym) {
+  return /^[A-Z]{1,5}$/.test(String(sym || ""));
+}
+
+/** Drop ISIN / fund junk from D1 so they cannot crowd the 12 earnings slots. */
+export function filterEarningsWindow(bySym = {}, eventBySym = {}, { universeSet } = {}) {
+  const nextBy = {};
+  const nextEv = {};
+  for (const [raw, days] of Object.entries(bySym || {})) {
+    const sym = String(raw || "").toUpperCase();
+    if (!isConvexityEarningsSymbol(sym)) continue;
+    const ev = eventBySym?.[sym] || eventBySym?.[raw] || {};
+    const inUni = universeSet instanceof Set ? universeSet.has(sym) : false;
+    if (!inUni && !ev.hour) continue;
+    if (!inUni && !isConvexityEarningsSymbol(sym)) continue;
+    nextBy[sym] = days;
+    nextEv[sym] = ev;
+  }
+  return { bySym: nextBy, eventBySym: nextEv };
+}
+
+/** Pin window names that timed:all omitted so same-day AMC cannot vanish. */
+export function pinEarningsTickers(tickersAll = [], earnBySym = {}, extraBySym = {}) {
+  const out = [...(tickersAll || [])];
+  const have = new Set(out.map((t) => String(t?.ticker || "").toUpperCase()).filter(Boolean));
+  for (const [raw, days] of Object.entries(earnBySym || {})) {
+    const sym = String(raw || "").toUpperCase();
+    if (!sym || have.has(sym)) continue;
+    const extra = extraBySym[sym] || {};
+    out.push({
+      ticker: sym,
+      earnings_dte: days,
+      days_to_earnings: days,
+      earnings_hour: extra.hour || null,
+      price: extra.price ?? null,
+      sl: extra.sl ?? null,
+      rank: extra.rank ?? null,
+      entry_quality: extra.entry_quality ?? null,
+      state: extra.state || null,
+    });
+    have.add(sym);
+  }
+  return out;
+}
+
 /** Earnings names that were in the window but produced no lotto/moonshot card. */
 export function summarizeConvexityScan({
   scannedTickers = [],
