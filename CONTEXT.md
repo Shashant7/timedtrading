@@ -572,7 +572,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   do not show a phantom FLAT). Signal TF is **5m** EMA21 + SuperTrend (not 1m).
   FMV pin = buy ceiling (763P / 762.50 → $0.50). BUY requires leftover
   R:R ≥ 1:1 vs the **game-plan target** (not the pin). Trim is **1R**
-  (min +$0.15 over entry; $0.45 → $0.68), not +40%. Flatten 1 DTE at
+  (min +$0.15 over entry; $0.45 → $0.68), not +40%.
+  **Profit-lock (2026-09-02):** arm once the *post-entry* mark high
+  clears +10% or +$0.08 (whichever is larger) — not +40%, and not only
+  the last minute-lane poll mid. After arm, stop is breakeven / 40% trail from
+  peak. The −50% hard stop is only for a book that never ran. A green
+  index DT must not ride back to red because 1R never printed.
+  Flatten 1 DTE at
   **15:45 ET** unless leftover R:R still justifies overnight after 15:30;
   16:15 is not the planned exit. Overnight carry: trim/exit stay live
   from **09:30** the next session (do not wait for 09:45 — the open is

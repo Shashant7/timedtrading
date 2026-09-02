@@ -9,6 +9,7 @@ import {
   buildDayTradeZoneModel,
   reviveZoneModel,
   summarizeOptionPath,
+  peakMidSinceEntry,
   summarizeTodStudy,
   buildExecutionClock,
   DEFAULT_TOD_PLAYBOOK,
@@ -138,6 +139,23 @@ describe("summarizeOptionPath", () => {
     expect(path.trough_et).toBe("11:45");
     expect(path.trough_mid).toBe(0.45);
     expect(path.n).toBe(3);
+  });
+});
+
+describe("peakMidSinceEntry", () => {
+  it("ignores the pre-entry session high", () => {
+    const marks = [
+      { ts: ts(`2026-08-20T09:35:00${ET}`), mid: 2.00 },
+      { ts: ts(`2026-08-20T10:20:00${ET}`), mid: 1.40 },
+      { ts: ts(`2026-08-20T11:00:00${ET}`), mid: 1.15 },
+    ];
+    const peak = peakMidSinceEntry(marks, ts(`2026-08-20T10:05:00${ET}`), ts(`2026-08-20T11:10:00${ET}`));
+    expect(peak).toBe(1.40);
+  });
+
+  it("returns null when the book has no entry_ts", () => {
+    const marks = [{ ts: ts(`2026-08-20T10:20:00${ET}`), mid: 1.40 }];
+    expect(peakMidSinceEntry(marks, null, ts(`2026-08-20T11:10:00${ET}`))).toBeNull();
   });
 });
 
@@ -448,6 +466,27 @@ describe("buildExecutionClock", () => {
     expect(out.path.peak_et).toBe("09:45");
     expect(out.path_note).toMatch(/1\.36/);
     expect(out.action).toBe("WAIT");
+  });
+
+  it("exposes the post-entry mark high for profit-lock, not the pre-entry peak", () => {
+    const marks = [
+      { ts: ts(`2026-08-20T09:35:00${ET}`), mid: 2.00 },
+      { ts: ts(`2026-08-20T10:20:00${ET}`), mid: 1.40 },
+      { ts: ts(`2026-08-20T11:00:00${ET}`), mid: 1.15 },
+    ];
+    const out = buildExecutionClock({
+      ...baseClock,
+      premium: 1.15,
+      marks,
+      openBook: {
+        status: "open",
+        entry_premium: 1.10,
+        entry_ts: ts(`2026-08-20T10:05:00${ET}`),
+      },
+      now: ts(`2026-08-20T11:10:00${ET}`),
+    });
+    expect(out.path.peak_mid).toBe(2.00);
+    expect(out.path_peak_since_entry).toBe(1.40);
   });
 
   it("does not use you/your in trader-facing copy", () => {
