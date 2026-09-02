@@ -6,6 +6,34 @@
 
 ---
 
+## Index DT opening range used EST UTC hours in September [2026-09-02]
+
+**Symptom:** Operator expected a bounce. SPY opened 761.78 and grinded
+to 766. Cards stayed WAIT on 1 DTE puts (758P / 757P) all session.
+Zero call signals published. SuperTrend was with the bounce, so the
+put clock never printed BUY (correct). The card never flipped to calls.
+
+**Cause (two layers):**
+1. **Product:** `computeDayLean` is gap / overnight mid / OR-break /
+   daily structure — not a bounce forecast. Premarket prints below
+   prior close (760.94 at 07:50 ET) publish SHORT puts. The clock
+   only BUYs that flavor when 5m SuperTrend agrees. Invalidation
+   says "do not open a new put" — it does not pivot to a call.
+2. **Bug:** overnight/OR windows were hardcoded to 14:30Z / 21:00Z
+   (EST). On 2026-09-02 (EDT) that is 10:30–11:00 ET. The real
+   09:30–10:00 OR was 761.78–762.93 and broke high by 10:05. The
+   delayed OR (765.19–766.31) then voted "broke the opening range
+   low" on every dip. Overnight fallback `slice(-60)` also ate
+   today's RTH bounce.
+
+**Fix:** `gamePlanSessionBounds` via `sessionBoundsUtc`. Overnight
+fallback is pre-open bars only. After a real OR-high break the lean
+is LONG (calls). Clock still WAITs if extended off the 5m 21.
+
+**Do not:** flip a put ticket to a call because the operator
+expected a bounce. Premarket weakness can still be a put. The
+missing piece was the cash-session OR never seeing 09:30.
+
 ## PLTR scale-in wrote the book but never hit the broker [2026-09-02]
 
 **Symptom:** Long Term ADD / `dca_pullback` on PLTR (11.78 sh @ $169.77
