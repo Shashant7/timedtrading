@@ -297,7 +297,9 @@ curl -s "$BRIDGE/bridge/account-ledger?broker_account_id=<WEBULL_ROTH_ACCT_ID>" 
 Keep `BROKER_FANOUT_ENABLED=false` if you only want the Roth (one account)
 mirrored; leave other sub-accounts' `broker_integration_enabled=false`.
 `WEBULL_DEFAULT_ACCOUNT_CLASS=ROTH_IRA` makes owner-email orders resolve to
-Roth when multiple subs are connected.
+Roth when multiple subs are connected. Operator confirmed 2026-09-02 that
+Roth already takes manual index options — do not reroute 1 DTE SPY/QQQ/IWM
+away from it on IRA-restriction guesses.
 
 **Go-live blocker seen 2026-07-22:** XLRE/HALO/RTX place failed with
 `bizTypes=TRADE_FRACT_PRO` (fractional agreement). Bridge auto-retries whole
