@@ -13,13 +13,17 @@
  * with 0.75 × ATR projection fallback.
  */
 
+import {
+  addDays,
+  etDateStr,
+  isTradingDay,
+  sessionBoundsUtc,
+} from "./foundation/trading-calendar.js";
+
 export const INDEX_DAY_TRADE_ETFS = new Set(["SPY", "QQQ", "IWM", "DIA"]);
 
 export const SATY_FIBS = [0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236, 1.618];
 
-const RTH_OPEN_UTC_H = 14;
-const RTH_OPEN_UTC_M = 30;
-const RTH_CLOSE_UTC_H = 21;
 const OR_WINDOW_MINUTES = 30;
 
 function rnd(v) {
@@ -30,56 +34,105 @@ function candleTs(c) {
   return Number(c?.ts ?? c?.t);
 }
 
+function nowMs(now) {
+  if (now instanceof Date) return now.getTime();
+  const n = Number(now);
+  return Number.isFinite(n) && n > 0 ? n : Date.now();
+}
+
+/** Next session date if `now` is a weekend/holiday; otherwise today's ET date. */
+export function gamePlanSessionDate(now = new Date()) {
+  const ds = etDateStr(nowMs(now));
+  if (isTradingDay(ds)) return ds;
+  let cur = ds;
+  for (let i = 0; i < 6; i++) {
+    cur = addDays(cur, 1);
+    if (isTradingDay(cur)) return cur;
+  }
+  return ds;
+}
+
+export function priorTradingDate(dateStr) {
+  let cur = addDays(dateStr, -1);
+  for (let i = 0; i < 10; i++) {
+    if (isTradingDay(cur)) return cur;
+    cur = addDays(cur, -1);
+  }
+  return cur;
+}
+
 /**
- * Overnight / pre-market range: prior RTH close (21:00 UTC) → today's RTH open (14:30 UTC).
- * Monday uses Friday's close as session start.
+ * DST-correct RTH bounds for the game-plan session.
+ * Do not hardcode 14:30/21:00 UTC — that is EST only. In EDT the cash
+ * open is 13:30 UTC and the close is 20:00 UTC.
+ */
+export function gamePlanSessionBounds(now = new Date()) {
+  const sessionDate = gamePlanSessionDate(now);
+  const today = sessionBoundsUtc(sessionDate);
+  const priorDate = priorTradingDate(sessionDate);
+  const prior = sessionBoundsUtc(priorDate);
+  if (!today) return null;
+  return {
+    sessionDate,
+    priorDate,
+    openMs: today.openMs,
+    closeMs: today.closeMs,
+    priorCloseMs: prior?.closeMs ?? null,
+  };
+}
+
+/**
+ * Overnight / pre-market range: prior RTH close (16:00 ET, early-close aware)
+ * → today's RTH open (09:30 ET). Monday uses Friday's close.
+ *
+ * Never fall back onto today's RTH bars — that classifies the cash-session
+ * bounce as "overnight" and then the delayed OR votes the other way.
  */
 export function computeOvernightRangeFromM5(fiveMinCandles, now = new Date()) {
   if (!Array.isArray(fiveMinCandles) || fiveMinCandles.length === 0) return null;
+  const bounds = gamePlanSessionBounds(now);
+  if (!bounds?.openMs) return null;
 
-  const rthOpenToday = new Date(now);
-  rthOpenToday.setUTCHours(RTH_OPEN_UTC_H, RTH_OPEN_UTC_M, 0, 0);
-  const rthCloseYesterday = new Date(rthOpenToday);
-  rthCloseYesterday.setUTCDate(rthCloseYesterday.getUTCDate() - 1);
-  rthCloseYesterday.setUTCHours(RTH_CLOSE_UTC_H, 0, 0, 0);
-  if (now.getUTCDay() === 1) {
-    rthCloseYesterday.setUTCDate(rthCloseYesterday.getUTCDate() - 2);
-  }
-
-  const rthCloseTs = rthCloseYesterday.getTime();
-  const rthOpenTs = rthOpenToday.getTime();
-  const overnightCandles = fiveMinCandles.filter((c) => {
+  const rthOpenTs = bounds.openMs;
+  const rthCloseTs = bounds.priorCloseMs;
+  const overnightCandles = rthCloseTs != null
+    ? fiveMinCandles.filter((c) => {
+      const ts = candleTs(c);
+      return ts >= rthCloseTs && ts < rthOpenTs;
+    })
+    : [];
+  // Thin AH/premarket 5m is common. Use bars *before* today's open only —
+  // last-60-of-everything included the cash bounce (2026-09-02 SPY).
+  const preOpen = fiveMinCandles.filter((c) => {
     const ts = candleTs(c);
-    return ts >= rthCloseTs && ts < rthOpenTs;
+    return Number.isFinite(ts) && ts < rthOpenTs;
   });
-  const m5ForRange = overnightCandles.length >= 3
-    ? overnightCandles
-    : fiveMinCandles.slice(-60);
+  const usedOvernight = overnightCandles.length >= 3;
+  const m5ForRange = usedOvernight ? overnightCandles : preOpen.slice(-60);
   const m5Highs = m5ForRange.map((c) => Number(c.h)).filter(Number.isFinite);
   const m5Lows = m5ForRange.map((c) => Number(c.l)).filter(Number.isFinite);
   if (m5Highs.length === 0 || m5Lows.length === 0) return null;
   return {
     high: rnd(Math.max(...m5Highs)),
     low: rnd(Math.min(...m5Lows)),
-    source: overnightCandles.length >= 3 ? "overnight_session" : "m5_tail_fallback",
+    source: usedOvernight ? "overnight_session" : "pre_open_fallback",
+    window_start_ts: usedOvernight ? rthCloseTs : candleTs(m5ForRange[0]),
+    window_end_ts: rthOpenTs,
   };
 }
 
 /**
- * RTH opening range (default first 30 minutes). Uses all post-open bars available;
- * `resolved` once the OR window has elapsed.
+ * RTH opening range (default first 30 minutes from the 09:30 ET cash open).
+ * Uses all post-open bars available; `resolved` once the OR window has elapsed.
  */
 export function computeOpeningRangeFromM5(fiveMinCandles, now = new Date(), windowMinutes = OR_WINDOW_MINUTES) {
   if (!Array.isArray(fiveMinCandles) || fiveMinCandles.length === 0) return null;
+  const bounds = gamePlanSessionBounds(now);
+  if (!bounds?.openMs) return null;
 
-  const rthOpenToday = new Date(now);
-  rthOpenToday.setUTCHours(RTH_OPEN_UTC_H, RTH_OPEN_UTC_M, 0, 0);
-  const windowEnd = new Date(rthOpenToday);
-  windowEnd.setUTCMinutes(windowEnd.getUTCMinutes() + windowMinutes);
-
-  const rthOpenTs = rthOpenToday.getTime();
-  const windowEndTs = windowEnd.getTime();
-  const nowTs = now.getTime();
+  const rthOpenTs = bounds.openMs;
+  const windowEndTs = rthOpenTs + Number(windowMinutes) * 60_000;
+  const nowTs = nowMs(now);
 
   const postOpen = fiveMinCandles.filter((c) => {
     const ts = candleTs(c);
@@ -100,6 +153,8 @@ export function computeOpeningRangeFromM5(fiveMinCandles, now = new Date(), wind
     resolved: nowTs >= windowEndTs,
     window_minutes: windowMinutes,
     bars: useCandles.length,
+    window_start_ts: rthOpenTs,
+    window_end_ts: windowEndTs,
   };
 }
 

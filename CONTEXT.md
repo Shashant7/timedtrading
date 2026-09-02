@@ -566,6 +566,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   (narrative leads with the lean), and the Today **Index Options Plays**
   (`buildDayTradePlay` honors a conviction lean — 0/1DTE is same-day, so the day
   lean overrides the multi-day confluence gate; low conviction falls back).
+  **Opening range is 09:30 ET, DST-aware (2026-09-02):**
+  `computeOpeningRangeFromM5` / overnight must use `sessionBoundsUtc`
+  (`etWallToUtcMs`), not hardcoded 14:30/21:00 UTC. That EST-only window
+  in September starts at 10:30 ET, so the 09:30 bounce is classified as
+  overnight and the 10:30–11:00 chop becomes the OR — SPY then "broke
+  the OR low" and stayed WAIT puts while the tape was already long.
+  Overnight fallback may not include today's RTH bars.
   **Index day-trade clock (2026-08-20 / 2026-08-21):** headline names the
   **calendar expiration** plus **1 DTE** (skip 0 DTE 15:45 force-liq).
   New BUY is cash-session only: **WAIT before 09:30 ET** (index options are
