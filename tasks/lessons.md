@@ -6,6 +6,24 @@
 
 ---
 
+## Roth IRA is fine for index day-trade options [2026-09-02]
+
+**Symptom:** Open-readiness review treated the operator Webull Roth as a
+weak/blocked home for 1 DTE SPY/QQQ/IWM options (IRA / options-level
+guess) and pointed at Individual Margin instead.
+
+**Cause:** Assumption. The operator already takes those options trades
+manually on Roth. The live picker already selects
+`shashant@gmail.com#webull#roth-ira` (`WEBULL_DEFAULT_ACCOUNT_CLASS=ROTH_IRA`,
+`options_enabled`, `long_call` + `long_put` on). `last_order_at` is null
+because auto-mirror has never filled — not because Roth cannot.
+
+**Fix:** Keep Roth as the destination. Do not disable or reroute away
+from it unless the operator says so.
+
+**Do not:** invent IRA product restrictions when the operator is already
+trading that product on the account.
+
 ## History remaining shares and duplicate trim receipts [2026-09-02]
 
 **Ask:** Context → History rows are unreadable (qty/date/price smashed

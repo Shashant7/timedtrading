@@ -225,6 +225,12 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   `total_qty` unchanged is a duplicate ledger row, not a flatten. Event
   log must not print held=0 on an OPEN book. Do not close the trade.
 
+**Roth IRA is an allowed index day-trade options account (2026-09-02)**
+- Operator confirmed Webull Roth already takes manual index options. Do not
+  treat IRA as unable to take 1 DTE SPY/QQQ/IWM. `WEBULL_DEFAULT_ACCOUNT_CLASS`
+  is `ROTH_IRA`; `pickOptionsAccount` already prefers that class. The Roth row
+  is the only operator account with `options_enabled` + integration on.
+
 **Index day-trade broker mirror — closes never cap-gated, qty = mirrored fill (2026-08-24)**
 - Daily counters gate BUY only. A TRIM/EXIT/STOP must never be blocked by a
   cap or the broker is left holding a position the model already exited.
