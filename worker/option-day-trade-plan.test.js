@@ -13,6 +13,8 @@ import {
   isOptionsBuyWindowEt,
   isOptionsSellWindowEt,
   buildDayTradePositionMgmtLine,
+  shouldArmProfitLock,
+  profitLockThreshold,
 } from "./option-day-trade-plan.js";
 
 const ET = "-04:00";
@@ -499,7 +501,7 @@ describe("classifyPaperEvent", () => {
     expect(out.nextBook.status).toBe("closed");
   });
 
-  it("stops a never-trimmed +40% peak at breakeven, not the -50% hard stop", () => {
+  it("stops a never-trimmed +12% peak at breakeven, not the -50% hard stop", () => {
     const out = classifyPaperEvent({
       clock: clockBuy,
       book: {
@@ -508,7 +510,7 @@ describe("classifyPaperEvent", () => {
         trim_premium: 1.79,
         exit_premium: 2.38,
         contracts: 1,
-        peak_premium: 1.70, // +43% — clears the profit-lock arm
+        peak_premium: 1.33, // +12% — clears the 10% / $0.08 lock
       },
       premium: 1.18, // back to breakeven
       size: { label: "light", contracts: 1 },
@@ -516,6 +518,66 @@ describe("classifyPaperEvent", () => {
     });
     expect(out.event).toBe("STOP");
     expect(out.reason).toBe("breakeven_stop");
+  });
+
+  it("does not ride a modest winner down to the -50% hard stop", () => {
+    const out = classifyPaperEvent({
+      clock: clockBuy,
+      book: {
+        status: "open",
+        entry_premium: 1.19,
+        trim_premium: 1.79,
+        exit_premium: 2.38,
+        contracts: 1,
+        peak_premium: 1.33, // was green
+      },
+      premium: 0.56,
+      size: { label: "light", contracts: 1 },
+      now: RTH_NOW,
+    });
+    expect(out.event).toBe("STOP");
+    expect(out.reason).toBe("breakeven_stop");
+  });
+
+  it("arms lock from the post-entry mark high even when the last poll mid never printed that peak", () => {
+    const out = classifyPaperEvent({
+      clock: { ...clockBuy, path_peak_since_entry: 2.10 },
+      book: {
+        status: "open",
+        entry_premium: 1.19,
+        entry_ts: RTH_NOW,
+        trim_premium: 1.79,
+        exit_premium: 2.38,
+        contracts: 1,
+        peak_premium: 1.22, // last poll only saw +3%
+      },
+      premium: 1.50,
+      size: { label: "light", contracts: 1 },
+      now: RTH_NOW,
+    });
+    expect(out.nextBook.profit_lock_armed).toBe(true);
+    expect(out.nextBook.peak_premium).toBe(2.10);
+    expect(out.event).toBeNull();
+  });
+
+  it("trails off the post-entry mark high, not the last poll", () => {
+    const out = classifyPaperEvent({
+      clock: { ...clockBuy, path_peak_since_entry: 2.10 },
+      book: {
+        status: "open",
+        entry_premium: 1.19,
+        entry_ts: RTH_NOW,
+        trim_premium: 1.79,
+        exit_premium: 2.38,
+        contracts: 1,
+        peak_premium: 1.22,
+      },
+      premium: 1.20, // 2.10 * 0.60 = 1.26 floor
+      size: { label: "light", contracts: 1 },
+      now: RTH_NOW,
+    });
+    expect(out.event).toBe("EXIT");
+    expect(out.reason).toBe("trail_stop");
   });
 
   it("still hard-stops a contract that never ran into profit", () => {
@@ -527,7 +589,7 @@ describe("classifyPaperEvent", () => {
         trim_premium: 1.79,
         exit_premium: 2.38,
         contracts: 1,
-        peak_premium: 1.30, // only +9% — profit lock never armed
+        peak_premium: 1.24, // +4% — below the 10% / $0.08 lock
       },
       premium: 0.56,
       size: { label: "light", contracts: 1 },
@@ -535,6 +597,17 @@ describe("classifyPaperEvent", () => {
     });
     expect(out.event).toBe("STOP");
     expect(out.reason).toBe("premium_stop");
+  });
+});
+
+describe("shouldArmProfitLock", () => {
+  it("uses the larger of +10% and +$0.08", () => {
+    expect(profitLockThreshold(1.19)).toBe(1.31);
+    expect(shouldArmProfitLock(1.19, 1.30)).toBe(false);
+    expect(shouldArmProfitLock(1.19, 1.31)).toBe(true);
+    expect(profitLockThreshold(0.45)).toBe(0.53);
+    expect(shouldArmProfitLock(0.45, 0.52)).toBe(false);
+    expect(shouldArmProfitLock(0.45, 0.53)).toBe(true);
   });
 });
 

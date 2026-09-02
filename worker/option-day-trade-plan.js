@@ -42,14 +42,19 @@ export const MIN_CONTRACTS_FOR_TRIM = 2;
 /** After 1R / trim, exit runner if premium gives back this fraction from peak. */
 export const TRAIL_GIVEBACK_PCT = 0.40;
 /**
- * Peak profit-lock. Once the contract has been up by at least this fraction
- * at any point in the session, arm the breakeven + trailing-giveback exits
- * even if the 1R trim/protect never fired. A winner that ran well into
- * profit must never round-trip through breakeven to the -50% hard stop.
+ * Peak profit-lock. Once the contract has been up by at least this
+ * fraction *or* PROFIT_LOCK_MIN_DOLLARS (whichever is larger) at any
+ * point after entry, arm the breakeven + trailing-giveback exits even
+ * if the 1R trim/protect never fired. A book that was green must not
+ * ride the -50% hard stop back to red.
  * (QQQ 711C 2026-08-24: peaked +207% at the open, then rode the full
- * give-back to a -53% premium stop because it never "armed".)
+ * give-back to a -53% premium stop because it never "armed". The +40%
+ * arm still left +10–39% winners unprotected — that is still green
+ * to red. 10% / $0.08 is a real print, not a one-tick flicker.)
  */
-export const PROFIT_LOCK_ARM_PCT = 0.40;
+export const PROFIT_LOCK_ARM_PCT = 0.10;
+/** Dollar floor so a $0.20 contract does not lock on a $0.02 tick. */
+export const PROFIT_LOCK_MIN_DOLLARS = 0.08;
 /** Sell qty for a 50% trim (whole contracts). */
 export function trimSellQty(contracts) {
   const c = Math.max(1, Math.round(Number(contracts) || 1));
@@ -249,7 +254,7 @@ export function buildDayTradePositionMgmtLine({
   const exitPx = num(pos.exit_premium) ?? num(bracket?.exit) ?? num(execution?.rr?.exit);
   const peak = num(pos.peak_premium);
   const trailStop = num(pos.trail_stop_premium);
-  const profitLock = !!pos.profit_lock_armed;
+  const profitLock = !!pos.profit_lock_armed || !!pos.profit_armed || shouldArmProfitLock(entry, peak);
   const heldOvernight = !!pos.held_overnight || isOvernightCarry(pos, now);
   const contracts = bookContracts(pos, null);
   const remaining = num(pos.contracts_remaining) ?? contracts;
@@ -545,8 +550,30 @@ function trailFloorFromPeak(peak) {
   return round2(p * (1 - TRAIL_GIVEBACK_PCT));
 }
 
+/** Peak mid that arms breakeven + trail. Larger of +10% or +$0.08. */
+export function profitLockThreshold(entry) {
+  const e = num(entry);
+  if (!(e > 0)) return null;
+  return round2(e + Math.max(PROFIT_LOCK_MIN_DOLLARS, e * PROFIT_LOCK_ARM_PCT));
+}
+
+export function shouldArmProfitLock(entry, peak) {
+  const thresh = profitLockThreshold(entry);
+  const p = num(peak);
+  return thresh != null && p != null && p + 1e-9 >= thresh;
+}
+
 function isProfitArmed(book) {
   return !!book?.profit_armed || String(book?.status || "") === "trimmed";
+}
+
+/** Book peak plus the post-entry mark high (not the last poll mid). */
+function resolveManagedPeak(book, mid, clock) {
+  const fromBook = updatePeak(book, mid);
+  const pathPeak = num(clock?.path_peak_since_entry);
+  if (pathPeak == null) return fromBook;
+  if (fromBook == null) return pathPeak;
+  return Math.max(fromBook, pathPeak);
 }
 
 function canTrimContracts(contracts) {
@@ -647,14 +674,13 @@ export function classifyPaperEvent({
 
   const contracts = bookContracts(book, sz);
   const canTrim = canTrimContracts(contracts);
-  const peak = updatePeak(book, mid);
+  const peak = resolveManagedPeak(book, mid, clock);
   // Profit-lock: the breakeven + trailing-giveback exits normally wait for a
-  // 1R trim/protect to "arm" (profit_armed). That leaves a runner that ran
-  // to +40%..+50% (but never tagged 1R) with NO downside protection except
-  // the -50% hard stop — so a big intraday winner can round-trip to a full
-  // loss. Arm the giveback once the peak alone clears PROFIT_LOCK_ARM_PCT.
-  const peakLockArmed = isProfitArmed(book)
-    || (entry != null && peak != null && entry > 0 && peak >= entry * (1 + PROFIT_LOCK_ARM_PCT));
+  // 1R trim/protect to "arm" (profit_armed). That leaves a runner that was
+  // green (but never tagged 1R) with NO downside protection except the
+  // -50% hard stop — so a winner can round-trip to a full loss. Arm once
+  // the post-entry peak (book or marks path) clears the 10% / $0.08 floor.
+  const peakLockArmed = isProfitArmed(book) || shouldArmProfitLock(entry, peak);
   const stamped = {
     ...book,
     peak_premium: peak,
@@ -877,7 +903,8 @@ function buildPaperExitFields({
   const exitPx = num(book?.exit_premium) ?? num(br.exit);
   const hardStop = num(br.stop_premium) ?? hardStopPremium(entry);
   const peakLockArmed = !!book?.profit_lock_armed || !!book?.profit_armed
-    || String(book?.status || "") === "trimmed";
+    || String(book?.status || "") === "trimmed"
+    || shouldArmProfitLock(entry, peak);
   const trailFloor = peakLockArmed ? trailFloorFromPeak(peak ?? mid) : null;
   const exitPct = entry != null && mid != null ? pctChange(entry, mid) : null;
   const peakPct = entry != null && peak != null ? pctChange(entry, peak) : null;

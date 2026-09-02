@@ -6,6 +6,27 @@
 
 ---
 
+## Index day-trade must not go green then red [2026-09-02]
+
+**Ask:** Entry / management / exit have to be sound. Do not let a
+winner give the move back and close red.
+
+**Cause:** Profit-lock on index 0/1 DTE only armed at +40% peak *or*
+a 1R trim/protect. Default size is 1 lot, so 1R is ~+50%. A book that
+printed +10–39% still had only the −50% premium hard stop. Peak was
+also the last poll mid — `option_marks` already had the session high
+(`path.peak_mid`) but `classifyPaperEvent` never read it, and using
+the session peak blindly would treat a *pre-entry* spike as the
+trade's MFE (false trail).
+
+**Fix:** Arm at +10% or +$0.08 (whichever is larger). Merge
+`path_peak_since_entry` (RTH marks on/after `entry_ts`) into the
+managed peak. Once armed, flatten at breakeven or the 40% trail —
+never the −50% hard stop.
+
+**Do not:** wait for 1R to protect a green 1-lot book, or lock off a
+pre-entry contract high.
+
 ## Roth IRA is fine for index day-trade options [2026-09-02]
 
 **Symptom:** Open-readiness review treated the operator Webull Roth as a

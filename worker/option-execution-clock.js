@@ -249,6 +249,28 @@ export function reviveZoneModel(zone, livePrice) {
 }
 
 /**
+ * Highest RTH mid on or after `afterTs` today. Used to arm profit-lock
+ * off the contract path, not only the last minute-lane poll mid — a spike that
+ * printed between ticks still counts as "was green".
+ */
+export function peakMidSinceEntry(marks = [], afterTs, now = Date.now()) {
+  if (afterTs == null || afterTs === "") return null;
+  const start = num(afterTs);
+  if (start == null) return null;
+  const today = nyParts(now).ymd;
+  let peak = null;
+  for (const m of marks || []) {
+    const ts = num(m.ts);
+    const mid = num(m.mid ?? m.c);
+    if (ts == null || !(mid > 0)) continue;
+    if (!isRthEt(ts) || nyParts(ts).ymd !== today) continue;
+    if (ts + 1e-9 < start) continue;
+    if (peak == null || mid > peak) peak = mid;
+  }
+  return peak != null ? round2(peak) : null;
+}
+
+/**
  * Session path for one OCC symbol: RTH-only trough / peak.
  */
 export function summarizeOptionPath(marks = [], now = Date.now()) {
@@ -410,6 +432,7 @@ export function buildExecutionClock({
   const mgmt = management || {};
   const tod = todStudy && todStudy.buy_window_et ? todStudy : DEFAULT_TOD_PLAYBOOK;
   const path = summarizeOptionPath(marks, now);
+  const pathPeakSinceEntry = peakMidSinceEntry(marks, num(openBook?.entry_ts), now);
   const zone = buildDayTradeZoneModel({
     flavor: flav,
     spot: px,
@@ -669,6 +692,7 @@ export function buildExecutionClock({
     buy_rule: buyRule,
     sell_rule: sellRule,
     path_note: pathNote,
+    path_peak_since_entry: pathPeakSinceEntry,
     dte_note: dteNote,
     premium_band: value ? { ...value, display_buy_ceil: displayBuyCeil } : value,
     tod,
