@@ -842,6 +842,11 @@
       const raw0 = String(reason || "").trim();
       if (!raw0) return "";
       if (LOT_REASON_LABELS[raw0]) return LOT_REASON_LABELS[raw0];
+      if (/^(trim|exit|entry)\b/i.test(raw0) && /(?:\d|sh|shares)\b/i.test(raw0) && /@\s*\$/i.test(raw0)) {
+        if (/^trim\b/i.test(raw0)) return "Partial trim";
+        if (/^exit\b/i.test(raw0)) return "Exit";
+        if (/^entry\b/i.test(raw0)) return "Entry";
+      }
       const raw = raw0.replace(/(\d+\.\d{3,})\s*sh\b/gi, (_m, n) => `${Number(n).toFixed(2)}sh`);
       const titled = raw.replace(/_/g, " ").replace(/\s+/g, " ").trim().replace(/\b\w/g, c => c.toUpperCase());
       const max = Number(opts?.max) || 0;
@@ -853,6 +858,20 @@
       if (!Number.isFinite(n)) return "—";
       if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
       return n.toFixed(2);
+    }
+    function _remainingSharesFromTrade(t) {
+      const book = Number(t?.remaining_qty ?? t?.position_held_now ?? t?.total_qty ?? t?.quantity_remaining);
+      if (Number.isFinite(book) && book >= 0) return book;
+      const entry = Number(t?.shares ?? t?.quantity ?? t?.entryShares);
+      if (!Number.isFinite(entry) || entry <= 0) return null;
+      const trim = Math.min(Math.max(Number(t?.trimmed_pct ?? t?.trimmedPct) || 0, 0), 1);
+      return Math.max(0, entry * (1 - trim));
+    }
+    function _trimmedSharesFromTrade(t) {
+      const entry = Number(t?.shares ?? t?.quantity ?? t?.entryShares);
+      const rem = _remainingSharesFromTrade(t);
+      if (!Number.isFinite(entry) || entry <= 0 || rem == null) return null;
+      return Math.max(0, entry - rem);
     }
     const SpiderChartImpl = typeof window !== "undefined" && window.TickerSpiderChartFactory ? window.TickerSpiderChartFactory({
       React
@@ -7309,18 +7328,25 @@
         }, fmtUsd(_liveCurrentPx))), (() => {
           const _sh = Number(mt.shares ?? mt.quantity ?? 0);
           if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
-          const _trimPct = Number(mt.trimmed_pct || mt.trimmedPct || 0);
-          const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
-          const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
+          const _book = Number(autopsyEvents?.position_held_now ?? mt.remaining_qty ?? mt.position_held_now);
+          const _remaining = _remainingSharesFromTrade({
+            ...mt,
+            remaining_qty: Number.isFinite(_book) ? _book : mt.remaining_qty
+          });
+          const _trimmed = _trimmedSharesFromTrade({
+            ...mt,
+            remaining_qty: Number.isFinite(_book) ? _book : mt.remaining_qty
+          });
+          const showTrim = Number.isFinite(_trimmed) && _trimmed > 0.02;
           return React.createElement("div", {
-            className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30"
+            className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30 flex-wrap"
           }, React.createElement("span", {
             className: "text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0"
           }, "Shares"), React.createElement("span", {
             className: "text-[13px] font-semibold text-white"
-          }, _fmtSharesExact(_sh)), _trimmed > 0 && React.createElement("span", {
+          }, _fmtSharesExact(_sh)), showTrim && React.createElement("span", {
             className: "text-[11px] text-[#a78bfa]/70"
-          }, "(", _trimmed, " trimmed \xB7 ", _remaining, " left)"));
+          }, "(", _fmtSharesExact(_trimmed), " trimmed \xB7 ", _fmtSharesExact(_remaining), " left)"));
         })()), React.createElement("div", {
           className: "flex items-center gap-3"
         }, React.createElement("div", {
@@ -7436,21 +7462,38 @@
           }
           events.sort((a, b) => Number(a.ts) - Number(b.ts));
           if (events.length === 0) return null;
+          const bookHeld = Number(autopsyEvents?.position_held_now ?? mt.remaining_qty ?? (Number.isFinite(_posHeldNow) ? _posHeldNow : NaN));
           let runningShares = 0;
           let cumPnl = 0;
           const displayRows = events.map(ev => {
             const sh = Number(ev.shares) || 0;
-            if (ev.type === "ENTRY" || ev.type === "ADD") runningShares += sh;else runningShares = Math.max(0, runningShares - sh);
-            if (Number.isFinite(Number(ev.held_after))) {
+            let duplicate = !!ev.duplicate;
+            if (Number.isFinite(Number(ev.running_shares))) {
+              runningShares = Number(ev.running_shares);
+            } else if (Number.isFinite(Number(ev.held_after))) {
               runningShares = Number(ev.held_after);
+            } else if (ev.type === "ENTRY" || ev.type === "ADD") {
+              runningShares += sh;
+            } else {
+              const next = Math.max(0, runningShares - sh);
+              if (_isOpenStatus && Number.isFinite(bookHeld) && bookHeld > 0.05 && ev.type === "TRIM" && next + 0.05 < bookHeld) {
+                duplicate = true;
+              } else {
+                runningShares = next;
+              }
             }
-            cumPnl += Number(ev.realized_pnl) || 0;
+            cumPnl += duplicate ? 0 : Number(ev.realized_pnl) || 0;
             return {
               ...ev,
               running_shares: runningShares,
-              cum_pnl: cumPnl
+              cum_pnl: cumPnl,
+              duplicate
             };
           });
+          if (_isOpenStatus && Number.isFinite(bookHeld) && displayRows.length && Math.abs(runningShares - bookHeld) > 0.05) {
+            runningShares = bookHeld;
+            displayRows[displayRows.length - 1].running_shares = bookHeld;
+          }
           const realizedTotal = cumPnl;
           const avgForUnreal = _isInvestorModal && _posAvgEntry > 0 ? _posAvgEntry : entryPx;
           const unrealized = _isOpenStatus && _liveCurrentPx > 0 && runningShares > 0 && avgForUnreal > 0 ? (_liveCurrentPx - avgForUnreal) * runningShares * dirMul : 0;
@@ -7475,92 +7518,71 @@
           }, React.createElement("span", {
             className: "text-[11px] font-semibold text-[#8AA39A] uppercase tracking-[0.14em]"
           }, _isInvestorModal ? "Position Lot Ledger" : "Event Log · Receipt"), React.createElement("span", {
-            className: "text-[10px] text-[#6E867D]"
+            className: "text-[10px] text-[#8AA39A]"
           }, displayRows.length, " event", displayRows.length === 1 ? "" : "s")), React.createElement("div", {
-            style: {
-              overflowX: "auto"
-            }
-          }, React.createElement("table", {
-            className: "w-full text-[12px] tabular-nums",
-            style: {
-              fontVariantNumeric: "tabular-nums",
-              borderCollapse: "collapse",
-              minWidth: _isInvestorModal ? 640 : 560
-            }
-          }, React.createElement("thead", null, React.createElement("tr", {
-            className: "text-[10px] uppercase tracking-wider text-[#6E867D]"
-          }, React.createElement("th", {
-            className: "text-left px-3 py-1.5 font-medium"
-          }, "When (ET)"), React.createElement("th", {
-            className: "text-left px-2 py-1.5 font-medium"
-          }, "Event"), React.createElement("th", {
-            className: "text-left px-2 py-1.5 font-medium"
-          }, "Reason"), React.createElement("th", {
-            className: "text-right px-2 py-1.5 font-medium"
-          }, "Shares"), React.createElement("th", {
-            className: "text-right px-2 py-1.5 font-medium"
-          }, "Price"), React.createElement("th", {
-            className: "text-right px-2 py-1.5 font-medium"
-          }, "Value"), React.createElement("th", {
-            className: "text-right px-2 py-1.5 font-medium"
-          }, "P&L"), React.createElement("th", {
-            className: "text-right px-3 py-1.5 font-medium"
-          }, "Held after"))), React.createElement("tbody", null, displayRows.map((r, i) => {
-            const pnlCls = r.type === "ENTRY" || r.type === "ADD" ? "text-[#6E867D]" : r.realized_pnl >= 0 ? "text-[#22c55e]" : "text-[#ef4444]";
-            const reasonLabel = _humanizeLotReason(r.reason);
-            return React.createElement("tr", {
+            className: "flex flex-col gap-2 p-2"
+          }, displayRows.map((r, i) => {
+            const pnlCls = r.type === "ENTRY" || r.type === "ADD" ? "text-[#8AA39A]" : r.realized_pnl >= 0 ? "text-[#22c55e]" : "text-[#ef4444]";
+            const reasonLabel = r.reason_label || _humanizeLotReason(r.reason);
+            const pxLabel = Number.isFinite(r.price) && r.price > 0 ? fmtUsd(r.price) : "—";
+            return React.createElement("div", {
               key: `evlog-${i}`,
-              className: `border-t border-white/[0.04]${r.focus ? " bg-[#a78bfa]/[0.08]" : ""}`
-            }, React.createElement("td", {
-              className: "px-3 py-2 text-[#8AA39A] whitespace-nowrap"
-            }, _fmtDateShort(r.ts)), React.createElement("td", {
-              className: "px-2 py-2"
+              className: `rounded-md border px-3 py-2 ${r.duplicate ? "border-white/[0.06] bg-white/[0.02] opacity-70" : r.focus ? "border-[#a78bfa]/30 bg-[#a78bfa]/[0.08]" : "border-white/[0.06] bg-white/[0.02]"}`
+            }, React.createElement("div", {
+              className: "flex items-center justify-between gap-2 flex-wrap"
+            }, React.createElement("div", {
+              className: "flex items-center gap-2 min-w-0 flex-wrap"
             }, React.createElement("span", {
-              className: `inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeChipCls(r.type)}`
-            }, r.type)), React.createElement("td", {
-              className: "px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px] break-words",
-              title: reasonLabel || ""
-            }, reasonLabel || React.createElement("span", {
-              className: "text-[#6E867D]"
-            }, "\u2014")), React.createElement("td", {
-              className: "px-2 py-2 text-right text-white"
-            }, _fmtShares(r.shares)), React.createElement("td", {
-              className: "px-2 py-2 text-right text-white"
-            }, Number.isFinite(r.price) && r.price > 0 ? fmtUsd(r.price) : "—"), React.createElement("td", {
-              className: "px-2 py-2 text-right text-[#8AA39A]"
-            }, Number.isFinite(r.value) && r.value > 0 ? fmtUsd(r.value) : "—"), React.createElement("td", {
-              className: `px-2 py-2 text-right font-semibold ${pnlCls}`
-            }, r.type === "ENTRY" || r.type === "ADD" ? "—" : (r.realized_pnl >= 0 ? "+" : "") + fmtUsd(r.realized_pnl)), React.createElement("td", {
-              className: "px-3 py-2 text-right text-[#6E867D] font-semibold"
-            }, _fmtShares(r.running_shares)));
-          }), React.createElement("tr", {
-            className: "border-t border-white/[0.12] bg-white/[0.02]"
-          }, React.createElement("td", {
-            className: "px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A] font-semibold",
-            colSpan: "6"
-          }, _isInvestorModal ? "Position realized" : "Total realized"), React.createElement("td", {
-            className: `px-2 py-2 text-right text-[13px] font-bold ${realizedTotal >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`
-          }, (realizedTotal >= 0 ? "+" : "") + fmtUsd(realizedTotal)), React.createElement("td", {
-            className: "px-3 py-2 text-right text-[11px] text-[#CFDED6] font-semibold"
-          }, _fmtShares(runningShares), " held")), _isOpenStatus && unrealized !== 0 && React.createElement("tr", {
-            className: "bg-[#22c55e]/[0.04]"
-          }, React.createElement("td", {
-            className: "px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A]",
-            colSpan: "6"
-          }, "Unrealized (mark-to-market @ ", fmtUsd(_liveCurrentPx), ")"), React.createElement("td", {
-            className: `px-2 py-2 text-right text-[12px] font-semibold ${unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`
-          }, (unrealized >= 0 ? "+" : "") + fmtUsd(unrealized)), React.createElement("td", {
-            className: "px-3 py-2 text-right text-[10px] text-[#6E867D]"
-          }, "open")), _isOpenStatus && unrealized !== 0 && React.createElement("tr", {
-            className: "border-t border-white/[0.12]"
-          }, React.createElement("td", {
-            className: "px-3 py-2 text-[11px] uppercase tracking-wider text-white font-bold",
-            colSpan: "6"
-          }, "Net P&L (realized + open)"), React.createElement("td", {
-            className: `px-2 py-2 text-right text-[14px] font-bold ${realizedTotal + unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`
-          }, (realizedTotal + unrealized >= 0 ? "+" : "") + fmtUsd(realizedTotal + unrealized)), React.createElement("td", {
-            className: "px-3 py-2"
-          }))))));
+              className: `inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider shrink-0 ${typeChipCls(r.type)}`
+            }, r.type), r.duplicate && React.createElement("span", {
+              className: "inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider border-white/20 text-[#8AA39A]"
+            }, "DUPLICATE"), React.createElement("span", {
+              className: "text-[12px] text-[#CFDED6] whitespace-nowrap"
+            }, _fmtDateShort(r.ts))), React.createElement("span", {
+              className: "text-[11px] text-[#8AA39A] whitespace-nowrap"
+            }, "Held ", _fmtShares(r.running_shares))), reasonLabel ? React.createElement("div", {
+              className: "mt-1 text-[12px] text-[#CFDED6]"
+            }, reasonLabel) : null, React.createElement("div", {
+              className: "mt-1 flex items-baseline justify-between gap-3 flex-wrap",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                fontVariantNumeric: "tabular-nums"
+              }
+            }, React.createElement("span", {
+              className: "text-[13px] font-semibold text-white"
+            }, _fmtShares(r.shares), " sh @ ", pxLabel), React.createElement("span", {
+              className: `text-[12px] font-semibold ${pnlCls}`
+            }, r.type === "ENTRY" || r.type === "ADD" ? "—" : r.duplicate ? "not counted" : (r.realized_pnl >= 0 ? "+" : "") + fmtUsd(r.realized_pnl))));
+          }), React.createElement("div", {
+            className: "rounded-md border border-white/[0.10] bg-white/[0.03] px-3 py-2 flex items-center justify-between gap-3 flex-wrap"
+          }, React.createElement("span", {
+            className: "text-[11px] uppercase tracking-wider text-[#8AA39A] font-semibold"
+          }, _isInvestorModal ? "Position realized" : "Total realized"), React.createElement("span", {
+            className: `text-[13px] font-bold ${realizedTotal >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, (realizedTotal >= 0 ? "+" : "") + fmtUsd(realizedTotal), React.createElement("span", {
+            className: "ml-2 text-[11px] font-semibold text-[#CFDED6]"
+          }, _fmtShares(runningShares), " held"))), _isOpenStatus && unrealized !== 0 && React.createElement("div", {
+            className: "rounded-md border border-[#22c55e]/20 bg-[#22c55e]/[0.04] px-3 py-2 flex items-center justify-between gap-3 flex-wrap"
+          }, React.createElement("span", {
+            className: "text-[11px] uppercase tracking-wider text-[#8AA39A]"
+          }, "Unrealized @ ", fmtUsd(_liveCurrentPx)), React.createElement("span", {
+            className: `text-[12px] font-semibold ${unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, (unrealized >= 0 ? "+" : "") + fmtUsd(unrealized))), _isOpenStatus && unrealized !== 0 && React.createElement("div", {
+            className: "rounded-md border border-white/[0.12] px-3 py-2 flex items-center justify-between gap-3 flex-wrap"
+          }, React.createElement("span", {
+            className: "text-[11px] uppercase tracking-wider text-white font-bold"
+          }, "Net P&L"), React.createElement("span", {
+            className: `text-[14px] font-bold ${realizedTotal + unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, (realizedTotal + unrealized >= 0 ? "+" : "") + fmtUsd(realizedTotal + unrealized)))));
         })(), React.createElement("div", {
           className: "grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:flex-1 lg:min-h-0"
         }, React.createElement("div", {
@@ -8701,7 +8723,8 @@
             const investorParsed = await parse(investorRes);
             const traderTrades = traderParsed.trades.map(t => ({
               ...t,
-              _source_mode: "trader"
+              _source_mode: "trader",
+              remaining_qty: t.remaining_qty ?? t.position_held_now ?? null
             }));
             const invPos = investorParsed.position;
             const investorTrades = investorParsed.trades.map(t => ({
@@ -9916,13 +9939,13 @@
           const isLong = String(tr.direction || "LONG").toUpperCase() !== "SHORT";
           const shares = Number(tr.shares ?? tr.quantity ?? 0) || 0;
           const trimPct = Math.min(Math.max(Number(tr.trimmed_pct ?? tr.trimmedPct ?? 0) || 0, 0), 1);
-          const remShares = shares > 0 ? shares * (1 - trimPct) : 0;
+          const remShares = _remainingSharesFromTrade(tr) ?? (shares > 0 ? shares * (1 - trimPct) : 0);
           const pnlPct = Number(p.pnlPct) || 0;
           const pnlUsd = remShares > 0 && p.entry > 0 && p.current > 0 ? (p.current - p.entry) * remShares * (isLong ? 1 : -1) : null;
           const up = pnlPct >= 0;
           const accent = up ? "#34d399" : "#f87171";
           const entryTs = Number(tr.entry_ts ?? tr.entryTs) || null;
-          const fmtSh = n => n >= 10 ? String(Math.round(n)) : String(Math.round(n * 100) / 100);
+          const fmtSh = n => _fmtSharesExact(n);
           const facts = [{
             k: "Entry",
             v: `$${p.entry.toFixed(2)}`,
@@ -15561,158 +15584,70 @@
           const trimmedPct = Number(t.trimmed_pct);
           const trimPx = Number(t.trim_price);
           const fmt2 = n => Number.isFinite(n) ? n.toFixed(2) : "—";
-          let rightSlot;
+          const dateLabel = Number.isFinite(dt.getTime()) ? dt.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric"
+          }) : "—";
+          const remShares = !isInvestor && isOpen ? _remainingSharesFromTrade(t) : Number.isFinite(heldAfter) ? heldAfter : null;
+          const hasTrim = !isInvestor && Number.isFinite(trimmedPct) && trimmedPct > 0;
+          const validPct = Number.isFinite(pnlPct);
+          const setupLabel = !isInvestor && t.setup_name ? (_formatPath(t.setup_name) || String(t.setup_name)).slice(0, 28) : "";
+          let sizeLine = null;
           if (isBuy) {
-            rightSlot = React.createElement("span", {
-              style: {
-                color: "var(--ds-text-muted)",
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: 11
-              }
-            }, Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—", Number.isFinite(entryPx) && entryPx > 0 && React.createElement("span", {
-              style: {
-                color: "var(--ds-text-faint)",
-                marginLeft: 4
-              }
-            }, "@ $", fmt2(entryPx)));
+            sizeLine = `${Number.isFinite(lotShares) ? _fmtSharesExact(lotShares) + " sh" : "—"}${Number.isFinite(entryPx) && entryPx > 0 ? ` @ $${fmt2(entryPx)}` : ""}${Number.isFinite(heldAfter) ? ` · ${_fmtSharesExact(heldAfter)} held after` : ""}`;
           } else if (isSell) {
-            const validPct = Number.isFinite(pnlPct);
-            rightSlot = React.createElement("span", {
-              style: {
-                display: "inline-flex",
-                gap: 6,
-                alignItems: "baseline",
-                flexWrap: "wrap",
-                justifyContent: "flex-end"
-              }
-            }, React.createElement("span", {
-              style: {
-                color: "var(--ds-text-muted)",
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: 10.5
-              }
-            }, Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"), validPct && React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
-              style: {
-                fontFamily: "var(--tt-font-mono)"
-              }
-            }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "% realized"), Number.isFinite(heldAfter) && React.createElement("span", {
-              style: {
-                color: "var(--ds-text-faint)",
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: 10
-              }
-            }, "\u2192 ", _fmtSharesExact(heldAfter), " held"));
+            sizeLine = `${Number.isFinite(lotShares) ? _fmtSharesExact(lotShares) + " sh" : "—"}${Number.isFinite(exitPx) && exitPx > 0 ? ` @ $${fmt2(exitPx)}` : ""}${Number.isFinite(heldAfter) ? ` · ${_fmtSharesExact(heldAfter)} held after` : ""}`;
           } else if (!isInvestor && isClosed) {
-            const validPct = Number.isFinite(pnlPct);
-            rightSlot = React.createElement("span", {
-              style: {
-                display: "inline-flex",
-                gap: 6,
-                alignItems: "baseline",
-                flexWrap: "wrap",
-                justifyContent: "flex-end"
-              }
-            }, Number.isFinite(lotShares) && React.createElement("span", {
-              style: {
-                color: "var(--ds-text-muted)",
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: 10.5
-              }
-            }, lotShares.toFixed(2), " sh"), Number.isFinite(entryPx) && entryPx > 0 && React.createElement("span", {
-              style: {
-                color: "var(--ds-text-faint)",
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: 10.5
-              }
-            }, "$", fmt2(entryPx), Number.isFinite(exitPx) && exitPx > 0 ? React.createElement(React.Fragment, null, "\u2192 $", fmt2(exitPx)) : null), validPct && React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
-              style: {
-                fontFamily: "var(--tt-font-mono)"
-              }
-            }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%", Number.isFinite(pnlAbs) ? React.createElement("span", {
-              style: {
-                marginLeft: 4,
-                opacity: 0.75
-              }
-            }, "($", pnlAbs >= 0 ? "+" : "−", "$", Math.abs(pnlAbs).toFixed(0), ")") : null));
+            sizeLine = `${Number.isFinite(lotShares) ? _fmtSharesExact(lotShares) + " sh" : "—"}${Number.isFinite(entryPx) && entryPx > 0 ? ` @ $${fmt2(entryPx)}` : ""}${Number.isFinite(exitPx) && exitPx > 0 ? ` → $${fmt2(exitPx)}` : ""}`;
           } else if (!isInvestor && isOpen) {
-            const validPct = Number.isFinite(pnlPct);
-            const hasTrim = Number.isFinite(trimmedPct) && trimmedPct > 0;
-            rightSlot = React.createElement("span", {
-              style: {
-                display: "inline-flex",
-                gap: 6,
-                alignItems: "baseline",
-                flexWrap: "wrap",
-                justifyContent: "flex-end"
-              }
-            }, Number.isFinite(lotShares) && React.createElement("span", {
-              style: {
-                color: "var(--ds-text-muted)",
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: 10.5
-              }
-            }, lotShares.toFixed(2), " sh"), Number.isFinite(entryPx) && entryPx > 0 && React.createElement("span", {
-              style: {
-                color: "var(--ds-text-faint)",
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: 10.5
-              }
-            }, "@ $", fmt2(entryPx)), hasTrim && React.createElement("span", {
-              style: {
-                color: "var(--ds-accent)",
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.04em"
-              }
-            }, Math.round(trimmedPct * 100), "% TRIM", Number.isFinite(trimPx) && trimPx > 0 ? ` @ $${fmt2(trimPx)}` : ""), validPct && React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
-              style: {
-                fontFamily: "var(--tt-font-mono)"
-              }
-            }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%", React.createElement("span", {
-              style: {
-                marginLeft: 4,
-                fontSize: 9,
-                opacity: 0.85,
-                fontWeight: 700
-              }
-            }, "OPEN")));
-          } else if (Number.isFinite(pnlPct)) {
-            rightSlot = React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
-              style: {
-                fontFamily: "var(--tt-font-mono)"
-              }
-            }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%");
-          } else {
-            rightSlot = React.createElement("span", {
-              style: {
-                color: "var(--ds-text-muted)",
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: 11
-              }
-            }, Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—");
+            sizeLine = `${Number.isFinite(lotShares) ? _fmtSharesExact(lotShares) + " sh" : "—"}${Number.isFinite(entryPx) && entryPx > 0 ? ` @ $${fmt2(entryPx)}` : ""}${Number.isFinite(remShares) && hasTrim ? ` · ${_fmtSharesExact(remShares)} left` : ""}`;
+          } else if (Number.isFinite(lotShares)) {
+            sizeLine = `${_fmtSharesExact(lotShares)} sh`;
           }
+          const pnlChip = validPct ? React.createElement("span", {
+            className: `ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              flexShrink: 0
+            }
+          }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%", isClosed && Number.isFinite(pnlAbs) ? React.createElement("span", {
+            style: {
+              marginLeft: 4,
+              opacity: 0.75
+            }
+          }, "(", pnlAbs >= 0 ? "+" : "−", "$", Math.abs(pnlAbs).toFixed(0), ")") : null, isOpen && !isInvestor ? React.createElement("span", {
+            style: {
+              marginLeft: 4,
+              fontSize: 9,
+              opacity: 0.85,
+              fontWeight: 700
+            }
+          }, "OPEN") : null, isSell ? React.createElement("span", {
+            style: {
+              marginLeft: 4,
+              fontSize: 9,
+              opacity: 0.75
+            }
+          }, "realized") : null) : null;
           return React.createElement("div", {
             key: `tr-${i}-${t._source_mode || "x"}`,
             onClick: () => _openAutopsy(t),
             title: isInvestor ? `Investor lot ${investorLabel}: ${lotShares ? lotShares.toFixed(2) + " sh" : ""} @ $${Number.isFinite(isSell ? exitPx : entryPx) ? (isSell ? exitPx : entryPx).toFixed(2) : "?"}${isSell && Number.isFinite(pnlAbs) ? ` · realized $${pnlAbs.toFixed(2)}` : ""}${Number.isFinite(heldAfter) ? ` · held after ${_fmtSharesExact(heldAfter)}` : ""}${t.reason ? " — " + _humanizeLotReason(t.reason) : ""}` : "Click to open Trade Autopsy",
             style: {
               display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 8,
-              padding: "8px 10px",
+              flexDirection: "column",
+              alignItems: "stretch",
+              gap: 4,
+              padding: "10px 10px",
               background: "var(--ds-bg-glass)",
               borderRadius: "var(--ds-radius-xs)",
               cursor: "pointer",
               fontSize: "var(--ds-fs-meta)",
               transition: "background 120ms ease",
               borderLeft: isInvestor ? "2px solid rgba(139,92,246,0.55)" : "none",
-              paddingLeft: isInvestor ? "8px" : "10px"
+              paddingLeft: isInvestor ? "8px" : "10px",
+              minWidth: 0
             },
             onMouseEnter: e => {
               e.currentTarget.style.background = "var(--ds-bg-elevated)";
@@ -15724,9 +15659,17 @@
             style: {
               display: "flex",
               alignItems: "center",
-              gap: "var(--ds-space-2)",
+              justifyContent: "space-between",
+              gap: 8,
+              minWidth: 0
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
               minWidth: 0,
-              flex: "1 1 auto"
+              flexWrap: "wrap"
             }
           }, isInvestor ? React.createElement("span", {
             className: "ds-chip ds-chip--sm",
@@ -15756,38 +15699,39 @@
               fontFamily: "var(--tt-font-mono)",
               flexShrink: 0
             }
-          }, dt.toLocaleDateString()), isInvestor && reasonLabel && React.createElement("span", {
+          }, dateLabel)), pnlChip), sizeLine && React.createElement("div", {
             style: {
               color: "var(--ds-text-body)",
-              fontSize: 11,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap"
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 12,
+              lineHeight: 1.35,
+              minWidth: 0
+            }
+          }, sizeLine), (hasTrim || setupLabel || isInvestor && reasonLabel) && React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              minWidth: 0,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 11
+            }
+          }, hasTrim && React.createElement("span", {
+            style: {
+              color: "var(--ds-accent)",
+              fontWeight: 700,
+              letterSpacing: "0.04em"
+            }
+          }, Math.round(trimmedPct * 100), "% trim", Number.isFinite(trimPx) && trimPx > 0 ? ` @ $${fmt2(trimPx)}` : ""), isInvestor && reasonLabel && React.createElement("span", {
+            style: {
+              color: "var(--ds-text-body)"
             },
             title: _humanizeLotReason(t.reason || t.exit_reason)
-          }, reasonLabel), t.setup_name && !isInvestor && React.createElement("span", {
-            style: {
-              color: "var(--ds-text-faint)",
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: 10,
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap"
-            },
+          }, reasonLabel), setupLabel && React.createElement("span", {
             title: `Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`
-          }, "\xB7 ", (_formatPath(t.setup_name) || String(t.setup_name)).slice(0, 24)), isBuy && Number.isFinite(heldAfter) && React.createElement("span", {
-            style: {
-              color: "var(--ds-text-faint)",
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: 10,
-              flexShrink: 0
-            }
-          }, "\u2192 ", _fmtSharesExact(heldAfter), " held")), React.createElement("div", {
-            style: {
-              flexShrink: 0
-            }
-          }, rightSlot));
+          }, setupLabel)));
         }))), candlePerf && Object.keys(candlePerf).length > 0 && React.createElement(Panel, {
           title: "Performance"
         }, React.createElement("div", {
@@ -19595,9 +19539,13 @@
         const trimPrice = Number(t.trim_price || 0);
         const trimTs = t.trim_ts;
         const hasTrimmed = trimmedPct > 0;
-        const remainingQty = Number(t.quantity ?? t.shares ?? 0);
-        const entryQty = hasTrimmed && trimmedPct < 1 && remainingQty > 0 ? Math.round(remainingQty / (1 - trimmedPct) * 100) / 100 : remainingQty;
-        const trimmedQty = hasTrimmed ? Math.round(entryQty * trimmedPct * 100) / 100 : 0;
+        const remainingQty = Number(t.remaining_qty ?? t.quantity ?? t.shares ?? 0);
+        const entryQty = Number(t.shares ?? t.quantity ?? 0) || (hasTrimmed && trimmedPct < 1 && remainingQty > 0 ? remainingQty / (1 - trimmedPct) : remainingQty);
+        const trimmedQty = hasTrimmed ? Math.max(0, entryQty - _remainingSharesFromTrade({
+          ...t,
+          shares: entryQty,
+          remaining_qty: Number.isFinite(Number(t.remaining_qty)) ? Number(t.remaining_qty) : null
+        })) : 0;
         const exitReasonRaw = String(t.exit_reason || "").toLowerCase();
         const exitReasonLabel = (() => {
           if (!exitReasonRaw || !isClosed) return null;
@@ -19772,7 +19720,10 @@
         }, "Shares"), React.createElement("td", {
           className: "text-[#a78bfa] font-medium py-0.5",
           colSpan: "2"
-        }, Math.round(entryQty), " bought", hasTrimmed ? ` · ${Math.round(trimmedQty)} trimmed · ${Math.round(entryQty - trimmedQty)} left` : "")), React.createElement("tr", null, React.createElement("td", {
+        }, _fmtSharesExact(entryQty), " bought", hasTrimmed ? ` · ${_fmtSharesExact(trimmedQty)} trimmed · ${_fmtSharesExact(_remainingSharesFromTrade({
+          ...t,
+          shares: entryQty
+        }))} left` : "")), React.createElement("tr", null, React.createElement("td", {
           className: "text-[#6E867D] py-0.5 pr-2"
         }, "Entry"), React.createElement("td", {
           className: "text-white font-medium py-0.5"
@@ -20437,4 +20388,4 @@
   };
 })();
 
-// cache-bust:1788299908690:408999566
+// cache-bust:1788315503650:687585290

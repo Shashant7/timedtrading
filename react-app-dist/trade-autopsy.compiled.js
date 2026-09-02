@@ -2502,11 +2502,12 @@ function AutopsyModal({
     const _sh = Number(trade?.shares);
     const _tp = Number(trade?.trimmed_pct || trade?.trimmedPct || 0);
     if (!_sh || _sh <= 0) return null;
-    const trimmed = Math.round(_sh * Math.min(_tp, 1));
-    const remaining = Math.max(0, Math.round(_sh) - trimmed);
+    const remaining = Math.max(0, _sh * (1 - Math.min(_tp, 1)));
+    const trimmed = Math.max(0, _sh - remaining);
+    const fmtSh = n => Math.abs(n - Math.round(n)) < 1e-9 ? String(Math.round(n)) : n.toFixed(2);
     return React.createElement("div", {
       className: "text-[9px] text-[#9ca3af] mt-0.5"
-    }, trimmed, " shares trimmed, ", remaining, " remaining as runner");
+    }, fmtSh(trimmed), " shares trimmed, ", fmtSh(remaining), " remaining as runner");
   })()), React.createElement("div", {
     className: "rounded-md bg-white/[0.02] border border-white/[0.04] px-2.5 py-1.5"
   }, React.createElement("div", {
@@ -3291,6 +3292,6 @@ function App({
     user: user
   })));
 })();
-// cache-bust:1788299908690:408999566
+// cache-bust:1788315503650:687585290
 
-// cache-bust:1788299908690:408999566
+// cache-bust:1788315503650:687585290

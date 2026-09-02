@@ -750,6 +750,12 @@
       const raw0 = String(reason || "").trim();
       if (!raw0) return "";
       if (LOT_REASON_LABELS[raw0]) return LOT_REASON_LABELS[raw0];
+      // Ledger fill notes repeat qty/price already shown in other columns.
+      if (/^(trim|exit|entry)\b/i.test(raw0) && /(?:\d|sh|shares)\b/i.test(raw0) && /@\s*\$/i.test(raw0)) {
+        if (/^trim\b/i.test(raw0)) return "Partial trim";
+        if (/^exit\b/i.test(raw0)) return "Exit";
+        if (/^entry\b/i.test(raw0)) return "Entry";
+      }
       // Round raw share floats embedded in ledger notes (e.g.
       // "21.296928327645052sh" -> "21.30sh") so the receipt reads cleanly.
       const raw = raw0.replace(/(\d+\.\d{3,})\s*sh\b/gi, (_m, n) => `${Number(n).toFixed(2)}sh`);
@@ -767,6 +773,25 @@
       if (!Number.isFinite(n)) return "—";
       if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
       return n.toFixed(2);
+    }
+    // Keep in sync with worker/trade-trim-display.js resolveRemainingShares.
+    // Never Math.round(entry) - Math.round(entry * pct) — that printed
+    // "21 left" on DKNG 40.60 / 50% trim while the book was 20.30.
+    function _remainingSharesFromTrade(t) {
+      const book = Number(
+        t?.remaining_qty ?? t?.position_held_now ?? t?.total_qty ?? t?.quantity_remaining
+      );
+      if (Number.isFinite(book) && book >= 0) return book;
+      const entry = Number(t?.shares ?? t?.quantity ?? t?.entryShares);
+      if (!Number.isFinite(entry) || entry <= 0) return null;
+      const trim = Math.min(Math.max(Number(t?.trimmed_pct ?? t?.trimmedPct) || 0, 0), 1);
+      return Math.max(0, entry * (1 - trim));
+    }
+    function _trimmedSharesFromTrade(t) {
+      const entry = Number(t?.shares ?? t?.quantity ?? t?.entryShares);
+      const rem = _remainingSharesFromTrade(t);
+      if (!Number.isFinite(entry) || entry <= 0 || rem == null) return null;
+      return Math.max(0, entry - rem);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -5895,14 +5920,27 @@
                           {(() => {
                             const _sh = Number(mt.shares ?? mt.quantity ?? 0);
                             if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
-                            const _trimPct = Number(mt.trimmed_pct || mt.trimmedPct || 0);
-                            const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
-                            const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
+                            const _book = Number(
+                              autopsyEvents?.position_held_now ?? mt.remaining_qty ?? mt.position_held_now
+                            );
+                            const _remaining = _remainingSharesFromTrade({
+                              ...mt,
+                              remaining_qty: Number.isFinite(_book) ? _book : mt.remaining_qty,
+                            });
+                            const _trimmed = _trimmedSharesFromTrade({
+                              ...mt,
+                              remaining_qty: Number.isFinite(_book) ? _book : mt.remaining_qty,
+                            });
+                            const showTrim = Number.isFinite(_trimmed) && _trimmed > 0.02;
                             return (
-                              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30">
+                              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30 flex-wrap">
                                 <span className="text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0">Shares</span>
                                 <span className="text-[13px] font-semibold text-white">{_fmtSharesExact(_sh)}</span>
-                                {_trimmed > 0 && <span className="text-[11px] text-[#a78bfa]/70">({_trimmed} trimmed · {_remaining} left)</span>}
+                                {showTrim && (
+                                  <span className="text-[11px] text-[#a78bfa]/70">
+                                    ({_fmtSharesExact(_trimmed)} trimmed · {_fmtSharesExact(_remaining)} left)
+                                  </span>
+                                )}
                               </div>
                             );
                           })()}
@@ -6086,19 +6124,49 @@
                       if (events.length === 0) return null;
 
                       // 4) Build display rows with running share count + cumulative P&L.
+                      // Prefer the live book when a duplicate TRIM receipt would
+                      // print held=0 on an OPEN trade (DKNG: two 20.30 trims,
+                      // positions.total_qty stayed 20.30).
+                      const bookHeld = Number(
+                        autopsyEvents?.position_held_now ?? mt.remaining_qty ?? (Number.isFinite(_posHeldNow) ? _posHeldNow : NaN)
+                      );
                       let runningShares = 0;
                       let cumPnl = 0;
                       const displayRows = events.map((ev) => {
                         const sh = Number(ev.shares) || 0;
-                        if (ev.type === "ENTRY" || ev.type === "ADD") runningShares += sh;
-                        else runningShares = Math.max(0, runningShares - sh);
-                        // Prefer authoritative held_after from investor lot replay.
-                        if (Number.isFinite(Number(ev.held_after))) {
+                        let duplicate = !!ev.duplicate;
+                        if (Number.isFinite(Number(ev.running_shares))) {
+                          runningShares = Number(ev.running_shares);
+                        } else if (Number.isFinite(Number(ev.held_after))) {
                           runningShares = Number(ev.held_after);
+                        } else if (ev.type === "ENTRY" || ev.type === "ADD") {
+                          runningShares += sh;
+                        } else {
+                          const next = Math.max(0, runningShares - sh);
+                          if (
+                            _isOpenStatus
+                            && Number.isFinite(bookHeld)
+                            && bookHeld > 0.05
+                            && ev.type === "TRIM"
+                            && next + 0.05 < bookHeld
+                          ) {
+                            duplicate = true;
+                          } else {
+                            runningShares = next;
+                          }
                         }
-                        cumPnl += Number(ev.realized_pnl) || 0;
-                        return { ...ev, running_shares: runningShares, cum_pnl: cumPnl };
+                        cumPnl += duplicate ? 0 : (Number(ev.realized_pnl) || 0);
+                        return { ...ev, running_shares: runningShares, cum_pnl: cumPnl, duplicate };
                       });
+                      if (
+                        _isOpenStatus
+                        && Number.isFinite(bookHeld)
+                        && displayRows.length
+                        && Math.abs(runningShares - bookHeld) > 0.05
+                      ) {
+                        runningShares = bookHeld;
+                        displayRows[displayRows.length - 1].running_shares = bookHeld;
+                      }
 
                       // Total realized vs current open (mark-to-market). For
                       // OPEN trades, also show the unrealized PnL as a final
@@ -6132,72 +6200,79 @@
                             <span className="text-[11px] font-semibold text-[#8AA39A] uppercase tracking-[0.14em]">
                               {_isInvestorModal ? "Position Lot Ledger" : "Event Log · Receipt"}
                             </span>
-                            <span className="text-[10px] text-[#6E867D]">{displayRows.length} event{displayRows.length === 1 ? "" : "s"}</span>
+                            <span className="text-[10px] text-[#8AA39A]">{displayRows.length} event{displayRows.length === 1 ? "" : "s"}</span>
                           </div>
-                          <div style={{ overflowX: "auto" }}>
-                            <table className="w-full text-[12px] tabular-nums" style={{ fontVariantNumeric: "tabular-nums", borderCollapse: "collapse", minWidth: _isInvestorModal ? 640 : 560 }}>
-                              <thead>
-                                <tr className="text-[10px] uppercase tracking-wider text-[#6E867D]">
-                                  <th className="text-left px-3 py-1.5 font-medium">When (ET)</th>
-                                  <th className="text-left px-2 py-1.5 font-medium">Event</th>
-                                  <th className="text-left px-2 py-1.5 font-medium">Reason</th>
-                                  <th className="text-right px-2 py-1.5 font-medium">Shares</th>
-                                  <th className="text-right px-2 py-1.5 font-medium">Price</th>
-                                  <th className="text-right px-2 py-1.5 font-medium">Value</th>
-                                  <th className="text-right px-2 py-1.5 font-medium">P&amp;L</th>
-                                  <th className="text-right px-3 py-1.5 font-medium">Held after</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {displayRows.map((r, i) => {
-                                  const pnlCls = (r.type === "ENTRY" || r.type === "ADD")
-                                    ? "text-[#6E867D]"
-                                    : r.realized_pnl >= 0
-                                      ? "text-[#22c55e]"
-                                      : "text-[#ef4444]";
-                                  const reasonLabel = _humanizeLotReason(r.reason);
-                                  return (
-                                    <tr
-                                      key={`evlog-${i}`}
-                                      className={`border-t border-white/[0.04]${r.focus ? " bg-[#a78bfa]/[0.08]" : ""}`}
-                                    >
-                                      <td className="px-3 py-2 text-[#8AA39A] whitespace-nowrap">{_fmtDateShort(r.ts)}</td>
-                                      <td className="px-2 py-2"><span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeChipCls(r.type)}`}>{r.type}</span></td>
-                                      <td className="px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px] break-words" title={reasonLabel || ""}>
-                                        {reasonLabel || <span className="text-[#6E867D]">—</span>}
-                                      </td>
-                                      <td className="px-2 py-2 text-right text-white">{_fmtShares(r.shares)}</td>
-                                      <td className="px-2 py-2 text-right text-white">{Number.isFinite(r.price) && r.price > 0 ? fmtUsd(r.price) : "—"}</td>
-                                      <td className="px-2 py-2 text-right text-[#8AA39A]">{Number.isFinite(r.value) && r.value > 0 ? fmtUsd(r.value) : "—"}</td>
-                                      <td className={`px-2 py-2 text-right font-semibold ${pnlCls}`}>{(r.type === "ENTRY" || r.type === "ADD") ? "—" : (r.realized_pnl >= 0 ? "+" : "") + fmtUsd(r.realized_pnl)}</td>
-                                      <td className="px-3 py-2 text-right text-[#6E867D] font-semibold">{_fmtShares(r.running_shares)}</td>
-                                    </tr>
-                                  );
-                                })}
-                                {/* Total realized row */}
-                                <tr className="border-t border-white/[0.12] bg-white/[0.02]">
-                                  <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A] font-semibold" colSpan="6">
-                                    {_isInvestorModal ? "Position realized" : "Total realized"}
-                                  </td>
-                                  <td className={`px-2 py-2 text-right text-[13px] font-bold ${realizedTotal >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{(realizedTotal >= 0 ? "+" : "") + fmtUsd(realizedTotal)}</td>
-                                  <td className="px-3 py-2 text-right text-[11px] text-[#CFDED6] font-semibold">{_fmtShares(runningShares)} held</td>
-                                </tr>
-                                {_isOpenStatus && unrealized !== 0 && (
-                                  <tr className="bg-[#22c55e]/[0.04]">
-                                    <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A]" colSpan="6">Unrealized (mark-to-market @ {fmtUsd(_liveCurrentPx)})</td>
-                                    <td className={`px-2 py-2 text-right text-[12px] font-semibold ${unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{(unrealized >= 0 ? "+" : "") + fmtUsd(unrealized)}</td>
-                                    <td className="px-3 py-2 text-right text-[10px] text-[#6E867D]">open</td>
-                                  </tr>
-                                )}
-                                {_isOpenStatus && unrealized !== 0 && (
-                                  <tr className="border-t border-white/[0.12]">
-                                    <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-white font-bold" colSpan="6">Net P&amp;L (realized + open)</td>
-                                    <td className={`px-2 py-2 text-right text-[14px] font-bold ${(realizedTotal + unrealized) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{((realizedTotal + unrealized) >= 0 ? "+" : "") + fmtUsd(realizedTotal + unrealized)}</td>
-                                    <td className="px-3 py-2"></td>
-                                  </tr>
-                                )}
-                              </tbody>
-                            </table>
+                          <div className="flex flex-col gap-2 p-2">
+                            {displayRows.map((r, i) => {
+                              const pnlCls = (r.type === "ENTRY" || r.type === "ADD")
+                                ? "text-[#8AA39A]"
+                                : r.realized_pnl >= 0
+                                  ? "text-[#22c55e]"
+                                  : "text-[#ef4444]";
+                              const reasonLabel = r.reason_label || _humanizeLotReason(r.reason);
+                              const pxLabel = Number.isFinite(r.price) && r.price > 0 ? fmtUsd(r.price) : "—";
+                              return (
+                                <div
+                                  key={`evlog-${i}`}
+                                  className={`rounded-md border px-3 py-2 ${r.duplicate ? "border-white/[0.06] bg-white/[0.02] opacity-70" : r.focus ? "border-[#a78bfa]/30 bg-[#a78bfa]/[0.08]" : "border-white/[0.06] bg-white/[0.02]"}`}
+                                >
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                                      <span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider shrink-0 ${typeChipCls(r.type)}`}>{r.type}</span>
+                                      {r.duplicate && (
+                                        <span className="inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider border-white/20 text-[#8AA39A]">DUPLICATE</span>
+                                      )}
+                                      <span className="text-[12px] text-[#CFDED6] whitespace-nowrap">{_fmtDateShort(r.ts)}</span>
+                                    </div>
+                                    <span className="text-[11px] text-[#8AA39A] whitespace-nowrap">
+                                      Held {_fmtShares(r.running_shares)}
+                                    </span>
+                                  </div>
+                                  {reasonLabel ? (
+                                    <div className="mt-1 text-[12px] text-[#CFDED6]">{reasonLabel}</div>
+                                  ) : null}
+                                  <div className="mt-1 flex items-baseline justify-between gap-3 flex-wrap" style={{ fontFamily: "var(--tt-font-mono)", fontVariantNumeric: "tabular-nums" }}>
+                                    <span className="text-[13px] font-semibold text-white">
+                                      {_fmtShares(r.shares)} sh @ {pxLabel}
+                                    </span>
+                                    <span className={`text-[12px] font-semibold ${pnlCls}`}>
+                                      {(r.type === "ENTRY" || r.type === "ADD")
+                                        ? "—"
+                                        : r.duplicate
+                                          ? "not counted"
+                                          : ((r.realized_pnl >= 0 ? "+" : "") + fmtUsd(r.realized_pnl))}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            <div className="rounded-md border border-white/[0.10] bg-white/[0.03] px-3 py-2 flex items-center justify-between gap-3 flex-wrap">
+                              <span className="text-[11px] uppercase tracking-wider text-[#8AA39A] font-semibold">
+                                {_isInvestorModal ? "Position realized" : "Total realized"}
+                              </span>
+                              <span className={`text-[13px] font-bold ${realizedTotal >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                {(realizedTotal >= 0 ? "+" : "") + fmtUsd(realizedTotal)}
+                                <span className="ml-2 text-[11px] font-semibold text-[#CFDED6]">{_fmtShares(runningShares)} held</span>
+                              </span>
+                            </div>
+                            {_isOpenStatus && unrealized !== 0 && (
+                              <div className="rounded-md border border-[#22c55e]/20 bg-[#22c55e]/[0.04] px-3 py-2 flex items-center justify-between gap-3 flex-wrap">
+                                <span className="text-[11px] uppercase tracking-wider text-[#8AA39A]">
+                                  Unrealized @ {fmtUsd(_liveCurrentPx)}
+                                </span>
+                                <span className={`text-[12px] font-semibold ${unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                  {(unrealized >= 0 ? "+" : "") + fmtUsd(unrealized)}
+                                </span>
+                              </div>
+                            )}
+                            {_isOpenStatus && unrealized !== 0 && (
+                              <div className="rounded-md border border-white/[0.12] px-3 py-2 flex items-center justify-between gap-3 flex-wrap">
+                                <span className="text-[11px] uppercase tracking-wider text-white font-bold">Net P&amp;L</span>
+                                <span className={`text-[14px] font-bold ${(realizedTotal + unrealized) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                  {((realizedTotal + unrealized) >= 0 ? "+" : "") + fmtUsd(realizedTotal + unrealized)}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       );
@@ -7395,7 +7470,11 @@
               };
               const traderParsed = await parse(traderRes);
               const investorParsed = await parse(investorRes);
-              const traderTrades = traderParsed.trades.map(t => ({ ...t, _source_mode: "trader" }));
+              const traderTrades = traderParsed.trades.map(t => ({
+                ...t,
+                _source_mode: "trader",
+                remaining_qty: t.remaining_qty ?? t.position_held_now ?? null,
+              }));
               const invPos = investorParsed.position;
               const investorTrades = investorParsed.trades.map(t => ({
                 ...t,
@@ -8662,7 +8741,7 @@
             const isLong = String(tr.direction || "LONG").toUpperCase() !== "SHORT";
             const shares = Number(tr.shares ?? tr.quantity ?? 0) || 0;
             const trimPct = Math.min(Math.max(Number(tr.trimmed_pct ?? tr.trimmedPct ?? 0) || 0, 0), 1);
-            const remShares = shares > 0 ? shares * (1 - trimPct) : 0;
+            const remShares = _remainingSharesFromTrade(tr) ?? (shares > 0 ? shares * (1 - trimPct) : 0);
             const pnlPct = Number(p.pnlPct) || 0;
             const pnlUsd = (remShares > 0 && p.entry > 0 && p.current > 0)
               ? (p.current - p.entry) * remShares * (isLong ? 1 : -1)
@@ -8670,7 +8749,7 @@
             const up = pnlPct >= 0;
             const accent = up ? "#34d399" : "#f87171";
             const entryTs = Number(tr.entry_ts ?? tr.entryTs) || null;
-            const fmtSh = (n) => (n >= 10 ? String(Math.round(n)) : String(Math.round(n * 100) / 100));
+            const fmtSh = (n) => _fmtSharesExact(n);
             const facts = [
               { k: "Entry", v: `$${p.entry.toFixed(2)}`, sub: entryTs ? _formatDate(entryTs) : null },
               { k: "Live", v: `$${p.current.toFixed(2)}` },
@@ -12860,93 +12939,43 @@
                               //   investor BUY/DCA         → "X.XX sh @ $price"
                               //   investor SELL            → "X.XX sh · +/-Y% realized"
                               const fmt2 = (n) => Number.isFinite(n) ? n.toFixed(2) : "—";
-                              let rightSlot;
+                              const dateLabel = Number.isFinite(dt.getTime())
+                                ? dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                : "—";
+                              const remShares = !isInvestor && isOpen
+                                ? _remainingSharesFromTrade(t)
+                                : (Number.isFinite(heldAfter) ? heldAfter : null);
+                              const hasTrim = !isInvestor && Number.isFinite(trimmedPct) && trimmedPct > 0;
+                              const validPct = Number.isFinite(pnlPct);
+                              const setupLabel = (!isInvestor && t.setup_name)
+                                ? (_formatPath(t.setup_name) || String(t.setup_name)).slice(0, 28)
+                                : "";
+                              let sizeLine = null;
                               if (isBuy) {
-                                rightSlot = (
-                                  <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 11 }}>
-                                    {Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"}
-                                    {Number.isFinite(entryPx) && entryPx > 0 && (
-                                      <span style={{ color: "var(--ds-text-faint)", marginLeft: 4 }}>@ ${fmt2(entryPx)}</span>
-                                    )}
-                                  </span>
-                                );
+                                sizeLine = `${Number.isFinite(lotShares) ? _fmtSharesExact(lotShares) + " sh" : "—"}${Number.isFinite(entryPx) && entryPx > 0 ? ` @ $${fmt2(entryPx)}` : ""}${Number.isFinite(heldAfter) ? ` · ${_fmtSharesExact(heldAfter)} held after` : ""}`;
                               } else if (isSell) {
-                                const validPct = Number.isFinite(pnlPct);
-                                rightSlot = (
-                                  <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                    <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>
-                                      {Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"}
-                                    </span>
-                                    {validPct && (
-                                      <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                        {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}% realized
-                                      </span>
-                                    )}
-                                    {Number.isFinite(heldAfter) && (
-                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10 }}>
-                                        → {_fmtSharesExact(heldAfter)} held
-                                      </span>
-                                    )}
-                                  </span>
-                                );
+                                sizeLine = `${Number.isFinite(lotShares) ? _fmtSharesExact(lotShares) + " sh" : "—"}${Number.isFinite(exitPx) && exitPx > 0 ? ` @ $${fmt2(exitPx)}` : ""}${Number.isFinite(heldAfter) ? ` · ${_fmtSharesExact(heldAfter)} held after` : ""}`;
                               } else if (!isInvestor && isClosed) {
-                                // Closed trader trade — show shares, entry → exit, realized pct.
-                                const validPct = Number.isFinite(pnlPct);
-                                rightSlot = (
-                                  <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                    {Number.isFinite(lotShares) && (
-                                      <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>{lotShares.toFixed(2)} sh</span>
-                                    )}
-                                    {Number.isFinite(entryPx) && entryPx > 0 && (
-                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>
-                                        ${fmt2(entryPx)}{Number.isFinite(exitPx) && exitPx > 0 ? <>→ ${fmt2(exitPx)}</> : null}
-                                      </span>
-                                    )}
-                                    {validPct && (
-                                      <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                        {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%{Number.isFinite(pnlAbs) ? <span style={{ marginLeft: 4, opacity: 0.75 }}>(${pnlAbs >= 0 ? "+" : "−"}${Math.abs(pnlAbs).toFixed(0)})</span> : null}
-                                      </span>
-                                    )}
-                                  </span>
-                                );
+                                sizeLine = `${Number.isFinite(lotShares) ? _fmtSharesExact(lotShares) + " sh" : "—"}${Number.isFinite(entryPx) && entryPx > 0 ? ` @ $${fmt2(entryPx)}` : ""}${Number.isFinite(exitPx) && exitPx > 0 ? ` → $${fmt2(exitPx)}` : ""}`;
                               } else if (!isInvestor && isOpen) {
-                                // Open trader trade — show running unrealized + trim history if any.
-                                const validPct = Number.isFinite(pnlPct);
-                                const hasTrim = Number.isFinite(trimmedPct) && trimmedPct > 0;
-                                rightSlot = (
-                                  <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                    {Number.isFinite(lotShares) && (
-                                      <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>{lotShares.toFixed(2)} sh</span>
-                                    )}
-                                    {Number.isFinite(entryPx) && entryPx > 0 && (
-                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>@ ${fmt2(entryPx)}</span>
-                                    )}
-                                    {hasTrim && (
-                                      <span style={{ color: "var(--ds-accent)", fontFamily: "var(--tt-font-mono)", fontSize: 10, fontWeight: 700, letterSpacing: "0.04em" }}>
-                                        {Math.round(trimmedPct * 100)}% TRIM{Number.isFinite(trimPx) && trimPx > 0 ? ` @ $${fmt2(trimPx)}` : ""}
-                                      </span>
-                                    )}
-                                    {validPct && (
-                                      <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                        {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
-                                        <span style={{ marginLeft: 4, fontSize: 9, opacity: 0.85, fontWeight: 700 }}>OPEN</span>
-                                      </span>
-                                    )}
-                                  </span>
-                                );
-                              } else if (Number.isFinite(pnlPct)) {
-                                rightSlot = (
-                                  <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                    {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
-                                  </span>
-                                );
-                              } else {
-                                rightSlot = (
-                                  <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 11 }}>
-                                    {Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"}
-                                  </span>
-                                );
+                                sizeLine = `${Number.isFinite(lotShares) ? _fmtSharesExact(lotShares) + " sh" : "—"}${Number.isFinite(entryPx) && entryPx > 0 ? ` @ $${fmt2(entryPx)}` : ""}${Number.isFinite(remShares) && hasTrim ? ` · ${_fmtSharesExact(remShares)} left` : ""}`;
+                              } else if (Number.isFinite(lotShares)) {
+                                sizeLine = `${_fmtSharesExact(lotShares)} sh`;
                               }
+                              const pnlChip = validPct ? (
+                                <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)", flexShrink: 0 }}>
+                                  {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                                  {isClosed && Number.isFinite(pnlAbs) ? (
+                                    <span style={{ marginLeft: 4, opacity: 0.75 }}>({pnlAbs >= 0 ? "+" : "−"}${Math.abs(pnlAbs).toFixed(0)})</span>
+                                  ) : null}
+                                  {isOpen && !isInvestor ? (
+                                    <span style={{ marginLeft: 4, fontSize: 9, opacity: 0.85, fontWeight: 700 }}>OPEN</span>
+                                  ) : null}
+                                  {isSell ? (
+                                    <span style={{ marginLeft: 4, fontSize: 9, opacity: 0.75 }}>realized</span>
+                                  ) : null}
+                                </span>
+                              ) : null;
                               return (
                                 <div key={`tr-${i}-${t._source_mode || "x"}`}
                                   onClick={() => _openAutopsy(t)}
@@ -12955,10 +12984,10 @@
                                     : "Click to open Trade Autopsy"}
                                   style={{
                                     display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "space-between",
-                                    gap: 8,
-                                    padding: "8px 10px",
+                                    flexDirection: "column",
+                                    alignItems: "stretch",
+                                    gap: 4,
+                                    padding: "10px 10px",
                                     background: "var(--ds-bg-glass)",
                                     borderRadius: "var(--ds-radius-xs)",
                                     cursor: "pointer",
@@ -12966,57 +12995,59 @@
                                     transition: "background 120ms ease",
                                     borderLeft: isInvestor ? "2px solid rgba(139,92,246,0.55)" : "none",
                                     paddingLeft: isInvestor ? "8px" : "10px",
+                                    minWidth: 0,
                                   }}
                                   onMouseEnter={(e) => { e.currentTarget.style.background = "var(--ds-bg-elevated)"; }}
                                   onMouseLeave={(e) => { e.currentTarget.style.background = "var(--ds-bg-glass)"; }}
                                 >
-                                  <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)", minWidth: 0, flex: "1 1 auto" }}>
-                                    {isInvestor ? (
-                                      <span className="ds-chip ds-chip--sm" style={{
-                                        fontFamily: "var(--tt-font-mono)",
-                                        background: isSell ? "rgba(248,113,113,0.12)" : "rgba(52,211,153,0.12)",
-                                        color: isSell ? "#fda4af" : "#86efac",
-                                        borderColor: isSell ? "rgba(248,113,113,0.30)" : "rgba(52,211,153,0.30)",
-                                        flexShrink: 0,
-                                      }}>
-                                        INV {investorLabel}
-                                      </span>
-                                    ) : (
-                                      // 2026-05-30 — color the direction chip by direction
-                                      // (LONG=green, SHORT=red); status (WIN/LOSS) shown
-                                      // separately so an OPEN winning LONG isn't tagged
-                                      // red by isWin===false anymore.
-                                      <>
-                                        <span className={`ds-chip ds-chip--sm ${String(t.direction || "").toUpperCase() === "SHORT" ? "ds-chip--dn" : "ds-chip--up"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{t.direction || "?"}</span>
-                                        {isClosed && (
-                                          <span className={`ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.04em" }}>{status}</span>
-                                        )}
-                                      </>
-                                    )}
-                                    <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", flexShrink: 0 }}>{dt.toLocaleDateString()}</span>
-                                    {isInvestor && reasonLabel && (
-                                      <span style={{ color: "var(--ds-text-body)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={_humanizeLotReason(t.reason || t.exit_reason)}>
-                                        {reasonLabel}
-                                      </span>
-                                    )}
-                                    {t.setup_name && !isInvestor && (
-                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={`Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`}>
-                                        {/* 2026-05-30 (P5) — Use shared _formatPath helper which strips
-                                            the "TT Tt" / "tt_" / "ripster_" / "saty_" engine prefixes
-                                            and falls back to the friendly label map. The raw
-                                            replace(/_/g," ") path emitted "Tt Pullback" / "TT Tt Gap
-                                            Reversal Long" verbatim because some backend rows store the
-                                            namespace prefix as part of setup_name. */}
-                                        · {(_formatPath(t.setup_name) || String(t.setup_name)).slice(0, 24)}
-                                      </span>
-                                    )}
-                                    {isBuy && Number.isFinite(heldAfter) && (
-                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10, flexShrink: 0 }}>
-                                        → {_fmtSharesExact(heldAfter)} held
-                                      </span>
-                                    )}
+                                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minWidth: 0 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flexWrap: "wrap" }}>
+                                      {isInvestor ? (
+                                        <span className="ds-chip ds-chip--sm" style={{
+                                          fontFamily: "var(--tt-font-mono)",
+                                          background: isSell ? "rgba(248,113,113,0.12)" : "rgba(52,211,153,0.12)",
+                                          color: isSell ? "#fda4af" : "#86efac",
+                                          borderColor: isSell ? "rgba(248,113,113,0.30)" : "rgba(52,211,153,0.30)",
+                                          flexShrink: 0,
+                                        }}>
+                                          INV {investorLabel}
+                                        </span>
+                                      ) : (
+                                        <>
+                                          <span className={`ds-chip ds-chip--sm ${String(t.direction || "").toUpperCase() === "SHORT" ? "ds-chip--dn" : "ds-chip--up"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{t.direction || "?"}</span>
+                                          {isClosed && (
+                                            <span className={`ds-chip ds-chip--sm ${isWin ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9, fontWeight: 700, letterSpacing: "0.04em" }}>{status}</span>
+                                          )}
+                                        </>
+                                      )}
+                                      <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", flexShrink: 0 }}>{dateLabel}</span>
+                                    </div>
+                                    {pnlChip}
                                   </div>
-                                  <div style={{ flexShrink: 0 }}>{rightSlot}</div>
+                                  {sizeLine && (
+                                    <div style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)", fontSize: 12, lineHeight: 1.35, minWidth: 0 }}>
+                                      {sizeLine}
+                                    </div>
+                                  )}
+                                  {(hasTrim || setupLabel || (isInvestor && reasonLabel)) && (
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 11 }}>
+                                      {hasTrim && (
+                                        <span style={{ color: "var(--ds-accent)", fontWeight: 700, letterSpacing: "0.04em" }}>
+                                          {Math.round(trimmedPct * 100)}% trim{Number.isFinite(trimPx) && trimPx > 0 ? ` @ $${fmt2(trimPx)}` : ""}
+                                        </span>
+                                      )}
+                                      {isInvestor && reasonLabel && (
+                                        <span style={{ color: "var(--ds-text-body)" }} title={_humanizeLotReason(t.reason || t.exit_reason)}>
+                                          {reasonLabel}
+                                        </span>
+                                      )}
+                                      {setupLabel && (
+                                        <span title={`Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`}>
+                                          {setupLabel}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
@@ -16939,10 +16970,19 @@
                               const trimPrice = Number(t.trim_price || 0);
                               const trimTs = t.trim_ts;
                               const hasTrimmed = trimmedPct > 0;
-                              const remainingQty = Number(t.quantity ?? t.shares ?? 0);
-                              const entryQty = hasTrimmed && trimmedPct < 1 && remainingQty > 0
-                                ? Math.round(remainingQty / (1 - trimmedPct) * 100) / 100 : remainingQty;
-                              const trimmedQty = hasTrimmed ? Math.round((entryQty * trimmedPct) * 100) / 100 : 0;
+                              const remainingQty = Number(t.remaining_qty ?? t.quantity ?? t.shares ?? 0);
+                              const entryQty = Number(t.shares ?? t.quantity ?? 0) || (
+                                hasTrimmed && trimmedPct < 1 && remainingQty > 0
+                                  ? remainingQty / (1 - trimmedPct)
+                                  : remainingQty
+                              );
+                              const trimmedQty = hasTrimmed
+                                ? Math.max(0, entryQty - _remainingSharesFromTrade({
+                                  ...t,
+                                  shares: entryQty,
+                                  remaining_qty: Number.isFinite(Number(t.remaining_qty)) ? Number(t.remaining_qty) : null,
+                                }))
+                                : 0;
 
                               const exitReasonRaw = String(t.exit_reason || "").toLowerCase();
                               const exitReasonLabel = (() => {
@@ -17102,7 +17142,7 @@
                                           <tr>
                                             <td className="text-[#a78bfa] py-0.5 pr-2">Shares</td>
                                             <td className="text-[#a78bfa] font-medium py-0.5" colSpan="2">
-                                              {Math.round(entryQty)} bought{hasTrimmed ? ` · ${Math.round(trimmedQty)} trimmed · ${Math.round(entryQty - trimmedQty)} left` : ""}
+                                              {_fmtSharesExact(entryQty)} bought{hasTrimmed ? ` · ${_fmtSharesExact(trimmedQty)} trimmed · ${_fmtSharesExact(_remainingSharesFromTrade({ ...t, shares: entryQty }))} left` : ""}
                                             </td>
                                           </tr>
                                         )}

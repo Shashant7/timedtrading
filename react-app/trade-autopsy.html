@@ -1900,9 +1900,10 @@
                             const _sh = Number(trade?.shares);
                             const _tp = Number(trade?.trimmed_pct || trade?.trimmedPct || 0);
                             if (!_sh || _sh <= 0) return null;
-                            const trimmed = Math.round(_sh * Math.min(_tp, 1));
-                            const remaining = Math.max(0, Math.round(_sh) - trimmed);
-                            return <div className="text-[9px] text-[#9ca3af] mt-0.5">{trimmed} shares trimmed, {remaining} remaining as runner</div>;
+                            const remaining = Math.max(0, _sh * (1 - Math.min(_tp, 1)));
+                            const trimmed = Math.max(0, _sh - remaining);
+                            const fmtSh = (n) => (Math.abs(n - Math.round(n)) < 1e-9 ? String(Math.round(n)) : n.toFixed(2));
+                            return <div className="text-[9px] text-[#9ca3af] mt-0.5">{fmtSh(trimmed)} shares trimmed, {fmtSh(remaining)} remaining as runner</div>;
                           })()}
                         </div>
                       )}
