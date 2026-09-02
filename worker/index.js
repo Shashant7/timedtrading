@@ -651,6 +651,11 @@ import {
   shouldEarlyDeadMoneyFlatten,
 } from "./trade-dead-money.js";
 import {
+  humanizeReceiptReason,
+  reconcileReceiptEvents,
+  shouldSkipDuplicateTrimLedger,
+} from "./trade-trim-display.js";
+import {
   buildSignal,
   formatTradeCloseTitle,
   formatExitRecommendedTitle,
@@ -21362,7 +21367,24 @@ async function processTradeSimulation(
       }
       const p = Number(trimPrice);
       if (!Number.isFinite(p) || p <= 0) return;
-      const oldTrim = clamp(Number(trade.trimmedPct || 0), 0, 1);
+      let oldTrim = clamp(Number(trade.trimmedPct || 0), 0, 1);
+      // Refresh from D1 so a stale in-memory 0 cannot fire a second
+      // original-size MFE trim (DKNG 2026-08-26: two 50% receipts,
+      // book stayed at 20.30).
+      if (env?.DB && !isReplay && trade.trade_id) {
+        try {
+          const d1TrimRow = await env.DB.prepare(
+            `SELECT trimmed_pct FROM trades WHERE trade_id = ?1`
+          ).bind(trade.trade_id).first();
+          const d1Trim = clamp(Number(d1TrimRow?.trimmed_pct) || 0, 0, 1);
+          if (d1Trim > oldTrim + 1e-6) {
+            trade.trimmedPct = d1Trim;
+            oldTrim = d1Trim;
+          }
+        } catch (e) {
+          console.warn(`[TRIM] ${sym} d1 trimmed_pct refresh failed:`, e?.message);
+        }
+      }
       if (oldTrim >= 0.9999) return;
       const tgt = clamp(Number(targetTrimPct), 0, 1);
       if (tgt <= oldTrim + 1e-6) return;
@@ -21420,7 +21442,8 @@ async function processTradeSimulation(
             return;
           }
         } catch (e) {
-          console.warn(`[TRIM CAS] ${sym} CAS check failed, proceeding:`, e?.message);
+          console.warn(`[TRIM CAS] ${sym} CAS check failed, aborting:`, e?.message);
+          return;
         }
       }
       trade.lastTrimReason = trimReason || null;
@@ -21431,6 +21454,27 @@ async function processTradeSimulation(
       const shares = Number(trade.shares);
       if (!Number.isFinite(shares)) return;
       const trimShares = shares * delta;
+      const expectedRemaining = shares * (1 - tgt);
+      if (env?.DB && !isReplay && (trade.trade_id || trade.id)) {
+        try {
+          const posId = trade.trade_id || trade.id;
+          const posRow = await env.DB.prepare(
+            `SELECT total_qty FROM positions WHERE position_id = ?1 LIMIT 1`
+          ).bind(posId).first();
+          const liveQty = Number(posRow?.total_qty);
+          if (shouldSkipDuplicateTrimLedger({
+            liveQty,
+            expectedRemaining,
+            trimShares,
+            entryShares: shares,
+          })) {
+            console.log(`[TRIM] ${sym} skip duplicate ledger — liveQty=${liveQty} expectedRem=${expectedRemaining} trimShares=${trimShares}`);
+            return;
+          }
+        } catch (e) {
+          console.warn(`[TRIM] ${sym} remaining-qty guard failed:`, e?.message);
+        }
+      }
 
       const dirSign =
         String(trade.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
@@ -63463,14 +63507,14 @@ export default {
           .replace(/(?<![.\w])exit_ts\b/g, "t.exit_ts")
           .replace(/(?<![.\w])trade_id\b/g, "t.trade_id");
         const whereJoin = _qualifyTrades(where);
-        const _selectCols = (incTrimPrice, incTrimTs) => `
+        const _selectCols = (incTrimPrice, incTrimTs, incRemaining = true) => `
             t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
             t.exit_ts, t.exit_price, t.exit_reason, t.trimmed_pct, t.pnl, t.pnl_pct,
             t.script_version, t.created_at, t.updated_at${incTrimTs ? ", t.trim_ts" : ""}${incTrimPrice ? ", t.trim_price" : ""},
             t.setup_name, t.setup_grade, t.risk_budget, t.shares, t.notional,
-            p.stop_loss AS sl, p.take_profit AS tp`;
-        const _buildSql = (incTrimPrice, incTrimTs) => `SELECT
-            ${_selectCols(incTrimPrice, incTrimTs)}
+            p.stop_loss AS sl, p.take_profit AS tp${incRemaining ? ",\n            p.total_qty AS remaining_qty" : ""}`;
+        const _buildSql = (incTrimPrice, incTrimTs, incRemaining = true) => `SELECT
+            ${_selectCols(incTrimPrice, incTrimTs, incRemaining)}
           FROM trades t
           LEFT JOIN positions p ON p.position_id = t.trade_id
           ${whereJoin}
@@ -63479,6 +63523,7 @@ export default {
         const sqlFull = _buildSql(true, true);
         const sqlWithoutTrimPrice = _buildSql(false, true);
         const sqlWithoutTrimTs = _buildSql(false, false);
+        const sqlWithoutRemaining = _buildSql(true, true, false);
 
         let rows;
         try {
@@ -63488,7 +63533,15 @@ export default {
             .all();
         } catch (e) {
           const msg = (e && (e.message || String(e))) || "";
-          if (msg.includes("trim_price") || msg.includes("no such column")) {
+          if (msg.includes("remaining_qty") || msg.includes("total_qty")) {
+            rows = await db
+              .prepare(sqlWithoutRemaining)
+              .bind(...binds, limit + 1)
+              .all();
+            if (Array.isArray(rows?.results)) {
+              rows.results = rows.results.map((r) => ({ ...r, remaining_qty: null }));
+            }
+          } else if (msg.includes("trim_price") || msg.includes("no such column")) {
             try {
               rows = await db
                 .prepare(sqlWithoutTrimPrice)
@@ -64161,12 +64214,14 @@ export default {
           // cross-contamination either way, but we now prefer the position
           // whose entry_ts is closest to THIS trade's entry_ts.
           const posRow = await db.prepare(
-            `SELECT position_id, entry_ts FROM positions
+            `SELECT position_id, entry_ts, total_qty, status FROM positions
               WHERE ticker = ?1 AND direction = ?2
               ORDER BY ABS(COALESCE(entry_ts, 0) - ?3) ASC
               LIMIT 1`,
           ).bind(ticker, direction, entryTs).first().catch(() => null);
           const positionId = posRow?.position_id || null;
+          const bookRemaining = Number(posRow?.total_qty);
+          const bookHeldNow = Number.isFinite(bookRemaining) ? bookRemaining : null;
 
           // Pull TRIM + EXIT events from account_ledger.
           // Try position_id match first (most reliable); fall back to
@@ -64244,6 +64299,33 @@ export default {
           for (const ev of rawEvents) events.push({ ...ev, source: "account_ledger" });
           events.sort((a, b) => a.ts - b.ts);
 
+          // Prefer trade_events.reason (MFE_SAFETY_TRIM) over ledger notes
+          // that repeat qty/price ("Trim DKNG 20.3sh @$25.06 PnL=$13.60").
+          let teRows = [];
+          try {
+            teRows = (await db.prepare(
+              `SELECT ts, type, reason FROM trade_events WHERE trade_id = ?1 ORDER BY ts ASC`
+            ).bind(tradeId).all())?.results || [];
+          } catch (_) { teRows = []; }
+          for (const ev of events) {
+            const evType = String(ev.type || "").toUpperCase();
+            const closest = teRows.reduce((best, te) => {
+              if (String(te.type || "").toUpperCase() !== evType) return best;
+              const d = Math.abs(Number(te.ts) - Number(ev.ts));
+              if (!Number.isFinite(d)) return best;
+              if (!best || d < best.d) return { te, d };
+              return best;
+            }, null);
+            const code = closest && closest.d < 120000 ? (closest.te.reason || null) : null;
+            ev.reason = code || ev.reason || null;
+            ev.reason_label = humanizeReceiptReason(code || ev.reason || ev.note);
+          }
+
+          const reconciled = reconcileReceiptEvents(events, {
+            bookRemaining: bookHeldNow,
+            isOpen: isOpenLike,
+          });
+
           return sendJSON({
             ok: true,
             trade_id: tradeId,
@@ -64255,8 +64337,9 @@ export default {
             total_shares_at_entry: totalShares,
             trimmed_pct: Number(tradeRow.trimmed_pct) || 0,
             status: tradeRow.status,
-            events,
-            event_count: events.length,
+            position_held_now: isOpenLike ? bookHeldNow : (Number.isFinite(bookRemaining) ? bookRemaining : 0),
+            events: reconciled,
+            event_count: reconciled.length,
             data_source: events.length > 0 ? (rawEvents.length > 0 ? "account_ledger" : "synthesized_from_trade") : "none",
           }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -64300,7 +64383,8 @@ export default {
               t.trimmed_pct, t.pnl, t.pnl_pct,
               t.script_version, t.created_at, t.updated_at,
               t.setup_name, t.setup_grade, t.risk_budget, t.shares, t.notional,
-              p.stop_loss AS sl, p.take_profit AS tp
+              p.stop_loss AS sl, p.take_profit AS tp,
+              p.total_qty AS remaining_qty
              FROM trades t
              LEFT JOIN positions p ON p.position_id = t.trade_id
              WHERE t.trade_id = ?1 LIMIT 1`,

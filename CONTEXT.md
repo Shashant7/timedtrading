@@ -217,6 +217,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**History remaining shares — exact math, never integer-round subtract (2026-09-02)**
+- Remaining = `positions.total_qty` or `entry * (1 - trimmed_pct)`. Never
+  `Math.round(entry) - Math.round(entry * pct)` (DKNG 40.60 / 50% printed
+  "21 left"; book was 20.30).
+- Two TRIM receipts of original×50% with `qty_pct_total` still 0.5 and
+  `total_qty` unchanged is a duplicate ledger row, not a flatten. Event
+  log must not print held=0 on an OPEN book. Do not close the trade.
+
 **Index day-trade broker mirror — closes never cap-gated, qty = mirrored fill (2026-08-24)**
 - Daily counters gate BUY only. A TRIM/EXIT/STOP must never be blocked by a
   cap or the broker is left holding a position the model already exited.

@@ -6,6 +6,31 @@
 
 ---
 
+## History remaining shares and duplicate trim receipts [2026-09-02]
+
+**Ask:** Context → History rows are unreadable (qty/date/price smashed
+together). DKNG short shows 21 left after buying ~40 and trimming 20 twice.
+
+**Cause:**
+1. History ledger rows were a single flex line; on mobile the right
+   slot overlapped the date and share count.
+2. Trade Review used `Math.round(40.60) - Math.round(40.60 * 0.5)` →
+   41 − 20 = 21. The book (`positions.total_qty`) was 20.30 after one
+   50% trim.
+3. A second `MFE_SAFETY_TRIM` wrote another original×50% ledger row
+   (~15 min later) because in-memory `trimmedPct` was 0. Both
+   `qty_pct_total` values stayed 0.5; `total_qty` did not move. The
+   receipt summed both trims and printed held=0 while status stayed OPEN.
+
+**Fix:** Stack History rows. Remaining = book qty or `entry * (1 - trim)`.
+Receipt humanizes ledger notes and flags the overshooting TRIM as a
+duplicate. Engine refreshes D1 `trimmed_pct`, fail-closes CAS, and skips
+a second ledger write when live qty already equals target remaining.
+
+**Do not:** Close DKNG as flat from the two receipts. Do not integer-round
+share subtraction. Do not dump "Trim DKNG 20.3sh @$25.06 PnL=$13.60" in
+the Reason column.
+
 ## CRDO earnings lotto vanished because KV calendar dropped a live D1 print [2026-09-01]
 
 **Symptom:** After the lotto-scan CPU fix, DELL appeared on Options lotto &

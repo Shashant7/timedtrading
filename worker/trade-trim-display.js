@@ -51,6 +51,160 @@ export function resolveEntryShares({ entryShares, trimmedPct, remainingShares } 
   return null;
 }
 
+/**
+ * Remaining (runner) shares for an open or trimmed trade.
+ *
+ * Prefer the live book (`positions.total_qty` / `remaining_qty`). Fall back
+ * to entry * (1 - trimmed_pct). Never integer-round then subtract:
+ *   Math.round(40.60) - Math.round(40.60 * 0.5) → 41 - 20 = 21
+ * while the book is 20.30.
+ */
+export function resolveRemainingShares({
+  entryShares,
+  trimmedPct,
+  remainingShares,
+} = {}) {
+  const book = Number(remainingShares);
+  if (Number.isFinite(book) && book >= 0) return book;
+  const entry = Number(entryShares);
+  if (!Number.isFinite(entry) || entry <= 0) return null;
+  const trim = clamp(Number(trimmedPct) || 0, 0, 1);
+  return Math.max(0, entry * (1 - trim));
+}
+
+/** Shares already taken off: entry minus remaining. */
+export function resolveTrimmedShares({
+  entryShares,
+  trimmedPct,
+  remainingShares,
+} = {}) {
+  const entry = Number(entryShares);
+  const rem = resolveRemainingShares({ entryShares, trimmedPct, remainingShares });
+  if (!Number.isFinite(entry) || entry <= 0 || rem == null) return null;
+  return Math.max(0, entry - rem);
+}
+
+/**
+ * Skip a second TRIM ledger write when the position is already at the
+ * target remaining size, or the cut is larger than what is still held.
+ * DKNG 2026-08-26: two MFE_SAFETY_TRIM rows of original*50% while
+ * positions.total_qty stayed at 20.30.
+ */
+export function shouldSkipDuplicateTrimLedger({
+  liveQty,
+  expectedRemaining,
+  trimShares,
+  entryShares,
+} = {}) {
+  const live = Number(liveQty);
+  const shares = Number(entryShares);
+  if (!Number.isFinite(live) || live < 0) return false;
+  if (!Number.isFinite(shares) || shares <= 0) return false;
+  const tol = Math.max(0.05, shares * 0.02);
+  const exp = Number(expectedRemaining);
+  if (Number.isFinite(exp) && Math.abs(live - exp) <= tol) return true;
+  const cut = Number(trimShares);
+  if (Number.isFinite(cut) && cut > 0 && live + 1e-6 < cut) return true;
+  return false;
+}
+
+const RECEIPT_REASON_LABELS = {
+  PRE_CPI_RISK_REDUCTION: "Pre-CPI risk reduction",
+  PRE_PPI_RISK_REDUCTION: "Pre-PPI risk reduction",
+  PRE_FOMC_RISK_REDUCTION: "Pre-FOMC risk reduction",
+  PRE_FOMC_RISK_REDUCTION_MATERIAL: "Pre-FOMC risk reduction",
+  PRE_PCE_RISK_REDUCTION: "Pre-PCE risk reduction",
+  PRE_NFP_RISK_REDUCTION: "Pre-NFP risk reduction",
+  PRE_EARNINGS_RISK_REDUCTION: "Pre-earnings risk reduction",
+  MFE_SAFETY_TRIM: "Profit lock trim",
+  PHASE_LEAVE_100: "Momentum fade trim",
+  RUNNER_PEAK_TRAIL: "Peak trail trim",
+  PROFIT_PROTECT_TRIM: "Profit protect trim",
+  SOFT_FUSE_TRIM: "Momentum weaken trim",
+  SOFT_FUSE_CLOUD_TRIM: "Cloud-hold partial trim",
+  FAILED_ENTRY_RECLAIM: "Failed entry reclaim",
+  MFE_EXTENSION_TRIM: "Extension profit trim",
+  REFERENCE_TRIM: "Reference trim",
+  Investor_Sell_Accumulate: "Investor sell accumulate",
+  investor_sell_accumulate: "Investor sell accumulate",
+  auto_entry_accumulate: "Initial accumulate entry",
+  dca_pullback: "DCA on pullback",
+  replay_dca: "DCA add",
+};
+
+/**
+ * Receipt / History reason line. Prefer a known engine code. Ledger notes
+ * like "Trim DKNG 20.3sh @$25.06 PnL=$13.60" repeat the Shares/Price
+ * columns — collapse those to a short verb.
+ */
+export function humanizeReceiptReason(reason, opts) {
+  const raw0 = String(reason || "").trim();
+  if (!raw0) return "";
+  if (RECEIPT_REASON_LABELS[raw0]) return RECEIPT_REASON_LABELS[raw0];
+  if (/^(trim|exit|entry)\b/i.test(raw0) && /(?:\d|sh|shares)\b/i.test(raw0) && /@\s*\$/i.test(raw0)) {
+    if (/^trim\b/i.test(raw0)) return "Partial trim";
+    if (/^exit\b/i.test(raw0)) return "Exit";
+    if (/^entry\b/i.test(raw0)) return "Entry";
+  }
+  const raw = raw0.replace(/(\d+\.\d{3,})\s*sh\b/gi, (_m, n) => `${Number(n).toFixed(2)}sh`);
+  const titled = raw
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  const max = Number(opts?.max) || 0;
+  if (max > 0 && titled.length > max) return titled.slice(0, max - 1) + "…";
+  return titled;
+}
+
+/**
+ * Walk ENTRY/TRIM/EXIT rows and keep running held aligned with the
+ * live book. A second TRIM of original*50% that would print held=0
+ * while the book is still ~50% is a duplicate receipt, not a flatten.
+ */
+export function reconcileReceiptEvents(events, {
+  bookRemaining,
+  isOpen = false,
+} = {}) {
+  const book = Number(bookRemaining);
+  const hasBook = Number.isFinite(book) && book >= 0;
+  let running = 0;
+  const out = [];
+  for (const ev of events || []) {
+    const type = String(ev.type || "").toUpperCase();
+    const sh = Number(ev.shares) || 0;
+    let duplicate = !!ev.duplicate;
+    if (Number.isFinite(Number(ev.held_after))) {
+      running = Number(ev.held_after);
+    } else if (type === "ENTRY" || type === "ADD") {
+      running += sh;
+    } else if (type === "TRIM" || type === "EXIT") {
+      const next = Math.max(0, running - sh);
+      if (
+        isOpen
+        && hasBook
+        && book > 0.05
+        && type === "TRIM"
+        && next + 0.05 < book
+      ) {
+        duplicate = true;
+      } else {
+        running = next;
+      }
+    }
+    out.push({
+      ...ev,
+      running_shares: running,
+      duplicate,
+    });
+  }
+  if (hasBook && isOpen && out.length && Math.abs(running - book) > 0.05) {
+    running = book;
+    out[out.length - 1] = { ...out[out.length - 1], running_shares: book };
+  }
+  return out;
+}
+
 /** Expected realized $ for one trim fill. */
 export function computeTrimRealized({
   trimPrice,

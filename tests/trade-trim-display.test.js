@@ -7,6 +7,11 @@ import {
   isPhantomTrimRealized,
   buildTrimEconomicsSummary,
   filterMeaningfulTrims,
+  resolveRemainingShares,
+  resolveTrimmedShares,
+  shouldSkipDuplicateTrimLedger,
+  humanizeReceiptReason,
+  reconcileReceiptEvents,
 } from "../worker/trade-trim-display.js";
 
 describe("trade-trim-display", () => {
@@ -76,5 +81,58 @@ describe("trade-trim-display", () => {
     expect(summary.totalRealized).toBeLessThan(370);
     const mainTrim = summary.trims.find((t) => t.deltaPct >= 0.1);
     expect(mainTrim.realized).toBeLessThan(360);
+  });
+
+  it("remaining shares uses exact math, never integer-round subtract (DKNG)", () => {
+    const entry = 40.6038;
+    const trimPct = 0.5;
+    // The bug: Math.round(40.60) - Math.round(40.60 * 0.5) → 41 - 20 = 21
+    expect(Math.round(entry) - Math.round(entry * trimPct)).toBe(21);
+    expect(resolveRemainingShares({ entryShares: entry, trimmedPct: trimPct })).toBeCloseTo(20.3019, 4);
+    expect(resolveRemainingShares({
+      entryShares: entry,
+      trimmedPct: trimPct,
+      remainingShares: 20.3019,
+    })).toBeCloseTo(20.3019, 4);
+    expect(resolveTrimmedShares({ entryShares: entry, trimmedPct: trimPct })).toBeCloseTo(20.3019, 4);
+  });
+
+  it("skips a second 50% trim when the book is already at target remaining", () => {
+    expect(shouldSkipDuplicateTrimLedger({
+      liveQty: 20.3019,
+      expectedRemaining: 20.3019,
+      trimShares: 20.3019,
+      entryShares: 40.6038,
+    })).toBe(true);
+    expect(shouldSkipDuplicateTrimLedger({
+      liveQty: 40.6038,
+      expectedRemaining: 20.3019,
+      trimShares: 20.3019,
+      entryShares: 40.6038,
+    })).toBe(false);
+    expect(shouldSkipDuplicateTrimLedger({
+      liveQty: 20.3019,
+      expectedRemaining: 8.12,
+      trimShares: 12.18,
+      entryShares: 40.6038,
+    })).toBe(false);
+  });
+
+  it("humanizes ledger fill notes instead of repeating qty/price", () => {
+    expect(humanizeReceiptReason("MFE_SAFETY_TRIM")).toBe("Profit lock trim");
+    expect(humanizeReceiptReason("Trim DKNG 20.3sh @$25.06 PnL=$13.60")).toBe("Partial trim");
+    expect(humanizeReceiptReason("Entry SHORT DKNG [Shares] 40.60sh @$25.73")).toBe("Entry");
+  });
+
+  it("marks a second original-size trim as a duplicate when the book is still open", () => {
+    const rows = reconcileReceiptEvents([
+      { type: "ENTRY", shares: 40.60, ts: 1 },
+      { type: "TRIM", shares: 20.30, ts: 2 },
+      { type: "TRIM", shares: 20.30, ts: 3 },
+    ], { bookRemaining: 20.30, isOpen: true });
+    expect(rows[1].duplicate).toBe(false);
+    expect(rows[1].running_shares).toBeCloseTo(20.30, 2);
+    expect(rows[2].duplicate).toBe(true);
+    expect(rows[2].running_shares).toBeCloseTo(20.30, 2);
   });
 });
