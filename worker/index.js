@@ -98041,6 +98041,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   shares,
                   price,
                   position_id: pos.id,
+                  lot_id: lotId,
                   reason: `investor_${lotReason}`,
                   stage: scoreRow?.stage || "accumulate",
                   score: tickerScore,
@@ -98711,6 +98712,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               queueBackground(_bridgeMirrorInvestor({
                 kind: "add", ticker: t.ticker, shares: addShares,
                 price: t.price, position_id: t.existing.id,
+                lot_id: lotId,
                 reason: `investor_auto_add_${t.stage}`,
                 stage: t.stage, score: t.score,
               }));
@@ -98978,6 +98980,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               queueBackground(_bridgeMirrorInvestor({
                 kind: "open", ticker: t.ticker, shares, price: t.price,
                 position_id: posId,
+                lot_id: lotId,
                 reason: `investor_auto_entry_${t.stage}`,
                 stage: t.stage, score: t.score,
               }));

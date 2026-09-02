@@ -114,14 +114,30 @@ function remainingForLot(lot, remainingByPosition) {
   return null;
 }
 
-function lotAlreadyMirrored(mirroredOkIds, tradeId, action) {
-  const ids = [String(tradeId), `inv-${tradeId}`];
-  for (const side of ringSidesForLotAction(action)) {
-    for (const id of ids) {
-      if (mirroredOkIds.has(`${side}|${id}`)) return true;
-    }
-  }
-  return false;
+/** Ring place may stamp a couple of minutes before/after the D1 lot. */
+const LOT_MIRROR_TS_SLACK_MS = 2 * 60 * 1000;
+
+/**
+ * A prior BUY on the same Long Term position is NOT this lot.
+ * PLTR 2026-09-02: Aug 27 `buy|inv-PLTR-auto-…` made today's 15:45
+ * `dca_pullback` look already mirrored, so catch-up never placed.
+ */
+export function lotAlreadyMirrored(ring, lot) {
+  const tradeId = tradeIdForLot(lot);
+  const sides = new Set(ringSidesForLotAction(lot?.action));
+  const lotTs = Number(lot?.ts) || 0;
+  const lotId = lot?.id != null ? String(lot.id) : "";
+  return (ring || []).some((r) => {
+    if (!ringLooksLikeRealPlace(r)) return false;
+    if (!sides.has(String(r.side || "").toLowerCase())) return false;
+    if (lotId && (String(r.lot_id || "") === lotId)) return true;
+    const tid = String(r.trade_id || "");
+    if (tid !== tradeId && tid !== `inv-${tradeId}`) return false;
+    const ringTs = Number(r.ts);
+    if (!Number.isFinite(ringTs)) return false;
+    if (lotTs && ringTs + LOT_MIRROR_TS_SLACK_MS < lotTs) return false;
+    return true;
+  });
 }
 
 function tradeIdForLot(lot) {
@@ -229,12 +245,9 @@ export function planInvestorCatchupOps({
   trustFreshLotMs = 0,
   remainingByPosition = null,
 } = {}) {
-  const mirroredOkIds = new Set(
-    (ring || [])
-      .filter((r) => String(r?.trade_id || "").startsWith("inv-")
-        && ringLooksLikeRealPlace(r))
-      .map((r) => `${String(r.side || "").toLowerCase()}|${String(r.trade_id)}`),
-  );
+  const mirroredOkCount = (ring || []).filter((r) => (
+    String(r?.trade_id || "").startsWith("inv-") && ringLooksLikeRealPlace(r)
+  )).length;
 
   // Pre-filter by ticker, then last-signal-wins per position.
   const tickerLots = (lots || []).filter((lot) => {
@@ -251,9 +264,9 @@ export function planInvestorCatchupOps({
     const tradeId = tradeIdForLot(lot);
     const kind = kindForLot(lot);
 
-    // Already mirrored for this action → nothing to catch up. Older lots
-    // were already marked superseded.
-    if (lotAlreadyMirrored(mirroredOkIds, tradeId, lot.action)) continue;
+    // Already mirrored for THIS lot (ring ts on/after lot ts, or lot_id).
+    // A prior buy on the same position must not hide a later DCA.
+    if (lotAlreadyMirrored(ring, lot)) continue;
 
     const freshness = isCatchupSignalFresh(lot.ts, nowMs, {
       force,
@@ -373,7 +386,7 @@ export function planInvestorCatchupOps({
   return {
     planned,
     skipped_gates: skippedGates,
-    mirrored_ok_count: mirroredOkIds.size,
+    mirrored_ok_count: mirroredOkCount,
   };
 }
 
@@ -480,6 +493,7 @@ export async function runInvestorCatchup(env, opts = {}) {
         shares: op.shares,
         price: op.price,
         position_id: op.position_id,
+        lot_id: op.lot_id,
         reason: op.reason,
         source,
         retry_nonce: retryNonce,

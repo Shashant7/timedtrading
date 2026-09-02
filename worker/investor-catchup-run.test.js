@@ -109,6 +109,31 @@ describe("selectLatestSignalLots — last signal wins", () => {
 });
 
 describe("planInvestorCatchupOps", () => {
+  it("does not treat a prior-day buy on the same position as this DCA (PLTR 2026-09-02)", () => {
+    const today = {
+      ...baseLot,
+      id: "lot-PLTR-dca-2026-09-02-dca_pullback",
+      position_id: "inv-PLTR-auto-1783346576548",
+      ticker: "PLTR",
+      ts: Date.UTC(2026, 8, 2, 19, 45, 49),
+    };
+    const out = planInvestorCatchupOps({
+      lots: [today],
+      ring: [{
+        trade_id: "inv-PLTR-auto-1783346576548",
+        side: "buy",
+        status: "ok",
+        http_status: 200,
+        ts: Date.UTC(2026, 7, 27, 19, 47, 0),
+      }],
+      scores: { PLTR: { stage: "accumulate", score: 70 } },
+      livePrices: { PLTR: 170 },
+      nowMs: Date.UTC(2026, 8, 2, 19, 50, 0),
+    });
+    expect(out.planned).toHaveLength(1);
+    expect(out.planned[0].lot_id).toBe(today.id);
+  });
+
   it("plans a DCA when thesis/price intact and not yet mirrored", () => {
     const out = planInvestorCatchupOps({
       lots: [baseLot],
@@ -130,6 +155,7 @@ describe("planInvestorCatchupOps", () => {
         side: "buy",
         status: "ok",
         broker_order_id: "wb-123",
+        ts: baseLot.ts,
       }],
       scores: { CRDO: { stage: "accumulate", score: 70 } },
       livePrices: { CRDO: 178 },
@@ -163,6 +189,7 @@ describe("planInvestorCatchupOps", () => {
         status: "ok",
         http_status: 200,
         rh_order_id: null,
+        ts: baseLot.ts,
       }],
       scores: { CRDO: { stage: "accumulate", score: 70 } },
       livePrices: { CRDO: 178 },

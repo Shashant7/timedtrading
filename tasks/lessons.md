@@ -6,6 +6,30 @@
 
 ---
 
+## PLTR scale-in wrote the book but never hit the broker [2026-09-02]
+
+**Symptom:** Long Term ADD / `dca_pullback` on PLTR (11.78 sh @ $169.77
+at 15:45:49 ET). Bell + ledger healed via `dca_sweep_heal`. Broker
+day-action stayed `not_mirrored`. No `bridge:client:recent` row for
+the lot.
+
+**Cause:**
+1. Catch-up `lotAlreadyMirrored` keyed `buy|position_id`. The Aug 27
+   DCA buy on the same `inv-PLTR-auto-…` made today's add look done.
+2. `shortClientOrderId` hashed `(dca, position_id)` with no lot id —
+   every PLTR DCA reused `ttltdca4f713052e70bd86e6b96`.
+3. The 15:45 execute `waitUntil` never wrote a ring row (isolate
+   death after the lot commit). Sweep channels ran; the mirror leg
+   then no-op'd because of (1).
+
+**Fix:** Match a ring place only when `lot_id` matches or `ring.ts`
+is on/after the lot. Hash `lot_id` into the client order id. Pass
+`lot_id` from dca/execute, auto-add, auto-open, and catch-up.
+
+**Do not:** chase the missed print after the bounce. Price-drift
+still blocks a stale add; do not force-buy the pullback at the
+recovered mark.
+
 ## Index day-trade must not go green then red [2026-09-02]
 
 **Ask:** Entry / management / exit have to be sound. Do not let a
