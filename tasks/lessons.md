@@ -34,6 +34,35 @@ is LONG (calls). Clock still WAITs if extended off the 5m 21.
 expected a bounce. Premarket weakness can still be a put. The
 missing piece was the cash-session OR never seeing 09:30.
 
+## Index DT clock used stale 10m EMA; put inv could not print [2026-09-02]
+
+**Symptom:** After the DST OR fix, cards could still sit WAIT puts
+through a cash bounce. Clock `tf` was `"10"`, EMA21 ~778 vs SPY 765
+(−1.76%) so puts looked "extended below" and calls never "near EMA".
+`bull_trigger` / `bear_trigger` include `spot ± 0.25 ATR`, so
+invalidation that used those levels sat ahead of the tape and never
+fired. A conviction SHORT lean kept forcing put flavor after cash
+had already reclaimed overnight / prior close.
+
+**Cause:**
+1. `assembleTickerData` `tf_tech` is M/W/D/…/10 only. `CRON_FETCH_TFS`
+   has no `"5"`. `extractIndexTimingIndicators` preferred 5 then 10 —
+   and always fell through to a leftover 10m 21.
+2. `attachOptionManagement` used `bull_trigger` as put invalidation.
+3. Flavor follows day-lean with no structural veto.
+
+**Fix:** `timingFromM5Candles` via scenario D1 5m bars. Reject
+fallback TFs whose 21 is >1.5% from live spot. Structural inv =
+max/min of resolved OR, overnight, prior close. Clock prefers
+`inv_put` / `inv_call`. WAIT put into a bounce while OR is forming.
+`isDayLeanFlavorLive` drops a dead SHORT/LONG lean so confluence
+can pivot.
+
+**Do not:** add `"5"` to the scoring cron just for the clock — live
+5m from the scenario candles is enough. Do not flip a put to a call
+because a bounce was *expected*; flip only when structure is
+reclaimed or the OR votes LONG.
+
 ## PLTR scale-in wrote the book but never hit the broker [2026-09-02]
 
 **Symptom:** Long Term ADD / `dca_pullback` on PLTR (11.78 sh @ $169.77
