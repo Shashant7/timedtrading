@@ -315,7 +315,11 @@ export async function forwardInvestorMirror(env, op = {}) {
   // idempotency layer accepts it as a fresh order. Normal auto-mirror
   // calls omit it and keep the natural per-trade idempotency.
   const nonce = op?.retry_nonce != null ? String(op.retry_nonce) : "";
-  const clientOrderId = await shortClientOrderId(kind, tradeId, nonce);
+  // Hash the lot, not just the position. Same-position DCAs used to
+  // reuse one client_order_id (PLTR Aug 27 then Sep 2) and the bridge
+  // dropped the add as duplicate_client_order_id.
+  const idempotencyKey = op?.lot_id || tradeId;
+  const clientOrderId = await shortClientOrderId(kind, idempotencyKey, nonce);
   // Optional reduce_pct hint. When the model expresses a trim as "X% of
   // the position" (event-risk profile, auto-reduce), forward the pct so
   // the bridge's reconcileReducerQty can size against the ACTUAL model
@@ -385,6 +389,7 @@ export async function forwardInvestorMirror(env, op = {}) {
     const result = await forwardOrderToBridge(env, {
       user_id: userEmail,
       trade_id: tradeId,
+      lot_id: op?.lot_id || null,
       client_order_id: clientOrderId,
       ticker,
       side,
@@ -499,6 +504,7 @@ export async function forwardOrderToBridge(env, order) {
     side: order.side,
     qty: liveOrder.qty ?? order.qty,
     trade_id: order.trade_id,
+    lot_id: order.lot_id || null,
     client_order_id: order.client_order_id || null,
     mode: order.mode || null,
     vehicle: order.vehicle || null,

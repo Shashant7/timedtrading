@@ -225,6 +225,12 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   `total_qty` unchanged is a duplicate ledger row, not a flatten. Event
   log must not print held=0 on an OPEN book. Do not close the trade.
 
+**Long Term DCA catch-up keys the lot, not the position (2026-09-02)**
+- A prior BUY on `inv-PLTR-auto-…` must not mark a later `dca_pullback`
+  as already mirrored. Catch-up matches ring rows on/after the lot ts
+  (or `lot_id`). `client_order_id` hashes the lot id so the second
+  DCA is not `duplicate_client_order_id`.
+
 **Roth IRA is an allowed index day-trade options account (2026-09-02)**
 - Operator confirmed Webull Roth already takes manual index options. Do not
   treat IRA as unable to take 1 DTE SPY/QQQ/IWM. `WEBULL_DEFAULT_ACCOUNT_CLASS`
