@@ -51045,7 +51045,7 @@
         "event_type": "earnings",
         "event_name": "PANW Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 2.68,
         "spy_reaction_pct": -0.69,
         "sector_reaction_pct": null
       },
@@ -51054,7 +51054,7 @@
         "event_type": "earnings",
         "event_name": "CRDO Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 1.06,
         "spy_reaction_pct": -0.69,
         "sector_reaction_pct": null
       },
@@ -51063,7 +51063,7 @@
         "event_type": "earnings",
         "event_name": "MDB Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 17.76,
         "spy_reaction_pct": -0.69,
         "sector_reaction_pct": null
       },
@@ -51689,6 +51689,15 @@
         "sector_reaction_pct": null
       },
       {
+        "date": "2026-09-01",
+        "event_type": "earnings",
+        "event_name": "NKE Earnings",
+        "impact": "high",
+        "surprise_pct": 23.53,
+        "spy_reaction_pct": null,
+        "sector_reaction_pct": null
+      },
+      {
         "date": "2026-09-02",
         "event_type": "macro",
         "event_name": "Jul F Durable Gds Orders",
@@ -51975,14 +51984,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 73.9762
+        "sql_duration_ms": 50.1399
       },
-      "duration": 73.9762,
+      "duration": 50.1399,
       "changes": 0,
-      "last_row_id": 83061135,
+      "last_row_id": 83084714,
       "changed_db": false,
-      "size_after": 4622422016,
-      "rows_read": 5774,
+      "size_after": 4693528576,
+      "rows_read": 5775,
       "rows_written": 0,
       "total_attempts": 1
     }
