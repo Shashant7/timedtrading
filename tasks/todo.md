@@ -21,6 +21,12 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **Options mirror cap + successful-entry accounting (2026-09-03).**
+      Raise the operator options daily cap to 5; reserve cap slots before
+      dispatch but release them on broker rejection/error; recognize
+      fan-out LETF order IDs so successful entries remain trim/exit eligible.
+      Add regression tests, deploy both worker environments, and verify live.
+      Branch: `cursor/options-cap-success-count-dbdd`.
 - [x] **Learning desk review (2026-08-27).** Pending `learning_proposals`
       are mostly stale / already-in-effect / workhorse blocks. CIO/CRO/CTO
       desk triages hourly: auto-ack, auto-reject, auto-approve protective

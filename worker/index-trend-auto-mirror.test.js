@@ -100,6 +100,41 @@ describe("index-trend-auto-mirror", () => {
     expect(r.fired?.ok).toBe(false);
     expect(await indexTrendNeedsEntryCatchUp(env, signalId, RTH_TS)).toBe(false);
     expect(await indexTrendNeedsEntryCatchUp(env, signalId, RTH_TS + 16 * 60 * 1000)).toBe(true);
+    const today = new Date().toISOString().slice(0, 10);
+    expect(env.store[`timed:options:auto-mirror:count:op@test.com:${today}`]).toBe("0");
+    expect(env.store[`timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`]).toBe("0");
+  });
+
+  it("stamps a fan-out order id so later UDOW/TQQQ trims stay eligible", async () => {
+    forwardOrderToBridge.mockResolvedValueOnce({
+      ok: true,
+      response: {
+        ok: true,
+        fanout: true,
+        results: [
+          { http_status: 200, result: { ok: true, order_id: "WB-OWNER" } },
+          { http_status: 200, result: { ok: true, order_id: "WB-PARTNER" } },
+        ],
+      },
+    });
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+    });
+    const signalId = "it:QQQ:TQQQ:LONG:2026-W36";
+    const r = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      signal_id: signalId,
+      underlying: "QQQ",
+      letf_ticker: "TQQQ",
+      letf_price: 55,
+      book: { shares: 20, status: "open" },
+      now: RTH_TS,
+    });
+    expect(r.skipped).toBe(false);
+    const mirror = JSON.parse(env.store[`timed:idx-trend-mirror:${signalId}`]);
+    expect(mirror.entry_fired).toBe(true);
+    expect(mirror.entry_order_id).toBe("WB-OWNER");
+    expect(mirror.entry_order_ids).toEqual(["WB-OWNER", "WB-PARTNER"]);
   });
 
   it("still blocks a fresh BUY outside RTH", async () => {

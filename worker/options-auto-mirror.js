@@ -32,6 +32,7 @@ import { buildOptionsLadder, contractToLadderInput, shouldIndexAutoMirror } from
 import { trimSellQty } from "./option-day-trade-plan.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import { getThemesForTicker } from "./sector-mapping.js";
+import { bridgeResponseIsOk } from "./broker-bridge-client.js";
 
 const PREF_KEY = (userEmail) => `timed:options:auto-mirror:${String(userEmail || "").toLowerCase()}`;
 const DAILY_COUNTER_KEY = (userEmail, date) => `timed:options:auto-mirror:count:${String(userEmail || "").toLowerCase()}:${date}`;
@@ -377,6 +378,31 @@ export async function checkAndBumpVehicleCounter(env, userEmail, vehicle, cap) {
   return { allowed: true, current: current + 1, cap, vehicle };
 }
 
+async function releaseCounter(env, key) {
+  if (!env?.KV_TIMED || !key) return 0;
+  const current = Number(await env.KV_TIMED.get(key)) || 0;
+  const next = Math.max(0, current - 1);
+  await env.KV_TIMED.put(key, String(next), { expirationTtl: 86400 * 2 });
+  return next;
+}
+
+/** Release a reserved global slot after an order rejects or fails to dispatch. */
+export async function releaseDailyCounter(env, userEmail) {
+  const date = new Date().toISOString().slice(0, 10);
+  return releaseCounter(env, DAILY_COUNTER_KEY(userEmail, date));
+}
+
+/** Release a reserved vehicle slot after an order rejects or fails to dispatch. */
+export async function releaseVehicleCounter(env, userEmail, vehicle) {
+  const date = new Date().toISOString().slice(0, 10);
+  return releaseCounter(env, DAILY_VEHICLE_COUNTER_KEY(userEmail, vehicle, date));
+}
+
+/** HTTP success alone is not an accepted broker order. */
+export function optionsMirrorDispatchAccepted(fired) {
+  return bridgeResponseIsOk(fired?.response, fired?.ok === true);
+}
+
 /**
  * Read per-vehicle counters for display (Mission Control "Today" column).
  * Returns a map of vehicle → count. Does not bump.
@@ -488,30 +514,16 @@ export async function maybeAutoMirror(env, ctx) {
   const decision = decideAutoMirror(ctx, prefs, profile);
   if (!decision.should_mirror) return { skipped: true, ...decision };
 
-  // Per-vehicle daily cap check (primary gate).
-  const vehicleCap = Number(decision.vehicle_daily_cap || 0);
-  if (vehicleCap > 0) {
-    const vCounter = await checkAndBumpVehicleCounter(env, operatorEmail, decision.vehicle, vehicleCap);
-    if (!vCounter.allowed) {
-      return {
-        skipped: true,
-        reason: `vehicle_daily_cap_${vCounter.cap}_reached_for_${decision.vehicle}`,
-        counter: vCounter,
-      };
-    }
-    decision._vehicle_counter = vCounter;
-  }
-
-  // Global daily counter (back-compat aggregate). Use legacy daily_cap
-  // if present, otherwise sum of per-vehicle caps as a sane ceiling.
-  const globalCap = Number(prefs.daily_cap) || 0;
-  if (globalCap > 0) {
-    const counter = await checkAndBumpDailyCounter(env, operatorEmail, globalCap);
-    if (!counter.allowed) {
-      return { skipped: true, reason: `daily_cap_${counter.cap}_reached`, counter };
-    }
-    decision._global_counter = counter;
-  }
+  const counterOk = await bumpMirrorCounters(
+    env,
+    operatorEmail,
+    prefs,
+    decision.vehicle,
+    prefs.vehicles?.[decision.vehicle] || { daily_cap: decision.vehicle_daily_cap },
+  );
+  if (!counterOk.ok) return counterOk;
+  decision._vehicle_counter = counterOk.vehicle_counter || null;
+  decision._global_counter = counterOk.global_counter || null;
 
   // Fire.
   const fired = await fireAutoMirror(env, operatorEmail, {
@@ -522,6 +534,9 @@ export async function maybeAutoMirror(env, ctx) {
     confluence_verdict: decision.confluence,
     source: "auto_mirror",
   });
+  if (!optionsMirrorDispatchAccepted(fired)) {
+    await releaseMirrorCounters(env, operatorEmail, decision.vehicle, counterOk);
+  }
 
   return {
     skipped: false,
@@ -596,8 +611,12 @@ export function extractMirrorFill(fired, requestedQty = 1) {
       order_id: fill.order_id || fill.broker_order_id || null,
     };
   }
-  if (fired?.ok === false || res.rejected || res.ok === false) {
-    return { status: "rejected", filled_qty: 0, reason: res.reason || res.error || "rejected" };
+  if (!optionsMirrorDispatchAccepted(fired)) {
+    return {
+      status: "rejected",
+      filled_qty: 0,
+      reason: res.reject_reason || res.reason || res.error || placed?.error || fired?.error || "rejected",
+    };
   }
   // Place accepted, no fill echo (tests + Webull pitfall) — assume filled.
   return { status: "filled", filled_qty: requested, assumed: true };
@@ -903,6 +922,7 @@ async function gateIndexDayTradeMirror(env, ctx = {}) {
 }
 
 async function bumpMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicleRow) {
+  let vehicleCounter = null;
   const vehicleCap = Number(vehicleRow.daily_cap || 0);
   if (vehicleCap > 0) {
     const vCounter = await checkAndBumpVehicleCounter(env, operatorEmail, vehicleKey, vehicleCap);
@@ -914,15 +934,30 @@ async function bumpMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicle
         counter: vCounter,
       };
     }
+    vehicleCounter = vCounter;
   }
+  let globalCounter = null;
   const globalCap = Number(prefs.daily_cap) || 0;
   if (globalCap > 0) {
     const counter = await checkAndBumpDailyCounter(env, operatorEmail, globalCap);
     if (!counter.allowed) {
+      if (vehicleCounter) await releaseVehicleCounter(env, operatorEmail, vehicleKey);
       return { ok: false, skipped: true, reason: `daily_cap_${counter.cap}_reached`, counter };
     }
+    globalCounter = counter;
   }
-  return { ok: true };
+  return { ok: true, vehicle_counter: vehicleCounter, global_counter: globalCounter };
+}
+
+async function releaseMirrorCounters(env, operatorEmail, vehicleKey, reservation) {
+  const releases = [];
+  if (reservation?.vehicle_counter) {
+    releases.push(releaseVehicleCounter(env, operatorEmail, vehicleKey));
+  }
+  if (reservation?.global_counter) {
+    releases.push(releaseDailyCounter(env, operatorEmail));
+  }
+  await Promise.all(releases);
 }
 
 /**
@@ -1104,6 +1139,9 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     let fill = extractMirrorFill(fired, entryContracts);
     fill = await pollFillIfNeeded(env, operatorEmail, fill, entryContracts);
     const rec = reconcileIndexDtFill({ event: "BUY", requestedQty: entryContracts, fill });
+    if (!rec.persist && !rec.pending) {
+      await releaseMirrorCounters(env, operatorEmail, vehicleKey, counterOk);
+    }
 
     if (signalId && rec.persist) {
       await saveIndexDtMirror(env, signalId, {
