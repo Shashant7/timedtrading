@@ -237,6 +237,15 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   is `ROTH_IRA`; `pickOptionsAccount` already prefers that class. The Roth row
   is the only operator account with `options_enabled` + integration on.
 
+**Mirror counters count accepted entries; LETF fan-out IDs drive reducers (2026-09-03)**
+- Global options daily cap is 5. Reserve global + vehicle slots before BUY,
+  then release both on broker reject/error (and release vehicle if the global
+  gate denies). Working/partial orders retain the slot. HTTP 200 plus a reject
+  body is not an assumed fill.
+- Index-trend fan-out order IDs live in `response.results[].result`; persist
+  them to `timed:idx-trend-mirror` and set `entry_fired`, or later UDOW/TQQQ
+  TRIM/EXIT will skip `no_mirrored_entry`. Never replay the historical miss.
+
 **Index day-trade broker mirror — closes never cap-gated, qty = mirrored fill (2026-08-24)**
 - Daily counters gate BUY only. A TRIM/EXIT/STOP must never be blocked by a
   cap or the broker is left holding a position the model already exited.

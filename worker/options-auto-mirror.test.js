@@ -339,6 +339,54 @@ describe("Stage 5b mirror safety invariants", () => {
     expect(kv.store.has(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBe(false);
   });
 
+  it("releases daily-cap slots when the broker rejects an entry", async () => {
+    const prefs = JSON.stringify({
+      enabled: true,
+      daily_cap: 1,
+      vehicles: { long_call: { enabled: true, daily_cap: 1, max_per_order_usd: 300, max_loss_per_order_usd: 0 } },
+    });
+    const kv = kvMock({ "timed:options:auto-mirror:op@x.com": prefs });
+    let attempt = 0;
+    const captured = [];
+    const env = bridgeEnv(kv, captured);
+    env.BROKER_BRIDGE.fetch = async (req) => {
+      captured.push(await req.clone().json());
+      attempt += 1;
+      if (attempt === 1) {
+        return new Response(JSON.stringify({
+          ok: false,
+          rejected: true,
+          reject_reason: "broker_preview_rejected",
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ ok: true, order_id: "OPT-2" }), { status: 200 });
+    };
+
+    const first = await maybeAutoMirrorIndexDayTradeEvent(env, {
+      event: "BUY",
+      ticker: "QQQ",
+      signal_id: `${SID}:reject`,
+      play: CALL_PLAY,
+      indicesFlagOn: true,
+    });
+    expect(first.reconcile.persist).toBe(false);
+    expect(first.fill.reason).toBe("broker_preview_rejected");
+    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:${today}`)).toBe("0");
+    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBe("0");
+
+    const second = await maybeAutoMirrorIndexDayTradeEvent(env, {
+      event: "BUY",
+      ticker: "QQQ",
+      signal_id: `${SID}:accepted`,
+      play: CALL_PLAY,
+      indicesFlagOn: true,
+    });
+    expect(second.skipped).toBe(false);
+    expect(second.reconcile.persist).toBe(true);
+    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:${today}`)).toBe("1");
+    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBe("1");
+  });
+
   it("EXIT after a mirrored TRIM sells only the mirrored remainder", async () => {
     const captured = [];
     const kv = kvMock({
@@ -403,6 +451,18 @@ describe("extractMirrorFill / reconcileIndexDtFill", () => {
     const rec = reconcileIndexDtFill({ event: "EXIT", requestedQty: 1, fill });
     expect(rec.persist).toBe(false);
     expect(rec.pending).toBe(false);
+  });
+
+  it("treats HTTP 200 with a reject reason as rejected, not an assumed fill", () => {
+    const fill = extractMirrorFill({
+      ok: true,
+      response: { ok: true, rejected: true, reject_reason: "daily_risk_reject" },
+    }, 1);
+    expect(fill).toMatchObject({
+      status: "rejected",
+      filled_qty: 0,
+      reason: "daily_risk_reject",
+    });
   });
 
   it("marks a working fill as pending (retry later)", () => {

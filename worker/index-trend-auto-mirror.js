@@ -2,11 +2,13 @@
 //
 // Broker mirror for index trend LETF share plays via /bridge/order.
 
-import { forwardOrderToBridge } from "./broker-bridge-client.js";
+import { forwardOrderToBridge, parseBridgeOrderIds } from "./broker-bridge-client.js";
 import {
   loadAutoMirrorPrefs,
   checkAndBumpDailyCounter,
   checkAndBumpVehicleCounter,
+  releaseDailyCounter,
+  releaseVehicleCounter,
 } from "./options-auto-mirror.js";
 import { defaultIndexTrendPaperShares } from "./index-trend-paper.js";
 import { isNyRegularMarketOpenStatic } from "./market-calendar.js";
@@ -26,7 +28,7 @@ export function indexTrendFiredLooksPlaced(fired) {
   const parsed = fired.response && typeof fired.response === "object"
     ? fired.response
     : fired;
-  return !!(parsed.order_id || parsed.rh_order_id || parsed.broker_order_id);
+  return !!parseBridgeOrderIds(parsed).order_id;
 }
 
 export async function indexTrendNeedsEntryCatchUp(env, signalId, now = Date.now()) {
@@ -112,21 +114,37 @@ async function gateMirror(env, ctx = {}) {
 }
 
 async function bumpEntryCounters(env, operatorEmail, prefs, vehicleRow) {
+  let vehicleCounter = null;
   const vehicleCap = Number(vehicleRow.daily_cap || 0);
   if (vehicleCap > 0) {
     const vCounter = await checkAndBumpVehicleCounter(env, operatorEmail, VEHICLE_KEY, vehicleCap);
     if (!vCounter.allowed) {
       return { ok: false, skipped: true, reason: `vehicle_daily_cap_${vCounter.cap}_reached_for_${VEHICLE_KEY}` };
     }
+    vehicleCounter = vCounter;
   }
+  let globalCounter = null;
   const globalCap = Number(prefs.daily_cap) || 0;
   if (globalCap > 0) {
     const counter = await checkAndBumpDailyCounter(env, operatorEmail, globalCap);
     if (!counter.allowed) {
+      if (vehicleCounter) await releaseVehicleCounter(env, operatorEmail, VEHICLE_KEY);
       return { ok: false, skipped: true, reason: `daily_cap_${counter.cap}_reached` };
     }
+    globalCounter = counter;
   }
-  return { ok: true };
+  return { ok: true, vehicle_counter: vehicleCounter, global_counter: globalCounter };
+}
+
+async function releaseEntryCounters(env, operatorEmail, reservation) {
+  const releases = [];
+  if (reservation?.vehicle_counter) {
+    releases.push(releaseVehicleCounter(env, operatorEmail, VEHICLE_KEY));
+  }
+  if (reservation?.global_counter) {
+    releases.push(releaseDailyCounter(env, operatorEmail));
+  }
+  await Promise.all(releases);
 }
 
 function planEntryQty({ vehicleRow, letfPrice, book, size }) {
@@ -217,17 +235,20 @@ async function runIndexTrendMirror(env, ctx = {}) {
       meta: { underlying, lane: "index_trend", archetype: "index_trend_letf" },
     });
 
-    if (signalId && indexTrendFiredLooksPlaced(fired)) {
+    const placed = indexTrendFiredLooksPlaced(fired);
+    if (signalId && placed) {
       const parsed = fired.response && typeof fired.response === "object"
         ? fired.response
         : fired;
+      const ids = parseBridgeOrderIds(parsed);
       await saveMirror(env, signalId, {
         entry_fired: true,
         letf_ticker: letfTicker,
         underlying,
         shares: sizing.qty,
         shares_remaining: sizing.qty,
-        entry_order_id: parsed.order_id || parsed.rh_order_id || parsed.broker_order_id || null,
+        entry_order_id: ids.order_id,
+        entry_order_ids: ids.order_ids,
         last_reject: null,
         last_reject_ts: null,
       });
@@ -237,6 +258,7 @@ async function runIndexTrendMirror(env, ctx = {}) {
         last_reject_ts: Number(ctx.now) || Date.now(),
       });
     }
+    if (!placed) await releaseEntryCounters(env, operatorEmail, counterOk);
 
     return { skipped: false, fired, event, qty: sizing.qty, vehicle: VEHICLE_KEY };
   }
