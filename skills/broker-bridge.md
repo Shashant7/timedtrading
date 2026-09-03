@@ -63,14 +63,22 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   `kind="exit"` used to map to `side="buy"` (would place a BUY for an
 >   exit intent) — landmine fixed 2026-07-27.
 > - `catchup-investor` dedupe: key mirror-ok by `(side, trade_id)` (so a
->   prior BUY doesn't mask a later SELL). A real place is ok + a broker
->   id (`rh_order_id` / `order_id` / `broker_order_id`), or a legacy
->   `ok`+HTTP 200 row without `deduped:true` (OpEx 2026-08-21: the
->   client used to drop Webull `order_id`). `{ ok:true, deduped:true }`
->   must NOT look like a fill. Pass `retry_nonce` per catchup call so
->   `shortClientOrderId` produces a fresh id and the bridge idempotency
->   layer releases the retry. Sort exits/trims ahead of buys before
->   `max_ops` (hourly/COO cap is 24).
+>   prior BUY doesn't mask a later SELL). A real BUY/DCA/entry place
+>   requires a broker id (`rh_order_id` / `order_id` / `broker_order_id`).
+>   HTTP 200 alone is not a buy fill (TJX 2026-09-03 false-ok). Legacy
+>   SELL/TRIM `ok`+HTTP 200 with a null id still counts as mirrored
+>   (OpEx 2026-08-21). `{ ok:true, deduped:true }` must NOT look like a
+>   fill. Pass `retry_nonce` per catchup call so `shortClientOrderId`
+>   produces a fresh id and the bridge idempotency layer releases the
+>   retry. Sort exits/trims ahead of buys before `max_ops` (hourly/COO
+>   cap is 24).
+> - `POST /timed/admin/broker-bridge/catchup-trader-entries` heals Short
+>   Term equity + index-trend LETF buys that wrote the model book but
+>   never placed (waitUntil stampede, cash whole-share floor, 15-min
+>   `/timed/options/all` CPU). Default `dry_run=true`. Auto `*/5` RTH
+>   under `BROKER_CATCHUP_AUTO_RTH`. Skips SHORT (Roth cannot short)
+>   unless `include_shorts:true`. Buys require a broker id; 5% drift
+>   gate; 10-min reject cooldown. Do not bury this in options/all.
 > - Catch-up trims MUST send `reduce_pct = lot.shares / (remaining +
 >   lot.shares)` from `investor_positions.total_shares`. Replaying raw
 >   model-space `investor_lots.shares` is the META flatten (PLTR OpEx

@@ -103,6 +103,21 @@ const RING_MAX = 200;
  * Robinhood-era contract, Webull `order_id`, manifest `broker_order_id`).
  * Deduped claims return `{ ok:true, deduped:true }` with no id.
  */
+/**
+ * A place is only OK when the bridge body says so.
+ * HTTP 200 + empty/`{ok:undefined}` used to count as a fill (TJX
+ * 2026-09-03: reject_reason on a 200, ring status ok, no order_id).
+ */
+export function bridgeResponseIsOk(parsed, httpOk) {
+  if (httpOk !== true) return false;
+  if (!parsed || typeof parsed !== "object") return false;
+  if (parsed.ok !== true) return false;
+  if (parsed.rejected === true) return false;
+  const reject = String(parsed.reject_reason || "").trim();
+  if (reject) return false;
+  return true;
+}
+
 export function parseBridgeOrderIds(parsed) {
   const nested = parsed?.response && typeof parsed.response === "object"
     ? parsed.response
@@ -534,7 +549,7 @@ export async function forwardOrderToBridge(env, order) {
     const text = await r.text().catch(() => "");
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch (_) {}
-    const ok = r.ok && parsed?.ok !== false;
+    const ok = bridgeResponseIsOk(parsed, r.ok === true);
     const ids = parseBridgeOrderIds(parsed);
     ringEntry.status = ok ? "ok" : "error";
     ringEntry.http_status = r.status;

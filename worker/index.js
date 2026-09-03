@@ -2418,6 +2418,7 @@ const ROUTES = [
   // 2026-07-30 — Re-fire a stuck trader EXIT (review ok, place never ran).
   ["POST", "/timed/admin/broker-bridge/catchup-exit", "POST /timed/admin/broker-bridge/catchup-exit"],
   ["POST", "/timed/admin/broker-bridge/catchup-trader-exits", "POST /timed/admin/broker-bridge/catchup-trader-exits"],
+  ["POST", "/timed/admin/broker-bridge/catchup-trader-entries", "POST /timed/admin/broker-bridge/catchup-trader-entries"],
   // 2026-07-30 — Rebuild Roth mirror from OPEN positions (avg_entry band + thesis).
   ["POST", "/timed/admin/broker-bridge/rebuild-mirror", "POST /timed/admin/broker-bridge/rebuild-mirror"],
   // 2026-07-30 — Reverse dual-worker DCA twin lots (share bump + lot + ledger).
@@ -84961,6 +84962,34 @@ export default {
         }
       }
 
+      // 2026-09-03 — Heal ST equity + index-trend LETF entries that wrote
+      // the model book but never placed (TJX cash-floor, UDOW 15-min CPU).
+      // Default dry_run=true. Independent of /timed/options/all.
+      if (routeKey === "POST /timed/admin/broker-bridge/catchup-trader-entries") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const { runTraderEntryCatchup } = await import("./trader-entry-catchup.js");
+          const out = await runTraderEntryCatchup(env, {
+            dry_run: body?.dry_run !== false,
+            force: body?.force === true,
+            include_shorts: body?.include_shorts === true,
+            max_ops: body?.max_ops,
+            max_buy_drift_pct: body?.max_buy_drift_pct,
+            reason: body?.reason || "admin_catchup_trader_entries",
+          });
+          return sendJSON({
+            ...out,
+            note: out.dry_run
+              ? "Pass {\"dry_run\":false} to forward unmatched Short Term / index-trend entries. Shorts stay skipped unless include_shorts:true. force:true bypasses RTH + drift + cooldown."
+              : "Unmatched Short Term / index-trend entries forwarded; check bridge:client:recent.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // 2026-08-12 — Manually run the DCA side-effect heal sweep (same code
       // the 15:50 ET cron runs; window_hours widens the lookback for
       // after-the-fact repairs like NVDA 8/11).
@@ -105615,6 +105644,65 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[TRADER EXIT CATCHUP] Failed:", String(e?.message || e).slice(0, 300));
           recordCronFailure(env, {
             op: "trader_exit_catchup_auto",
+            error: String(e?.message || e),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
+    }
+
+    // ── Short Term + index-trend ENTRY catch-up (*/5 during RTH) ──
+    //
+    // 2026-09-03 — TJX Cloud Pivot and UDOW LETF wrote the model book
+    // then never placed: cash floor-to-zero + waitUntil stampede +
+    // index-trend buried in /timed/options/all. Do not piggyback that
+    // path. Monolith only. Gated by BROKER_CATCHUP_AUTO_RTH.
+    if (!_isDedicatedEngine
+        && _isEvery5Min
+        && isNyRegularMarketOpen()
+        && String(env?.BROKER_CATCHUP_AUTO_RTH || "false").toLowerCase() === "true") {
+      ctx.waitUntil((async () => {
+        try {
+          const KV = env?.KV_TIMED;
+          const lockKey = "timed:cron:trader_entry_catchup";
+          if (KV) {
+            const held = await KV.get(lockKey).catch(() => null);
+            if (held) {
+              console.log("[TRADER ENTRY CATCHUP] skip — lock held");
+              return;
+            }
+            await KV.put(lockKey, String(Date.now()), { expirationTtl: 4 * 60 }).catch(() => {});
+          }
+          const { runTraderEntryCatchup } = await import("./trader-entry-catchup.js");
+          const out = await runTraderEntryCatchup(env, {
+            dry_run: false,
+            max_ops: 8,
+            reason: "trader_entry_catchup_auto",
+          });
+          const okN = (out.results || []).filter((r) => r.ok && !r.skip).length;
+          const failN = (out.results || []).filter((r) => !r.ok || r.skip).length;
+          console.log(
+            `[TRADER ENTRY CATCHUP] planned=${out.planned} skipped=${out.skipped_count || 0}`
+            + ` forwarded=${out.forwarded} fail=${failN}`,
+          );
+          if (out.planned > 0) {
+            recordCronSuccess(env, "trader_entry_catchup_auto").catch(() => {});
+            try {
+              const lines = (out.results || []).slice(0, 12).map((r) =>
+                `${r.ok ? "ok" : "fail"} ${r.kind} ${r.ticker}`
+                + (r.skip ? ` (${String(r.skip).slice(0, 40)})` : ""),
+              );
+              await notifyDiscord(env, {
+                title: `SHORT TERM · entry catch-up (${okN} ok / ${failN} fail)`,
+                description: lines.join("\n") || `${out.planned} planned`,
+                color: failN ? 0xf0a020 : 0x4a90d9,
+              }, "trade").catch(() => {});
+            } catch (_) { /* notify best-effort */ }
+          }
+        } catch (e) {
+          console.warn("[TRADER ENTRY CATCHUP] Failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, {
+            op: "trader_entry_catchup_auto",
             error: String(e?.message || e),
             caller: "scheduled_event",
           }).catch(() => {});

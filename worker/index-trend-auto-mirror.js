@@ -17,17 +17,32 @@ export const INDEX_TREND_MIRROR_LOG_KEY = "timed:idx-trend-mirror-log";
 const MIRROR_LOG_KEY = INDEX_TREND_MIRROR_LOG_KEY;
 const MIRROR_LOG_MAX = 120;
 
-export async function indexTrendNeedsEntryCatchUp(env, signalId) {
+export const INDEX_TREND_REJECT_COOLDOWN_MS = 15 * 60 * 1000;
+
+/** Bridge place that actually filled or claimed (not a false-ok 200). */
+export function indexTrendFiredLooksPlaced(fired) {
+  if (!fired || fired.ok !== true || fired.skip) return false;
+  if (fired.deduped === true || fired.response?.deduped === true) return true;
+  const parsed = fired.response && typeof fired.response === "object"
+    ? fired.response
+    : fired;
+  return !!(parsed.order_id || parsed.rh_order_id || parsed.broker_order_id);
+}
+
+export async function indexTrendNeedsEntryCatchUp(env, signalId, now = Date.now()) {
   const existing = await loadMirror(env, signalId);
-  return !existing?.entry_fired;
+  if (existing?.entry_fired) return false;
+  const rejectTs = Number(existing?.last_reject_ts) || 0;
+  if (rejectTs && (Number(now) || Date.now()) - rejectTs < INDEX_TREND_REJECT_COOLDOWN_MS) {
+    return false;
+  }
+  return true;
 }
 
 /** True when a catch-up BUY actually forwarded (not skipped/rejected). */
 export function indexTrendCatchUpPlaced(result) {
   if (!result || result.skipped) return false;
-  const fired = result.fired;
-  if (!fired) return false;
-  return fired.ok !== false && !fired.skip;
+  return indexTrendFiredLooksPlaced(result.fired);
 }
 
 export function indexTrendMirrorKey(signalId) {
@@ -202,14 +217,24 @@ async function runIndexTrendMirror(env, ctx = {}) {
       meta: { underlying, lane: "index_trend", archetype: "index_trend_letf" },
     });
 
-    if (signalId && fired?.ok !== false && !fired?.skip) {
+    if (signalId && indexTrendFiredLooksPlaced(fired)) {
+      const parsed = fired.response && typeof fired.response === "object"
+        ? fired.response
+        : fired;
       await saveMirror(env, signalId, {
         entry_fired: true,
         letf_ticker: letfTicker,
         underlying,
         shares: sizing.qty,
         shares_remaining: sizing.qty,
-        entry_order_id: fired?.order_id || fired?.rh_order_id || null,
+        entry_order_id: parsed.order_id || parsed.rh_order_id || parsed.broker_order_id || null,
+        last_reject: null,
+        last_reject_ts: null,
+      });
+    } else if (signalId) {
+      await saveMirror(env, signalId, {
+        last_reject: fired?.response?.reject_reason || fired?.error || fired?.skip || "bridge_reject",
+        last_reject_ts: Number(ctx.now) || Date.now(),
       });
     }
 
@@ -237,7 +262,7 @@ async function runIndexTrendMirror(env, ctx = {}) {
       meta: { underlying, lane: "index_trend", dca: true },
     });
 
-    if (fired?.ok !== false && !fired?.skip) {
+    if (indexTrendFiredLooksPlaced(fired)) {
       const rem = (Number(mirror.shares_remaining) || 0) + qty;
       await saveMirror(env, signalId, {
         shares: (Number(mirror.shares) || 0) + qty,
@@ -275,7 +300,7 @@ async function runIndexTrendMirror(env, ctx = {}) {
     meta: { underlying, lane: "index_trend", close_event: event.toLowerCase() },
   });
 
-  if (fired?.ok !== false && !fired?.skip) {
+  if (indexTrendFiredLooksPlaced(fired)) {
     const remaining = Math.max(0, (Number(mirror.shares_remaining) || 0) - qty);
     const patch = event === "TRIM"
       ? { trim_fired: true, trim_qty: qty, shares_remaining: remaining }

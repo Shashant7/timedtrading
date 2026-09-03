@@ -6,6 +6,45 @@
 
 ---
 
+## UDOW, TQQQ, and TJX entries never reached the broker [2026-09-03]
+
+**Symptom:** Same-morning Short Term TJX Cloud Pivot and index-trend
+LETF (UDOW, then TQQQ) wrote the model book / Discord. Roth never
+filled. ULTA and DPZ also had no ring row. NKE SHORT must not spam
+an IRA. Partner accounts show mirror-sync drift on the same misses.
+
+**Cause (three layers):**
+1. Bridge cash scale used `Math.floor(usableCash / entry)` even when
+   Webull RTH fractional was on. Roth ~$92 / TJX $131.60 → 0 shares →
+   `insufficient_cash_for_one_unit`. Relational sizing had already
+   correctly produced 1.65 sh.
+2. `forwardOrderToBridge` used `r.ok && parsed?.ok !== false`, so HTTP
+   200 with a reject (or empty body) stamped `bridge:client:recent`
+   `status:ok` with no `order_id`. `ringLooksLikeRealPlace` treated
+   that as a fill, so no retry.
+3. There is trader EXIT catch-up and investor catch-up, but no trader /
+   index-trend ENTRY catch-up. Index-trend dispatch is `*/15` inside
+   `/timed/options/all` and can die before DIA.
+
+**Fix:** `scaleQtyForCeiling({fractional})` on cash / cap /
+concentration. `bridgeResponseIsOk` requires `ok:true` and no
+`reject_reason`. Buy-side ring places require an order id (sells keep
+the OpEx 2026-08-21 HTTP 200 exception). `runTraderEntryCatchup` +
+`POST /timed/admin/broker-bridge/catchup-trader-entries` + monolith
+`*/5` RTH cron. Index-trend `entry_fired` only after a real place.
+
+**Do not:** auto-enable Individual Cash/Margin. Chase a >5% drift.
+Treat HTTP 200 without an order id as a buy fill. Mirror NKE SHORT
+onto the Roth. Bury this heal in `/timed/options/all`.
+
+
+
+> **Quick refresh:** See [CONTEXT.md](../CONTEXT.md) for condensed critical lessons.
+> **Quick skills:** See [`skills/README.md`](../skills/README.md) for reusable playbooks.
+> Update after ANY correction from the user. Review at session start.
+
+---
+
 ## Index DT opening range used EST UTC hours in September [2026-09-02]
 
 **Symptom:** Operator expected a bounce. SPY opened 761.78 and grinded

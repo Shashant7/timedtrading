@@ -66,9 +66,43 @@ export function maxQtyForCeiling({
   usableUsd,
   entryUsd,
   buffer = WEBULL_MARKET_BUFFER,
+  fractional = false,
+  precision = 5,
 } = {}) {
   if (!(Number(usableUsd) > 0) || !(Number(entryUsd) > 0)) return 0;
-  return Math.floor((Number(usableUsd) / Number(buffer)) / Number(entryUsd));
+  const raw = (Number(usableUsd) / Number(buffer)) / Number(entryUsd);
+  if (!fractional) return Math.floor(raw);
+  const factor = 10 ** (Number(precision) || 5);
+  return Math.floor(raw * factor + 1e-12) / factor;
+}
+
+/**
+ * Qty that fits a dollar ceiling. Fractional RTH can return a sub-share
+ * (TJX 2026-09-03: $92 Roth / $131.60 → 0.68, not a hard reject).
+ * ETH / whole-share brokers still floor. Below min notional → 0.
+ */
+export function scaleQtyForCeiling({
+  usableUsd,
+  entryUsd,
+  buffer = WEBULL_MARKET_BUFFER,
+  fractional = false,
+  precision = 5,
+  minNotionalUsd = 1,
+} = {}) {
+  const qty = maxQtyForCeiling({
+    usableUsd,
+    entryUsd,
+    buffer,
+    fractional,
+    precision,
+  });
+  if (!(qty > 0)) return 0;
+  if (fractional) {
+    return qty * Number(entryUsd) + 1e-9 >= Number(minNotionalUsd || 0)
+      ? qty
+      : 0;
+  }
+  return qty >= 1 ? qty : 0;
 }
 
 export function optionDebitUsd({ premium, qty } = {}) {

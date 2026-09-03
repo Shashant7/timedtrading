@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { computeRelationalQty, roundQtyForBroker } from "./bridge-sizing.js";
 import { preflightOrder } from "./bridge-guards.js";
+import { resetLocalReservations } from "./bridge-cash-budget.js";
 
 describe("roundQtyForBroker", () => {
   it("floors to whole shares when not fractional", () => {
@@ -161,10 +162,9 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
     };
     const pf = await preflightOrder(env, payload);
     expect(pf.ok).toBe(true);
-    // Ceiling 332 / 1.02 = 325.49; floor(325.49 / 151.14) = 2 whole.
-    expect(payload.qty).toBe(2);
-    // 2 * 151.14 = 302.28. 302.28 * 1.02 = 308.33 <= 332 BP. Clears
-    // Webull's rule; no more "Insufficient Buying Power".
+    // Ceiling 332 / 1.02 = 325.49; fractional 325.49 / 151.14 ≈ 2.153.
+    expect(payload.qty).toBeGreaterThan(2.15);
+    expect(payload.qty).toBeLessThan(2.16);
     expect(payload.qty * payload.entry * 1.02).toBeLessThanOrEqual(332);
     expect(pf.scaling?.reason).toContain("cash_buffer");
     expect(pf.scaling?.buying_power_usd).toBe(332);
@@ -192,8 +192,39 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
     };
     const pf = await preflightOrder(env, payload);
     expect(pf.ok).toBe(true);
-    // 500 / 1.02 = 490.19; floor(490.19 / 151.14) = 3 whole.
-    expect(payload.qty).toBe(3);
+    // 500 / 1.02 = 490.19; fractional 490.19 / 151.14 ≈ 3.243.
+    expect(payload.qty).toBeGreaterThan(3.24);
+    expect(payload.qty).toBeLessThan(3.25);
     expect(payload.qty * payload.entry * 1.02).toBeLessThanOrEqual(500);
+  });
+
+  it("fractional RTH: $92 Roth cash scales TJX instead of insufficient_cash_for_one_unit", async () => {
+    // Prior preflight tests reserve cash on WB-ROTH in the process-local
+    // ledger; clear it so this tight-cash case is isolated.
+    resetLocalReservations();
+    // 2026-09-03 — model 10.07 sh @ $131.60. Relational → ~1.66, then
+    // the old Math.floor($92/1.02/$131.60) was 0 and rejected.
+    const tightCash = {
+      ...rothUser,
+      cash_usd: 92,
+      buying_power_usd: 92,
+      equity_usd: 16500,
+    };
+    const env = makeEnv(tightCash);
+    const payload = {
+      user_id: "op@x.com#webull#roth-ira",
+      trade_id: "TJX-1788443010856-y683gd3xi",
+      ticker: "TJX",
+      side: "buy",
+      qty: 10.07,
+      entry: 131.60,
+      mode: "trader",
+    };
+    const pf = await preflightOrder(env, payload);
+    expect(pf.ok).toBe(true);
+    expect(payload.qty).toBeGreaterThan(0.68);
+    expect(payload.qty).toBeLessThan(0.69);
+    expect(payload.qty * payload.entry * 1.02).toBeLessThanOrEqual(92 + 1e-6);
+    expect(pf.scaling?.reason).toContain("cash_buffer");
   });
 });
