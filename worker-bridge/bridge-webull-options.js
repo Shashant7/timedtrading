@@ -5,6 +5,7 @@
 
 import {
   ensureWebullAccessToken,
+  extractWebullPositionRows,
   webullGetPositions,
   webullPostOptionsOrder,
 } from "./bridge-webull-api.js";
@@ -148,26 +149,71 @@ export async function placeOptionsOrder(env, user, order) {
   return { ...res, latency_ms: Math.max(1, Date.now() - t0) };
 }
 
+/** OCC equity option root: SPY260920C00777000 */
+const OCC_RE = /^([A-Z]{1,6})(\d{6})([CP])(\d{8})$/;
+
+export function parseOccOptionSymbol(symbol) {
+  const sym = String(symbol || "").toUpperCase();
+  const m = sym.match(OCC_RE);
+  if (!m) return null;
+  const yy = m[2].slice(0, 2);
+  const mm = m[2].slice(2, 4);
+  const dd = m[2].slice(4, 6);
+  const year = Number(yy) >= 70 ? `19${yy}` : `20${yy}`;
+  return {
+    underlying: m[1],
+    expiration: `${year}-${mm}-${dd}`,
+    option_type: m[3] === "P" ? "PUT" : "CALL",
+    strike: Number(m[4]) / 1000,
+  };
+}
+
+function looksLikeOptionRow(p) {
+  const t = String(
+    p?.instrument_type || p?.instrumentType || p?.asset_type || p?.assetType || "",
+  ).toUpperCase();
+  if (t === "OPTION" || t === "OPTIONS" || t.includes("OPTION")) return true;
+  if (p?.option_expire_date || p?.optionExpireDate || p?.option_type || p?.optionType) return true;
+  if ((p?.strike_price != null || p?.strikePrice != null)
+      && (p?.underlying_symbol || p?.underlyingSymbol || p?.underlying)) {
+    return true;
+  }
+  return !!parseOccOptionSymbol(p?.symbol || p?.ticker);
+}
+
+function normalizeOptionRight(raw) {
+  const r = String(raw || "").toUpperCase().replace(/[^A-Z]/g, "");
+  if (r === "P" || r === "PUT" || r.startsWith("PUT")) return "PUT";
+  if (r === "C" || r === "CALL" || r.startsWith("CALL")) return "CALL";
+  if (r.includes("PUT")) return "PUT";
+  return "CALL";
+}
+
 export function normalizeWebullOptionsPositions(positionsResp) {
-  const envelope = positionsResp?.response?.data ?? positionsResp?.response ?? positionsResp;
-  const rows = Array.isArray(envelope) ? envelope : (Array.isArray(envelope?.positions) ? envelope.positions : []);
+  // Must use extractWebullPositionRows — Webull often returns
+  // `{ position_list: [...] }`. The equity path already handled that;
+  // options previously only checked `.positions` and silently dropped
+  // every option row (SPY 777C missing from Broker Connections).
+  const rows = extractWebullPositionRows(positionsResp);
   return rows
-    .filter((p) => {
-      const t = String(p?.instrument_type || p?.instrumentType || "").toUpperCase();
-      return t === "OPTION" || t === "OPTIONS";
-    })
+    .filter(looksLikeOptionRow)
     .map((p) => {
+      const occ = parseOccOptionSymbol(p.symbol || p.ticker);
       const qty = Number(p.qty ?? p.quantity);
+      const strike = Number(p.strike_price ?? p.strike ?? occ?.strike);
+      const underlying = String(
+        p.underlying_symbol || p.underlyingSymbol || p.underlying || occ?.underlying || "",
+      ).toUpperCase();
       return {
-        symbol: String(p.symbol || "").toUpperCase(),
-        underlying: String(p.underlying_symbol || p.underlying || p.symbol || "").toUpperCase(),
+        symbol: String(p.symbol || p.ticker || "").toUpperCase(),
+        underlying: underlying || String(occ?.underlying || "").toUpperCase(),
         qty,
-        option_type: String(p.option_type || p.optionType || "").toUpperCase(),
-        strike: Number(p.strike_price ?? p.strike),
-        expiration: p.option_expire_date || p.expiration || null,
-        avg_cost: Number(p.cost_price ?? p.avg_cost) || null,
-        unrealized_pnl: Number(p.unrealized_profit_loss ?? p.unrealized_pnl) || null,
-        market_value: Number(p.market_value) || null,
+        option_type: normalizeOptionRight(p.option_type || p.optionType || occ?.option_type),
+        strike: Number.isFinite(strike) ? strike : null,
+        expiration: p.option_expire_date || p.optionExpireDate || p.expiration || occ?.expiration || null,
+        avg_cost: Number(p.cost_price ?? p.avg_cost ?? p.avgCost) || null,
+        unrealized_pnl: Number(p.unrealized_profit_loss ?? p.unrealized_pnl ?? p.unrealizedPnl) || null,
+        market_value: Number(p.market_value ?? p.marketValue) || null,
         raw: p,
       };
     })
@@ -180,6 +226,14 @@ export async function getOptionsPositions(env, user) {
   const tok = await ensureWebullAccessToken(env, user);
   if (!tok.ok) return tok;
   const raw = await webullGetPositions(env, user, tok.access_token);
+  if (raw && raw.ok === false) {
+    return {
+      ok: false,
+      error: raw.error || "positions_unavailable",
+      positions: [],
+      latency_ms: Date.now() - t0,
+    };
+  }
   const parsed = normalizeWebullOptionsPositions(raw);
   return { ok: true, positions: parsed, latency_ms: Date.now() - t0 };
 }

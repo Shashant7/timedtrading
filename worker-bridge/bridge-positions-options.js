@@ -7,8 +7,13 @@
 export function formatOptionHoldingLabel(op) {
   const und = String(op?.underlying || op?.symbol || "").toUpperCase();
   if (!und) return null;
-  const rightRaw = String(op?.option_type || op?.right || "").toUpperCase();
-  const right = rightRaw.includes("P") ? "P" : "C";
+  const rightRaw = String(op?.option_type || op?.right || "").toUpperCase().replace(/[^A-Z]/g, "");
+  // Explicit CALL/PUT — do not use includes("P") on "CALL" (safe today) or
+  // fuzzy matching that could flip rights on odd broker strings.
+  let right = "C";
+  if (rightRaw === "P" || rightRaw === "PUT" || rightRaw.startsWith("PUT")) right = "P";
+  else if (rightRaw === "C" || rightRaw === "CALL" || rightRaw.startsWith("CALL")) right = "C";
+  else if (rightRaw.includes("PUT")) right = "P";
   const strike = Number(op?.strike);
   const strikeStr = Number.isFinite(strike)
     ? (Math.abs(strike - Math.round(strike)) < 1e-6 ? String(Math.round(strike)) : strike.toFixed(2))
@@ -46,22 +51,30 @@ export function optionPositionToHoldingItem(op) {
     const perContract = mv / Math.abs(qty);
     last = Math.abs(perContract) >= 50 ? perContract / 100 : perContract;
   }
-  const rightRaw = String(op?.option_type || "").toUpperCase();
+  const rightRaw = String(op?.option_type || "").toUpperCase().replace(/[^A-Z]/g, "");
+  let optionType = "CALL";
+  if (rightRaw === "P" || rightRaw === "PUT" || rightRaw.startsWith("PUT") || rightRaw.includes("PUT")) {
+    optionType = "PUT";
+  }
+  // Number(null/undefined) === 0 — only keep avg_cost when the source set it.
+  const avgCost = (op?.avg_cost != null && op?.avg_cost !== "" && Number.isFinite(avg)) ? avg : null;
+  const uplOut = (op?.unrealized_pnl != null && op?.unrealized_pnl !== "" && Number.isFinite(upl)) ? upl : null;
+  const mvOut = (op?.market_value != null && op?.market_value !== "" && Number.isFinite(mv)) ? mv : null;
   return {
     ticker: label,
     underlying: String(op?.underlying || "").toUpperCase() || null,
     instrument: "option",
-    option_type: rightRaw.includes("P") ? "PUT" : "CALL",
+    option_type: optionType,
     strike: Number.isFinite(Number(op?.strike)) ? Number(op.strike) : null,
     expiration: op?.expiration || null,
     managed: false,
     sync_state: "broker_only",
     broker_qty: Number.isFinite(qty) ? qty : null,
-    avg_cost: Number.isFinite(avg) ? avg : null,
+    avg_cost: avgCost,
     last_price: Number.isFinite(last) && last > 0 ? last : null,
     price: Number.isFinite(last) && last > 0 ? last : null,
-    market_value: Number.isFinite(mv) ? mv : null,
-    unrealized_pnl: Number.isFinite(upl) ? upl : null,
+    market_value: mvOut,
+    unrealized_pnl: uplOut,
     unrealized_pnl_pct: null,
     day_pnl: null,
   };

@@ -112,12 +112,20 @@ export async function getEquityPositions(env, user) {
   const t0 = Date.now();
   if (isMockMode(env)) {
     const mock = _mockResponse("positions", user, t0);
-    return { ...mock, positions: [] };
+    return { ...mock, positions: [], options: [] };
   }
   const res = await _liveCall(env, user, (token) => webullGetPositions(env, user, token));
   if (!res.ok) return withLatency(res, t0);
   const positions = normalizeWebullPositions(res);
-  return withLatency({ ok: true, response: res.response, positions }, t0);
+  // Same Webull payload holds equities + options. Parse both here so
+  // /bridge/positions does not burn a second rate-limited GET (which
+  // previously returned ok:true with [] and hid SPY calls).
+  let options = [];
+  try {
+    const { normalizeWebullOptionsPositions } = await import("./bridge-webull-options.js");
+    options = normalizeWebullOptionsPositions(res);
+  } catch (_) { options = []; }
+  return withLatency({ ok: true, response: res.response, positions, options }, t0);
 }
 
 export async function cancelOrder(env, user, orderId) {
