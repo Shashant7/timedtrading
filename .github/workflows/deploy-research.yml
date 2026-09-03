@@ -52,41 +52,7 @@ jobs:
           CF_ACCT_A:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CF_ACCT_B:  ${{ secrets.CF_ACCOUNT_ID }}
         run: |
-          CF_TOKEN=""
-          CF_ACCT=""
-          if   [ -n "$CF_TOKEN_A" ]; then CF_TOKEN="$CF_TOKEN_A";
-          elif [ -n "$CF_TOKEN_B" ]; then CF_TOKEN="$CF_TOKEN_B";
-          elif [ -n "$CF_TOKEN_C" ]; then CF_TOKEN="$CF_TOKEN_C";
-          fi
-          if   [ -n "$CF_ACCT_A" ];  then CF_ACCT="$CF_ACCT_A";
-          elif [ -n "$CF_ACCT_B" ];  then CF_ACCT="$CF_ACCT_B";
-          fi
-          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCT" ]; then
-            echo "::warning::Cloudflare secrets not configured — research deploy SKIPPED."
-            echo "secrets-ok=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "secrets-ok=true" >> "$GITHUB_OUTPUT"
-          {
-            echo "CLOUDFLARE_API_TOKEN=$CF_TOKEN"
-            echo "CLOUDFLARE_ACCOUNT_ID=$CF_ACCT"
-          } >> "$GITHUB_ENV"
-
-      - name: Install root deps
-        if: steps.cfsec.outputs.secrets-ok == 'true'
-        run: |
-          _install() { npm install --no-audit --no-fund --ignore-scripts; }
-          _install
-          # 2026-06-11 — npm's optional-deps bug (npm/cli#4828) intermittently
-          # skips platform-specific binaries (e.g. @rolldown/binding-linux-
-          # x64-gnu), which kills vitest at startup ("Cannot find native
-          # binding") — it failed the tt-research deploy twice in two days.
-          # Verify the binding landed; one clean reinstall self-heals.
-          if ! npm ls @rolldown/binding-linux-x64-gnu >/dev/null 2>&1; then
-            echo "rolldown native binding missing — clean reinstall"
-            rm -rf node_modules
-            _install
-          fi
+          bash scripts/ci-npm-install.sh --ignore-scripts
 
       - name: Run tests
         if: steps.cfsec.outputs.secrets-ok == 'true'

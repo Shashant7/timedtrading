@@ -21,6 +21,12 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **SPY options still missing on holdings (2026-09-03).** Options
+      normalize ignored Webull `position_list` (equity path already read
+      it), so OPTION rows never reached Broker Connections. Bundle options
+      on the equity fetch, OCC fallback, cache v3, deploy bridge.
+      Branch: `cursor/spy-options-manifest-fix-dbdd`.
+
 - [x] **Webull whole-share prefer + RTH-first (2026-09-03).**
       Prefer whole shares on buys (1.623 → 2 when cash allows). Keep
       fractional only for high-priced names (LLY-class) in RTH. No

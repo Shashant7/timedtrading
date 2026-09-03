@@ -784,17 +784,19 @@ export function normalizeWebullBalance(balanceResp) {
   };
 }
 
+/** Pull the raw position rows out of any Webull positions envelope shape. */
+export function extractWebullPositionRows(posResp) {
+  const envelope = posResp?.response?.data ?? posResp?.response ?? posResp;
+  if (Array.isArray(envelope)) return envelope;
+  if (Array.isArray(envelope?.positions)) return envelope.positions;
+  if (Array.isArray(envelope?.position_list)) return envelope.position_list;
+  if (Array.isArray(envelope?.data)) return envelope.data;
+  return [];
+}
+
 /** Normalize positions array for reconciler. */
 export function normalizeWebullPositions(posResp) {
-  const envelope = posResp?.response?.data ?? posResp?.response ?? posResp;
-  let rows = [];
-  if (Array.isArray(envelope)) {
-    rows = envelope;
-  } else if (Array.isArray(envelope?.positions)) {
-    rows = envelope.positions;
-  } else if (Array.isArray(envelope?.position_list)) {
-    rows = envelope.position_list;
-  }
+  const rows = extractWebullPositionRows(posResp);
 
   return rows
     .filter((p) => {

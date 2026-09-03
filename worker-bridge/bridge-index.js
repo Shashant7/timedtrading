@@ -563,8 +563,8 @@ export default {
         // data with an age beats an error.
         const POS_CACHE_FRESH_MS = 60 * 1000;
         const POS_CACHE_TTL_SEC = 60 * 60;
-        // v2 — cache now includes option holdings; bust equity-only snapshots.
-        const POS_CACHE_PREFIX = "bridge:positions:v2:";
+        // v3 — options parse reads position_list (same as equity); bust empty v2 caches.
+        const POS_CACHE_PREFIX = "bridge:positions:v3:";
         // Account equity/cash from the reconciler's snapshots (summary strip).
         let snapByAcct = new Map();
         try {
@@ -611,12 +611,18 @@ export default {
               if (Array.isArray(res)) brokerPositions = res;
               else if (res?.ok && Array.isArray(res.positions)) brokerPositions = res.positions;
               else entry.positions_error = res?.error || "positions_unavailable";
-              // Equity normalize drops OPTION rows — fetch options separately
-              // so holdings like SPY 777C appear on Broker Connections.
-              if (typeof adapter.getOptionsPositions === "function") {
+              // Prefer options bundled on the equity fetch (one Webull GET).
+              // Fall back to a separate getOptionsPositions only when the
+              // adapter did not attach them (non-Webull brokers).
+              if (res && !Array.isArray(res) && Array.isArray(res.options)) {
+                optionPositions = res.options;
+              } else if (typeof adapter.getOptionsPositions === "function") {
                 try {
                   const ores = await adapter.getOptionsPositions(env, acct);
                   if (ores?.ok && Array.isArray(ores.positions)) optionPositions = ores.positions;
+                  else if (ores && ores.ok === false) {
+                    entry.options_error = ores.error || "options_unavailable";
+                  }
                 } catch (_) { /* options optional — equity still renders */ }
               }
             } catch (e) {
