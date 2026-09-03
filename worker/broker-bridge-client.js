@@ -115,6 +115,14 @@ export function bridgeResponseIsOk(parsed, httpOk) {
   if (parsed.rejected === true) return false;
   const reject = String(parsed.reject_reason || "").trim();
   if (reject) return false;
+  // Fan-out wrappers always used to return `{ok:true}` even when every
+  // account rejected. Require at least one child to have a real success.
+  if (parsed.fanout === true && Array.isArray(parsed.results)) {
+    return parsed.results.some((row) => bridgeResponseIsOk(
+      row?.result,
+      Number(row?.http_status) >= 200 && Number(row?.http_status) < 300,
+    ));
+  }
   return true;
 }
 
@@ -135,12 +143,26 @@ export function parseBridgeOrderIds(parsed) {
     || data?.order_id
     || data?.broker_order_id
     || null;
-  const id = raw != null && String(raw).trim() !== "" ? String(raw) : null;
+  const childIds = Array.isArray(parsed?.results)
+    ? parsed.results.map((row) => {
+      const child = row?.result;
+      return child?.rh_order_id || child?.order_id || child?.broker_order_id || null;
+    }).filter((id) => id != null && String(id).trim() !== "").map(String)
+    : [];
+  const id = raw != null && String(raw).trim() !== ""
+    ? String(raw)
+    : (childIds[0] || null);
+  const childResults = Array.isArray(parsed?.results)
+    ? parsed.results.map((row) => row?.result).filter(Boolean)
+    : [];
   return {
     order_id: id,
     rh_order_id: id,
     broker_order_id: id,
-    deduped: parsed?.deduped === true,
+    order_ids: childIds,
+    deduped: parsed?.deduped === true
+      || (childResults.length > 0 && childIds.length === 0
+        && childResults.every((result) => result?.deduped === true)),
   };
 }
 
@@ -556,15 +578,25 @@ export async function forwardOrderToBridge(env, order) {
     ringEntry.rh_order_id = ids.rh_order_id;
     ringEntry.broker_order_id = ids.broker_order_id;
     ringEntry.order_id = ids.order_id;
+    ringEntry.order_ids = ids.order_ids;
     ringEntry.deduped = ids.deduped;
-    ringEntry.reject_reason = parsed?.reject_reason || parsed?.error || parsed?.message || null;
+    const childReject = Array.isArray(parsed?.results)
+      ? parsed.results.map((row) => (
+        row?.result?.reject_reason || row?.result?.error || row?.result?.message || null
+      )).find(Boolean)
+      : null;
+    ringEntry.reject_reason = parsed?.reject_reason
+      || parsed?.error
+      || parsed?.message
+      || childReject
+      || null;
     ringEntry.latency_ms = Date.now() - t0;
     await pushRing(env, ringEntry, { replacePending: true });
     if (!ok) {
       await recordBridgeFailure(env, {
         stage: `bridge_mirror.reject.${String(order?.side || "order").slice(0, 20)}`,
         ticker: order?.ticker,
-        error: parsed?.reject_reason || `http_${r.status}`,
+        error: ringEntry.reject_reason || `http_${r.status}`,
         meta: {
           side: order?.side,
           trade_id: order?.trade_id,

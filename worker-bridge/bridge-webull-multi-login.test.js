@@ -257,6 +257,8 @@ describe("listMirrorParticipants — self-service cross-owner dispatch set", () 
     { user_id: "op@x.com#webull#roth-ira", owner_email: "op@x.com", broker: "webull", status: "connected", broker_integration_enabled: true, mirror_participant: true },
     // Self-service user, enabled + opted in.
     { user_id: "partner@y.com#webull#individual-cash", owner_email: "partner@y.com", broker: "webull", status: "connected", broker_integration_enabled: true, mirror_participant: true },
+    // Futures cannot receive the equity/options model order path.
+    { user_id: "partner@y.com#webull#futures", owner_email: "partner@y.com", broker: "webull", status: "connected", broker_integration_enabled: true, mirror_participant: true, webull_account_class: "FUTURES" },
     // Self-service user, connected but mirror disabled.
     { user_id: "partner@y.com#webull#individual-margin", owner_email: "partner@y.com", broker: "webull", status: "connected", broker_integration_enabled: false, mirror_participant: true },
     // Enabled but never opted in via the self-service flow (operator-managed).

@@ -2418,7 +2418,6 @@ const ROUTES = [
   // 2026-07-30 — Re-fire a stuck trader EXIT (review ok, place never ran).
   ["POST", "/timed/admin/broker-bridge/catchup-exit", "POST /timed/admin/broker-bridge/catchup-exit"],
   ["POST", "/timed/admin/broker-bridge/catchup-trader-exits", "POST /timed/admin/broker-bridge/catchup-trader-exits"],
-  ["POST", "/timed/admin/broker-bridge/catchup-trader-entries", "POST /timed/admin/broker-bridge/catchup-trader-entries"],
   // 2026-07-30 — Rebuild Roth mirror from OPEN positions (avg_entry band + thesis).
   ["POST", "/timed/admin/broker-bridge/rebuild-mirror", "POST /timed/admin/broker-bridge/rebuild-mirror"],
   // 2026-07-30 — Reverse dual-worker DCA twin lots (share bump + lot + ledger).
@@ -84956,36 +84955,6 @@ export default {
             note: out.dry_run
               ? "Pass {\"dry_run\":false} to forward leftover Short Term exits."
               : "Leftover Short Term exits forwarded; check bridge audit.",
-          }, 200, corsHeaders(env, req));
-        } catch (e) {
-          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
-        }
-      }
-
-      // 2026-09-03 — Heal ST equity + index-trend LETF entries that wrote
-      // the model book but never placed (TJX cash-floor, UDOW 15-min CPU).
-      // Default dry_run=true. Independent of /timed/options/all.
-      if (routeKey === "POST /timed/admin/broker-bridge/catchup-trader-entries") {
-        const authFail = await requireKeyOrAdmin(req, env);
-        if (authFail) return authFail;
-        try {
-          const body = await req.json().catch(() => ({}));
-          const { runTraderEntryCatchup } = await import("./trader-entry-catchup.js");
-          const out = await runTraderEntryCatchup(env, {
-            dry_run: body?.dry_run !== false,
-            force: body?.force === true,
-            include_shorts: body?.include_shorts === true,
-            max_ops: body?.max_ops,
-            max_buy_drift_pct: body?.max_buy_drift_pct,
-            hours: body?.hours,
-            tickers: body?.tickers,
-            reason: body?.reason || "admin_catchup_trader_entries",
-          });
-          return sendJSON({
-            ...out,
-            note: out.dry_run
-              ? "Pass {\"dry_run\":false} to forward unmatched Short Term / index-trend entries. Shorts stay skipped unless include_shorts:true. force:true bypasses RTH + drift + cooldown."
-              : "Unmatched Short Term / index-trend entries forwarded; check bridge:client:recent.",
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));

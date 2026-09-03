@@ -47,6 +47,25 @@ describe("bridgeResponseIsOk", () => {
       reject_reason: "insufficient_cash_for_one_unit_92_lt_131.60",
     }, true)).toBe(false);
   });
+
+  it("requires a real successful child from a fan-out wrapper", () => {
+    const rejected = {
+      ok: true,
+      fanout: true,
+      results: [{
+        http_status: 200,
+        result: { ok: false, rejected: true, reject_reason: "insufficient_cash" },
+      }],
+    };
+    expect(bridgeResponseIsOk(rejected, true)).toBe(false);
+    expect(bridgeResponseIsOk({
+      ...rejected,
+      results: [
+        ...rejected.results,
+        { http_status: 200, result: { ok: true, rh_order_id: "WB-2" } },
+      ],
+    }, true)).toBe(true);
+  });
 });
 
 describe("parseBridgeOrderIds", () => {
@@ -56,6 +75,21 @@ describe("parseBridgeOrderIds", () => {
     expect(parseBridgeOrderIds({ ok: true, response: { order_id: "NEST" } }).broker_order_id).toBe("NEST");
     expect(parseBridgeOrderIds({ ok: true, deduped: true }).deduped).toBe(true);
     expect(parseBridgeOrderIds({ ok: true, deduped: true }).order_id).toBeNull();
+  });
+
+  it("reads order ids from per-account fan-out results", () => {
+    const ids = parseBridgeOrderIds({
+      ok: true,
+      fanout: true,
+      results: [
+        { result: { ok: false, rejected: true } },
+        { result: { ok: true, rh_order_id: "WB-OWNER" } },
+        { result: { ok: true, order_id: "WB-PARTNER" } },
+      ],
+    });
+    expect(ids.order_id).toBe("WB-OWNER");
+    expect(ids.order_ids).toEqual(["WB-OWNER", "WB-PARTNER"]);
+    expect(ids.deduped).toBe(false);
   });
 });
 
