@@ -30,6 +30,8 @@ import {
   buildOptionsLadder,
   buildDayTradePlay,
   explainDayTradeSuppression,
+  isDayLeanFlavorLive,
+  attachOptionManagement,
   summarizeDayTradeGamePlan,
   pickExpirationForProfile,
   pickDayTradeExpiration,
@@ -532,6 +534,39 @@ describe("index ETF profile alignment", () => {
     expect(play._day_trade_flavor_source).toBe("day_lean");
   });
 
+  it("buildDayTradePlay: invalidated SHORT lean does not keep printing puts", () => {
+    const play = buildDayTradePlay({
+      ticker: "SPY",
+      price: 765.5,
+      direction: "LONG",
+      dayLean: "SHORT",
+      dayLeanConviction: "medium",
+      atrPct: 0.012,
+      verdict: { mode: "RIDE", side: "LONG" },
+      profile: "speculator",
+      expiration: { iso: "2026-09-03", dte: 1, label: "1DTE" },
+      gamePlan: { inv_put: 764.49, inv_call: 760.81 },
+    });
+    expect(play).not.toBeNull();
+    expect(play._day_trade_flavor).toBe("call");
+    expect(play._day_trade_flavor_source).toBe("confluence");
+  });
+
+  it("isDayLeanFlavorLive is false once cash reclaims put invalidation", () => {
+    expect(isDayLeanFlavorLive({
+      dayLean: "SHORT",
+      dayLeanConviction: "medium",
+      price: 765.5,
+      gamePlan: { inv_put: 764.49 },
+    })).toBe(false);
+    expect(isDayLeanFlavorLive({
+      dayLean: "SHORT",
+      dayLeanConviction: "medium",
+      price: 763.0,
+      gamePlan: { inv_put: 764.49 },
+    })).toBe(true);
+  });
+
   it("buildDayTradePlay: a LOW-conviction lean does NOT override the confluence gate", () => {
     // low conviction → falls back to old behavior → WAIT mismatch suppresses.
     expect(buildDayTradePlay({
@@ -632,6 +667,34 @@ describe("summarizeDayTradeGamePlan", () => {
     expect(out.bear_trigger).toBe(732.5);
     expect(out.bear_target).toBe(728);
     expect(out.bull_target).toBe(740);
+    expect(out.inv_put).toBeNull();
+    expect(out.or_resolved).toBe(false);
+  });
+
+  it("passes structural invalidation through to the clock summary", () => {
+    const out = summarizeDayTradeGamePlan({
+      lean: "SHORT",
+      invPut: 764.49,
+      invCall: 760.81,
+      orResolved: true,
+      overnightMid: 762.65,
+      prevClose: 761.78,
+    });
+    expect(out.inv_put).toBe(764.49);
+    expect(out.inv_call).toBe(760.81);
+    expect(out.or_resolved).toBe(true);
+    expect(out.overnight_mid).toBe(762.65);
+    expect(out.prev_close).toBe(761.78);
+  });
+});
+
+describe("attachOptionManagement", () => {
+  it("uses structural inv, not the chasing bull trigger", () => {
+    const play = attachOptionManagement(
+      { _day_trade_flavor: "put", expiration: { dte: 1 } },
+      { gamePlan: { inv_put: 764.49, bull_trigger: 766.8 } },
+    );
+    expect(play.option_management.invalidation.underlying_above).toBe(764.49);
   });
 });
 

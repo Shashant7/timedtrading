@@ -573,6 +573,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   overnight and the 10:30–11:00 chop becomes the OR — SPY then "broke
   the OR low" and stayed WAIT puts while the tape was already long.
   Overnight fallback may not include today's RTH bars.
+  **Index DT 5m + structural inv (2026-09-02):** scoring `tf_tech` has no
+  5m (stops at 10m). Clock must use `timingFromM5Candles` from D1 5m bars;
+  reject a fallback 10m/15m 21 that is >1.5% from live spot (SPY 778 vs 765
+  made every put look "extended below"). Invalidation is overnight / resolved
+  OR / prior close — not `bull_trigger` (`spot+0.25 ATR`, never crossed).
+  A SHORT lean that already reclaimed that structure must not keep printing
+  puts. Do not buy a put into a bounce above overnight mid / prior close
+  while the 09:30–10:00 OR is still forming.
   **Index day-trade clock (2026-08-20 / 2026-08-21):** headline names the
   **calendar expiration** plus **1 DTE** (skip 0 DTE 15:45 force-liq).
   New BUY is cash-session only: **WAIT before 09:30 ET** (index options are

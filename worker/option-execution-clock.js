@@ -17,6 +17,7 @@ import {
   SESSION_FLAT_ET,
   HARD_STOP_PCT,
 } from "./option-day-trade-plan.js";
+import { computeTfBundle } from "./indicators.js";
 
 const NY_TZ = "America/New_York";
 
@@ -90,18 +91,35 @@ export function stIsBear(stDir) {
   return num(stDir) != null && Number(stDir) > 0;
 }
 
+/** Scoring tf_tech never emits 5m. A 10m/15m 21 that is this far from
+ *  live spot is leftover from a different session — do not use it. */
+const FALLBACK_EMA_MAX_DIST = 0.015;
+
+function emaUsableForSpot(ema21, spot, tfLabel) {
+  if (ema21 == null) return false;
+  if (tfLabel === "5") return true;
+  const px = num(spot);
+  if (!(px > 0)) return true;
+  return Math.abs(px - ema21) / ema21 <= FALLBACK_EMA_MAX_DIST;
+}
+
 /**
  * Prefer 5m, then 10m/15m. 1-minute SuperTrend/EMA21 is noise on 0/1 DTE;
  * 5m is the tape those contracts actually follow. Daily is context only.
+ *
+ * Scoring snapshots do not include tf_tech.5 (assembleTickerData stops
+ * at 10m). Callers should prefer `timingFromM5Candles` and pass `spot`
+ * so a stale 10m 21 (SPY 778 vs 765) is rejected.
  */
-export function extractIndexTimingIndicators(ticker = {}) {
+export function extractIndexTimingIndicators(ticker = {}, { spot } = {}) {
   const tf = ticker?.tf_tech && typeof ticker.tf_tech === "object" ? ticker.tf_tech : {};
   const order = ["5", "10", "15", "30"];
   let tfLabel = null;
   let pick = null;
   for (const k of order) {
     const slot = tf[k];
-    if (slot?.ema?.ema21 != null && num(slot?.stDir) != null) {
+    const ema21 = num(slot?.ema?.ema21);
+    if (ema21 != null && num(slot?.stDir) != null && emaUsableForSpot(ema21, spot, k)) {
       tfLabel = k;
       pick = slot;
       break;
@@ -119,7 +137,30 @@ export function extractIndexTimingIndicators(ticker = {}) {
     st_label: stIsBull(stDir) ? "long" : stIsBear(stDir) ? "short" : "flat",
     price_above_ema21: priceAbove == null ? null : !!priceAbove,
     tf: tfLabel,
+    source: pick ? "tf_tech" : null,
   };
+}
+
+/**
+ * Live 5m EMA21 + SuperTrend from D1 5m bars. Same computeTfBundle as
+ * scoring — the clock asked for 5m; the snapshot never had it.
+ */
+export function timingFromM5Candles(candles) {
+  if (!Array.isArray(candles) || candles.length < 15) return null;
+  try {
+    const b = computeTfBundle(candles);
+    if (!b || num(b.e21) == null || num(b.stDir) == null) return null;
+    return {
+      ema21: round2(b.e21),
+      st_dir: num(b.stDir),
+      st_label: stIsBull(b.stDir) ? "long" : stIsBear(b.stDir) ? "short" : "flat",
+      price_above_ema21: num(b.px) != null && num(b.e21) != null ? b.px >= b.e21 : null,
+      tf: "5",
+      source: "live_m5",
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -496,8 +537,8 @@ export function buildExecutionClock({
   const stWith = isPut ? stIsBear(ind.st_dir) : stIsBull(ind.st_dir);
   const stAgainst = isPut ? stIsBull(ind.st_dir) : stIsBear(ind.st_dir);
   const invPx = isPut
-    ? num(mgmt.invalidation?.underlying_above) ?? num(gp.bull_trigger)
-    : num(mgmt.invalidation?.underlying_below) ?? num(gp.bear_trigger);
+    ? num(mgmt.invalidation?.underlying_above) ?? num(gp.inv_put) ?? num(gp.bull_trigger)
+    : num(mgmt.invalidation?.underlying_below) ?? num(gp.inv_call) ?? num(gp.bear_trigger);
   const invalidated = px != null && invPx != null && (isPut ? px > invPx : px < invPx);
   if (invalidated) holdOvernight = false;
   const tp1 = rr?.trim != null ? rr.trim : (num(mgmt.take_profit_1?.pct) ?? 50);
@@ -600,6 +641,12 @@ export function buildExecutionClock({
     why = holdOvernight
       ? "Too late for a new ticket. Existing book may hold overnight — leftover R:R is still ≥ 1."
       : "Too late for a new ticket. Flatten any open book by 15:45 ET; do not wait until 16:15.";
+  } else if (!hasLiveBook && isPut && gp.or_resolved === false && px != null && (
+    (num(gp.overnight_mid) != null && px > num(gp.overnight_mid))
+    || (num(gp.prev_close) != null && px > num(gp.prev_close))
+  )) {
+    action = "WAIT";
+    why = `${sym} is above the premarket pivot while the opening range is still forming. Do not buy the put into the bounce — wait for the 10:00 ET OR vote.`;
   } else if (rth && stWith && nearEma && !openPrint && !extended && !premiumRich) {
     action = "BUY";
     why = `${sym} is holding the ${ind.tf || "5"}-minute 21 EMA${ema21 ? ` ($${ema21})` : ""} with SuperTrend ${ind.st_label || "aligned"}. Premium is ${value?.band || "unpriced"} vs FMV $${value?.fmv ?? "—"}.`;

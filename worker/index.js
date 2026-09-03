@@ -95800,8 +95800,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 // prediction the trader just read.
                 let _dtLean = "", _dtLeanConv = "";
                 let _dtGp = null;
+                let _dtScn = null;
                 try {
-                  const _dtScn = await buildTickerScenario(env, _dtSym, { priceOverride: _dtPrice });
+                  _dtScn = await buildTickerScenario(env, _dtSym, { priceOverride: _dtPrice });
                   _dtGp = _dtScn?.game_plan || null;
                   if (_dtGp) {
                     _dtLean = String(_dtGp.lean || "");
@@ -95820,6 +95821,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   profile,
                   chain: _dtChainBySym[_dtSym] || null,
                   fsd_macro: _dtTicker.fsd_macro || _dtFsdMacro || null,
+                  gamePlan: _dtGp,
                 };
                 const _dtPlay = _buildDayTrade(_dtCtx);
                 if (!_dtPlay) {
@@ -95952,7 +95954,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     expiration: _clockExp,
                     spot: _dtPrice,
                     premium: _clockPrem,
-                    indicators: { ..._optClockIndicators(_dtTicker), atr_pct: _dtAtrPct },
+                    indicators: {
+                      ...(_dtScn?.timing_5m || _optClockIndicators(_dtTicker, { spot: _dtPrice })),
+                      atr_pct: _dtAtrPct,
+                    },
                     gamePlan: _dtGpSum,
                     management: _dtPrimary?.option_management || _dtPlay?.option_management,
                     now: Date.now(),

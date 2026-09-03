@@ -5,6 +5,7 @@ import {
   isRthEt,
   stIsBull,
   extractIndexTimingIndicators,
+  timingFromM5Candles,
   computePremiumValueBand,
   buildDayTradeZoneModel,
   reviveZoneModel,
@@ -57,6 +58,46 @@ describe("extractIndexTimingIndicators", () => {
     expect(ind.ema21).toBe(764.1);
     expect(ind.tf).toBe("15");
     expect(stIsBull(ind.st_dir)).toBe(true);
+  });
+
+  it("rejects a stale 10m 21 that is >1.5% from live spot", () => {
+    const ind = extractIndexTimingIndicators({
+      tf_tech: {
+        "10": { ema: { ema21: 777.97 }, stDir: -1 },
+        "15": { ema: { ema21: 764.2 }, stDir: -1 },
+      },
+    }, { spot: 765.15 });
+    expect(ind.ema21).toBe(764.2);
+    expect(ind.tf).toBe("15");
+  });
+
+  it("does not use a lone stale 10m 21 as the clock EMA", () => {
+    const ind = extractIndexTimingIndicators({
+      tf_tech: { "10": { ema: { ema21: 777.97 }, stDir: -1 } },
+    }, { spot: 765.15 });
+    expect(ind.tf).not.toBe("10");
+    expect(ind.ema21).not.toBe(777.97);
+  });
+});
+
+describe("timingFromM5Candles", () => {
+  it("returns live 5m EMA21 + SuperTrend from D1 bars", () => {
+    const bars = [];
+    let ts = Date.parse("2026-09-02T13:30:00.000Z");
+    for (let i = 0; i < 40; i++) {
+      const c = 750 + i * 0.4;
+      bars.push({ ts: ts + i * 300000, o: c - 0.1, h: c + 0.15, l: c - 0.2, c, v: 1000 });
+    }
+    const ind = timingFromM5Candles(bars);
+    expect(ind).not.toBeNull();
+    expect(ind.tf).toBe("5");
+    expect(ind.source).toBe("live_m5");
+    expect(ind.ema21).toBeGreaterThan(750);
+    expect(ind.st_label).toBe("long");
+  });
+
+  it("returns null when there are not enough 5m bars", () => {
+    expect(timingFromM5Candles([{ c: 760 }, { c: 761 }])).toBeNull();
   });
 });
 
@@ -597,5 +638,74 @@ describe("buildExecutionClock", () => {
     expect(out.hold_overnight).toBe(true);
     expect(out.action).not.toBe("SELL");
     expect(out.why).toMatch(/overnight|Too late/i);
+  });
+
+  it("WAITs a premarket put when cash is above prior close and OR is still forming", () => {
+    const out = buildExecutionClock({
+      ticker: "SPY",
+      flavor: "put",
+      strike: 758,
+      expiration: { dte: 1, iso: "2026-09-03", label: "1 DTE" },
+      spot: 762.4,
+      premium: 1.2,
+      indicators: { ema21: 762.2, st_dir: 1, st_label: "short", tf: "5" },
+      gamePlan: {
+        lean: "SHORT",
+        bear_target: 754,
+        bull_trigger: 764.2,
+        or_resolved: false,
+        overnight_mid: 761.2,
+        prev_close: 761.78,
+        inv_put: 764.49,
+      },
+      now: ts(`2026-09-02T09:50:00${ET}`),
+    });
+    expect(out.action).toBe("WAIT");
+    expect(out.why).toMatch(/opening range is still forming/i);
+  });
+
+  it("invalidates a put at prior close while the OR is still forming", () => {
+    const out = buildExecutionClock({
+      ticker: "SPY",
+      flavor: "put",
+      strike: 758,
+      expiration: { dte: 1, iso: "2026-09-03", label: "1 DTE" },
+      spot: 762.4,
+      premium: 1.2,
+      indicators: { ema21: 762.2, st_dir: 1, st_label: "short", tf: "5" },
+      gamePlan: {
+        lean: "SHORT",
+        bull_trigger: 764.2,
+        or_resolved: false,
+        overnight_mid: 761.2,
+        prev_close: 761.78,
+        inv_put: 761.78,
+      },
+      now: ts(`2026-09-02T09:50:00${ET}`),
+    });
+    expect(out.action).toBe("WAIT");
+    expect(out.why).toMatch(/reclaimed \$761\.78/i);
+  });
+
+  it("invalidates a put on structural reclaim, not the chasing bull trigger", () => {
+    const out = buildExecutionClock({
+      ticker: "SPY",
+      flavor: "put",
+      strike: 758,
+      expiration: { dte: 1, iso: "2026-09-03", label: "1 DTE" },
+      spot: 765.5,
+      premium: 0.4,
+      indicators: { ema21: 763.1, st_dir: -1, st_label: "long", tf: "5" },
+      gamePlan: {
+        lean: "SHORT",
+        bull_trigger: 766.8,
+        inv_put: 764.49,
+        or_resolved: true,
+        prev_close: 761.78,
+      },
+      now: ts(`2026-09-02T10:20:00${ET}`),
+    });
+    expect(out.action).toBe("WAIT");
+    expect(out.why).toMatch(/reclaimed \$764\.49/i);
   });
 });

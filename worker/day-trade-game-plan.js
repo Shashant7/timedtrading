@@ -201,6 +201,11 @@ export function buildOvernightDayTradeGamePlan({
     ? bearTargetFib
     : rnd(bearTrig - Math.max(atr * 0.75, minGap));
 
+  const structure = structuralDayTradeInvalidation({
+    overnight_range: overnightRange,
+    opening_range: openingRange,
+  }, { prevClose: anc });
+
   const plan = {
     bullTrigger: bullTrig,
     bullTarget: Math.max(bullTgt, rnd(bullTrig + minGap)),
@@ -216,6 +221,11 @@ export function buildOvernightDayTradeGamePlan({
     lean_score: dayLean.score,
     lean_conviction: dayLean.conviction,
     lean_reasons: dayLean.reasons,
+    invPut: structure.inv_put,
+    invCall: structure.inv_call,
+    orResolved: structure.or_resolved,
+    overnightMid: structure.overnight_mid,
+    prevClose: structure.prev_close,
   };
 
   if (!snakeCase) return plan;
@@ -233,6 +243,52 @@ export function buildOvernightDayTradeGamePlan({
     lean_score: plan.lean_score,
     lean_conviction: plan.lean_conviction,
     lean_reasons: plan.lean_reasons,
+    inv_put: plan.invPut,
+    inv_call: plan.invCall,
+    or_resolved: plan.orResolved,
+    overnight_mid: plan.overnightMid,
+    prev_close: plan.prevClose,
+  };
+}
+
+/**
+ * Invalidation that can actually print.
+ *
+ * `bull_trigger` / `bear_trigger` include `spot ± 0.25 ATR`, so they sit
+ * ahead of the market and can never be crossed. Put invalidation that
+ * uses bull_trigger therefore never fires — the bounce runs, the put
+ * card stays WAIT, and the clock never pivots.
+ *
+ * Structure = overnight + resolved OR + prior close. Put dies on a
+ * reclaim of the highest of those; call dies on a loss of the lowest.
+ */
+export function structuralDayTradeInvalidation(gamePlan = {}, { prevClose } = {}) {
+  const ov = gamePlan.overnight_range || gamePlan.overnightRange || {};
+  const or = gamePlan.opening_range || gamePlan.openingRange || {};
+  const pc = Number(prevClose ?? gamePlan.prev_close ?? gamePlan.anchor);
+  const ovHi = Number(ov.high);
+  const ovLo = Number(ov.low);
+  const orHi = Number(or.high);
+  const orLo = Number(or.low);
+  const orReady = or.resolved === true;
+
+  const putLevels = [];
+  if (orReady && Number.isFinite(orHi)) putLevels.push(orHi);
+  if (Number.isFinite(ovHi)) putLevels.push(ovHi);
+  if (Number.isFinite(pc) && pc > 0) putLevels.push(pc);
+
+  const callLevels = [];
+  if (orReady && Number.isFinite(orLo)) callLevels.push(orLo);
+  if (Number.isFinite(ovLo)) callLevels.push(ovLo);
+  if (Number.isFinite(pc) && pc > 0) callLevels.push(pc);
+
+  const ovMid = Number.isFinite(ovHi) && Number.isFinite(ovLo) ? rnd((ovHi + ovLo) / 2) : null;
+  return {
+    inv_put: putLevels.length ? rnd(Math.max(...putLevels)) : null,
+    inv_call: callLevels.length ? rnd(Math.min(...callLevels)) : null,
+    or_resolved: orReady,
+    overnight_mid: ovMid,
+    prev_close: Number.isFinite(pc) && pc > 0 ? rnd(pc) : null,
   };
 }
 

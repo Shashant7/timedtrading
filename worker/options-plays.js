@@ -2713,6 +2713,11 @@ export function buildLeveragedETFPlay(ctx) {
 export function summarizeDayTradeGamePlan(gamePlan) {
   if (!gamePlan || typeof gamePlan !== "object") return null;
   const lean = String(gamePlan.lean || "").toUpperCase() || null;
+  const invPut = Number(gamePlan.inv_put ?? gamePlan.invPut);
+  const invCall = Number(gamePlan.inv_call ?? gamePlan.invCall);
+  const orResolved = gamePlan.or_resolved ?? gamePlan.orResolved;
+  const ovMid = Number(gamePlan.overnight_mid ?? gamePlan.overnightMid);
+  const prevClose = Number(gamePlan.prev_close ?? gamePlan.prevClose);
   return {
     lean,
     lean_conviction: gamePlan.lean_conviction || gamePlan.leanConviction || null,
@@ -2720,7 +2725,32 @@ export function summarizeDayTradeGamePlan(gamePlan) {
     bull_target: Number(gamePlan.bull_target ?? gamePlan.bullTarget) || null,
     bear_trigger: Number(gamePlan.bear_trigger ?? gamePlan.bearTrigger) || null,
     bear_target: Number(gamePlan.bear_target ?? gamePlan.bearTarget) || null,
+    inv_put: Number.isFinite(invPut) ? invPut : null,
+    inv_call: Number.isFinite(invCall) ? invCall : null,
+    or_resolved: orResolved === true,
+    overnight_mid: Number.isFinite(ovMid) ? ovMid : null,
+    prev_close: Number.isFinite(prevClose) ? prevClose : null,
   };
+}
+
+/**
+ * Conviction day-lean may set the 0/1 DTE flavor — unless cash has
+ * already crossed structural invalidation. A SHORT lean that reclaimed
+ * overnight / OR / prior close must not keep printing puts.
+ */
+export function isDayLeanFlavorLive(ctx = {}) {
+  const dayLean = String(ctx?.dayLean || "").toUpperCase();
+  const conv = String(ctx?.dayLeanConviction || "").toLowerCase();
+  if (!(dayLean === "LONG" || dayLean === "SHORT")) return false;
+  if (!(conv === "medium" || conv === "high")) return false;
+  const price = Number(ctx?.price);
+  const gp = ctx.gamePlan || ctx.game_plan || null;
+  if (!gp || !(price > 0)) return true;
+  const invPut = Number(gp.inv_put ?? gp.invPut);
+  const invCall = Number(gp.inv_call ?? gp.invCall);
+  if (dayLean === "SHORT" && Number.isFinite(invPut) && price > invPut) return false;
+  if (dayLean === "LONG" && Number.isFinite(invCall) && price < invCall) return false;
+  return true;
 }
 
 /** When buildDayTradePlay returns null, explain why (Today suppressed row). */
@@ -2738,8 +2768,7 @@ export function explainDayTradeSuppression(ctx) {
   const wantsSingleLeg = profile === "speculator" || profile === "aggressive";
   const dayLean = String(ctx?.dayLean || "").toUpperCase();
   const dayLeanConv = String(ctx?.dayLeanConviction || "").toLowerCase();
-  const leanActionable = (dayLean === "LONG" || dayLean === "SHORT")
-    && (dayLeanConv === "medium" || dayLeanConv === "high");
+  const leanActionable = isDayLeanFlavorLive(ctx);
 
   if (leanActionable) return { reason: "build_failed", day_lean: dayLean, day_lean_conviction: dayLeanConv };
 
@@ -2814,8 +2843,7 @@ export function buildDayTradePlay(ctx) {
   // read; otherwise we fall back to the confluence-gated behavior.
   const dayLean = String(ctx?.dayLean || "").toUpperCase();
   const dayLeanConv = String(ctx?.dayLeanConviction || "").toLowerCase();
-  const leanActionable = (dayLean === "LONG" || dayLean === "SHORT")
-    && (dayLeanConv === "medium" || dayLeanConv === "high");
+  const leanActionable = isDayLeanFlavorLive(ctx);
 
   // Decide flavor.
   let flavor;
@@ -2948,9 +2976,10 @@ export function buildDayTradePlay(ctx) {
  *   • Take Profit 2: close remaining at 2R / +100%
  *   • Hard stop:     exit whole position at -50% premium
  *   • Time stop:     0 DTE by 12:00 ET; 1 DTE flatten by 15:45 ET unless overnight
- *   • Underlying invalidation: exit if spot crosses the OPPOSITE
- *     game-plan trigger (bull put → underlying breaks the bull
- *     trigger; bear call → underlying loses the bear trigger).
+ *   • Underlying invalidation: exit if spot crosses structural
+ *     invalidation (overnight / resolved OR / prior close). Do not
+ *     use bull_trigger / bear_trigger — those include spot±0.25 ATR
+ *     and sit ahead of the market.
  *
  * Pure. Attaches an `option_management` block to a passed play object
  * and returns it. Does not mutate the input.
@@ -2961,12 +2990,16 @@ export function attachOptionManagement(play, ctx = {}) {
   const gp = ctx.gamePlan || null;
   const bullTrigger = Number(gp?.bull_trigger ?? gp?.bullTrigger);
   const bearTrigger = Number(gp?.bear_trigger ?? gp?.bearTrigger);
-  // Bullish play (call): invalidation is losing the bull path (bear trigger).
-  // Bearish play (put): invalidation is reclaiming the bull trigger.
+  const invPut = Number(gp?.inv_put ?? gp?.invPut);
+  const invCall = Number(gp?.inv_call ?? gp?.invCall);
+  // Structure first (overnight / OR / prior close). Do not use the
+  // chasing spot±0.25 ATR trigger — that level cannot be crossed.
+  const putInv = Number.isFinite(invPut) ? invPut : (Number.isFinite(bullTrigger) ? bullTrigger : null);
+  const callInv = Number.isFinite(invCall) ? invCall : (Number.isFinite(bearTrigger) ? bearTrigger : null);
   const invalidation = flavor === "put"
-    ? { underlying_above: Number.isFinite(bullTrigger) ? bullTrigger : null }
+    ? { underlying_above: putInv }
     : flavor === "call"
-      ? { underlying_below: Number.isFinite(bearTrigger) ? bearTrigger : null }
+      ? { underlying_below: callInv }
       : null;
   const isDte0 = Number(play?.expiration?.dte) === 0;
   const timeStopEt = isDte0 ? "12:00" : "15:45";

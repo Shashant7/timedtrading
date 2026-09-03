@@ -64,6 +64,7 @@ import {
   computeOpeningRangeFromM5,
   buildOvernightDayTradeGamePlan,
 } from "./day-trade-game-plan.js";
+import { timingFromM5Candles } from "./option-execution-clock.js";
 import { STRATEGY_PHASE } from "./strategy-context.js";
 import {
   loadFsdLevelsForTicker,
@@ -423,6 +424,7 @@ export async function buildTickerScenario(env, ticker, opts = {}) {
     atr_fib: atrFib,
     golden_gate,
     game_plan,
+    timing_5m: useOvernightPlaybook ? timingFromM5Candles(m5Candles) : null,
     generated_at: new Date().toISOString(),
     source: SCENARIO_VERSION,
   };

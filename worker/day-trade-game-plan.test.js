@@ -5,6 +5,7 @@ import {
   computeOvernightRangeFromM5,
   computeOpeningRangeFromM5,
   gamePlanSessionBounds,
+  structuralDayTradeInvalidation,
 } from "./day-trade-game-plan.js";
 import { sessionBoundsUtc } from "./foundation/trading-calendar.js";
 
@@ -176,5 +177,28 @@ describe("opening / overnight ranges do not eat the cash bounce (2026-09-02)", (
     expect(lean.reasons).not.toContain("broke the opening range low");
     expect(lean.lean).toBe("LONG");
     expect(lean.conviction).not.toBe("low");
+  });
+});
+
+describe("structuralDayTradeInvalidation", () => {
+  it("put invalidation is overnight/OR/prior close — not spot + 0.25 ATR", () => {
+    const inv = structuralDayTradeInvalidation({
+      overnight_range: { high: 764.49, low: 760.81 },
+      opening_range: { high: 762.93, low: 761.78, resolved: true },
+    }, { prevClose: 761.78 });
+    expect(inv.inv_put).toBe(764.49);
+    expect(inv.inv_call).toBe(760.81);
+    expect(inv.or_resolved).toBe(true);
+    // Chasing trigger would be ~765.5 and never print. 766.35 clears structure.
+    expect(766.35).toBeGreaterThan(inv.inv_put);
+  });
+
+  it("does not use an unresolved OR high as put invalidation", () => {
+    const inv = structuralDayTradeInvalidation({
+      overnight_range: { high: 762.0, low: 760.5 },
+      opening_range: { high: 766.0, low: 765.0, resolved: false },
+    }, { prevClose: 761.78 });
+    expect(inv.inv_put).toBe(762);
+    expect(inv.or_resolved).toBe(false);
   });
 });
