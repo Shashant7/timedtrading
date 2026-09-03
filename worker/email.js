@@ -3275,7 +3275,7 @@ function _mirrorMeaning(syncState, syncNote) {
     case "partial_fill":
       return "The broker filled less than the model intended. Future TRIM/EXIT actions will be scaled proportionally.";
     case "broker_orphan":
-      return "The model CLOSED this trade but the broker still holds a position. Close the leftover shares at the broker, or contact support.";
+      return "The model CLOSED this trade lot but the broker still holds shares that are not claimed by any OPEN model trade on this account. Close only true leftovers at the broker, or contact support. If an Open Long card is still showing for this ticker, the model still holds — do not flatten.";
     case "mothership_orphan":
       return "The position was closed manually at the broker. The mirror is suppressed for this trade; no further actions will be sent.";
     case "reconcile_error":
