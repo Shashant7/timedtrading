@@ -292,7 +292,7 @@ describe("forwardOrderToBridge — transport (CF 1042 / 404 fix)", () => {
 });
 
 describe("resolveTraderEquityEthMirror", () => {
-  it("coerces LIMIT+ALL+GTC in the 5pm ET earnings window", () => {
+  it("coerces LIMIT+ALL+GTC for an AH exit in the 5pm ET window", () => {
     const r = resolveTraderEquityEthMirror(
       { ticker: "TSLA", side: "exit", entry: 348.95, mode: "trader" },
       new Date("2026-08-24T17:00:00-04:00"),
@@ -302,6 +302,15 @@ describe("resolveTraderEquityEthMirror", () => {
     expect(r.fields.support_trading_session).toBe("ALL");
     expect(r.fields.tif).toBe("GTC");
     expect(r.fields.limit_price).toBeLessThan(348.95);
+  });
+
+  it("defers a new AH buy until RTH (EXT is for stop/target only)", () => {
+    const r = resolveTraderEquityEthMirror(
+      { ticker: "TQQQ", side: "buy", entry: 72.06, qty: 16, mode: "trader" },
+      new Date("2026-09-03T17:00:00-04:00"),
+    );
+    expect(r.skip).toBe(true);
+    expect(r.reason).toBe("entry_deferred_to_rth");
   });
 
   it("floors a fractional AH trim so 1.359 TSLA still sells 1 share", () => {
