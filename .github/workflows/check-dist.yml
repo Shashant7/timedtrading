@@ -36,7 +36,7 @@ jobs:
           node-version: "22"
 
       - name: Install deps
-        run: npm install --no-audit --no-fund --ignore-scripts
+        run: bash scripts/ci-npm-install.sh --ignore-scripts
 
       - name: Rebuild frontend
         run: npm run build:frontend

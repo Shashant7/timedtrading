@@ -15,7 +15,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install deps
-        run: npm install --no-audit --no-fund
+        run: bash scripts/ci-npm-install.sh
       - name: Decision records validation
         run: node scripts/validate-decision-records-live.mjs --wrangler-d1 production --remote
         continue-on-error: true
