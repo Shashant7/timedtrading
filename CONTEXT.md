@@ -217,6 +217,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**CI `npm install` edgesOut — pin vitest, do not use a caret (2026-09-03)**
+- No lockfile in git. `vitest: ^4.1.8` plus a just-published `vitest@5.0.0`
+  crashes npm 10.9.8 arborist (`Cannot read properties of null (reading
+  'edgesOut')`, npm/cli#9787). That failed PR checks AND main worker /
+  engine / research deploys before any test ran. Pin `vitest` exact
+  (`4.1.11`) and install via `scripts/ci-npm-install.sh`
+  (`--legacy-peer-deps` + one retry).
+
 **History remaining shares — exact math, never integer-round subtract (2026-09-02)**
 - Remaining = `positions.total_qty` or `entry * (1 - trimmed_pct)`. Never
   `Math.round(entry) - Math.round(entry * pct)` (DKNG 40.60 / 50% printed

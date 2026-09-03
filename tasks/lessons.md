@@ -6,6 +6,23 @@
 
 ---
 
+## CI npm install edgesOut blocked tests and worker deploys [2026-09-03]
+
+**Symptom:** PR checks and main's post-#1405 worker/engine/research
+deploys failed in "Install deps" with
+`Cannot read properties of null (reading 'edgesOut')`. Dist-match never
+compared files. Cloudflare Pages still passed.
+
+**Cause:** No committed lockfile. `vitest: ^4.1.8` + npm 10.9.8 on Node 22
+crashes arborist when a new vitest major (`5.0.0`) lands and optional
+peers skew (npm/cli#9787). Not a forgotten dist rebuild.
+
+**Fix:** Pin `vitest` to `4.1.11`. CI/deploy workflows call
+`scripts/ci-npm-install.sh` (`--legacy-peer-deps` + retry + rolldown heal).
+
+**Do not:** Treat a red "react-app-dist must match" check as a forgotten
+rebuild when the log dies in `npm install`. Do not bump vitest with `^`.
+
 ## UDOW/TQQQ trims skipped; QQQ option cap leaked [2026-09-03]
 
 **Symptom:** UDOW and TQQQ broker buys existed, but their model trims
