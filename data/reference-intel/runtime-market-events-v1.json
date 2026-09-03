@@ -50739,8 +50739,8 @@
         "event_type": "earnings",
         "event_name": "SAIC Earnings",
         "impact": "high",
-        "surprise_pct": 27.83,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 30.3,
+        "spy_reaction_pct": 0.44,
         "sector_reaction_pct": null
       },
       {
@@ -50748,8 +50748,8 @@
         "event_type": "earnings",
         "event_name": "CANG Earnings",
         "impact": "high",
-        "surprise_pct": 19.39,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 17.78,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -50758,7 +50758,7 @@
         "event_name": "CCG Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -50767,7 +50767,7 @@
         "event_name": "FRO Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -50776,7 +50776,7 @@
         "event_name": "PXS Earnings",
         "impact": "high",
         "surprise_pct": 33.66,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 0.44,
         "sector_reaction_pct": null
       },
       {
@@ -50956,7 +50956,7 @@
         "event_name": "GORO Earnings",
         "impact": "high",
         "surprise_pct": -123.08,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 0.44,
         "sector_reaction_pct": null
       },
       {
@@ -51055,7 +51055,7 @@
         "event_name": "DELL Earnings",
         "impact": "high",
         "surprise_pct": 40.46,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51063,8 +51063,8 @@
         "event_type": "earnings",
         "event_name": "PANW Earnings",
         "impact": "high",
-        "surprise_pct": 2.68,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 4.08,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51072,8 +51072,8 @@
         "event_type": "earnings",
         "event_name": "CRDO Earnings",
         "impact": "high",
-        "surprise_pct": 1.06,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 2.56,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51081,8 +51081,8 @@
         "event_type": "earnings",
         "event_name": "MDB Earnings",
         "impact": "high",
-        "surprise_pct": 17.76,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 17.13,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51090,8 +51090,8 @@
         "event_type": "earnings",
         "event_name": "NIO Earnings",
         "impact": "high",
-        "surprise_pct": 104.71,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 107.14,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51099,8 +51099,8 @@
         "event_type": "earnings",
         "event_name": "MDT Earnings",
         "impact": "high",
-        "surprise_pct": 3.45,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 4.32,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51361,7 +51361,7 @@
         "event_name": "ORCL Earnings",
         "impact": "high",
         "surprise_pct": 23.53,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51370,7 +51370,7 @@
         "event_name": "CSCO Earnings",
         "impact": "high",
         "surprise_pct": 23.53,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51379,7 +51379,7 @@
         "event_name": "IBM Earnings",
         "impact": "high",
         "surprise_pct": 23.53,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51388,7 +51388,7 @@
         "event_name": "KTOS Earnings",
         "impact": "high",
         "surprise_pct": 23.53,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51712,7 +51712,7 @@
         "event_name": "NKE Earnings",
         "impact": "high",
         "surprise_pct": 23.53,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51766,7 +51766,7 @@
         "event_name": "AVGO Earnings",
         "impact": "high",
         "surprise_pct": 0.57,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51774,8 +51774,8 @@
         "event_type": "earnings",
         "event_name": "GOLD Earnings",
         "impact": "high",
-        "surprise_pct": -4.27,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": -14.58,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51783,8 +51783,8 @@
         "event_type": "earnings",
         "event_name": "SNOW Earnings",
         "impact": "high",
-        "surprise_pct": 36.2,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 37.78,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -51792,8 +51792,8 @@
         "event_type": "earnings",
         "event_name": "HPE Earnings",
         "impact": "high",
-        "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 18.21,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52072,7 +52072,7 @@
         "event_name": "UHS Earnings",
         "impact": "high",
         "surprise_pct": -64.1,
-        "spy_reaction_pct": null,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52081,7 +52081,7 @@
         "event_name": "CAT Earnings",
         "impact": "high",
         "surprise_pct": -13.21,
-        "spy_reaction_pct": null,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52090,7 +52090,7 @@
         "event_name": "Aug ISM Srvcs PMI",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52099,7 +52099,7 @@
         "event_name": "2Q F Nonfarm Productivity",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52108,7 +52108,7 @@
         "event_name": "Jul Trade Balance",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52117,7 +52117,7 @@
         "event_name": "2Q F Unit Labor Costs",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52126,7 +52126,7 @@
         "event_name": "Aug F S&P Srvcs PMI",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52135,7 +52135,7 @@
         "event_name": "ISM Services",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52144,7 +52144,7 @@
         "event_name": "Aug ISM Services PMI",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52153,7 +52153,7 @@
         "event_name": "CIEN Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52161,8 +52161,8 @@
         "event_type": "earnings",
         "event_name": "LULU Earnings",
         "impact": "high",
-        "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 12.54,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52171,7 +52171,7 @@
         "event_name": "VSXY Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52179,8 +52179,8 @@
         "event_type": "earnings",
         "event_name": "IOT Earnings",
         "impact": "high",
-        "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 23.92,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52188,8 +52188,8 @@
         "event_type": "earnings",
         "event_name": "PATH Earnings",
         "impact": "high",
-        "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": -0.79,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52197,8 +52197,8 @@
         "event_type": "earnings",
         "event_name": "PL Earnings",
         "impact": "high",
-        "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "surprise_pct": 180.32,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52206,8 +52206,305 @@
         "event_type": "earnings",
         "event_name": "ZS Earnings",
         "impact": "high",
+        "surprise_pct": 6.47,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "AMBA Earnings",
+        "impact": "high",
+        "surprise_pct": 3.33,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "AMBR Earnings",
+        "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "AOUT Earnings",
+        "impact": "high",
+        "surprise_pct": 112.25,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "ASAN Earnings",
+        "impact": "high",
+        "surprise_pct": 12.11,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "ASG Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "AUSI Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "BBCP Earnings",
+        "impact": "high",
+        "surprise_pct": 5.88,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "BRC Earnings",
+        "impact": "high",
+        "surprise_pct": 0.02,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "CPB Earnings",
+        "impact": "high",
+        "surprise_pct": -0.51,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "CURV Earnings",
+        "impact": "high",
+        "surprise_pct": -38.41,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "DLTH Earnings",
+        "impact": "high",
+        "surprise_pct": 688.24,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "DOCU Earnings",
+        "impact": "high",
+        "surprise_pct": 4.74,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "DOMO Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "EGAN Earnings",
+        "impact": "high",
+        "surprise_pct": 161.44,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "FIZZ Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "FOF Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "GCO Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "GLCP Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "GROW Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "GTIJF Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "GWRE Earnings",
+        "impact": "high",
+        "surprise_pct": 3.05,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "HGTXU Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "IBIO Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "JCE Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "KFY Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "LAKE Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "LE Earnings",
+        "impact": "high",
+        "surprise_pct": -9.64,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "MAMA Earnings",
+        "impact": "high",
+        "surprise_pct": 23.71,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "MOMO Earnings",
+        "impact": "high",
+        "surprise_pct": 5.72,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "NX Earnings",
+        "impact": "high",
+        "surprise_pct": 16.66,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "COST Earnings",
+        "impact": "high",
+        "surprise_pct": 72.73,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "INTC Earnings",
+        "impact": "high",
+        "surprise_pct": 10,
+        "spy_reaction_pct": 1.05,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-09-03",
+        "event_type": "earnings",
+        "event_name": "MS Earnings",
+        "impact": "high",
+        "surprise_pct": 10,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52225,7 +52522,7 @@
         "event_name": "Aug AHE m/m",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52234,7 +52531,7 @@
         "event_name": "Aug Unemployment Rate",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52243,7 +52540,7 @@
         "event_name": "August Non-Farm Payrolls",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -0.69,
+        "spy_reaction_pct": 1.05,
         "sector_reaction_pct": null
       },
       {
@@ -52290,14 +52587,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 58.9624
+        "sql_duration_ms": 102.2647
       },
-      "duration": 58.9624,
+      "duration": 102.2647,
       "changes": 0,
-      "last_row_id": 83302990,
+      "last_row_id": 83381435,
       "changed_db": false,
-      "size_after": 4719886336,
-      "rows_read": 5809,
+      "size_after": 4859895808,
+      "rows_read": 5842,
       "rows_written": 0,
       "total_attempts": 1
     }
