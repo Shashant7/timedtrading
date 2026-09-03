@@ -4,6 +4,7 @@ import {
   indexTrendBookToTrade,
   formatDayTradeVehicleLabel,
   indexTrendLetfCandidates,
+  applyLivePremiumToTrade,
 } from "./paper-lane-positions.js";
 
 describe("paper-lane-positions", () => {
@@ -38,6 +39,59 @@ describe("paper-lane-positions", () => {
     expect(row._vehicle_label).toBe("QQQ 715C Aug 27");
     expect(row.pnl_pct).toBeCloseTo(8.4, 1);
     expect(row._paper_lane).toBe("index_day_trade");
+    expect(row.entry_premium).toBe(2.03);
+    expect(row.last_premium).toBe(2.2);
+    expect(row.mark_price).toBe(2.2);
+    expect(row.stop_premium).toBeCloseTo(1.01, 2);
+    expect(row.sl).toBeCloseTo(1.01, 2);
+  });
+
+  it("exposes trim/exit premiums on the kanban trade row", () => {
+    const row = dayTradeBookToTrade("SPY", {
+      signal_id: "dt:SPY:x",
+      book: {
+        status: "open",
+        ticker: "SPY",
+        flavor: "call",
+        strike: 777,
+        expiration: { iso: "2026-09-04" },
+        entry_premium: 0.63,
+        last_premium: 0.81,
+        trim_premium: 0.95,
+        exit_premium: 1.26,
+        stop_premium: 0.32,
+        contracts: 2,
+        contracts_remaining: 2,
+        entry_ts: 1000,
+      },
+    });
+    expect(row.trim_premium).toBe(0.95);
+    expect(row.exit_premium).toBe(1.26);
+    expect(row.tp).toBe(1.26);
+    expect(row.tpArray).toEqual([0.95, 1.26]);
+    expect(row.stop_premium).toBe(0.32);
+  });
+
+  it("overlays a fresh live mid onto mark/last/pnl", () => {
+    const row = dayTradeBookToTrade("QQQ", {
+      signal_id: "dt:QQQ:x",
+      book: {
+        status: "open",
+        ticker: "QQQ",
+        flavor: "call",
+        strike: 722,
+        expiration: { iso: "2026-09-04" },
+        entry_premium: 1.09,
+        last_premium: 1.09,
+        contracts: 1,
+        contracts_remaining: 1,
+        entry_ts: 1000,
+      },
+    });
+    const live = applyLivePremiumToTrade(row, 1.42);
+    expect(live.mark_price).toBe(1.42);
+    expect(live.last_premium).toBe(1.42);
+    expect(live.pnl_pct).toBeCloseTo(30.3, 1);
   });
 
   it("maps index trend book to LETF trade row", () => {

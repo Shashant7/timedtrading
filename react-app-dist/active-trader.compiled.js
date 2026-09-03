@@ -138,6 +138,15 @@ function hasTrimSignalPending(ticker, trade) {
 }
 const STOP_BREACH_GRACE_MS = 3 * 60 * 1000;
 function isPricePastStop(openTr, ticker, price) {
+  const VQ = window.TimedVehicleQuote;
+  if (VQ?.isOptionVehicle?.(ticker, openTr)) {
+    const prem = VQ.livePremium(ticker, openTr) || VQ.num(price);
+    const slPrem = VQ.num(openTr.stop_premium) || VQ.num(openTr.sl) || VQ.num(openTr.stop_loss);
+    if (!(prem > 0) || !(slPrem > 0)) return false;
+    const entryMs = tsToMs(openTr.entry_ts ?? openTr.entryTime ?? openTr.entryTs);
+    if (entryMs && Date.now() - entryMs < STOP_BREACH_GRACE_MS) return false;
+    return prem <= slPrem;
+  }
   const px = Number(price);
   if (!openTr || !Number.isFinite(px) || px <= 0) return false;
   const dir = String(openTr.direction || ticker?.position_direction || "").toUpperCase();
@@ -431,7 +440,7 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
   for (const t of tickers) {
     if (!t) continue;
     const sym = String(t?.ticker || "").toUpperCase();
-    const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || t?._openTrade || null);
+    const trade = resolveOpenTrade(window.TimedVehicleQuote?.pickOpenTrade?.(t, tradeByTicker?.get?.(sym) || null) || tradeByTicker?.get?.(sym) || t?._openTrade || null);
     const status = trade ? String(trade.status || "").toUpperCase() : "";
     const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
     const isOpen = traderBookIsOpen(trade);
@@ -550,18 +559,22 @@ function ATCard({
     dayPct: null,
     dayChg: null
   }));
-  const dc = (() => {
+  const resolvedOpen = resolveOpenTrade(openTrade || t?._openTrade || null);
+  const VQ = window.TimedVehicleQuote;
+  const isOptionVeh = !!VQ?.isOptionVehicle?.(t, resolvedOpen);
+  const isLetfVeh = !!VQ?.isLetfVehicle?.(t, resolvedOpen);
+  const vehicleQuote = isOptionVeh && VQ?.optionQuote ? VQ.optionQuote(t, resolvedOpen) : isLetfVeh && VQ?.letfQuote ? VQ.letfQuote(t, resolvedOpen) : null;
+  const dc = !vehicleQuote ? (() => {
     try {
       return dailyChange(t);
     } catch (_) {
       return null;
     }
-  })();
-  const price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price ?? t?.close);
-  const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
-  const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
-  const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
-  const resolvedOpen = resolveOpenTrade(openTrade || t?._openTrade || null);
+  })() : null;
+  const price = Number(vehicleQuote?.price ?? window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price ?? t?.close);
+  const dayPct = vehicleQuote ? Number.isFinite(vehicleQuote.dayPct) ? Number(vehicleQuote.dayPct) : null : Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
+  const dayChg = vehicleQuote ? Number.isFinite(vehicleQuote.dayChg) ? Number(vehicleQuote.dayChg) : null : Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
+  const dir = vehicleQuote?.dir || (dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn");
   const sanitize = window.TimedPriceUtils?.sanitizeTickerOpenPosture;
   const postureTicker = sanitize ? sanitize(t, resolvedOpen) : resolvedOpen ? {
     ...t,
@@ -667,11 +680,14 @@ function ATCard({
   const hasOpen = !!resolvedOpen;
   const progressBarData = (() => {
     if (!hasOpen) return null;
+    if (isOptionVeh && VQ?.optionProgressBar) {
+      return VQ.optionProgressBar(resolvedOpen, price);
+    }
     const ep = Number(resolvedOpen.entry_price ?? resolvedOpen.entryPrice) || null;
     if (!ep) return null;
     const isLong = tradeDir === "LONG";
     const tickerDir = String(t?.direction || t?.consensus_direction || "").toUpperCase();
-    const tickerAgrees = tickerDir === tradeDir;
+    const tickerAgrees = tickerDir === tradeDir && !isLetfVeh;
     const sl = Number(resolvedOpen.sl ?? resolvedOpen.stop_loss) || (tickerAgrees ? Number(t?.sl) || null : null);
     const tpArrRaw = Array.isArray(resolvedOpen.tpArray) ? resolvedOpen.tpArray : Array.isArray(resolvedOpen.tp_array) ? resolvedOpen.tp_array : null;
     const tps = (() => {
@@ -681,9 +697,10 @@ function ATCard({
       const single = Number(resolvedOpen.tp) || Number(resolvedOpen.take_profit) || (tickerAgrees ? Number(t?.tp) || Number(t?.tp_target_price) : null) || null;
       return single ? [single] : [];
     })();
-    const slValid = sl == null || (isLong ? sl < price : sl > price);
+    const unitOk = px => !isLetfVeh || !VQ?.sameUnit || VQ.sameUnit(px, ep);
+    const slValid = sl == null || (isLong ? sl < price : sl > price) && unitOk(sl);
     const slToUse = slValid ? sl : null;
-    const tpsValid = tps.filter(tp => isLong ? tp > ep : tp < ep);
+    const tpsValid = tps.filter(tp => (isLong ? tp > ep : tp < ep) && unitOk(tp));
     const allPx = [ep, price, slToUse, ...tpsValid].filter(p => Number.isFinite(p) && p > 0);
     if (allPx.length < 2) return null;
     const min = Math.min(...allPx);
@@ -720,7 +737,7 @@ function ATCard({
   })();
   const LC = window.TTLaneCard;
   const cardBiasLabel = LC?.compactBiasLabel ? LC.compactBiasLabel(biasLabel) : biasLabel;
-  const extLine = LC?.extLineFromTicker ? LC.extLineFromTicker(t) : null;
+  const extLine = isOptionVeh || isLetfVeh ? null : LC?.extLineFromTicker ? LC.extLineFromTicker(t) : null;
   const cardStyle = {
     textAlign: "left",
     padding: "var(--ds-space-3)",
@@ -1020,7 +1037,7 @@ function KanbanLane({
     const sym = String(t?.ticker || "").toUpperCase();
     const isLt = t?._model_path === "long_term";
     const cardKey = t?._card_key || window.TTHorizonLabels?.horizonCardKey?.(sym, isLt ? "long_term" : "short_term") || `${sym}:${isLt ? "long_term" : "short_term"}`;
-    const openRaw = isLt ? t?._openTrade || null : tradeByTicker?.get?.(sym) || t?._openTrade || null;
+    const openRaw = isLt ? t?._openTrade || null : window.TimedVehicleQuote?.pickOpenTrade?.(t, tradeByTicker?.get?.(sym) || null) || tradeByTicker?.get?.(sym) || t?._openTrade || null;
     return h(ATCard, {
       key: cardKey,
       t,
@@ -1759,7 +1776,9 @@ function ActiveTraderApp() {
       const stub = {
         ticker: sym,
         kanban_stage: stage,
-        price: Number(tr?.mark_price ?? tr?.current_price ?? tr?.entry_price) || null,
+        price: Number(tr?.mark_price ?? tr?.current_price ?? tr?.last_premium ?? tr?.entry_price) || null,
+        instrument: tr?.instrument || null,
+        _live_premium: Number(tr?.mark_price ?? tr?.last_premium) || null,
         has_open_position: true,
         position_direction: tr?.direction || null,
         _vehicle_label: tr?._vehicle_label || tr?._vehicle_ticker || null,
@@ -1789,7 +1808,7 @@ function ActiveTraderApp() {
         ...t,
         _model_path: "short_term",
         _source_mode: t?._source_mode || "trader",
-        _card_key: `${sym}:short_term`
+        _card_key: t?._card_key || `${sym}:short_term`
       };
     });
     const bySym = new Map();
@@ -2282,6 +2301,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1788315503650:687585290
+// cache-bust:1788467279527:80262675
 
-// cache-bust:1788315503650:687585290
+// cache-bust:1788467279527:80262675
