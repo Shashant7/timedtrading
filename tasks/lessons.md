@@ -50,6 +50,24 @@ fetch; cache key v3; surface `options_error` when the fallback fetch fails.
 treat a failed options GET as an empty book.
 
 
+
+## CI deploy red on electron-to-chromium 404 [2026-09-03]
+
+**Symptom:** After merging #1411, Tests + all worker deploys failed at
+`npm install` with `E404 electron-to-chromium@1.5.421`.
+
+**Cause:** `package-lock.json` is gitignored, so CI does a floating
+resolve. browserslist pulled a brand-new electron-to-chromium version
+whose tarball was not yet available on the CDN (published ~minutes
+earlier).
+
+**Fix:** `overrides.electron-to-chromium` pin in package.json + shared
+`scripts/ci-npm-install.sh` with retries used by test/deploy workflows.
+
+**Do not:** assume a clean `npm install` on CI is deterministic without a
+lockfile or overrides; brand-new transitive versions can 404 for minutes.
+
+
 ## Webull prefers whole shares; EXT only for stop/target [2026-09-03]
 
 **Ask:** Buys like 1.62344 should purchase 2 whole shares when cash allows.
