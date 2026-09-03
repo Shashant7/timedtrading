@@ -6,6 +6,34 @@
 
 ---
 
+## UDOW/TQQQ trims skipped; QQQ option cap leaked [2026-09-03]
+
+**Symptom:** UDOW and TQQQ broker buys existed, but their model trims
+returned `no_mirrored_entry`. QQQ 722C returned `daily_cap_3_reached`.
+
+**Cause:**
+1. Equity fan-out returned order IDs inside `response.results[].result`.
+   `forwardOrderToBridge` parsed those IDs for the client ring, but
+   `indexTrendFiredLooksPlaced` only checked top-level IDs. The index-trend
+   KV state therefore kept `entry_fired=false`, so every reducer correctly
+   refused to act on what it believed was an unmirrored entry.
+2. Options and LETF daily counters were reserved before dispatch and never
+   released on a broker rejection. The vehicle counter also leaked when its
+   reservation succeeded but the global-cap check failed. QQQ consumed a
+   long-call slot despite placing no contract.
+3. The operator's persisted global options cap was still 3 even though the
+   code default was 5.
+
+**Fix:** Parse fan-out IDs into index-trend state (`entry_order_id` plus
+`entry_order_ids`). Reserve cap slots before dispatch, but release both
+global and vehicle slots when the broker rejects/errors; also release the
+vehicle slot when the global gate denies. Treat HTTP 200 plus a reject body
+as rejected, never an assumed options fill. Live global cap changed 3→5;
+the leaked QQQ long-call count was corrected 2→1.
+
+**Do not:** replay QQQ 722C or historical trims. This repair is for the next
+entry/trim/exit. Working or partially-filled orders retain their cap slot.
+
 ## UDOW, TQQQ, and TJX entries never reached the broker [2026-09-03]
 
 **Symptom:** Same-morning Short Term TJX Cloud Pivot and index-trend

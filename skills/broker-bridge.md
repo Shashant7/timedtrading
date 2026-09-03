@@ -868,6 +868,10 @@ sees the same vehicles.
 `maybeAutoMirrorIndexDayTradeEvent` in `worker/options-auto-mirror.js`:
 
 - Caps gate **BUY only**. TRIM / EXIT / STOP never consume or check daily counters.
+- BUY reserves global + vehicle counter slots before dispatch. A broker reject,
+  transport error, or false-ok HTTP 200 releases both; a global-cap denial
+  releases the already-reserved vehicle slot. Working/partial orders retain
+  their slot. The operator global options cap is 5.
 - Close qty = mirrored remainder in `timed:opt-dt-mirror:{signal_id}`, not the paper book.
 - Bridge `POST /bridge/options/order` runs `guardOptionsSellQty` on live SELLs (skip in mock).
 - Fill: persist `entry_fired` / `exit_fired` only when reconcile says filled. Working limits
@@ -876,6 +880,9 @@ sees the same vehicles.
 - Paper sizing (1/2/3) is **off by default**. Enable with `index_dt_follow_paper_size: true`
   on auto-mirror prefs. Still reduced to fit `max_per_order_usd`.
 - Options-order handler must use `readUser` (there is no `getUser` export).
+- Index-trend share fan-out IDs are nested in `response.results[].result`;
+  parse/persist them before setting `entry_fired`, otherwise a real UDOW/TQQQ
+  entry is later blocked from TRIM/EXIT as `no_mirrored_entry`.
 
 ## Source
 

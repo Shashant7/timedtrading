@@ -21,7 +21,7 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-- [ ] **Options mirror cap + successful-entry accounting (2026-09-03).**
+- [x] **Options mirror cap + successful-entry accounting (2026-09-03).**
       Raise the operator options daily cap to 5; reserve cap slots before
       dispatch but release them on broker rejection/error; recognize
       fan-out LETF order IDs so successful entries remain trim/exit eligible.
