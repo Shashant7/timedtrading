@@ -23,16 +23,30 @@ import {
 /** Hourly RTH + COO heal cap. Raised 8→24 after the 2026-08-21 OpEx storm. */
 export const CATCHUP_AUTO_MAX_OPS = 24;
 
+function ringSideIsBuy(side) {
+  const s = String(side || "").toLowerCase();
+  return !s
+    || s === "buy"
+    || s === "long"
+    || s === "entry"
+    || s === "dca"
+    || s === "add"
+    || s === "open";
+}
+
 /**
  * True when a client-ring row is a real broker place (not a burned
  * `dedupe_skip`). A 2026-07-27 invariant: `{ ok:true, deduped:true }`
  * has no order id and must NOT look like a fill.
  *
- * 2026-08-21 — Live Webull successes often stored `status:ok` +
- * `http_status:200` with `rh_order_id:null` because the client only
- * read `parsed.rh_order_id`. Those legacy rows are real places; treat
- * them as mirrored so catch-up does not double-trim. New rows persist
- * `order_id` / `deduped`.
+ * 2026-08-21 — Live Webull SELL/TRIM successes often stored `status:ok`
+ * + `http_status:200` with `rh_order_id:null` because the client only
+ * read `parsed.rh_order_id`. Those legacy reducer rows are real places;
+ * treat them as mirrored so catch-up does not double-trim.
+ *
+ * 2026-09-03 — TJX BUY landed `status:ok` + HTTP 200 with no order id
+ * and `reject_reason` dropped. Buys/entries/DCAs now require a broker
+ * id. HTTP 200 alone is not a buy fill.
  */
 export function ringLooksLikeRealPlace(r) {
   if (!r || String(r.status || "") !== "ok") return false;
@@ -40,6 +54,7 @@ export function ringLooksLikeRealPlace(r) {
   const reject = String(r.reject_reason || r.error || "").toLowerCase();
   if (reject.includes("dedup") || reject.includes("duplicate_client")) return false;
   if (r.rh_order_id || r.broker_order_id || r.order_id) return true;
+  if (ringSideIsBuy(r.side)) return false;
   return Number(r.http_status) === 200;
 }
 

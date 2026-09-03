@@ -103,6 +103,29 @@ const RING_MAX = 200;
  * Robinhood-era contract, Webull `order_id`, manifest `broker_order_id`).
  * Deduped claims return `{ ok:true, deduped:true }` with no id.
  */
+/**
+ * A place is only OK when the bridge body says so.
+ * HTTP 200 + empty/`{ok:undefined}` used to count as a fill (TJX
+ * 2026-09-03: reject_reason on a 200, ring status ok, no order_id).
+ */
+export function bridgeResponseIsOk(parsed, httpOk) {
+  if (httpOk !== true) return false;
+  if (!parsed || typeof parsed !== "object") return false;
+  if (parsed.ok !== true) return false;
+  if (parsed.rejected === true) return false;
+  const reject = String(parsed.reject_reason || "").trim();
+  if (reject) return false;
+  // Fan-out wrappers always used to return `{ok:true}` even when every
+  // account rejected. Require at least one child to have a real success.
+  if (parsed.fanout === true && Array.isArray(parsed.results)) {
+    return parsed.results.some((row) => bridgeResponseIsOk(
+      row?.result,
+      Number(row?.http_status) >= 200 && Number(row?.http_status) < 300,
+    ));
+  }
+  return true;
+}
+
 export function parseBridgeOrderIds(parsed) {
   const nested = parsed?.response && typeof parsed.response === "object"
     ? parsed.response
@@ -120,12 +143,26 @@ export function parseBridgeOrderIds(parsed) {
     || data?.order_id
     || data?.broker_order_id
     || null;
-  const id = raw != null && String(raw).trim() !== "" ? String(raw) : null;
+  const childIds = Array.isArray(parsed?.results)
+    ? parsed.results.map((row) => {
+      const child = row?.result;
+      return child?.rh_order_id || child?.order_id || child?.broker_order_id || null;
+    }).filter((id) => id != null && String(id).trim() !== "").map(String)
+    : [];
+  const id = raw != null && String(raw).trim() !== ""
+    ? String(raw)
+    : (childIds[0] || null);
+  const childResults = Array.isArray(parsed?.results)
+    ? parsed.results.map((row) => row?.result).filter(Boolean)
+    : [];
   return {
     order_id: id,
     rh_order_id: id,
     broker_order_id: id,
-    deduped: parsed?.deduped === true,
+    order_ids: childIds,
+    deduped: parsed?.deduped === true
+      || (childResults.length > 0 && childIds.length === 0
+        && childResults.every((result) => result?.deduped === true)),
   };
 }
 
@@ -491,11 +528,12 @@ export async function forwardOrderToBridge(env, order) {
   // Webull signed call can take up to REQUEST_TIMEOUT_MS=12s, and EXIT does
   // review + positions + place (3 calls + 1.1s throttle gaps). 15s is too
   // tight when positions is slow — abort cancels the bridge mid-flight with
-  // no place audit and no silent-failure if waitUntil is torn down. Use 28s
-  // for reducer sides (exit/trim/sell/close); keep 15s for entries.
-  const _side = String(order?.side || "").toLowerCase();
-  const _isReducer = _side === "exit" || _side === "trim" || _side === "sell" || _side === "close";
-  const _timeoutMs = _isReducer ? 28000 : 15000;
+  // no place audit and no silent-failure if waitUntil is torn down.
+  //
+  // 2026-09-03 — Entries need the same budget. Owner + partner fan-out
+  // made TJX/ULTA/DPZ time out at 15s. The bridge now runs accounts in
+  // parallel, but broker review/place can still exceed 15s under throttle.
+  const _timeoutMs = 28000;
   const tid = setTimeout(() => controller.abort(), _timeoutMs);
   const ringEntry = {
     ts: Date.now(),
@@ -534,22 +572,32 @@ export async function forwardOrderToBridge(env, order) {
     const text = await r.text().catch(() => "");
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch (_) {}
-    const ok = r.ok && parsed?.ok !== false;
+    const ok = bridgeResponseIsOk(parsed, r.ok === true);
     const ids = parseBridgeOrderIds(parsed);
     ringEntry.status = ok ? "ok" : "error";
     ringEntry.http_status = r.status;
     ringEntry.rh_order_id = ids.rh_order_id;
     ringEntry.broker_order_id = ids.broker_order_id;
     ringEntry.order_id = ids.order_id;
+    ringEntry.order_ids = ids.order_ids;
     ringEntry.deduped = ids.deduped;
-    ringEntry.reject_reason = parsed?.reject_reason || parsed?.error || parsed?.message || null;
+    const childReject = Array.isArray(parsed?.results)
+      ? parsed.results.map((row) => (
+        row?.result?.reject_reason || row?.result?.error || row?.result?.message || null
+      )).find(Boolean)
+      : null;
+    ringEntry.reject_reason = parsed?.reject_reason
+      || parsed?.error
+      || parsed?.message
+      || childReject
+      || null;
     ringEntry.latency_ms = Date.now() - t0;
     await pushRing(env, ringEntry, { replacePending: true });
     if (!ok) {
       await recordBridgeFailure(env, {
         stage: `bridge_mirror.reject.${String(order?.side || "order").slice(0, 20)}`,
         ticker: order?.ticker,
-        error: parsed?.reject_reason || `http_${r.status}`,
+        error: ringEntry.reject_reason || `http_${r.status}`,
         meta: {
           side: order?.side,
           trade_id: order?.trade_id,

@@ -70,10 +70,36 @@ describe("index-trend-auto-mirror", () => {
     expect(await indexTrendNeedsEntryCatchUp(env, "it:IWM:TNA:LONG:2026-W36")).toBe(false);
   });
 
-  it("treats a forwarded catch-up as placed", () => {
-    expect(indexTrendCatchUpPlaced({ skipped: false, fired: { ok: true } })).toBe(true);
+  it("treats a forwarded catch-up as placed only with a real order id", () => {
+    expect(indexTrendCatchUpPlaced({ skipped: false, fired: { ok: true, order_id: "ord-1" } })).toBe(true);
+    expect(indexTrendCatchUpPlaced({ skipped: false, fired: { ok: true } })).toBe(false);
     expect(indexTrendCatchUpPlaced({ skipped: true, reason: "no_mirrored_entry" })).toBe(false);
     expect(indexTrendCatchUpPlaced({ skipped: false, fired: { ok: false, skip: "no_bridge_url" } })).toBe(false);
+  });
+
+  it("does not stamp entry_fired on a cash reject (UDOW 2026-09-03)", async () => {
+    forwardOrderToBridge.mockResolvedValueOnce({
+      ok: false,
+      response: { reject_reason: "insufficient_cash_for_one_unit_92_lt_71.96" },
+    });
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+    });
+    const signalId = "it:DIA:UDOW:LONG:2026-W36";
+    const r = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      catch_up: true,
+      signal_id: signalId,
+      underlying: "DIA",
+      letf_ticker: "UDOW",
+      letf_price: 71.96,
+      book: { shares: 27, status: "open" },
+      now: RTH_TS,
+    });
+    expect(r.skipped).toBe(false);
+    expect(r.fired?.ok).toBe(false);
+    expect(await indexTrendNeedsEntryCatchUp(env, signalId, RTH_TS)).toBe(false);
+    expect(await indexTrendNeedsEntryCatchUp(env, signalId, RTH_TS + 16 * 60 * 1000)).toBe(true);
   });
 
   it("still blocks a fresh BUY outside RTH", async () => {

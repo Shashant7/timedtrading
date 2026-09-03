@@ -175,6 +175,10 @@ export async function listMirrorParticipants(env, excludeOwner = "") {
   return all.filter((u) => {
     if (!u || u.status !== "connected") return false;
     if (!u.broker_integration_enabled || u.mirror_participant !== true) return false;
+    // The shared bridge/order path currently carries equity/options orders.
+    // A Webull FUTURES sub-account has no stock buying power and must never
+    // join this fan-out (partner sync noise on every 2026-09-03 signal).
+    if (String(u.webull_account_class || "").toUpperCase() === "FUTURES") return false;
     const uid = String(u.user_id || "").toLowerCase();
     const ownerOf = String(u.owner_email || uid.split("#")[0] || "").toLowerCase();
     if (skip && (ownerOf === skip || uid === skip || uid.startsWith(`${skip}#`))) return false;

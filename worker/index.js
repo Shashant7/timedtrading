@@ -96273,7 +96273,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     const _itOpenBefore = openBook
                       && (openBook.status === "open" || openBook.status === "trimmed");
                     let _itHealedEntry = false;
-                    if (_itOpenBefore && _itSid && await indexTrendNeedsEntryCatchUp(env, _itSid)) {
+                    // Same-tick follow-through only (book just written, waitUntil
+                    // died). Do not backfill older open books — operator ask
+                    // 2026-09-03: no catch-up of UDOW/TQQQ/TJX leftovers.
+                    const _itBookAgeMs = Date.now() - (Number(openBook?.entry_ts) || 0);
+                    if (_itOpenBefore && _itSid && _itBookAgeMs >= 0 && _itBookAgeMs < 15 * 60 * 1000
+                        && await indexTrendNeedsEntryCatchUp(env, _itSid)) {
                       try {
                         const _heal = await _itAutoMirror(env, {
                           ..._itMirrorBase,

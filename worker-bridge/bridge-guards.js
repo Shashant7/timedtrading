@@ -15,6 +15,7 @@ import {
   sleeveReservePct,
   reservedUsd,
   addReservation,
+  scaleQtyForCeiling,
 } from "./bridge-cash-budget.js";
 
 // 2026-06-01 — Naked-short sides are HARD-rejected regardless of any
@@ -671,25 +672,18 @@ export async function preflightOrder(env, payload) {
   // must size in whole shares up-front (otherwise relational scaling
   // re-introduces 0.48sh and place fails after review).
   const ethSession = isWebullEthSession(payload?.support_trading_session);
+  const fractBrokerId = resolveBrokerId(user) || user?.broker || null;
+  const fractionalOn = !!brokerCapabilities(fractBrokerId, "adapter")?.fractional
+    && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false"
+    && !user?.fractional_agreement_missing
+    && !ethSession;
+  const fractionalMinUsd = Number(env?.BROKER_FRACTIONAL_MIN_USD) || 1;
   if (relationalOn && (sizingLifecycle === "open" || sizingLifecycle === "add")) {
     const modelBook = Number(payload?.model_capital_usd)
       || Number(env?.MODEL_BOOK_BASE_USD)
       || 100000;
     const liveEquity = Number(user?.equity_usd || user?.portfolio?.equity_usd || user?.buying_power_usd || user?.cash_usd);
     const entryPx = Number(payload?.entry || payload?.price_target || 0);
-    const brokerId = resolveBrokerId(user) || user?.broker || null;
-    const fractionalCap = !!brokerCapabilities(brokerId, "adapter")?.fractional;
-    // 2026-07-22 — Skip fractional up-front when the user record shows the
-    // Webull fractional-trading agreement isn't signed. The bridge auto-
-    // retries with whole shares on the first offense (bridge-index.js
-    // fract-fallback block) and persists this flag; subsequent orders then
-    // pre-round here to avoid a wasted preview + place round-trip.
-    const fractionalAgreementBlocked = !!user?.fractional_agreement_missing;
-    const fractionalOn = fractionalCap
-      && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false"
-      && !fractionalAgreementBlocked
-      && !ethSession;
-
     // Fail-safe: never mirror an entry to an account whose size we don't know
     // — that would risk over-allocating a small account (the exact hazard for
     // a Roth IRA). Require a portfolio sync (GET /bridge/portfolio populates
@@ -823,9 +817,15 @@ export async function preflightOrder(env, payload) {
         cap: caps.max_per_order_usd,
       };
     }
-    const maxQtyByCap = Math.floor(caps.max_per_order_usd / entry);
-    if (maxQtyByCap < 1) {
-      // Even one share/contract doesn't fit. Genuinely too large.
+    const maxQtyByCap = scaleQtyForCeiling({
+      usableUsd: caps.max_per_order_usd,
+      entryUsd: entry,
+      buffer: 1,
+      fractional: fractionalOn,
+      minNotionalUsd: fractionalMinUsd,
+    });
+    if (!(maxQtyByCap > 0)) {
+      // Even a fractional min-notional (or one whole share) doesn't fit.
       return {
         ok: false,
         reject_reason: `order_too_large_min_unit_${entry.toFixed(2)}_gt_cap_${caps.max_per_order_usd}`,
@@ -901,9 +901,16 @@ export async function preflightOrder(env, payload) {
     // margin. Divide by 1.02 rather than multiply by 0.98 so the
     // Webull-side check `order_value * 1.02 <= buying_power` clears
     // exactly (0.98 leaves ~0.04% slack that broker rounding can eat).
-    const usableCash = cashCeiling / 1.02;
-    const maxQtyByCash = Math.floor(usableCash / entry);
-    if (maxQtyByCash < 1) {
+    // 2026-09-03 — TJX Cloud Pivot ($92 Roth / $131.60) floored to 0
+    // whole shares even though RTH fractional was on. Scale with the
+    // same Webull 2% buffer; keep a sub-share when fractionalOn.
+    const maxQtyByCash = scaleQtyForCeiling({
+      usableUsd: cashCeiling,
+      entryUsd: entry,
+      fractional: fractionalOn,
+      minNotionalUsd: fractionalMinUsd,
+    });
+    if (!(maxQtyByCash > 0)) {
       return {
         ok: false,
         reject_reason: `insufficient_cash_for_one_unit_${cashCeiling.toFixed(0)}_lt_${entry.toFixed(2)}`,
@@ -912,6 +919,7 @@ export async function preflightOrder(env, payload) {
         reserved_usd: reservedCash,
         tactical_reserve_pct: reservePct,
         unit_usd: entry,
+        fractional: fractionalOn,
       };
     }
     const originalQty = scalingMeta?.original_qty ?? qty;
@@ -955,8 +963,14 @@ export async function preflightOrder(env, payload) {
           max_account_pct: caps.max_account_pct,
         };
       }
-      const maxQtyByConc = Math.floor(maxAccountUsd / entry);
-      if (maxQtyByConc < 1) {
+      const maxQtyByConc = scaleQtyForCeiling({
+        usableUsd: maxAccountUsd,
+        entryUsd: entry,
+        buffer: 1,
+        fractional: fractionalOn,
+        minNotionalUsd: fractionalMinUsd,
+      });
+      if (!(maxQtyByConc > 0)) {
         return {
           ok: false,
           reject_reason: `concentration_too_small_for_one_unit_${maxAccountUsd.toFixed(0)}_lt_${entry.toFixed(2)}`,

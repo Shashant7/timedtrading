@@ -63,14 +63,23 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   `kind="exit"` used to map to `side="buy"` (would place a BUY for an
 >   exit intent) — landmine fixed 2026-07-27.
 > - `catchup-investor` dedupe: key mirror-ok by `(side, trade_id)` (so a
->   prior BUY doesn't mask a later SELL). A real place is ok + a broker
->   id (`rh_order_id` / `order_id` / `broker_order_id`), or a legacy
->   `ok`+HTTP 200 row without `deduped:true` (OpEx 2026-08-21: the
->   client used to drop Webull `order_id`). `{ ok:true, deduped:true }`
->   must NOT look like a fill. Pass `retry_nonce` per catchup call so
->   `shortClientOrderId` produces a fresh id and the bridge idempotency
->   layer releases the retry. Sort exits/trims ahead of buys before
->   `max_ops` (hourly/COO cap is 24).
+>   prior BUY doesn't mask a later SELL). A real BUY/DCA/entry place
+>   requires a broker id (`rh_order_id` / `order_id` / `broker_order_id`).
+>   HTTP 200 alone is not a buy fill (TJX 2026-09-03 false-ok). Legacy
+>   SELL/TRIM `ok`+HTTP 200 with a null id still counts as mirrored
+>   (OpEx 2026-08-21). `{ ok:true, deduped:true }` must NOT look like a
+>   fill. Pass `retry_nonce` per catchup call so `shortClientOrderId`
+>   produces a fresh id and the bridge idempotency layer releases the
+>   retry. Sort exits/trims ahead of buys before `max_ops` (hourly/COO
+>   cap is 24).
+> - Live ST / LETF entries must follow through on the signal path
+>   (fractional cash scale + `bridgeResponseIsOk`). Fan-out accounts run
+>   concurrently under the 28s client timeout; the outer receipt must
+>   carry child order IDs/rejects. Never send equity to a Futures
+>   sub-account. Do not backfill leftover books. Index-trend same-tick
+>   heal is only for a book younger than 15 minutes. Partner accounts
+>   must not manually exit a name that never filled
+>   (`no_manifest_for_trade`).
 > - Catch-up trims MUST send `reduce_pct = lot.shares / (remaining +
 >   lot.shares)` from `investor_positions.total_shares`. Replaying raw
 >   model-space `investor_lots.shares` is the META flatten (PLTR OpEx

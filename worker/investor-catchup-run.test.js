@@ -180,7 +180,38 @@ describe("planInvestorCatchupOps", () => {
     expect(out.planned).toHaveLength(1);
   });
 
-  it("treats legacy ok+200 with null rh_order_id as a real place (OpEx 2026-08-21)", () => {
+  it("treats legacy ok+200 sell with null rh_order_id as a real place (OpEx 2026-08-21)", () => {
+    const sellLot = {
+      ...baseLot,
+      id: "lot-CRDO-sell-opex",
+      action: "SELL",
+      reason: "PRIMARY_INVALIDATION_BREACH",
+    };
+    const out = planInvestorCatchupOps({
+      lots: [sellLot],
+      ring: [{
+        trade_id: "inv-CRDO-auto-1",
+        side: "sell",
+        status: "ok",
+        http_status: 200,
+        rh_order_id: null,
+        ts: sellLot.ts,
+      }],
+      scores: { CRDO: { stage: "reduce", score: 40 } },
+      livePrices: { CRDO: 178 },
+      nowMs: NOW_RTH,
+    });
+    expect(out.planned).toHaveLength(0);
+    expect(ringLooksLikeRealPlace({
+      status: "ok",
+      http_status: 200,
+      rh_order_id: null,
+      side: "sell",
+    })).toBe(true);
+    expect(ringLooksLikeRealPlace({ status: "ok", http_status: 200, deduped: true })).toBe(false);
+  });
+
+  it("does not treat a buy ok+200 with no order id as mirrored (TJX 2026-09-03)", () => {
     const out = planInvestorCatchupOps({
       lots: [baseLot],
       ring: [{
@@ -189,15 +220,21 @@ describe("planInvestorCatchupOps", () => {
         status: "ok",
         http_status: 200,
         rh_order_id: null,
+        order_id: null,
+        reject_reason: null,
         ts: baseLot.ts,
       }],
       scores: { CRDO: { stage: "accumulate", score: 70 } },
       livePrices: { CRDO: 178 },
       nowMs: NOW_RTH,
     });
-    expect(out.planned).toHaveLength(0);
-    expect(ringLooksLikeRealPlace({ status: "ok", http_status: 200, rh_order_id: null })).toBe(true);
-    expect(ringLooksLikeRealPlace({ status: "ok", http_status: 200, deduped: true })).toBe(false);
+    expect(out.planned).toHaveLength(1);
+    expect(ringLooksLikeRealPlace({
+      status: "ok",
+      http_status: 200,
+      rh_order_id: null,
+      side: "buy",
+    })).toBe(false);
   });
 
   it("prioritizeCatchupOps puts exits/trims ahead of buys before max_ops", () => {

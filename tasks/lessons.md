@@ -6,6 +6,56 @@
 
 ---
 
+## UDOW, TQQQ, and TJX entries never reached the broker [2026-09-03]
+
+**Symptom:** Same-morning Short Term TJX Cloud Pivot and index-trend
+LETF (UDOW, then TQQQ) wrote the model book / Discord. Roth never
+filled. ULTA and DPZ also had no ring row. NKE SHORT must not spam
+an IRA. Partner accounts show mirror-sync drift on the same misses.
+
+**Cause (three layers):**
+1. Bridge cash scale used `Math.floor(usableCash / entry)` even when
+   Webull RTH fractional was on. Roth ~$92 / TJX $131.60 → 0 shares →
+   `insufficient_cash_for_one_unit`. Relational sizing had already
+   correctly produced 1.65 sh.
+2. `forwardOrderToBridge` used `r.ok && parsed?.ok !== false`, so HTTP
+   200 with a reject (or empty body) stamped `bridge:client:recent`
+   `status:ok` with no `order_id`. `ringLooksLikeRealPlace` treated
+   that as a fill, so no retry.
+3. There is trader EXIT catch-up and investor catch-up, but no trader /
+   index-trend ENTRY catch-up. Index-trend dispatch is `*/15` inside
+   `/timed/options/all` and can die before DIA.
+4. Entry client timeout was 15s while bridge fan-out awaited owner then
+   every partner account serially. Several same-tick signals plus Webull
+   throttling exceeded that budget. The outer fan-out response also said
+   `{ok:true}` when every child rejected and hid child order IDs.
+5. Partner Futures was opted into the equity fan-out and rejected every
+   stock signal. Partner Individual Cash is valid, but Webull has its
+   fractional agreement marked missing; high-priced allocations below
+   one whole share will correctly reject until that agreement is signed.
+
+**Fix:** `scaleQtyForCeiling({fractional})` on cash / cap /
+concentration. `bridgeResponseIsOk` requires `ok:true` and no
+`reject_reason`. Buy-side ring places require an order id (sells keep
+the OpEx 2026-08-21 HTTP 200 exception). Index-trend `entry_fired`
+only after a real place. Index-trend same-tick heal is only for
+books younger than 15 minutes — not a backfill of leftover books.
+Run independent account fan-out concurrently, use a 28s client timeout,
+surface child order IDs/rejects, and exclude Futures from equity fan-out.
+
+**Do not:** backfill today's unmatched books. Auto-enable Individual
+Cash/Margin. Treat HTTP 200 without an order id as a buy fill. Mirror
+NKE SHORT onto the Roth. Ask a partner to manually exit a name that
+never filled (`no_manifest_for_trade` is correct).
+
+
+
+> **Quick refresh:** See [CONTEXT.md](../CONTEXT.md) for condensed critical lessons.
+> **Quick skills:** See [`skills/README.md`](../skills/README.md) for reusable playbooks.
+> Update after ANY correction from the user. Review at session start.
+
+---
+
 ## Index DT opening range used EST UTC hours in September [2026-09-02]
 
 **Symptom:** Operator expected a bounce. SPY opened 761.78 and grinded

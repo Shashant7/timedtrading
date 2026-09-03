@@ -6,6 +6,7 @@ import {
   shouldForwardTraderMirrorAsEquity,
   recordBridgeMirrorSkip,
   parseBridgeOrderIds,
+  bridgeResponseIsOk,
   resolveTraderEquityEthMirror,
 } from "./broker-bridge-client.js";
 import { readSilentFailures, SILENT_FAILURE_RING_KEY } from "./silent-failure-log.js";
@@ -32,6 +33,41 @@ const ORDER = {
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
 
+describe("bridgeResponseIsOk", () => {
+  it("requires explicit ok:true — HTTP 200 alone is not a fill", () => {
+    expect(bridgeResponseIsOk({ ok: true, order_id: "WB-1" }, true)).toBe(true);
+    expect(bridgeResponseIsOk({}, true)).toBe(false);
+    expect(bridgeResponseIsOk(null, true)).toBe(false);
+    expect(bridgeResponseIsOk({ ok: true }, false)).toBe(false);
+    expect(bridgeResponseIsOk({
+      reject_reason: "insufficient_cash_for_one_unit_92_lt_131.60",
+    }, true)).toBe(false);
+    expect(bridgeResponseIsOk({
+      ok: true,
+      reject_reason: "insufficient_cash_for_one_unit_92_lt_131.60",
+    }, true)).toBe(false);
+  });
+
+  it("requires a real successful child from a fan-out wrapper", () => {
+    const rejected = {
+      ok: true,
+      fanout: true,
+      results: [{
+        http_status: 200,
+        result: { ok: false, rejected: true, reject_reason: "insufficient_cash" },
+      }],
+    };
+    expect(bridgeResponseIsOk(rejected, true)).toBe(false);
+    expect(bridgeResponseIsOk({
+      ...rejected,
+      results: [
+        ...rejected.results,
+        { http_status: 200, result: { ok: true, rh_order_id: "WB-2" } },
+      ],
+    }, true)).toBe(true);
+  });
+});
+
 describe("parseBridgeOrderIds", () => {
   it("reads Webull order_id / broker_order_id aliases, not just rh_order_id", () => {
     expect(parseBridgeOrderIds({ ok: true, order_id: "WB-9" }).rh_order_id).toBe("WB-9");
@@ -39,6 +75,21 @@ describe("parseBridgeOrderIds", () => {
     expect(parseBridgeOrderIds({ ok: true, response: { order_id: "NEST" } }).broker_order_id).toBe("NEST");
     expect(parseBridgeOrderIds({ ok: true, deduped: true }).deduped).toBe(true);
     expect(parseBridgeOrderIds({ ok: true, deduped: true }).order_id).toBeNull();
+  });
+
+  it("reads order ids from per-account fan-out results", () => {
+    const ids = parseBridgeOrderIds({
+      ok: true,
+      fanout: true,
+      results: [
+        { result: { ok: false, rejected: true } },
+        { result: { ok: true, rh_order_id: "WB-OWNER" } },
+        { result: { ok: true, order_id: "WB-PARTNER" } },
+      ],
+    });
+    expect(ids.order_id).toBe("WB-OWNER");
+    expect(ids.order_ids).toEqual(["WB-OWNER", "WB-PARTNER"]);
+    expect(ids.deduped).toBe(false);
   });
 });
 
@@ -128,6 +179,25 @@ describe("forwardOrderToBridge — transport (CF 1042 / 404 fix)", () => {
     const ring = await readClientRing(env);
     expect(ring).toHaveLength(1);
     expect(ring[0].status).toBe("ok");
+  });
+
+  it("does not treat HTTP 200 without ok:true as a place (TJX 2026-09-03)", async () => {
+    const env = {
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      BROKER_BRIDGE_URL: "https://tt-broker-bridge.example.workers.dev",
+      KV_TIMED: makeKv(),
+      BROKER_BRIDGE: {
+        fetch: async () => new Response(JSON.stringify({
+          reject_reason: "insufficient_cash_for_one_unit_92_lt_131.60",
+        }), { status: 200 }),
+      },
+    };
+    const r = await forwardOrderToBridge(env, { ...ORDER, ticker: "TJX" });
+    expect(r.ok).toBe(false);
+    const ring = await readClientRing(env);
+    expect(ring[0].status).toBe("error");
+    expect(ring[0].order_id).toBeFalsy();
+    expect(String(ring[0].reject_reason || "")).toContain("insufficient_cash");
   });
 
   it("records the dispatch to the KV client ring with the transport tag", async () => {

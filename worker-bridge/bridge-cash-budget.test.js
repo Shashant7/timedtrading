@@ -7,6 +7,7 @@ import {
   cashCeilingRaw,
   usableBuyingPower,
   maxQtyForCeiling,
+  scaleQtyForCeiling,
   optionDebitUsd,
   addReservation,
   reservedUsd,
@@ -50,6 +51,17 @@ describe("cash ceiling", () => {
     expect(maxQtyForCeiling({ usableUsd: 1020, entryUsd: 100 })).toBe(10);
     expect(maxQtyForCeiling({ usableUsd: 1019, entryUsd: 100 })).toBe(9);
     expect(optionDebitUsd({ premium: 1.5, qty: 2 })).toBe(300);
+  });
+
+  it("fractional: $92 Roth cash buys ~0.68 TJX instead of rejecting", () => {
+    // TJX 2026-09-03 9:43 ET — whole-share floor was 0 → reject.
+    const qty = maxQtyForCeiling({ usableUsd: 92, entryUsd: 131.60, fractional: true });
+    expect(qty).toBeGreaterThan(0.68);
+    expect(qty).toBeLessThan(0.69);
+    expect(qty * 131.60 * 1.02).toBeLessThanOrEqual(92 + 1e-6);
+    expect(maxQtyForCeiling({ usableUsd: 92, entryUsd: 131.60, fractional: false })).toBe(0);
+    expect(scaleQtyForCeiling({ usableUsd: 92, entryUsd: 131.60, fractional: true })).toBeGreaterThan(0.68);
+    expect(scaleQtyForCeiling({ usableUsd: 0.50, entryUsd: 131.60, fractional: true })).toBe(0);
   });
 });
 
