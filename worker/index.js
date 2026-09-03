@@ -96304,7 +96304,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     const _itOpenBefore = openBook
                       && (openBook.status === "open" || openBook.status === "trimmed");
                     let _itHealedEntry = false;
-                    if (_itOpenBefore && _itSid && await indexTrendNeedsEntryCatchUp(env, _itSid)) {
+                    // Same-tick follow-through only (book just written, waitUntil
+                    // died). Do not backfill older open books — operator ask
+                    // 2026-09-03: no catch-up of UDOW/TQQQ/TJX leftovers.
+                    const _itBookAgeMs = Date.now() - (Number(openBook?.entry_ts) || 0);
+                    if (_itOpenBefore && _itSid && _itBookAgeMs >= 0 && _itBookAgeMs < 15 * 60 * 1000
+                        && await indexTrendNeedsEntryCatchUp(env, _itSid)) {
                       try {
                         const _heal = await _itAutoMirror(env, {
                           ..._itMirrorBase,
@@ -105646,66 +105651,6 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[TRADER EXIT CATCHUP] Failed:", String(e?.message || e).slice(0, 300));
           recordCronFailure(env, {
             op: "trader_exit_catchup_auto",
-            error: String(e?.message || e),
-            caller: "scheduled_event",
-          }).catch(() => {});
-        }
-      })());
-    }
-
-    // ── Short Term + index-trend ENTRY catch-up (*/5 during RTH) ──
-    //
-    // 2026-09-03 — TJX Cloud Pivot and UDOW LETF wrote the model book
-    // then never placed: cash floor-to-zero + waitUntil stampede +
-    // index-trend buried in /timed/options/all. Do not piggyback that
-    // path. Monolith only. Gated by BROKER_CATCHUP_AUTO_RTH.
-    if (!_isDedicatedEngine
-        && _isEvery5Min
-        && isNyRegularMarketOpen()
-        && String(env?.BROKER_CATCHUP_AUTO_RTH || "false").toLowerCase() === "true") {
-      ctx.waitUntil((async () => {
-        try {
-          const KV = env?.KV_TIMED;
-          const lockKey = "timed:cron:trader_entry_catchup";
-          if (KV) {
-            const held = await KV.get(lockKey).catch(() => null);
-            if (held) {
-              console.log("[TRADER ENTRY CATCHUP] skip — lock held");
-              return;
-            }
-            await KV.put(lockKey, String(Date.now()), { expirationTtl: 4 * 60 }).catch(() => {});
-          }
-          const { runTraderEntryCatchup } = await import("./trader-entry-catchup.js");
-          const out = await runTraderEntryCatchup(env, {
-            dry_run: false,
-            hours: 24,
-            max_ops: 8,
-            reason: "trader_entry_catchup_auto",
-          });
-          const okN = (out.results || []).filter((r) => r.ok && !r.skip).length;
-          const failN = (out.results || []).filter((r) => !r.ok || r.skip).length;
-          console.log(
-            `[TRADER ENTRY CATCHUP] planned=${out.planned} skipped=${out.skipped_count || 0}`
-            + ` forwarded=${out.forwarded} fail=${failN}`,
-          );
-          if (out.planned > 0) {
-            recordCronSuccess(env, "trader_entry_catchup_auto").catch(() => {});
-            try {
-              const lines = (out.results || []).slice(0, 12).map((r) =>
-                `${r.ok ? "ok" : "fail"} ${r.kind} ${r.ticker}`
-                + (r.skip ? ` (${String(r.skip).slice(0, 40)})` : ""),
-              );
-              await notifyDiscord(env, {
-                title: `SHORT TERM · entry catch-up (${okN} ok / ${failN} fail)`,
-                description: lines.join("\n") || `${out.planned} planned`,
-                color: failN ? 0xf0a020 : 0x4a90d9,
-              }, "trade").catch(() => {});
-            } catch (_) { /* notify best-effort */ }
-          }
-        } catch (e) {
-          console.warn("[TRADER ENTRY CATCHUP] Failed:", String(e?.message || e).slice(0, 300));
-          recordCronFailure(env, {
-            op: "trader_entry_catchup_auto",
             error: String(e?.message || e),
             caller: "scheduled_event",
           }).catch(() => {});

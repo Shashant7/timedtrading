@@ -29,13 +29,14 @@ an IRA. Partner accounts show mirror-sync drift on the same misses.
 **Fix:** `scaleQtyForCeiling({fractional})` on cash / cap /
 concentration. `bridgeResponseIsOk` requires `ok:true` and no
 `reject_reason`. Buy-side ring places require an order id (sells keep
-the OpEx 2026-08-21 HTTP 200 exception). `runTraderEntryCatchup` +
-`POST /timed/admin/broker-bridge/catchup-trader-entries` + monolith
-`*/5` RTH cron. Index-trend `entry_fired` only after a real place.
+the OpEx 2026-08-21 HTTP 200 exception). Index-trend `entry_fired`
+only after a real place. Index-trend same-tick heal is only for
+books younger than 15 minutes — not a backfill of leftover books.
 
-**Do not:** auto-enable Individual Cash/Margin. Chase a >5% drift.
-Treat HTTP 200 without an order id as a buy fill. Mirror NKE SHORT
-onto the Roth. Bury this heal in `/timed/options/all`.
+**Do not:** backfill today's unmatched books. Auto-enable Individual
+Cash/Margin. Treat HTTP 200 without an order id as a buy fill. Mirror
+NKE SHORT onto the Roth. Ask a partner to manually exit a name that
+never filled (`no_manifest_for_trade` is correct).
 
 
 
