@@ -6,6 +6,8 @@ import { pickPreferredLetfTicker } from "./letf-vehicles.js";
 import { INDEX_TREND_TICKERS } from "./index-trend-letf.js";
 import { loadDayTradeBook } from "./option-day-trade-alerts.js";
 import { loadIndexTrendBook } from "./index-trend-alerts.js";
+import { HARD_STOP_PCT } from "./option-day-trade-plan.js";
+import { readMarks, pickFreshMarkMid, buildOccSymbol } from "./options-marks.js";
 
 function bookIsLive(book) {
   const status = String(book?.status || "");
@@ -60,6 +62,27 @@ export async function loadOpenIndexTrendBookForUnderlying(env, underlying) {
   return { book: null, bookKey: null, fromCarry: false, carryKey: null, letf_ticker: null };
 }
 
+function defaultStopPremium(entry) {
+  if (!(entry > 0)) return null;
+  return Math.round(entry * (1 + HARD_STOP_PCT / 100) * 100) / 100;
+}
+
+/** Overlay a fresh contract mid onto a paper option trade row. */
+export function applyLivePremiumToTrade(row, liveMid) {
+  const mid = num(liveMid);
+  if (!row || !(mid > 0)) return row;
+  const entry = num(row.entry_premium) ?? num(row.entry_price);
+  let pnlPct = row.pnl_pct;
+  if (entry > 0) pnlPct = Math.round(((mid - entry) / entry) * 1000) / 10;
+  return {
+    ...row,
+    mark_price: mid,
+    current_price: mid,
+    last_premium: mid,
+    pnl_pct: pnlPct,
+  };
+}
+
 export function dayTradeBookToTrade(underlying, loaded = {}) {
   const book = loaded.book;
   if (!bookIsLive(book)) return null;
@@ -74,6 +97,10 @@ export function dayTradeBookToTrade(underlying, loaded = {}) {
     : 0;
   const vehicle = formatDayTradeVehicleLabel(book);
   const dir = String(book.flavor || "").toLowerCase() === "put" ? "SHORT" : "LONG";
+  const trimPx = num(book.trim_premium);
+  const exitPx = num(book.exit_premium);
+  const stopPx = num(book.stop_premium) ?? num(book.trail_stop_premium) ?? defaultStopPremium(entry);
+  const tpArray = [trimPx, exitPx].filter((n) => n > 0);
   let pnlPct = null;
   if (entry > 0 && live > 0) {
     pnlPct = Math.round(((live - entry) / entry) * 1000) / 10;
@@ -83,14 +110,22 @@ export function dayTradeBookToTrade(underlying, loaded = {}) {
     trade_id: loaded.signal_id || book.signal_id || `dt:${sym}`,
     ticker: sym,
     direction: dir,
+    flavor: String(book.flavor || "call").toLowerCase(),
     entry_price: entry,
     entryPrice: entry,
+    entry_premium: entry,
     mark_price: live,
     current_price: live,
+    last_premium: live,
+    trim_premium: trimPx,
+    exit_premium: exitPx,
+    stop_premium: stopPx,
+    trail_stop_premium: num(book.trail_stop_premium),
     entry_ts: Number(book.entry_ts) || null,
     status: trimmed ? "TP_HIT_TRIM" : "OPEN",
-    sl: num(book.stop_premium) ?? num(book.trail_stop_premium),
-    tp: num(book.exit_premium),
+    sl: stopPx,
+    tp: exitPx,
+    tpArray,
     instrument: "option",
     qty: contracts,
     contracts,
@@ -155,13 +190,28 @@ export function indexTrendBookToTrade(underlying, letfTicker, loaded = {}) {
   };
 }
 
+async function overlayFreshOptionMark(env, book, row) {
+  if (!row || !book) return row;
+  try {
+    const flavor = String(book.flavor || "").toLowerCase() === "put" ? "P" : "C";
+    const occ = buildOccSymbol(row.ticker, book.expiration?.iso, flavor, book.strike);
+    const fromTs = Date.now() - 20 * 60 * 1000;
+    const marks = occ
+      ? await readMarks(env, { optionSymbol: occ, fromTs, limit: 30 })
+      : [];
+    const fresh = pickFreshMarkMid(marks);
+    if (fresh?.mid > 0) return applyLivePremiumToTrade(row, fresh.mid);
+  } catch (_) { /* keep book last_premium */ }
+  return row;
+}
+
 /** List all open paper-lane positions (day-trade options + index trend LETF). */
 export async function listOpenPaperLaneTrades(env) {
   const trades = [];
   for (const sym of DAY_TRADE_TICKERS) {
     const loaded = await loadDayTradeBook(env, { ticker: sym });
     const row = dayTradeBookToTrade(sym, loaded);
-    if (row) trades.push(row);
+    if (row) trades.push(await overlayFreshOptionMark(env, loaded?.book, row));
   }
   for (const sym of INDEX_TREND_TICKERS) {
     const loaded = await loadOpenIndexTrendBookForUnderlying(env, sym);
