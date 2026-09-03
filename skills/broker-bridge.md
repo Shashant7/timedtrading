@@ -72,13 +72,11 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   produces a fresh id and the bridge idempotency layer releases the
 >   retry. Sort exits/trims ahead of buys before `max_ops` (hourly/COO
 >   cap is 24).
-> - `POST /timed/admin/broker-bridge/catchup-trader-entries` heals Short
->   Term equity + index-trend LETF buys that wrote the model book but
->   never placed (waitUntil stampede, cash whole-share floor, 15-min
->   `/timed/options/all` CPU). Default `dry_run=true`. Auto `*/5` RTH
->   under `BROKER_CATCHUP_AUTO_RTH`. Skips SHORT (Roth cannot short)
->   unless `include_shorts:true`. Buys require a broker id; 5% drift
->   gate; 10-min reject cooldown. Do not bury this in options/all.
+> - Live ST / LETF entries must follow through on the signal path
+>   (fractional cash scale + `bridgeResponseIsOk`). Do not backfill
+>   leftover books. Index-trend same-tick heal is only for a book
+>   younger than 15 minutes. Partner accounts must not manually exit
+>   a name that never filled (`no_manifest_for_trade`).
 > - Catch-up trims MUST send `reduce_pct = lot.shares / (remaining +
 >   lot.shares)` from `investor_positions.total_shares`. Replaying raw
 >   model-space `investor_lots.shares` is the META flatten (PLTR OpEx
