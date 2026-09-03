@@ -222,21 +222,24 @@
   // Phase D4 — verdict word as the action label (BUY/SELL/TIGHTEN/HOLD).
   // Recent activity is model actions. FORMING/WATCH/SETUP/REVIEW are buy-side
   // setup words — show Buy, not the lifecycle jargon.
-  function normalizeDisplayAction(meta) {
+  function normalizeDisplayAction(meta, ev) {
     const SG = window.TimedSignalGrammar;
+    const dir = String(meta?.direction || meta?.dir || ev?.direction || "").toUpperCase();
+    const isShort = dir === "SHORT" || dir === "SELL" || dir === "SELL_SHORT";
     if (SG && typeof SG.verdictWordFromActivity === "function") {
-      const word = String(SG.verdictWordFromActivity(meta) || "").toUpperCase();
+      const word = String(SG.verdictWordFromActivity({ ...meta, direction: dir }, ev) || "").toUpperCase();
       if (word === "FORMING" || word === "WATCH" || word === "SETUP" || word === "REVIEW" || word === "UPDATE") {
-        return "BUY";
+        return isShort ? "SHORT" : "BUY";
       }
       return word;
     }
     const label = String(meta?.label || "").toUpperCase();
     const evType = String(meta?.evType || "").toUpperCase();
     if (label === "TRIM" || evType === "TRIM" || label === "REDUCE" || evType.indexOf("TRIM") >= 0) return "TIGHTEN";
-    if (label === "EXIT" || evType === "EXIT" || /EXIT|SL_HIT|TP_HIT_EXIT/.test(evType)) return "SELL";
+    if (label === "EXIT" || evType === "EXIT" || /EXIT|SL_HIT|TP_HIT_EXIT/.test(evType)) return isShort ? "COVER" : "SELL";
     if (label === "HOLD") return "HOLD";
-    if (label === "SELL") return "SELL";
+    if (label === "SELL") return isShort ? "COVER" : "SELL";
+    if (label === "SHORT" || isShort) return "SHORT";
     return "BUY";
   }
 
@@ -720,7 +723,7 @@
       const reason = shortReason(ev?.reason || ev?.action);
       const pnlPct = Number(ev?.pnl_pct ?? ev?.pnlPct);
       const showPnl = (meta.evType === "EXIT" || meta.evType === "TRIM") && Number.isFinite(pnlPct);
-      const actionLabel = normalizeDisplayAction(meta);
+      const actionLabel = normalizeDisplayAction({ ...meta, direction: dir }, ev);
       const scopeLabel = scopeDisplayLabel(meta.scope);
       const familyLabel = activityFamilyLabel(ev);
       const paper = isPaperActivity(ev);
@@ -901,4 +904,4 @@
   else mount();
 })();
 
-// cache-bust:1788467279527:80262675
+// cache-bust:1788471754027:378307341
