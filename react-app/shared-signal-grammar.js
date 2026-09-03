@@ -254,14 +254,19 @@
   function verdictWordFromActivity(meta, ev) {
     var label = String((meta && meta.label) || "").toUpperCase();
     var evType = String((meta && meta.evType) || "").toUpperCase();
-    if (label === "ENTER" || label === "ENTRY" || label === "ADD" || label === "ADD_ENTRY"
+    var dir = String((meta && (meta.direction || meta.dir)) || (ev && ev.direction) || "").toUpperCase();
+    var isShort = dir === "SHORT" || dir === "SELL" || dir === "SELL_SHORT";
+    var isEntry = label === "ENTER" || label === "ENTRY" || label === "ADD" || label === "ADD_ENTRY"
       || label === "ACCUMULATE" || label === "QUEUE" || label === "BOUGHT" || label === "BUY"
-      || evType === "ENTRY" || evType === "ADD" || evType === "ADD_ENTRY" || evType === "BOUGHT") return "BUY";
-    if (label === "EXIT" || evType === "EXIT") return "SELL";
+      || evType === "ENTRY" || evType === "ADD" || evType === "ADD_ENTRY" || evType === "BOUGHT"
+      || label === "REVIEW" || label === "WATCH" || label === "SETUP" || label === "FORMING";
+    if (isEntry) return isShort ? "SHORT" : "BUY";
+    if (label === "EXIT" || evType === "EXIT") return isShort ? "COVER" : "SELL";
     if (label === "TRIM" || label === "DEFEND" || evType === "TRIM") return "TIGHTEN";
     if (label === "HOLD") return "HOLD";
-    if (label === "REVIEW" || label === "WATCH" || label === "SETUP" || label === "FORMING") return "BUY";
-    if (label === "REDUCE") return "SELL";
+    if (label === "REDUCE") return isShort ? "COVER" : "SELL";
+    if (label === "SHORT") return "SHORT";
+    if (label === "COVER") return "COVER";
     return label || "BUY";
   }
 

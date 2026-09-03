@@ -68,8 +68,9 @@ describe("daily / per-order caps removed (2026-08-13)", () => {
     };
     const pf = await preflightOrder(env, payload);
     expect(pf.ok).toBe(true);
-    expect(payload.qty).toBeGreaterThan(1.2);
-    expect(payload.qty).toBeLessThan(1.5);
+    // Relational ~1.32; whole-share prefer floors to 1 (2 shares ≈ $490
+    // exceeds the ~15–35% round-up slack on the relational target).
+    expect(payload.qty).toBe(1);
     expect(pf.scaling?.reason || "").not.toMatch(/cap_per_order/);
   });
 });

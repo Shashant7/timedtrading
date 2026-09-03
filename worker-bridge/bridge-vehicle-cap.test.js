@@ -146,9 +146,9 @@ describe("preflightOrder — Roth IRA vehicle-cap ordering (SPHB/XLK regression)
     };
     const pf = await preflightOrder(env, payload);
     expect(pf.ok).toBe(true);
-    // No further cap trim — the relational size (~9.79) fits under $5k.
-    expect(payload.qty).toBeGreaterThan(9.5);
-    expect(payload.qty).toBeLessThan(10.0);
+    // No further cap trim — relational ~9.79 rounds up to 10 whole shares
+    // under the $5k vehicle cap (10 × $145.36 ≈ $1,454).
+    expect(payload.qty).toBe(10);
     expect(payload._vehicle_cap_scaling).toBeUndefined();
   });
 

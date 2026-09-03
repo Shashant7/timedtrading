@@ -55,6 +55,12 @@ function firstMirrorOnTs(acct) {
 function humanizeReason(raw) {
   const r = String(raw || "").toLowerCase();
   if (!r) return null;
+  if (/naked_short_deferred|naked_short_vehicle/.test(r)) {
+    return "Equity shorts are not mirrored — cash and IRA accounts cannot short stock";
+  }
+  if (/entry_deferred_to_rth|deferred_to_rth/.test(r)) {
+    return "New entries wait for regular hours — extended session is for stop/target exits only";
+  }
   if (/^disabled$|options_auto_mirror_off/.test(r)) {
     return "Options auto-mirror is off — enable options on the account to mirror index day-trades";
   }
@@ -580,6 +586,27 @@ const EVENT_STYLE = {
     color: "var(--tt-danger)"
   }
 };
+function actionEventStyle(a) {
+  const ev = String(a?.event || "").toUpperCase();
+  const dir = String(a?.direction || "").toUpperCase();
+  const isShort = dir === "SHORT" || dir === "SELL" || dir === "SELL_SHORT";
+  if ((ev === "ENTRY" || ev === "BUY" || ev === "DCA_BUY") && isShort) {
+    return {
+      label: ev === "DCA_BUY" ? "DCA SHORT" : "SHORT",
+      color: "var(--tt-danger)"
+    };
+  }
+  if ((ev === "EXIT" || ev === "SELL") && isShort) {
+    return {
+      label: "COVER",
+      color: "var(--tt-success)"
+    };
+  }
+  return EVENT_STYLE[ev] || {
+    label: ev || "—",
+    color: "var(--tt-text-dim)"
+  };
+}
 const MIRROR_CHIP = {
   mirrored: {
     cls: "p-ok",
@@ -630,10 +657,7 @@ function ActionRow({
   showDay
 }) {
   const [open, setOpen] = useState(false);
-  const ev = EVENT_STYLE[a.event] || {
-    label: a.event,
-    color: "var(--tt-text-dim)"
-  };
+  const ev = actionEventStyle(a);
   const mc = MIRROR_CHIP[a.mirror] || MIRROR_CHIP.not_mirrored;
   const reason = humanizeReason(a.mirror_reason);
   const fills = a.fills || [];
@@ -930,7 +954,11 @@ const SYNC_CHIP = {
   },
   untracked: {
     cls: "p-off",
-    label: "NOT MIRRORED"
+    label: "BROKER ONLY"
+  },
+  broker_only: {
+    cls: "p-off",
+    label: "BROKER ONLY"
   },
   not_synced: {
     cls: "p-warn",
@@ -1177,10 +1205,14 @@ function PositionRow({
   const guide = positionGuidance(it);
   const horizonChip = it.managed && HORIZON_CHIP[String(it.model_horizon || "").toLowerCase()];
   const upBadge = Number.isFinite(upnl) && upnl > 0 ? "up" : Number.isFinite(upnl) && upnl < 0 ? "dn" : "flat";
+  const isOpt = String(it.instrument || "").toLowerCase() === "option";
+  const optRight = String(it.option_type || "").toUpperCase();
+  const researchSym = isOpt ? it.underlying || String(it.ticker || "").split(/\s+/)[0] : it.ticker;
   const openResearch = e => {
     e?.stopPropagation?.();
-    if (typeof onSelectTicker === "function" && it.ticker) onSelectTicker(it.ticker);
+    if (typeof onSelectTicker === "function" && researchSym) onSelectTicker(researchSym);
   };
+  const qtyUnit = isOpt ? Math.abs(qty) === 1 ? "contract" : "contracts" : "sh";
   return React.createElement("div", {
     className: `pos-card pos-card--${holds ? upBadge : "flat"}`
   }, React.createElement("div", {
@@ -1192,7 +1224,7 @@ function PositionRow({
     role: hasDetail ? "button" : undefined
   }, React.createElement("button", {
     type: "button",
-    title: `Open research for ${it.ticker}`,
+    title: `Open research for ${researchSym || it.ticker}`,
     onClick: openResearch,
     style: {
       border: "none",
@@ -1203,7 +1235,7 @@ function PositionRow({
       lineHeight: 0
     }
   }, React.createElement(TickerAvatar, {
-    ticker: it.ticker,
+    ticker: researchSym || it.ticker,
     muted: !holds
   })), React.createElement("div", {
     className: "pos-a-tick",
@@ -1220,9 +1252,12 @@ function PositionRow({
   }, React.createElement("button", {
     type: "button",
     className: "pos-ticker-btn",
-    title: `Open research for ${it.ticker}`,
+    title: `Open research for ${researchSym || it.ticker}`,
     onClick: openResearch
-  }, it.ticker), holds && it.managed && React.createElement("span", {
+  }, it.ticker), isOpt && React.createElement("span", {
+    className: `bc-pill ${optRight === "PUT" ? "p-err" : "p-mint"}`,
+    title: "Option holding at the broker"
+  }, optRight === "PUT" ? "PUT" : "CALL"), holds && it.managed && !isOpt && React.createElement("span", {
     className: "bc-pill p-ok",
     title: "Model-managed long position"
   }, "Open ", String(it.model_direction || "LONG").toUpperCase() === "SHORT" ? "Short" : "Long"), horizonChip && React.createElement("span", {
@@ -1243,7 +1278,7 @@ function PositionRow({
       fontSize: 11,
       marginTop: 2
     }
-  }, holds ? `${fmtQty(qty)} sh${Number(it.avg_cost) > 0 ? ` @ ${fmtUsd(it.avg_cost)}` : ""}` : "no shares here")), React.createElement("div", {
+  }, holds ? `${fmtQty(qty)} ${qtyUnit}${Number(it.avg_cost) > 0 ? ` @ ${fmtUsd(it.avg_cost)}` : ""}` : isOpt ? "no contracts here" : "no shares here")), React.createElement("div", {
     className: "pos-a-px mono",
     style: {
       fontSize: 12.5
@@ -1499,7 +1534,7 @@ function PositionsSection({
       n: autoSync.size,
       color: "var(--vf-primary, #38F2A1)"
     }, {
-      label: "Not mirrored",
+      label: "Broker only",
       n: untracked.size,
       color: "rgba(255,255,255,0.25)"
     }];
@@ -1527,7 +1562,7 @@ function PositionsSection({
       margin: "0 0 6px",
       lineHeight: 1.5
     }
-  }, "Holdings vs the model book. AUTO-SYNC fills on the model's own buy windows; CAN SYNC hands a user-bought lot to the model with no order."), data?.prices_included === false && React.createElement("div", {
+  }, "Holdings vs the model book \u2014 shares and options. AUTO-SYNC fills on the model's own buy windows; CAN SYNC hands a user-bought lot to the model with no order. BROKER ONLY rows (including option contracts) are held at the broker but not model-managed."), data?.prices_included === false && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 11,
@@ -2429,7 +2464,7 @@ function AccountPerformanceRow({
     onClick: () => onRange(r.id)
   }, r.id))), React.createElement("div", {
     className: "acct-compare"
-  }, groupChip("Mirror on", groupStats.on, "p-ok"), groupChip("Not mirrored", groupStats.off, "p-off")))), React.createElement("div", {
+  }, groupChip("Mirror on", groupStats.on, "p-ok"), groupChip("Mirror off", groupStats.off, "p-off")))), React.createElement("div", {
     className: "acct-perf-grid"
   }, rows.map(r => {
     const a = r.account;
@@ -2456,7 +2491,7 @@ function AccountPerformanceRow({
       }
     }, React.createElement("span", {
       className: `bc-pill ${on ? "p-ok" : "p-off"}`
-    }, on ? "MIRROR ON" : "NOT MIRRORED"), React.createElement("span", {
+    }, on ? "MIRROR ON" : "MIRROR OFF"), React.createElement("span", {
       className: `bc-pill ${accountOptionsOn(a) ? "p-mint" : "p-off"}`
     }, accountOptionsOn(a) ? "OPTIONS ON" : "OPTIONS OFF"), React.createElement("span", {
       className: `bc-pill ${accountLetfOn(a) ? "p-mint" : "p-off"}`
@@ -3126,7 +3161,27 @@ function BrokerConnectionsApp({
     className: "label"
   }, "Self-service mirror"), React.createElement("div", {
     className: "greeting"
-  }, "Broker Connections")), React.createElement("div", {
+  }, "Broker Connections"), React.createElement("p", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      margin: "6px 0 0",
+      maxWidth: 580,
+      lineHeight: 1.5
+    }
+  }, React.createElement("b", {
+    style: {
+      color: "var(--tt-text-1, #e8f0ec)"
+    }
+  }, "Mirror on/off"), " = whether new model orders place here.", " ", "Timeline ", React.createElement("b", {
+    style: {
+      color: "var(--tt-text-1, #e8f0ec)"
+    }
+  }, "Mirrored / Not mirrored"), " = per action.", " ", "Holdings ", React.createElement("b", {
+    style: {
+      color: "var(--tt-text-1, #e8f0ec)"
+    }
+  }, "Broker only"), " = at the broker outside the model book (includes options).")), React.createElement("div", {
     style: {
       display: "flex",
       gap: 6,
@@ -3331,6 +3386,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1788467279527:80262675
+// cache-bust:1788471754027:378307341
 
-// cache-bust:1788467279527:80262675
+// cache-bust:1788471754027:378307341

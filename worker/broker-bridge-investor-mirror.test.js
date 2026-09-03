@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("./silent-failure-log.js", () => ({
   recordSilentFailure: vi.fn(async () => {}),
@@ -7,6 +7,14 @@ vi.mock("./silent-failure-log.js", () => ({
 describe("forwardInvestorMirror", () => {
   beforeEach(() => {
     vi.resetModules();
+    // Buys defer outside RTH (Webull fractionals + RTH-first policy).
+    // Pin to a mid-session weekday so entry-path tests still place.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-03T15:00:00Z")); // 11:00 AM EDT
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("records skip when HMAC is missing instead of silent no-op", async () => {

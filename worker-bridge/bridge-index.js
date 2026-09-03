@@ -563,6 +563,8 @@ export default {
         // data with an age beats an error.
         const POS_CACHE_FRESH_MS = 60 * 1000;
         const POS_CACHE_TTL_SEC = 60 * 60;
+        // v2 — cache now includes option holdings; bust equity-only snapshots.
+        const POS_CACHE_PREFIX = "bridge:positions:v2:";
         // Account equity/cash from the reconciler's snapshots (summary strip).
         let snapByAcct = new Map();
         try {
@@ -588,14 +590,16 @@ export default {
             mirror_events: Array.isArray(acct.mirror_events) ? acct.mirror_events : [],
             items: [],
           };
-          const cacheKey = `bridge:positions:${String(acct.user_id).toLowerCase()}`;
+          const cacheKey = `${POS_CACHE_PREFIX}${String(acct.user_id).toLowerCase()}`;
           let cached = null;
           try {
             cached = env.BRIDGE_KV ? JSON.parse((await env.BRIDGE_KV.get(cacheKey)) || "null") : null;
           } catch (_) { cached = null; }
           let brokerPositions = null;
+          let optionPositions = [];
           if (!forceRefresh && cached && Date.now() - (Number(cached.ts) || 0) < POS_CACHE_FRESH_MS) {
             brokerPositions = cached.positions || [];
+            optionPositions = Array.isArray(cached.options) ? cached.options : [];
             entry.positions_as_of = cached.ts;
             entry.positions_cached = true;
           } else {
@@ -607,6 +611,14 @@ export default {
               if (Array.isArray(res)) brokerPositions = res;
               else if (res?.ok && Array.isArray(res.positions)) brokerPositions = res.positions;
               else entry.positions_error = res?.error || "positions_unavailable";
+              // Equity normalize drops OPTION rows — fetch options separately
+              // so holdings like SPY 777C appear on Broker Connections.
+              if (typeof adapter.getOptionsPositions === "function") {
+                try {
+                  const ores = await adapter.getOptionsPositions(env, acct);
+                  if (ores?.ok && Array.isArray(ores.positions)) optionPositions = ores.positions;
+                } catch (_) { /* options optional — equity still renders */ }
+              }
             } catch (e) {
               entry.positions_error = String(e?.message || e).slice(0, 200);
             }
@@ -614,13 +626,14 @@ export default {
               entry.positions_as_of = Date.now();
               if (env.BRIDGE_KV) {
                 ctx?.waitUntil?.(env.BRIDGE_KV.put(cacheKey,
-                  JSON.stringify({ ts: Date.now(), positions: brokerPositions }),
+                  JSON.stringify({ ts: Date.now(), positions: brokerPositions, options: optionPositions }),
                   { expirationTtl: POS_CACHE_TTL_SEC },
                 ).catch(() => {}));
               }
             } else if (cached && Array.isArray(cached.positions)) {
               // Live fetch failed — degrade to the last good snapshot.
               brokerPositions = cached.positions;
+              optionPositions = Array.isArray(cached.options) ? cached.options : [];
               entry.positions_as_of = cached.ts;
               entry.positions_stale = true;
               entry.positions_stale_reason = entry.positions_error || null;
@@ -709,7 +722,7 @@ export default {
             entry.items.push({
               ticker: sym,
               managed: false,
-              sync_state: "untracked",
+              sync_state: "broker_only",
               broker_qty: p.qty,
               avg_cost: p.avg_cost,
               last_price: p.last_price ?? null,
@@ -719,6 +732,21 @@ export default {
               unrealized_pnl_pct: p.unrealized_pnl_pct ?? null,
               day_pnl: p.day_pnl ?? null,
             });
+          }
+          // Option holdings (equity path filters them out). Unmanaged —
+          // shown so a SPY 777 call is visible next to share lots.
+          try {
+            const { optionPositionToHoldingItem, optionHoldingKey } = await import("./bridge-positions-options.js");
+            for (const op of optionPositions) {
+              const key = optionHoldingKey(op);
+              if (!key || seen.has(key)) continue;
+              const item = optionPositionToHoldingItem(op);
+              if (!item) continue;
+              seen.add(key);
+              entry.items.push(item);
+            }
+          } catch (e) {
+            console.warn("[POSITIONS] options attach failed:", String(e?.message || e).slice(0, 160));
           }
           // 2026-08-13 — Per-ticker action history sub-rows (fills, trims,
           // DCAs, rejects) from this account's ledger so the page can show

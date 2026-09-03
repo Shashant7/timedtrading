@@ -6,6 +6,32 @@
 
 ---
 
+## Broker Connections: SHORT labeled BUY; options missing from holdings [2026-09-03]
+
+**Symptom:** NKE TT Cloud Pivot SHORT (29.67 sh @ $38.28) showed green
+**BUY** on Broker Connections + activity strip, and **NOT MIRRORED**. SPY
+777 call missing from holdings. Status chips mixed "mirror off" with
+"not mirrored".
+
+**Cause:**
+1. Timeline/activity hardcode every model ENTRY as BUY — never read
+   `direction`. Book was `direction=SHORT`; bridge rejects equity shorts
+   (`naked_short_deferred`) so cash/IRA never place them.
+2. `/bridge/positions` only called `getEquityPositions`, which drops
+   OPTION rows. Options live in `getOptionsPositions` but were never
+   merged into holdings items.
+3. Account toggle "MIRROR OFF" was labeled "NOT MIRRORED" — same words as
+   a failed model→broker action.
+
+**Fix:** Direction-aware ENTRY/EXIT labels (SHORT / COVER). Merge option
+holdings into `/bridge/positions` (`bridge-positions-options.js`, cache
+v2). Status copy: Mirror on/off vs Mirrored/Not mirrored vs Broker only.
+Humanize `naked_short_deferred`.
+
+**Do not:** treat ENTRY as BUY when direction is SHORT. Filter options
+out of the holdings list. Use "NOT MIRRORED" for an account with mirroring
+paused.
+
 ## Webull prefers whole shares; EXT only for stop/target [2026-09-03]
 
 **Ask:** Buys like 1.62344 should purchase 2 whole shares when cash allows.
