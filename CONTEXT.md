@@ -217,6 +217,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Kanban option cards use live premium, never the underlying (2026-09-03)**
+- Index day-trade Kanban cards must quote `mark_price` / `last_premium` and
+  plot the POSITION bar on the premium path (entry / stop / trim / exit /
+  live). `getHeadlinePrice` + ticker SL/TP are the QQQ/SPY equity book.
+- Prefer the paper `_openTrade` over `tradeByTicker.get(QQQ)` so an equity
+  row cannot steal the option card. Keep paper `_card_key` so QQQ 722C and
+  TQQQ do not collide. Puts are long premium (mark up = gain).
+
 **History remaining shares — exact math, never integer-round subtract (2026-09-02)**
 - Remaining = `positions.total_qty` or `entry * (1 - trimmed_pct)`. Never
   `Math.round(entry) - Math.round(entry * pct)` (DKNG 40.60 / 50% printed

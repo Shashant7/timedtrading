@@ -6,6 +6,26 @@
 
 ---
 
+## Kanban option cards must show live premium on the quote and POSITION bar [2026-09-03]
+
+**Ask:** Active Trader Kanban option cards (QQQ 722C / SPY 777C) showed a
+premium-looking headline but the POSITION bar sat on E at +0.00%.
+
+**Cause:** ATCard used `getHeadlinePrice` (underlying) and ticker SL/TP for
+the bar. KanbanLane preferred `tradeByTicker.get(QQQ)` over the paper
+option book. `tagShort` overwrote paper `_card_key` to `QQQ:short_term`,
+colliding with the TQQQ card. Puts were treated as SHORT so premium-up
+targets were dropped.
+
+**Fix:** `TimedVehicleQuote` quotes `mark_price` / `last_premium` and plots
+entry / stop / trim / exit / live on the premium path. Paper `/timed/trades?source=paper`
+exposes those fields and overlays a fresh option_marks mid. Prefer
+`_openTrade` for paper vehicles.
+
+**Do not:** Mix QQQ/SPY equity headline or SL/TP onto an option card.
+Do not use `getDailyChange` for a contract premium. Do not treat a put as
+an equity short on the premium bar.
+
 ## Same-day AMC earnings lotto crowded out of the strip [2026-09-03]
 
 **Symptom:** ZS (same-day AMC, known since Aug 31) did not appear on
