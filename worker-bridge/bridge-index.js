@@ -1928,7 +1928,6 @@ async function handleOrderWebhook(env, ctx, payload) {
     }
     return handleSingleAccountOrder(env, ctx, payload);
   }
-  const results = [];
   const dispatchOne = async (perPayload, acct) => {
     let res, body = null;
     try {
@@ -1937,13 +1936,13 @@ async function handleOrderWebhook(env, ctx, payload) {
     } catch (e) {
       body = { ok: false, error: String(e?.message || e).slice(0, 200) };
     }
-    results.push({
+    return {
       broker_account_id: perPayload.broker_account_id || null,
       user_id: perPayload.user_id,
       broker: acct ? (resolveBrokerId(acct) || acct.broker || null) : null,
       http_status: res?.status || 500,
       result: body,
-    });
+    };
   };
   const perAccountPayload = (acct) => {
     const acctId = resolveBrokerAccountId(acct);
@@ -1968,15 +1967,20 @@ async function handleOrderWebhook(env, ctx, payload) {
       client_order_id: coid,
     };
   };
-  if (expandOwner) {
-    for (const acct of ownerPool) await dispatchOne(perAccountPayload(acct), acct);
-  } else {
-    // Signal owner keeps the legacy single-account resolution.
-    await dispatchOne({ ...payload }, null);
-  }
+  // Accounts are independent. Serial fan-out made the main worker's 15s
+  // entry request time out behind owner + partner API calls, even while a
+  // later account could still place. Run concurrently; each broker adapter
+  // keeps its own request throttling and each account has a distinct
+  // client_order_id / manifest row.
+  const targets = expandOwner
+    ? ownerPool.map((acct) => [perAccountPayload(acct), acct])
+    : [[{ ...payload }, null]];
   for (const acct of participantPool) {
-    await dispatchOne(perAccountPayload(acct), acct);
+    targets.push([perAccountPayload(acct), acct]);
   }
+  const results = await Promise.all(
+    targets.map(([perPayload, acct]) => dispatchOne(perPayload, acct)),
+  );
   return json({ ok: true, fanout: true, accounts: results.length, results }, 200);
 }
 

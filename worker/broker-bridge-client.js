@@ -528,11 +528,12 @@ export async function forwardOrderToBridge(env, order) {
   // Webull signed call can take up to REQUEST_TIMEOUT_MS=12s, and EXIT does
   // review + positions + place (3 calls + 1.1s throttle gaps). 15s is too
   // tight when positions is slow — abort cancels the bridge mid-flight with
-  // no place audit and no silent-failure if waitUntil is torn down. Use 28s
-  // for reducer sides (exit/trim/sell/close); keep 15s for entries.
-  const _side = String(order?.side || "").toLowerCase();
-  const _isReducer = _side === "exit" || _side === "trim" || _side === "sell" || _side === "close";
-  const _timeoutMs = _isReducer ? 28000 : 15000;
+  // no place audit and no silent-failure if waitUntil is torn down.
+  //
+  // 2026-09-03 — Entries need the same budget. Owner + partner fan-out
+  // made TJX/ULTA/DPZ time out at 15s. The bridge now runs accounts in
+  // parallel, but broker review/place can still exceed 15s under throttle.
+  const _timeoutMs = 28000;
   const tid = setTimeout(() => controller.abort(), _timeoutMs);
   const ringEntry = {
     ts: Date.now(),

@@ -73,10 +73,13 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   retry. Sort exits/trims ahead of buys before `max_ops` (hourly/COO
 >   cap is 24).
 > - Live ST / LETF entries must follow through on the signal path
->   (fractional cash scale + `bridgeResponseIsOk`). Do not backfill
->   leftover books. Index-trend same-tick heal is only for a book
->   younger than 15 minutes. Partner accounts must not manually exit
->   a name that never filled (`no_manifest_for_trade`).
+>   (fractional cash scale + `bridgeResponseIsOk`). Fan-out accounts run
+>   concurrently under the 28s client timeout; the outer receipt must
+>   carry child order IDs/rejects. Never send equity to a Futures
+>   sub-account. Do not backfill leftover books. Index-trend same-tick
+>   heal is only for a book younger than 15 minutes. Partner accounts
+>   must not manually exit a name that never filled
+>   (`no_manifest_for_trade`).
 > - Catch-up trims MUST send `reduce_pct = lot.shares / (remaining +
 >   lot.shares)` from `investor_positions.total_shares`. Replaying raw
 >   model-space `investor_lots.shares` is the META flatten (PLTR OpEx
