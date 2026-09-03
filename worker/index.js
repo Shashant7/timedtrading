@@ -95418,7 +95418,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
           const limit = Math.min(10, Math.max(1, Number(url.searchParams.get("limit")) || 10));
           const profile = "speculator";
-          const _cxCacheKey = `timed:options:convexity:v5:${limit}`;
+          const _cxCacheKey = `timed:options:convexity:v6:${limit}`;
           const _bypassCx = String(url.searchParams.get("_nocache") || "0") === "1";
           if (!_bypassCx) {
             const cached = await kvGetJSON(env.KV_TIMED, _cxCacheKey).catch(() => null);
@@ -95480,6 +95480,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             {
               maxTotal: 20,
               earnLimit: 12,
+              // Same-day AMC must not lose scan slots to higher-score 1–5d names.
+              earnEventBySym: _cxEarnEventBySym,
             },
           ).map(stampEarn);
           let _cxPricesMap = {};

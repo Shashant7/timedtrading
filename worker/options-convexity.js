@@ -389,6 +389,9 @@ export function toConvexityCard({
     label: play.label || null,
     earnings_prep: !!play._earnings_prep,
     h4_close_pending: !!play._h4_close_pending,
+    earnings_dte: Number.isFinite(Number(play.earnings_dte ?? contract?.earnings_dte))
+      ? Number(play.earnings_dte ?? contract?.earnings_dte)
+      : null,
     earnings_session: play._earnings_session || contract?.earnings_hour || null,
     rationale_short: play._earnings_prep
       ? (play._h4_close_pending
@@ -685,14 +688,32 @@ export function pickConvexityOmittedForUi(omitted = [], { maxDays = 1, limit = 8
   }).slice(0, limit);
 }
 
+/** AMC same-day first, then other same-day, then 1–5d by days / score. */
+function earningsSessionPriority(hour) {
+  const h = String(hour || "").toLowerCase();
+  if (h === "amc") return 0;
+  if (h === "bmo") return 2;
+  return 1;
+}
+
 /**
- * Earnings 0–5d first (same-day AMC included), then rank/eq fill.
+ * Earnings 0–5d first (same-day AMC reserved), then rank/eq fill.
+ * Same-day names never compete with 1–5d for the earnLimit slots —
+ * that is how low-score AMC prints (ZS) vanished until after the close.
  * Caps the scan so /timed/options/convexity cannot 1102.
  */
 export function selectConvexityScanUniverse(tickersAll = [], earnBySym = {}, opts = {}) {
   const maxTotal = Math.max(4, Math.min(40, Number(opts.maxTotal) || CONVEXITY_SCAN_MAX));
   const earnLimit = Math.max(1, Math.min(maxTotal, Number(opts.earnLimit) || CONVEXITY_SCAN_EARN_LIMIT));
+  const earnEventBySym = opts.earnEventBySym || {};
   const scoreOf = (t) => Math.max(Number(t?.entry_quality?.score || 0), Number(t?.rank || 0));
+  const hourOf = (t) => {
+    const sym = String(t?.ticker || "").toUpperCase();
+    return t?.earnings_hour
+      || earnEventBySym[sym]?.hour
+      || earnEventBySym[sym]?.session
+      || null;
+  };
 
   const earn = [];
   const ranked = [];
@@ -702,13 +723,20 @@ export function selectConvexityScanUniverse(tickersAll = [], earnBySym = {}, opt
     const days = Number(earnBySym[sym]);
     const row = { ...t, ticker: sym };
     if (Number.isFinite(days) && days >= 0 && days <= 5) {
-      earn.push({ ...row, earnings_dte: days, days_to_earnings: days });
+      earn.push({
+        ...row,
+        earnings_dte: days,
+        days_to_earnings: days,
+        earnings_hour: hourOf(row) || row.earnings_hour || null,
+      });
     }
     if (scoreOf(t) > 0) ranked.push(row);
   }
   earn.sort((a, b) => {
     const d = (Number(a.earnings_dte) || 0) - (Number(b.earnings_dte) || 0);
     if (d !== 0) return d;
+    const sess = earningsSessionPriority(a.earnings_hour) - earningsSessionPriority(b.earnings_hour);
+    if (sess !== 0) return sess;
     return scoreOf(b) - scoreOf(a);
   });
   ranked.sort((a, b) => scoreOf(b) - scoreOf(a));
@@ -721,25 +749,43 @@ export function selectConvexityScanUniverse(tickersAll = [], earnBySym = {}, opt
     out.push(t);
     return true;
   };
-  let earnPushed = 0;
+  // Same-day (esp. AMC) always enter — do not burn earnLimit on them.
   for (const t of earn) {
-    if (earnPushed >= earnLimit) break;
-    if (push(t)) earnPushed += 1;
+    if (Number(t.earnings_dte) !== 0) break;
+    push(t);
+  }
+  // Near-term 1–5d share the capped earnings slots.
+  let nearPushed = 0;
+  for (const t of earn) {
+    if (Number(t.earnings_dte) === 0) continue;
+    if (nearPushed >= earnLimit) break;
+    if (push(t)) nearPushed += 1;
   }
   for (const t of ranked) push(t);
   return out;
 }
 
+/** Same-day earnings-prep first, then other earnings-prep, then moonshot / score. */
 export function rankConvexityCards(cards = []) {
   const list = Array.isArray(cards) ? [...cards] : [];
+  const earnTier = (c) => {
+    if (!c?.earnings_prep) return 3;
+    const days = Number(c.earnings_dte);
+    const sess = String(c.earnings_session || "").toUpperCase();
+    if (days === 0 && sess === "AMC") return 0;
+    if (days === 0) return 1;
+    return 2;
+  };
   list.sort((a, b) => {
+    const aEarn = earnTier(a);
+    const bEarn = earnTier(b);
+    if (aEarn !== bEarn) return aEarn - bEarn;
     const aMoon = a.play_class === "moonshot" ? 0 : 1;
     const bMoon = b.play_class === "moonshot" ? 0 : 1;
     if (aMoon !== bMoon) return aMoon - bMoon;
-    // Prefer earnings-prep lottos over generic quiet-tape lottos.
-    const aEarn = a.earnings_prep ? 0 : 1;
-    const bEarn = b.earnings_prep ? 0 : 1;
-    if (aEarn !== bEarn) return aEarn - bEarn;
+    const aDays = Number.isFinite(Number(a.earnings_dte)) ? Number(a.earnings_dte) : 99;
+    const bDays = Number.isFinite(Number(b.earnings_dte)) ? Number(b.earnings_dte) : 99;
+    if (a.earnings_prep && b.earnings_prep && aDays !== bDays) return aDays - bDays;
     return (Number(b.confluence_score) || 0) - (Number(a.confluence_score) || 0);
   });
   return list;
