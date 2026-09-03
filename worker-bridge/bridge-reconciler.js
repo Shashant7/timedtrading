@@ -193,7 +193,14 @@ export function claimedOpenEquityByTicker(rows) {
     if (!ticker) continue;
     const remaining = Number(r.broker_remaining_qty);
     const intended = Number(r.model_intended_qty) || 0;
-    const claim = (Number.isFinite(remaining) && remaining > 0) ? remaining : intended;
+    // Prefer live remaining; fall back to intended. When both are present,
+    // take the max so a rejected/suppressed re-entry (remaining stamped from
+    // the prior lot, intended = new model size) still covers the broker qty
+    // and a CLOSED sibling cannot page as broker_orphan (DPZ 2026-09-03).
+    const claim = Math.max(
+      (Number.isFinite(remaining) && remaining > 0) ? remaining : 0,
+      intended > 0 ? intended : 0,
+    );
     if (!(claim > 0)) continue;
     out.set(ticker, (out.get(ticker) || 0) + claim);
   }
@@ -669,6 +676,38 @@ async function _readOpenRowsForUser(env, userId, limit, brokerAccountId = null) 
 }
 
 /**
+ * OPEN model equity rows for claim math — includes rejected / suppressed
+ * re-entries. The reconcile scan skips those terminal states, but a CLOSED
+ * sibling must still treat the open model book as owning the broker qty
+ * (otherwise Mirror Sync pages "model closed, close leftover" while the
+ * model card still shows Open Long — DPZ 2026-09-03).
+ */
+async function _readOpenClaimRowsForUser(env, userId, brokerAccountId = null) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return [];
+  await ensureMirrorManifestSchema(env);
+  try {
+    const r = await db.prepare(`
+      SELECT ticker, instrument_type, model_status, model_intended_qty, broker_remaining_qty,
+             trade_id, sync_state, mirror_suppressed
+        FROM mirror_trade_manifest
+       WHERE (user_id = ?1 OR (?2 IS NOT NULL AND broker_account_id = ?2))
+         AND UPPER(COALESCE(model_status, '')) = 'OPEN'
+         AND LOWER(COALESCE(instrument_type, 'equity')) = 'equity'
+       LIMIT 500
+    `).bind(
+      String(userId).toLowerCase(),
+      brokerAccountId ? String(brokerAccountId) : null,
+    ).all().catch(() => ({ results: [] }));
+    return r?.results || [];
+  } catch (e) {
+    console.warn(`[RECONCILER] read open-claim rows failed for ${userId}:`,
+      String(e?.message || e).slice(0, 200));
+    return [];
+  }
+}
+
+/**
  * Persist the reconciliation result for one row. Best-effort; logs +
  * continues on DB error.
  */
@@ -991,8 +1030,15 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
   const positionsByTicker = _indexByTicker(equityRes?.positions || equityRes?.results || []);
   const optionsByContract = _indexOptionsByContract(optionsRes?.positions || optionsRes?.results || []);
   // OPEN-mode claims (investor + trader) so CLOSED rows don't orphan
-  // shares that belong to another mode on the same brokerage account.
-  const openClaimsByTicker = claimedOpenEquityByTicker(rows);
+  // shares that belong to another mode — or a rejected/suppressed
+  // re-entry — on the same brokerage account (DPZ 2026-09-03).
+  const openClaimRows = await _readOpenClaimRowsForUser(
+    env, userId, resolveBrokerAccountId(user),
+  );
+  const openClaimsByTicker = claimedOpenEquityByTicker([
+    ...rows,
+    ...openClaimRows,
+  ]);
 
   // Per (mode × instrument) tolerance.
   function _tolerance(row) {

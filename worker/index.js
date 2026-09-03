@@ -93019,13 +93019,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const _invAction = deriveInvestorAlertAction(alert.type, alert.data);
               if (!INVESTOR_ACTIONABLE_ALERT_VERBS.includes(_invAction.verb)) continue;
               ctx.waitUntil(notifyDiscord(env, embed));
-              // 2026-06-24 — REDUCE / Model Thesis Shift signals batch into ONE
-              // combined digest instead of a per-ticker email blast, so
-              // multiple reduce signals in a pass arrive as a single email.
-              // (Queue alerts exit the loop earlier — activity strip only.)
+              // 2026-09-03 — Thesis / MODEL·REDUCE is advisory until the
+              // hourly rebalance actually trims or exits. Do not email
+              // "model may reduce" — only executed position_trim /
+              // position_close emails carry that action. Discord + bell
+              // + activity still surface the lane change for operators.
+              // (Queue alerts exit earlier — activity strip only.)
               const _isReduceAlert = alert.type === "thesis_invalidation";
               if (_isReduceAlert) {
-                _reduceAlerts.push(alert);
+                console.log(`[INVESTOR ALERTS] thesis_invalidation ${_invTicker} — Discord/bell only (no advisory email until trim executes)`);
               } else {
                 ctx.waitUntil(sendInvestorAlertEmails(env, alert).catch((e) => {
                   console.warn(`[INVESTOR ALERT EMAIL] ${_invTicker} send failed:`, String(e?.message || e).slice(0, 200));
@@ -93053,15 +93055,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 body: _invAction.one_liner || `Long Term model signal on ${alert.data.ticker}.`,
                 link: `/investor.html?ticker=${encodeURIComponent(String(alert.data.ticker || "").toUpperCase())}`,
               }).catch(() => {}));
-              alertsSent.push({ type: alert.type, ticker: alert.data.ticker, action: _invAction.verb });
+              alertsSent.push({
+                type: alert.type,
+                ticker: alert.data.ticker,
+                action: _invAction.verb,
+                channels: _isReduceAlert ? "discord_bell_only" : "discord_email_bell",
+              });
             }
           }
           // 2026-08-12 — Queue digest email removed (operator noise cleanup);
           // sendInvestorQueueDigest is no longer called from the alert loop.
+          // 2026-09-03 — Reduce digest email removed: advisory "may trim on
+          // next rebalance" was confusing when the model did not trim.
+          // Executed trims/exits still email via position_trim / position_close.
           if (_reduceAlerts.length > 0) {
-            ctx.waitUntil(sendInvestorReduceDigest(env, _reduceAlerts).catch((e) => {
-              console.warn("[INVESTOR REDUCE DIGEST] send failed:", String(e?.message || e).slice(0, 200));
-            }));
+            console.log(`[INVESTOR ALERTS] skipped reduce digest email for ${_reduceAlerts.length} thesis signal(s) (advisory only)`);
           }
           } // end !_focusOnly alerts
 

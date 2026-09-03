@@ -6,6 +6,31 @@
 
 ---
 
+## Mirror Sync false broker_orphan + advisory MAY-reduce emails [2026-09-03]
+
+**Symptom:** Mirror Sync CRITICAL emailed DPZ as Broker Orphan ("model closed
+but broker holds 0.1357") while the Short Term card still showed Open Long +
+Exit signal. Separately, Model Thesis Shift emails said the model MAY reduce
+when no trim/exit actually executed.
+
+**Cause:**
+1. Reconcile scan skips `rejected` / `mirror_suppressed` rows, so an OPEN
+   re-entry that failed preflight never claimed broker qty. The CLOSED prior
+   lot then classified as `broker_orphan` and paged.
+2. Investor `thesis_invalidation` emailed a Reduce digest on lane change
+   before auto-rebalance trimmed — advisory "would trim on next cycle" with
+   no executed action.
+
+**Fix:** `_readOpenClaimRowsForUser` includes OPEN equity rows regardless of
+sync_state/suppress for claim math; `claimedOpenEquityByTicker` uses
+`max(remaining, intended)`. Thesis/Reduce emails skipped until a real trim
+or exit executes (Discord/bell still fire). Heal closed DPZ orphan to
+`in_sync` when open re-entry claims the shares.
+
+**Do not:** email Mirror Sync "close leftover" while any OPEN model trade
+for that ticker still exists on the account, or email "MAY reduce" without
+an executed reduce.
+
 ## CI npm install edgesOut blocked tests and worker deploys [2026-09-03]
 
 **Symptom:** PR #1407 checks and main's post-#1405 worker/engine/research

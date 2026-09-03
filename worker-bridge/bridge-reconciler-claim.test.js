@@ -6,14 +6,31 @@ import {
 } from "./bridge-reconciler.js";
 
 describe("claimedOpenEquityByTicker", () => {
-  it("sums OPEN equity remaining (falls back to intended)", () => {
+  it("sums OPEN equity using max(remaining, intended)", () => {
     const map = claimedOpenEquityByTicker([
       { ticker: "PLTR", mode: "investor", instrument_type: "equity", model_status: "OPEN", broker_remaining_qty: 2, model_intended_qty: 5 },
       { ticker: "PLTR", mode: "trader", instrument_type: "equity", model_status: "CLOSED", broker_remaining_qty: 0, model_intended_qty: 1 },
       { ticker: "TWLO", mode: "investor", instrument_type: "equity", model_status: "OPEN", broker_remaining_qty: 0, model_intended_qty: 1 },
     ]);
-    expect(map.get("PLTR")).toBe(2);
+    // max(2, 5) so intended covers a larger open book than stamped remaining
+    expect(map.get("PLTR")).toBe(5);
     expect(map.get("TWLO")).toBe(1);
+  });
+
+  it("claims rejected/suppressed OPEN re-entry remaining so CLOSED siblings stay flat", () => {
+    const map = claimedOpenEquityByTicker([
+      {
+        ticker: "DPZ",
+        mode: "trader",
+        instrument_type: "equity",
+        model_status: "OPEN",
+        broker_remaining_qty: 0.2714,
+        model_intended_qty: 0.1357,
+        sync_state: "rejected",
+        mirror_suppressed: 1,
+      },
+    ]);
+    expect(map.get("DPZ")).toBe(0.2714);
   });
 });
 
@@ -70,11 +87,23 @@ function makeDb({ rows = [] } = {}) {
         },
         async first() { return null; },
         async all() {
-          if (/^\s*SELECT \* FROM mirror_trade_manifest/i.test(s)) {
-            const [uid, , acct] = stmt.args;
+          if (/FROM mirror_trade_manifest/i.test(s)) {
+            const uid = stmt.args[0];
+            const acct = stmt.args.length >= 3 ? stmt.args[2] : stmt.args[1];
+            const filtered = rows.filter(r =>
+              r.user_id === uid || (acct != null && r.broker_account_id === acct));
+            // Claim query only wants OPEN equity; scan query wants OPEN+CLOSED non-terminal.
+            if (/UPPER\(COALESCE\(model_status/i.test(s)) {
+              return {
+                results: filtered.filter(r =>
+                  String(r.model_status || '').toUpperCase() === 'OPEN'
+                  && String(r.instrument_type || 'equity').toLowerCase() === 'equity'),
+              };
+            }
             return {
-              results: rows.filter(r =>
-                r.user_id === uid || (acct != null && r.broker_account_id === acct)),
+              results: filtered.filter(r =>
+                !['expired', 'rejected', 'mirror_suppressed'].includes(String(r.sync_state || ''))
+                && Number(r.mirror_suppressed || 0) === 0),
             };
           }
           return { results: [] };

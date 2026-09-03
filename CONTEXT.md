@@ -831,6 +831,8 @@ playbook in `skills/security-auth-patterns.md`)**
   monolith; health samples are prioritized in the refresh budget.
   `GET /timed/admin/fundamentals` needs a logged-in Pro session
   (`authentication_required` from a bare `?key=` curl is expected).
+- **Mirror Sync false broker_orphan on re-entry (2026-09-03):** CLOSED lot + rejected/suppressed OPEN re-entry for the same ticker must claim broker qty via `_readOpenClaimRowsForUser` (includes terminal sync states). Otherwise emails say "model closed, close leftover" while the model card is still Open Long (DPZ).
+- **No advisory "MAY reduce" emails (2026-09-03):** `thesis_invalidation` / Model Thesis Shift stays Discord+bell only until a trim/exit actually executes; executed `position_trim` / `position_close` remain the email path.
 - **Mirror Sync email spam (2026-07-31)**: Critical drift used to skip
   dedup → every */5 reconcile re-queued orphans → digests every 5 min.
   Dedup critical 24h like warn; skip `mirror_suppressed=1` rows (flag
