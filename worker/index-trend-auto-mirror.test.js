@@ -2,9 +2,13 @@ import { describe, it, expect, vi } from "vitest";
 import { maybeAutoMirrorIndexTrendEvent, indexTrendNeedsEntryCatchUp, indexTrendCatchUpPlaced, INDEX_TREND_MIRROR_LOG_KEY } from "./index-trend-auto-mirror.js";
 import { forwardOrderToBridge } from "./broker-bridge-client.js";
 
-vi.mock("./broker-bridge-client.js", () => ({
-  forwardOrderToBridge: vi.fn(async () => ({ ok: true, order_id: "ord-1" })),
-}));
+vi.mock("./broker-bridge-client.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    forwardOrderToBridge: vi.fn(async () => ({ ok: true, order_id: "ord-1" })),
+  };
+});
 
 const RTH_TS = Date.UTC(2026, 7, 31, 13, 45, 0); // 9:45 AM ET
 const AFTER_TS = Date.UTC(2026, 7, 31, 21, 30, 0); // 5:30 PM ET
