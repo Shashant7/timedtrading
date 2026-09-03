@@ -8,7 +8,7 @@
 import { getKillSwitch, readUser, writeUser, resolveBridgeUser } from "./bridge-storage.js";
 import { readManifestRow, classifyOrderLifecycle } from "./bridge-manifest.js";
 import { brokerCapabilities, resolveBrokerId, resolveBrokerAccountId } from "./bridge-brokers.js";
-import { computeRelationalQty } from "./bridge-sizing.js";
+import { computeRelationalQty, preferWholeShareQty } from "./bridge-sizing.js";
 import { isWebullEthSession } from "./bridge-webull-fract.js";
 import {
   usableBuyingPower,
@@ -936,6 +936,39 @@ export async function preflightOrder(env, payload) {
       scale_ratio: Math.round((maxQtyByCash / originalQty) * 1000) / 1000,
     };
     qty = maxQtyByCash;
+    // After cash scaling, re-apply whole-share preference (1.62 → 2 when
+    // the cash ceiling still covers the round-up; else floor / sub-share
+    // fractional for expensive leftovers).
+    if (!isReducer && entry > 0) {
+      const wholePref = preferWholeShareQty({
+        qty,
+        price: entry,
+        accountEquity: Number(user?.equity_usd || user?.portfolio?.equity_usd || liveEquity) || null,
+        cashCeilingUsd: cashCeiling,
+        targetNotionalUsd: qty * entry,
+        maxQty: Number(originalQty) || qty,
+        allowFractional: fractionalOn,
+      });
+      if (wholePref.qty > 0 && wholePref.qty !== qty) {
+        console.log(`[BRIDGE_SCALE] ${payload.user_id || "?"}/${payload.ticker}: whole-share prefer ${qty}→${wholePref.qty} (${wholePref.mode})`);
+        qty = wholePref.qty;
+        scalingMeta = {
+          ...scalingMeta,
+          scaled_qty: qty,
+          reason: `${scalingMeta.reason}+whole_share_${wholePref.mode}`,
+          whole_share_mode: wholePref.mode,
+        };
+      } else if (!(wholePref.qty > 0)) {
+        return {
+          ok: false,
+          reject_reason: wholePref.reason || "account_too_small_for_one_share",
+          cash_usd: liveCash,
+          buying_power_usd: Number.isFinite(liveBuyingPower) ? liveBuyingPower : null,
+          cash_ceiling_usd: cashCeiling,
+          fractional: fractionalOn,
+        };
+      }
+    }
     estValue = entry * qty;
     payload.qty = qty;
     const bpNote = Number.isFinite(liveBuyingPower) && liveBuyingPower < liveCash

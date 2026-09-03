@@ -6,6 +6,22 @@
 
 ---
 
+## Webull prefers whole shares; EXT only for stop/target [2026-09-03]
+
+**Ask:** Buys like 1.62344 should purchase 2 whole shares when cash allows.
+Keep fractional for high-priced names (LLY). Webull rejects fractionals in
+EXT. Prefer RTH executions; EXT only when stop/target is hit on major AH.
+
+**Fix:** `preferWholeShareQty` in `worker-bridge/bridge-sizing.js` rounds
+buys up to whole shares when affordable, floors otherwise, and keeps a
+sub-share fractional only when one whole share does not fit (RTH). Wired
+through relational sizing + post-cash-scale. ETH entry mirrors
+(`resolveTraderEquityEthMirror` + investor forward) defer new buys to RTH;
+reducers still place as LIMIT+ALL+GTC with whole-share floor.
+
+**Do not:** leave fractional buy leftovers like 1.62 on Webull when 2 shares
+fit, or place new entries in EXT that Webull cannot fractionally fill.
+
 ## Mirror Sync false broker_orphan + advisory MAY-reduce emails [2026-09-03]
 
 **Symptom:** Mirror Sync CRITICAL emailed DPZ as Broker Orphan ("model closed

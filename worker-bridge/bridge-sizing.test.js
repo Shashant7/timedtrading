@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { computeRelationalQty, roundQtyForBroker } from "./bridge-sizing.js";
+import {
+  computeRelationalQty,
+  roundQtyForBroker,
+  preferWholeShareQty,
+} from "./bridge-sizing.js";
 import { preflightOrder } from "./bridge-guards.js";
 import { resetLocalReservations } from "./bridge-cash-budget.js";
 
@@ -15,20 +19,67 @@ describe("roundQtyForBroker", () => {
   });
 });
 
+describe("preferWholeShareQty", () => {
+  it("rounds 1.623 up to 2 when the target slack covers it", () => {
+    const r = preferWholeShareQty({
+      qty: 1.62344,
+      price: 70,
+      targetNotionalUsd: 1.62344 * 70,
+      maxQty: 10,
+      allowFractional: true,
+    });
+    expect(r.qty).toBe(2);
+    expect(r.mode).toBe("round_up");
+  });
+
+  it("floors when round-up would exceed the cash ceiling", () => {
+    const r = preferWholeShareQty({
+      qty: 1.8,
+      price: 100,
+      cashCeilingUsd: 150,
+      maxQty: 10,
+      allowFractional: true,
+    });
+    expect(r.qty).toBe(1);
+    expect(r.mode).toBe("round_down");
+  });
+
+  it("keeps a sub-share fractional for LLY-class names in RTH", () => {
+    const r = preferWholeShareQty({
+      qty: 0.35,
+      price: 850,
+      accountEquity: 16500,
+      targetNotionalUsd: 0.35 * 850,
+      allowFractional: true,
+    });
+    expect(r.qty).toBeGreaterThan(0.3);
+    expect(r.qty).toBeLessThan(0.4);
+    expect(r.mode).toMatch(/^fractional_/);
+  });
+
+  it("rejects a sub-share when fractionals are off (ETH)", () => {
+    const r = preferWholeShareQty({
+      qty: 0.35,
+      price: 850,
+      accountEquity: 16500,
+      targetNotionalUsd: 0.35 * 850,
+      allowFractional: false,
+    });
+    expect(r.qty).toBe(0);
+    expect(r.reason).toBe("account_too_small_for_one_share");
+  });
+});
+
 describe("computeRelationalQty — Roth IRA ($16.5k) mirroring a $100k model", () => {
   const base = { modelQty: 17, entryPrice: 251.71, accountEquity: 16500, modelBookUsd: 100000 };
 
-  it("fractional: scales 17 shares to ~2.8 (same ~4.4% of a smaller book)", () => {
+  it("prefers whole shares: scales 17 → ~2.8 then rounds up to 3", () => {
     const r = computeRelationalQty({ ...base, fractional: true });
     expect(r.ok).toBe(true);
-    expect(r.qty).toBeGreaterThan(2.7);
-    expect(r.qty).toBeLessThan(2.9);
-    expect(r.fractional_used).toBe(true);
+    expect(r.qty).toBe(3);
+    expect(r.fractional_used).toBe(false);
     expect(r.scaled).toBe(true);
-    // Same fraction of capital as the model deployed of its book.
-    const acctPct = (r.qty * base.entryPrice) / base.accountEquity;
-    const modelPct = (base.modelQty * base.entryPrice) / base.modelBookUsd;
-    expect(acctPct).toBeCloseTo(modelPct, 2);
+    expect(r.whole_share_mode).toBe("round_up");
   });
 
   it("whole-share broker: floors 2.8 → 2", () => {
@@ -37,12 +88,12 @@ describe("computeRelationalQty — Roth IRA ($16.5k) mirroring a $100k model", (
     expect(r.fractional_used).toBe(false);
   });
 
-  it("honors an explicit model_account_pct (3% of the real account)", () => {
+  it("honors an explicit model_account_pct then rounds 1.97 → 2", () => {
     const r = computeRelationalQty({ ...base, modelAccountPct: 3, fractional: true });
-    // 3% of $16,500 = $495 → 495/251.71 ≈ 1.966 shares
+    // 3% of $16,500 = $495 → 495/251.71 ≈ 1.966 → prefer whole 2
     expect(r.target_notional).toBeCloseTo(495, 0);
-    expect(r.qty).toBeGreaterThan(1.9);
-    expect(r.qty).toBeLessThan(2.0);
+    expect(r.qty).toBe(2);
+    expect(r.whole_share_mode).toBe("round_up");
   });
 
   it("never scales UP when the account is larger than the model book", () => {
@@ -103,7 +154,7 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
     buying_power_usd: 16500,
   };
 
-  it("scales a 17-share AMZN entry down to a fractional ~2.8 for the Roth", async () => {
+  it("scales a 17-share AMZN entry and prefers whole shares (3) for the Roth", async () => {
     const env = makeEnv(rothUser);
     const payload = {
       user_id: "op@x.com#webull#roth-ira",
@@ -116,9 +167,7 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
     };
     const pf = await preflightOrder(env, payload);
     expect(pf.ok).toBe(true);
-    // payload.qty mutated in place to the scaled (fractional) size.
-    expect(payload.qty).toBeGreaterThan(2.7);
-    expect(payload.qty).toBeLessThan(2.9);
+    expect(payload.qty).toBe(3);
   });
 
   it("fail-safe: rejects an entry when account equity is unknown (no over-allocation)", async () => {
@@ -138,7 +187,7 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
   // Model wanted a $338.69 buy (2.24 sh @ $151.14). Old sizing
   // (cash * 0.98) produced $333.20 which cleared cash but violated
   // Webull's 2% market-order buffer against BP.
-  it("scales against min(cash, buying_power) / 1.02 when unsettled funds shrink BP", async () => {
+  it("scales against min(cash, buying_power) / 1.02 then prefers whole shares", async () => {
     // Simulate a cash account whose whole equity is model-book-sized
     // (so relational sizing does NOT clamp the request); BP is the
     // only tighter ceiling because recent proceeds have not settled.
@@ -162,11 +211,11 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
     };
     const pf = await preflightOrder(env, payload);
     expect(pf.ok).toBe(true);
-    // Ceiling 332 / 1.02 = 325.49; fractional 325.49 / 151.14 ≈ 2.153.
-    expect(payload.qty).toBeGreaterThan(2.15);
-    expect(payload.qty).toBeLessThan(2.16);
+    // Ceiling 332 / 1.02 = 325.49 → ~2.153 fractional → prefer whole 2
+    // (3 shares = $453 > ceiling).
+    expect(payload.qty).toBe(2);
     expect(payload.qty * payload.entry * 1.02).toBeLessThanOrEqual(332);
-    expect(pf.scaling?.reason).toContain("cash_buffer");
+    expect(pf.scaling?.reason).toMatch(/cash_buffer/);
     expect(pf.scaling?.buying_power_usd).toBe(332);
     expect(pf.scaling?.cash_ceiling_usd).toBe(332);
   });
@@ -192,18 +241,17 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
     };
     const pf = await preflightOrder(env, payload);
     expect(pf.ok).toBe(true);
-    // 500 / 1.02 = 490.19; fractional 490.19 / 151.14 ≈ 3.243.
-    expect(payload.qty).toBeGreaterThan(3.24);
-    expect(payload.qty).toBeLessThan(3.25);
+    // 500 / 1.02 = 490.19 → ~3.243 → prefer whole 3
+    expect(payload.qty).toBe(3);
     expect(payload.qty * payload.entry * 1.02).toBeLessThanOrEqual(500);
   });
 
-  it("fractional RTH: $92 Roth cash scales TJX instead of insufficient_cash_for_one_unit", async () => {
+  it("fractional RTH: $92 Roth cash scales TJX to a sub-share (can't afford 1 whole)", async () => {
     // Prior preflight tests reserve cash on WB-ROTH in the process-local
     // ledger; clear it so this tight-cash case is isolated.
     resetLocalReservations();
     // 2026-09-03 — model 10.07 sh @ $131.60. Relational → ~1.66, then
-    // the old Math.floor($92/1.02/$131.60) was 0 and rejected.
+    // cash ceiling leaves ~0.68. One whole share does not fit → fractional.
     const tightCash = {
       ...rothUser,
       cash_usd: 92,
@@ -225,6 +273,6 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
     expect(payload.qty).toBeGreaterThan(0.68);
     expect(payload.qty).toBeLessThan(0.69);
     expect(payload.qty * payload.entry * 1.02).toBeLessThanOrEqual(92 + 1e-6);
-    expect(pf.scaling?.reason).toContain("cash_buffer");
+    expect(pf.scaling?.reason).toMatch(/cash_buffer/);
   });
 });

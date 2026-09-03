@@ -21,6 +21,12 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Webull whole-share prefer + RTH-first (2026-09-03).**
+      Prefer whole shares on buys (1.623 → 2 when cash allows). Keep
+      fractional only for high-priced names (LLY-class) in RTH. No
+      fractional in EXT. Defer new entries to RTH; EXT only for
+      stop/target reducers on major AH moves.
+      Branch: `cursor/webull-whole-shares-rth-dbdd`.
 - [x] **Options mirror cap + successful-entry accounting (2026-09-03).**
       Raise the operator options daily cap to 5; reserve cap slots before
       dispatch but release them on broker rejection/error; recognize

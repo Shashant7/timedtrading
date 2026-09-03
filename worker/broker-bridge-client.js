@@ -57,8 +57,14 @@ export function resolveTraderEquityEthMirror(order, now = new Date()) {
   if (!(px > 0)) return { skip: false, fields: {} };
   const side = String(order?.side || "").toLowerCase();
   const isReducer = side === "trim" || side === "exit" || side === "sell" || side === "close";
-  const slack = isReducer ? 0.03 : 0.015;
-  const limit = Math.round(px * (isReducer ? (1 - slack) : (1 + slack)) * 100) / 100;
+  // 2026-09-03 — Prefer RTH for new risk. EXT is for stop/target
+  // reducers on major after-hours moves only (Webull fractionals are
+  // RTH-only anyway; new buys wait for the open).
+  if (!isReducer) {
+    return { skip: true, reason: "entry_deferred_to_rth" };
+  }
+  const slack = 0.03;
+  const limit = Math.round(px * (1 - slack) * 100) / 100;
   const fields = {
     order_kind: "limit",
     limit_price: limit,
@@ -399,24 +405,28 @@ export async function forwardInvestorMirror(env, op = {}) {
     const marketOpen = isNyRthOpen();
     if (!marketOpen && !explicitSession && priceForLimit > 0) {
       const isReducer = side === "trim" || side === "sell";
+      // 2026-09-03 — New investor buys wait for RTH. EXT is for
+      // stop/target reducers only (Webull fractionals are RTH-only).
+      if (!isReducer) {
+        return {
+          ok: false,
+          skip: "entry_deferred_to_rth",
+          trade_id: tradeId,
+          side,
+          qty: mirrorQty,
+        };
+      }
       // Reducers use reduce_pct → bridge sizes against held qty; we
       // don't need to whole-share-floor them here.
-      if (!isReducer) {
-        const whole = Math.floor(mirrorQty + 1e-9);
-        if (whole >= 1) mirrorQty = whole;
-      }
       orderKind = "limit";
       // 2026-08-19 — Slack a "flatten intent" limit so tomorrow's
       // open fills it regardless of a gap. Otherwise a sell limit at
       // last_mark rests until price bounces back, defeating the point
-      // of the flatten. Buy limits slack up so a fill is still likely
-      // on a small gap up. Caller-supplied limit_price wins.
+      // of the flatten. Caller-supplied limit_price wins.
       const explicitLimit = Number.isFinite(limitPrice) && limitPrice > 0;
-      const slackPct = isReducer ? 0.03 : 0.015; // 3% below for sells, 1.5% above for buys
+      const slackPct = 0.03; // 3% below for sells
       const baseLimit = explicitLimit ? limitPrice : priceForLimit;
-      const slacked = isReducer
-        ? baseLimit * (1 - slackPct)
-        : baseLimit * (1 + slackPct);
+      const slacked = baseLimit * (1 - slackPct);
       limitPrice = explicitLimit
         ? Math.round(baseLimit * 100) / 100
         : Math.round(slacked * 100) / 100;
