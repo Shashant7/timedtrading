@@ -39,11 +39,8 @@ jobs:
 
       - name: Install deps
         run: |
-          # 2026-09-03 — npm arborist crashes with edgesOut=null when vitest's
-          # optional peer family skews against a caret range (npm/cli#9787).
-          # Pin vitest exact in package.json; legacy-peer-deps avoids the crash
-          # if the registry publishes another patch mid-install.
-          _install() { npm install --no-audit --no-fund --legacy-peer-deps; }
+          # See .npmrc (legacy-peer-deps) — arborist edgesOut crash on clean install.
+          _install() { npm install --no-audit --no-fund; }
           _install
           # 2026-06-11 — npm's optional-deps bug (npm/cli#4828) intermittently
           # skips platform-specific binaries (e.g. @rolldown/binding-linux-
