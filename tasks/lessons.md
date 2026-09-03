@@ -6,6 +6,28 @@
 
 ---
 
+## Same-day AMC earnings lotto crowded out of the strip [2026-09-03]
+
+**Symptom:** ZS (same-day AMC, known since Aug 31) did not appear on
+Options lotto & moonshots until ~4:08 PM ET — after the print and a
++10% AH move. Live `scan.omitted` showed many same-day AMC as
+`not_in_scan`.
+
+**Cause:** `selectConvexityScanUniverse` applied `earnLimit=12` across
+all 0–5d earnings sorted by days then score. With ~29 window names,
+low-score same-day AMC lost slots to higher-score 1–5d names. Final
+`rankConvexityCards` also preferred moonshots over earnings-prep, so
+even a scanned low-confluence WAIT card could miss the top-10 cut.
+
+**Fix:** Same-day earnings always enter the scan (AMC before BMO);
+`earnLimit` caps only 1–5d. Rank same-day AMC earnings-prep first,
+then other earnings-prep, then moonshot / score. Cards carry
+`earnings_dte`. Cache key `timed:options:convexity:v6`.
+
+**Do not:** let 1–5d score competition drop same-day AMC from the
+20-name scan, or let a high-score moonshot bury a valid same-day
+earnings-prep card.
+
 ## UDOW/TQQQ trims skipped; QQQ option cap leaked [2026-09-03]
 
 **Symptom:** UDOW and TQQQ broker buys existed, but their model trims

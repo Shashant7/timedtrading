@@ -270,6 +270,48 @@ describe("selectConvexityScanUniverse", () => {
     expect(picked.map((t) => t.ticker)).toContain("AVGO");
     expect(picked[0].ticker).toBe("AVGO");
   });
+
+  it("keeps low-score same-day AMC in the scan when 1–5d names fill earnLimit", () => {
+    const near = Array.from({ length: 14 }, (_, i) => ({
+      ticker: `N${String(i).padStart(2, "0")}`,
+      rank: 95,
+      entry_quality: { score: 90 },
+    }));
+    const earnBy = Object.fromEntries([
+      ["ZS", 0],
+      ...near.map((t, i) => [t.ticker, 1 + (i % 4)]),
+    ]);
+    const eventBy = Object.fromEntries([
+      ["ZS", { hour: "amc" }],
+      ...near.map((t) => [t.ticker, { hour: "amc" }]),
+    ]);
+    const picked = selectConvexityScanUniverse(
+      [{ ticker: "ZS", rank: 7, entry_quality: { score: 7 } }, ...near],
+      earnBy,
+      { maxTotal: 20, earnLimit: 12, earnEventBySym: eventBy },
+    );
+    expect(picked[0].ticker).toBe("ZS");
+    expect(picked.map((t) => t.ticker)).toContain("ZS");
+    // Same-day reserved + all 14 near-term via earnLimit then rank fill.
+    expect(picked.filter((t) => Number(earnBy[t.ticker]) >= 1).length).toBe(14);
+    expect(picked.length).toBe(15);
+  });
+
+  it("orders same-day AMC ahead of same-day BMO before score", () => {
+    const picked = selectConvexityScanUniverse(
+      [
+        { ticker: "BMO1", rank: 99, entry_quality: { score: 99 } },
+        { ticker: "AMC1", rank: 10, entry_quality: { score: 10 } },
+      ],
+      { BMO1: 0, AMC1: 0 },
+      {
+        maxTotal: 8,
+        earnLimit: 4,
+        earnEventBySym: { BMO1: { hour: "bmo" }, AMC1: { hour: "amc" } },
+      },
+    );
+    expect(picked.map((t) => t.ticker).slice(0, 2)).toEqual(["AMC1", "BMO1"]);
+  });
 });
 
 describe("convexityContractFromSnapshot / investor lane", () => {
@@ -579,9 +621,26 @@ describe("rankConvexityCards", () => {
   it("ranks earnings-prep lotto ahead of generic lotto", () => {
     const ranked = rankConvexityCards([
       { play_class: "lotto", confluence_score: 80, earnings_prep: false },
-      { play_class: "lotto", confluence_score: 50, earnings_prep: true },
+      { play_class: "lotto", confluence_score: 50, earnings_prep: true, earnings_dte: 2 },
     ]);
     expect(ranked[0].earnings_prep).toBe(true);
+  });
+
+  it("ranks same-day AMC earnings-prep ahead of moonshot and higher-score lottos", () => {
+    const ranked = rankConvexityCards([
+      { ticker: "MOON", play_class: "moonshot", confluence_score: 95, earnings_prep: false },
+      { ticker: "HOT", play_class: "lotto", confluence_score: 88, earnings_prep: false },
+      { ticker: "NEAR", play_class: "lotto", confluence_score: 70, earnings_prep: true, earnings_dte: 2 },
+      {
+        ticker: "ZS",
+        play_class: "lotto",
+        confluence_score: 7,
+        earnings_prep: true,
+        earnings_dte: 0,
+        earnings_session: "AMC",
+      },
+    ]);
+    expect(ranked.map((c) => c.ticker)).toEqual(["ZS", "NEAR", "MOON", "HOT"]);
   });
 });
 

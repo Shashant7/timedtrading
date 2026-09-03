@@ -39,6 +39,7 @@ jobs:
 
       - name: Install deps
         run: |
+          # See .npmrc (legacy-peer-deps) — arborist edgesOut crash on clean install.
           _install() { npm install --no-audit --no-fund; }
           _install
           # 2026-06-11 — npm's optional-deps bug (npm/cli#4828) intermittently
