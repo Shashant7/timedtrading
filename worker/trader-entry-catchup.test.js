@@ -171,6 +171,29 @@ describe("runTraderEntryCatchup", () => {
     itMirrorMock.mockResolvedValue({ skipped: false, fired: { ok: true, order_id: "WB-IT" } });
   });
 
+  it("hours lookback drops stale August leftovers", async () => {
+    const stale = {
+      trade_id: "UNP-old",
+      ticker: "UNP",
+      direction: "LONG",
+      shares: 22,
+      entry_price: 294.94,
+      entry_ts: Date.parse("2026-08-14T18:04:07Z"),
+      status: "OPEN",
+    };
+    const out = await runTraderEntryCatchup({}, {
+      dry_run: true,
+      hours: 24,
+      now: RTH,
+      trades: [TJX, stale],
+      index_trend_books: [UDOW_BOOK],
+      ring: [],
+      livePrices: { TJX: 131.80, UDOW: 72.10, UNP: 288 },
+    });
+    expect(out.results.map((r) => r.ticker).sort()).toEqual(["TJX", "UDOW"]);
+    expect(out.results.some((r) => r.ticker === "UNP")).toBe(false);
+  });
+
   it("dry_run lists TJX + UDOW and does not forward", async () => {
     const out = await runTraderEntryCatchup({}, {
       dry_run: true,

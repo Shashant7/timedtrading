@@ -84977,6 +84977,8 @@ export default {
             include_shorts: body?.include_shorts === true,
             max_ops: body?.max_ops,
             max_buy_drift_pct: body?.max_buy_drift_pct,
+            hours: body?.hours,
+            tickers: body?.tickers,
             reason: body?.reason || "admin_catchup_trader_entries",
           });
           return sendJSON({
@@ -105676,6 +105678,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const { runTraderEntryCatchup } = await import("./trader-entry-catchup.js");
           const out = await runTraderEntryCatchup(env, {
             dry_run: false,
+            hours: 24,
             max_ops: 8,
             reason: "trader_entry_catchup_auto",
           });

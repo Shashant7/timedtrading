@@ -273,8 +273,13 @@ export async function runTraderEntryCatchup(env, opts = {}) {
   const maxBuyDriftPct = Number.isFinite(Number(opts.max_buy_drift_pct))
     ? Number(opts.max_buy_drift_pct)
     : TRADER_ENTRY_DRIFT_PCT;
+  const hours = Math.min(168, Math.max(1, Number(opts.hours) || 24));
+  const tickerFilter = Array.isArray(opts.tickers) && opts.tickers.length
+    ? new Set(opts.tickers.map((t) => String(t || "").toUpperCase()).filter(Boolean))
+    : null;
   const now = opts.now instanceof Date ? opts.now : new Date();
   const nowMs = now.getTime();
+  const sinceMs = nowMs - hours * 3600 * 1000;
 
   if (!force && !isNyRegularMarketOpenStatic(now)) {
     return {
@@ -287,10 +292,26 @@ export async function runTraderEntryCatchup(env, opts = {}) {
     };
   }
 
-  const trades = Array.isArray(opts.trades) ? opts.trades : await loadOpenTraderEntries(env);
-  const books = Array.isArray(opts.index_trend_books)
+  const tradesRaw = Array.isArray(opts.trades) ? opts.trades : await loadOpenTraderEntries(env);
+  const trades = (tradesRaw || []).filter((t) => {
+    const ts = Number(t.entry_ts) || 0;
+    if (ts && ts < sinceMs) return false;
+    if (tickerFilter && !tickerFilter.has(String(t.ticker || "").toUpperCase())) return false;
+    return true;
+  });
+  const booksRaw = Array.isArray(opts.index_trend_books)
     ? opts.index_trend_books
     : await loadOpenIndexTrendBooks(env);
+  const books = (booksRaw || []).filter((b) => {
+    if (tickerFilter) {
+      const letf = String(b.letf_ticker || "").toUpperCase();
+      const ul = String(b.underlying || "").toUpperCase();
+      if (!tickerFilter.has(letf) && !tickerFilter.has(ul)) return false;
+    }
+    const entryTs = Number(b.book?.entry_ts) || Number(b.entry_ts) || 0;
+    if (entryTs && entryTs < sinceMs) return false;
+    return true;
+  });
   const ring = Array.isArray(opts.ring) ? opts.ring : await readClientRing(env);
 
   const tickers = new Set();
@@ -380,6 +401,7 @@ export async function runTraderEntryCatchup(env, opts = {}) {
   return {
     ok: true,
     dry_run: dryRun,
+    hours,
     planned: planned.length,
     planned_total: plannedFull.length,
     truncated,
