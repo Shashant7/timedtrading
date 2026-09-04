@@ -2594,6 +2594,10 @@ const ROUTES = [
   ["POST", "/timed/admin/recover-event-price-from-candle", "POST /timed/admin/recover-event-price-from-candle"],
   ["POST", "/timed/admin/patch-trade-shares", "POST /timed/admin/patch-trade-shares"],
   ["GET", "/timed/admin/check-stale-tick", "GET /timed/admin/check-stale-tick"],
+  // Packet A (2026-09-04 ledger audit) — event-level reconciliation between
+  // account_ledger realized P&L and closed trades rows: gap, decomposition,
+  // per-trade drift, duplicate EXIT events. Read-only.
+  ["GET", "/timed/admin/ledger-reconcile", "GET /timed/admin/ledger-reconcile"],
   ["GET", "/timed/admin/ledger-inspect", "GET /timed/admin/ledger-inspect"],
   ["POST", "/timed/admin/sync-trade-to-ledger", "POST /timed/admin/sync-trade-to-ledger"],
   ["POST", "/timed/admin/patch-trade-fields", "POST /timed/admin/patch-trade-fields"],
@@ -44201,6 +44205,18 @@ async function d1InsertLedgerEntry(env, row) {
   if (!event_type || ts == null || cash_delta == null || balance == null) return { ok: false, skipped: true, reason: "missing_key" };
   try {
     await ensureAccountLedgerSchema(db, env?.KV_TIMED);
+    // Packet A (2026-09-04 ledger audit) — EXIT idempotency. A premarket
+    // exit that re-fired at the open wrote two identical full-quantity
+    // EXIT events (KO 2026-07-13: cash credited twice, realized P&L
+    // double-counted). An identical EXIT (same position, qty, price)
+    // must be a no-op, never a second event.
+    if (String(event_type).toUpperCase() === "EXIT" && position_id) {
+      const { isDuplicateExitEvent } = await import("./ledger-reconcile.js");
+      if (await isDuplicateExitEvent(db, row)) {
+        console.warn(`[D1 LEDGER] skipped duplicate EXIT event for ${position_id} (${ticker || "?"})`);
+        return { ok: true, deduped: true };
+      }
+    }
     await db.prepare(
       `INSERT INTO account_ledger (mode, ts, event_type, position_id, ticker, direction, qty, price, cash_delta, realized_pnl, balance, note)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
@@ -77035,6 +77051,29 @@ export default {
       // V15 P0.7.109 (2026-05-08): forensic view of account_ledger so we
       // can reconcile widget totalRealized vs sum(trades.pnl) (the
       // PnL Calendar source). Returns rows + summary by event_type.
+      // Packet A (2026-09-04 ledger audit) — read-only reconciliation
+      // between account_ledger events and closed trades rows. Reports the
+      // realized-P&L gap, its decomposition (per-trade drift vs realized
+      // trims on still-open trades), the drifting trades, and duplicate
+      // EXIT events. `reconciled` is true only when the gap is fully
+      // explained to the cent.
+      if (routeKey === "GET /timed/admin/ledger-reconcile") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+        try {
+          const { computeLedgerReconciliation } = await import("./ledger-reconcile.js");
+          const out = await computeLedgerReconciliation(db, {
+            mode: url.searchParams.get("mode") || "trader",
+            driftLimit: Number(url.searchParams.get("drift_limit")) || 50,
+          });
+          return sendJSON({ ok: true, ...out }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "GET /timed/admin/ledger-inspect") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
