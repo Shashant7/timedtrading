@@ -1,10 +1,11 @@
 {
-  "generated_at_utc": "2026-09-04T02:37:58.782731+00:00",
+  "generated_at_utc": "2026-09-04T11:21:10.288978+00:00",
   "verdict": "INVALID",
   "overall_pass": false,
   "invalid_reasons": [
     "control_reset_failed",
     "candidate_reset_failed",
+    "legs_observed_identical_trade_set",
     "candidate_closed_trades_2_below_min_5",
     "cio_eval_zero_decision_rows"
   ],
@@ -42,6 +43,6 @@
     "cio_decision_rows": 0,
     "control_reset_ok": false,
     "candidate_reset_ok": false,
-    "fingerprints_identical": false
+    "fingerprints_identical": true
   }
 }

@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-09-03T21:03:34.079307+00:00",
+  "generated_at_utc": "2026-09-04T11:21:10.288511+00:00",
   "window": {
     "start_date": "2025-07-31",
     "end_date": "2025-08-01",
@@ -47,7 +47,11 @@
         "ticker_counts": {
           "CSX": 2
         }
-      }
+      },
+      "trade_fingerprint": [
+        "CSX-1786032380745-wuo9tyc8p",
+        "CSX-1786723435380-3ni1n2gdh"
+      ]
     },
     {
       "name": "candidate_ref_priors_on",
@@ -84,7 +88,11 @@
         "ticker_counts": {
           "CSX": 2
         }
-      }
+      },
+      "trade_fingerprint": [
+        "CSX-1786032380745-wuo9tyc8p",
+        "CSX-1786723435380-3ni1n2gdh"
+      ]
     }
   ],
   "delta": {
