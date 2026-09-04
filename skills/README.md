@@ -23,6 +23,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | You see HTTP 401 / 403 / 404 / 503 from a worker route | [debug-http-codes.md](debug-http-codes.md) |
 | You need to query D1 directly | [d1-debugging.md](d1-debugging.md) |
 | You need to inspect a KV value | [kv-inspection.md](kv-inspection.md) |
+| Index day-trade BUY hours late / brief hit but paper chased | [index-dt-entry-timing.md](index-dt-entry-timing.md) |
 | User reports Discord alert didn't fire | [discord-alerts.md](discord-alerts.md) |
 | Bridge / IBKR / Robinhood automation work | [broker-bridge.md](broker-bridge.md) |
 | **Onboarding a partner (second person) to Broker Connections / verifying tenant isolation** | [partner-onboarding.md](partner-onboarding.md) |
