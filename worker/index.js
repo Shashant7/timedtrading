@@ -43054,10 +43054,17 @@ async function d1UpsertTrade(env, trade) {
       )
       .run();
 
+    // F11/F22 (2026-09-04 ledger audit) — rank and rr are entry-time
+    // immutables. Lifecycle updates (trims, marks, exits) rebuild the trade
+    // object without them, and the raw `rank=?6` overwrite nulled the column
+    // on the FIRST update after entry: only 2 of 114 trades closed in the
+    // 90d window kept a rank, which blinded every rank-vs-outcome study.
+    // COALESCE preserves the stamped value; the entry insert still sets it.
     await db
       .prepare(
         `UPDATE trades SET
-          ticker=?2, direction=?3, entry_ts=?4, entry_price=?5, rank=?6, rr=?7, status=?8,
+          ticker=?2, direction=?3, entry_ts=?4, entry_price=?5,
+          rank=COALESCE(?6, rank), rr=COALESCE(?7, rr), status=?8,
           exit_ts=?9, exit_price=?10, exit_reason=?11,
           trimmed_pct=?12, pnl=?13, pnl_pct=?14, script_version=?15,
           updated_at=?16, trim_ts=?17, trim_price=?18, run_id=COALESCE(?19, run_id),
