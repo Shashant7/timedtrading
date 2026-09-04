@@ -5,6 +5,53 @@
 **Safety:** Read-only production review. No model, flag, configuration, ledger, broker, or deployment state was changed.  
 **Primary snapshot:** Public ledger generated 2026-09-04 01:23:52 UTC; latest closed trade 2026-09-03 19:29:40 UTC.
 
+**Canonical evidence snapshot:** all dollar/PF figures in this document refer to
+the 2026-09-04 01:23:52 UTC pull above. Later work must not "refresh" these
+numbers in place; new evidence goes in the execution log with its own snapshot
+stamp so cohort claims stay reproducible.
+
+**Out of scope:** the index day-trade options lane (SPY/QQQ/IWM/DIA 0/1 DTE)
+and the index trend LETF lane. Those books have their own entry-timing doctrine
+(`skills/index-dt-entry-timing.md`; trigger-pierce fix merged in PR #1414) and
+must not be governed by this plan's ST-equity cohort gates.
+
+## Execution charter — first slice (2026-09-04 addendum)
+
+This plan authorizes ONE slice at a time. Everything not listed here is
+**parked** — reading it is fine, building it is not.
+
+**Slice 1 (now):**
+
+1. **Packet A** — reconcile the $142.44 account/ledger gap to $0.01 and pin the
+   status state machine (OPEN / TP_HIT_TRIM / FLAT / WIN / LOSS).
+2. **Packet B** — canonical_play_id + provenance fields; backfill the ATH
+   aliases; quarantine ambiguous rows.
+3. **F24 fix (pulled forward from G)** — a validation PASS must be impossible
+   with zero decision rows, duplicate-trade evidence, or `reset_ok=false`.
+   This is a P0 promotion blocker, not later scorecard polish: no shadow
+   challenger may promote through a scorecard that can green-light on empty
+   evidence.
+4. **Packet I** — single mandatory admission seam + fail-closed missing-input
+   handling + bypass contract tests.
+
+**Slice 2 (only after Slice 1 acceptance):** Packet C shadow demotion of the
+ATH aliases (110 trades, PF 0.55) and Cloud Pivot (22 trades, PF 0.30), using
+the canonical IDs from B and the seam from I.
+
+**Slice discipline:** one behavioral lever per experiment still applies inside
+a slice. If two packets need the same file, they land sequentially, not as one
+combined PR.
+
+**Gap Reversal stance:** protect, do not dilute. F03's concentration risk is
+managed with per-setup caps and current-regime validation of Gap Reversal
+Long — never by pushing capital into weaker setups to "diversify." Demoting
+ATH/Cloud Pivot must not implicitly re-rank capital into unproven cohorts.
+
+**Opportunity-capture guardrail (H):** the 4.8% capture figure is a
+denominator problem to *measure*, not a number to maximize. The acceptance
+metric is net opportunity value after costs; "correct reject" counts as a
+success outcome. Any experiment whose only win is more executed trades fails.
+
 ## Executive conclusion
 
 The account remains profitable since inception, but the recent book has lost its edge. The main problem is not simply “a few bad trades.” It is a combination of:
@@ -357,6 +404,10 @@ A cohort can move from shadow to limited paper only with a predeclared sample po
 
 ## Recommended execution order
 
+> The **Execution charter** at the top of this document supersedes this list
+> for slicing: only Slice 1 (A, B, F24 fix, I) is authorized now. The order
+> below remains the long-run sequence once slices unlock.
+
 1. **A + B:** reconciliation, status definitions, canonical IDs, price quarantine, and traceability.
 2. **M + I:** active behavior manifest and proof that every admission path obeys the same gate.
 3. **G + H foundation:** epoch-aware scorecard, candidate denominator, missed opportunities, and hard validation gates.
@@ -413,6 +464,16 @@ When access is available, reconcile this plan’s public snapshot against those 
 - `worker/pipeline/mfe-ratchet.js`
 - `worker/pipeline/sizing.js`
 - `worker/phase-c-loops.js`
+
+## Execution log
+
+Every packet PR appends one row here (or to a linked log) before merge. A
+packet without a row is not done, regardless of code state. This file is the
+tracking surface — there is no separate issue tracker for this program.
+
+| Date (UTC) | Packet / Finding | PR | Config hash | Evidence window + snapshot | Verdict |
+|---|---|---|---|---|---|
+| 2026-09-04 | Plan authored + charter added | #1413, this PR | n/a (docs) | 2026-09-04 01:23:52 UTC pull | Plan accepted; Slice 1 = A, B, F24 fix, I |
 
 ## Financial and audit caveat
 
