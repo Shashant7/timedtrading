@@ -221,6 +221,11 @@ function norm(raw) {
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
     .replace(/[()]/g, "")
+    // Legacy write bug title-cased the engine path's "tt_" into a second
+    // "Tt " prefix ("TT Tt N Test Support"). Collapse the duplicate so
+    // every double-prefixed historical row resolves through the same
+    // alias index as the clean name (F10, 2026-09-04 ledger audit).
+    .replace(/^(tt )+/, "tt ")
     .trim();
 }
 

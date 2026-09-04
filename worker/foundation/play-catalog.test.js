@@ -56,6 +56,41 @@ describe("play catalog", () => {
     expect(ids).toContain("tt_forming_pair");
   });
 
+  // F10 (2026-09-04 ledger audit) — every display alias observed in the
+  // live public ledger must collapse to one canonical id. The legacy
+  // write bug produced double-prefixed names ("TT Tt N Test Support")
+  // that split the proof-page cohorts (ATH showed as two setups hiding a
+  // combined 110-trade PF 0.55 result).
+  it("collapses every live ledger alias to its canonical play id", () => {
+    const expectId = {
+      "TT Tt Gap Reversal Long": "tt_gap_reversal_long",
+      "TT Gap Reversal (Long)": "tt_gap_reversal_long",
+      "TT Tt Gap Reversal Short": "tt_gap_reversal_short",
+      "TT Tt Ath Breakout": "tt_ath_breakout",
+      "TT ATH Breakout": "tt_ath_breakout",
+      "TT Tt Atl Breakdown": "tt_atl_breakdown",
+      "TT Tt N Test Support": "tt_n_test_support",
+      "TT Support Bounce": "tt_n_test_support",
+      "TT Tt N Test Resistance": "tt_n_test_resistance",
+      "TT Tt Range Reversal Long": "tt_range_reversal_long",
+      "TT Range Reversal (Long)": "tt_range_reversal_long",
+      "TT Tt Pullback": "tt_pullback",
+      "TT Pullback Reclaim": "tt_pullback",
+      "TT Cloud Pivot": "tt_cloud_pivot",
+      "TT HTF Reclaim": "tt_htf_reclaim",
+      "TT Tt Momentum": "tt_momentum",
+      "TT Momentum": "tt_momentum",
+      "TT Tt Reclaim": "tt_reclaim",
+    };
+    for (const [name, id] of Object.entries(expectId)) {
+      expect(canonicalPlayId(null, name), name).toBe(id);
+    }
+    // Junk names with no catalog play stay null (frontend falls back to
+    // display grouping) — they must not be forced onto a real cohort.
+    expect(canonicalPlayId(null, "TT Setup")).toBeNull();
+    expect(canonicalPlayId(null, "TT Confirmed Long")).toBeNull();
+  });
+
   it("keeps Cloud Pivot on the calibration path, not auto-demote", () => {
     expect(resolvePlay("tt_cloud_pivot").role).toBe("calibration");
     expect(isCalibrationPlay("TT Cloud Pivot")).toBe(true);
