@@ -21,7 +21,7 @@ import {
   shouldBlockStockPathOnIndexTicker,
 } from "./index-etf-model.js";
 import { checkSetupDemotion } from "./setup-demotion.js";
-import { isPlayPaused } from "../foundation/play-catalog.js";
+import { checkPlayAdmission } from "./admission-seam.js";
 import { checkEarningsClusterEntryBlock } from "./earnings-cluster-gate.js";
 import { parseDateKey } from "./earnings-cluster-gate.js";
 import {
@@ -500,12 +500,27 @@ export function evaluateEntry(ctx) {
     const _phase4Gates = (daCfg && typeof daCfg.gates === "object" && daCfg.gates) || {};
     // Catalog pause is the hard stop for plays the live book has already
     // proven as bleeders (range reversal). Workhorse gap-reversal stays live.
-    if (isPlayPaused(path, effectiveDir)) {
-      return rejectEntry("play_catalog_paused", {
-        path,
+    // Packet I (F15, 2026-09-04) — resolve identity via the admission seam
+    // (engine path AND setup name) so a mangled or legacy display name can
+    // never dodge a pause, and a missing identity is observable, not a
+    // silent default-allow.
+    {
+      const _admissionSeam = checkPlayAdmission({
+        entryPath: path,
+        setupName: d?.setup_name ?? d?.setupName ?? null,
         direction: effectiveDir,
-        note: "Canonical play catalog status=paused — do not take this path",
       });
+      if (!_admissionSeam.allowed) {
+        return rejectEntry(_admissionSeam.reason, {
+          path,
+          play_id: _admissionSeam.play_id,
+          direction: effectiveDir,
+          note: "Canonical play catalog status=paused — do not take this path",
+        });
+      }
+      if (_admissionSeam.identity_missing) {
+        console.warn(`[ADMISSION] ${String(d?.ticker || ctx?.ticker || "?")} entry with unresolved play identity (no path, no setup name)`);
+      }
     }
     if (_phase4Gates.pause_gap_reversal_long === true && path === "tt_gap_reversal_long") {
       return rejectEntry("phase4_paused_gap_reversal_long", {
