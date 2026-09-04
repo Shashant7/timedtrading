@@ -330,7 +330,7 @@ export async function refreshMacroWirePulse(env, opts = {}) {
     .slice(0, 5)
     .map(([theme, count]) => ({ theme, count }));
 
-  const payload = {
+  let payload = {
     generated: new Date().toISOString(),
     lookback_hours: lookbackHours,
     post_count: rows.length,
@@ -340,6 +340,14 @@ export async function refreshMacroWirePulse(env, opts = {}) {
     posts,
     handles: [...new Set(rows.map((r) => r.handle))],
   };
+  // Session-level narrative synthesis (SHADOW — 2026-09-04). Clusters
+  // same-story posts (e.g. six Waller "hold rates" headlines in one hour)
+  // and attaches narratives / narrative_risk_tone / narrative_divergence.
+  // No decision path reads these yet; rank tilt + CIO keep using risk_tone.
+  try {
+    const { attachNarrativeShadow } = await import("./macro-narrative.js");
+    payload = await attachNarrativeShadow(env, payload, classified);
+  } catch (_) { /* shadow must never break the pulse */ }
   try {
     await kv.put(MACRO_WIRE_PULSE_KV, JSON.stringify(payload));
     try {
