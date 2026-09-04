@@ -15,9 +15,13 @@ const NOTE_PREFIX = "timed:trader-exit-catchup:";
 
 export function rowHoldsReducerQty(row) {
   if (!row) return false;
-  if (Number(row.mirror_suppressed) === 1) return false;
-  const state = String(row.sync_state || "");
-  if (state === "rejected" || state === "expired" || state === "mirror_suppressed") return false;
+  // 2026-09-04 (DPZ) — broker HOLDINGS are the truth for exits. The entry
+  // preflight rejected for cash and auto-suppressed the manifest, but a
+  // later fill left 0.2714 sh at the broker; when the model exited, this
+  // suppression check skipped the close and the shares were stranded.
+  // Entry-time suppression / rejected state must never block reducing a
+  // position the broker actually holds — same doctrine as the index-DT
+  // mirror ("closes never cap-gated"). The only gate is real held qty.
   const remaining = Number(row.broker_remaining_qty);
   return Number.isFinite(remaining) && remaining > 1e-9;
 }

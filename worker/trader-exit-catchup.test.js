@@ -56,9 +56,40 @@ describe("planTraderExitCatchup", () => {
     expect(ops[0].user_id).toBe("shashant@gmail.com");
   });
 
-  it("skips rejected / zero-remaining sleeves", () => {
+  it("skips zero-remaining sleeves", () => {
     expect(rowHoldsReducerQty(CASH_REJECTED)).toBe(false);
     expect(rowHoldsReducerQty(AMZN_HELD)).toBe(true);
+  });
+
+  // 2026-09-04 DPZ regression: entry preflight-rejected for cash and
+  // auto-suppressed, but a later fill left 0.2714 sh at the broker. The
+  // model's doctrine_force_exit then skipped the close because this check
+  // gated on entry-time suppression — shares stranded at Webull. Exits
+  // must reduce whatever the broker actually holds.
+  it("still sells a suppressed/rejected sleeve that holds broker qty (DPZ)", () => {
+    const DPZ_SUPPRESSED_HELD = {
+      trade_id: "DPZ-1788443309854-hlxfbubhx",
+      ticker: "DPZ",
+      user_id: "shashant@gmail.com",
+      broker_account_id: "LJJ84GKUVIVG998B8DO3069DKA",
+      broker_remaining_qty: 0.2714,
+      sync_state: "rejected",
+      mirror_suppressed: 1,
+      mirror_suppressed_reason: "insufficient_cash_for_one_unit_0_lt_346.75",
+    };
+    expect(rowHoldsReducerQty(DPZ_SUPPRESSED_HELD)).toBe(true);
+    const ops = planTraderExitCatchup({
+      exits: [{
+        position_id: "DPZ-1788443309854-hlxfbubhx",
+        ticker: "DPZ",
+        ts: Date.parse("2026-09-04T13:58:40Z"),
+        qty: 0.8284602556976093,
+        price: 340.61,
+      }],
+      manifests: [DPZ_SUPPRESSED_HELD],
+    });
+    expect(ops).toHaveLength(1);
+    expect(ops[0].qty).toBe(0.2714);
   });
 });
 
