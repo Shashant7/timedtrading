@@ -115,6 +115,110 @@ def classify_exit(reason: Any) -> str:
     return "other"
 
 
+def trade_fingerprint(trades: List[Dict[str, Any]], tickers: List[str]) -> List[str]:
+    """Stable identity of the trade set a leg observed. Two legs that ran
+    against a properly reset ledger must not share fingerprints — identical
+    sets mean the reset failed and both legs read the same leftover rows."""
+    tset = {t.upper() for t in tickers}
+    out = []
+    for t in trades:
+        if str(t.get("ticker", "")).upper() not in tset:
+            continue
+        tid = str(t.get("trade_id") or t.get("tradeId") or "").strip()
+        if tid:
+            out.append(tid)
+        else:
+            out.append(
+                f"{str(t.get('ticker', '')).upper()}|{t.get('entry_ts') or t.get('entryTs')}|{t.get('pnl')}"
+            )
+    return sorted(out)
+
+
+def evaluate_go_no_go(
+    control: Dict[str, Any],
+    candidate: Dict[str, Any],
+    delta: Dict[str, Any],
+    cio_snapshot: Dict[str, Any],
+    min_closed_trades: int = 5,
+) -> Dict[str, Any]:
+    """Pure gate evaluation (F24 fix, plans/current-ledger-audit-pnl-improvement-2026-09-04.md).
+
+    A PASS is INVALID — regardless of the delta gates — when:
+      • either leg's ledger reset failed (reset_ok false),
+      • both legs observed the identical trade set (reset did not isolate them),
+      • the candidate leg produced fewer closed trades than the evidence floor,
+      • the CIO eval snapshot has zero decision rows (nothing was actually
+        evaluated by the system under test).
+    """
+    csum = control.get("summary") or {}
+    nsum = candidate.get("summary") or {}
+    invalid_reasons: List[str] = []
+
+    if not bool(control.get("reset_ok")):
+        invalid_reasons.append("control_reset_failed")
+    if not bool(candidate.get("reset_ok")):
+        invalid_reasons.append("candidate_reset_failed")
+
+    cfp = control.get("trade_fingerprint") or []
+    nfp = candidate.get("trade_fingerprint") or []
+    if cfp and nfp and cfp == nfp:
+        invalid_reasons.append("legs_observed_identical_trade_set")
+
+    closed = int(nsum.get("trade_count_closed") or 0)
+    if closed < int(min_closed_trades):
+        invalid_reasons.append(
+            f"candidate_closed_trades_{closed}_below_min_{int(min_closed_trades)}"
+        )
+
+    decision_rows = int((cio_snapshot or {}).get("decision_rows") or 0)
+    if decision_rows < 1:
+        invalid_reasons.append("cio_eval_zero_decision_rows")
+
+    gates = [
+        {
+            "gate": "candidate_min_closed_trades",
+            "value": closed,
+            "threshold": int(min_closed_trades),
+            "operator": ">=",
+            "pass": closed >= int(min_closed_trades),
+        },
+        {
+            "gate": "candidate_pnl_not_materially_worse",
+            "value": float(delta.get("realized_pnl_delta") or 0.0),
+            "threshold": -200.0,
+            "operator": ">=",
+            "pass": float(delta.get("realized_pnl_delta") or 0.0) >= -200.0,
+        },
+        {
+            "gate": "candidate_win_rate_not_materially_worse",
+            "value": float(delta.get("win_rate_delta") or 0.0),
+            "threshold": -0.25,
+            "operator": ">=",
+            "pass": float(delta.get("win_rate_delta") or 0.0) >= -0.25,
+        },
+    ]
+    gates_pass = all(g["pass"] for g in gates)
+    verdict = "INVALID" if invalid_reasons else ("PASS" if gates_pass else "FAIL")
+    return {
+        "generated_at_utc": now_iso(),
+        "verdict": verdict,
+        # overall_pass stays the machine gate older tooling reads; an INVALID
+        # run must never read as pass even when the delta gates are green.
+        "overall_pass": verdict == "PASS",
+        "invalid_reasons": invalid_reasons,
+        "gates": gates,
+        "delta": delta,
+        "evidence": {
+            "candidate_closed_trades": closed,
+            "min_closed_trades": int(min_closed_trades),
+            "cio_decision_rows": decision_rows,
+            "control_reset_ok": bool(control.get("reset_ok")),
+            "candidate_reset_ok": bool(candidate.get("reset_ok")),
+            "fingerprints_identical": bool(cfp and nfp and cfp == nfp),
+        },
+    }
+
+
 def summarize_trades(trades: List[Dict[str, Any]], tickers: List[str]) -> Dict[str, Any]:
     tset = {t.upper() for t in tickers}
     rows = [t for t in trades if str(t.get("ticker", "")).upper() in tset]
@@ -192,6 +296,7 @@ def run_leg(
         "reset_ok": bool(reset.get("ok", False)),
         "days": day_summaries,
         "summary": summarize_trades(trade_rows, tickers),
+        "trade_fingerprint": trade_fingerprint(trade_rows, tickers),
     }
 
 
@@ -205,9 +310,36 @@ def main() -> None:
     ap.add_argument("--go-no-go-output", default="data/reference-intel/validation-go-no-go-v1.json")
     ap.add_argument("--cio-output", default="data/reference-intel/cio-validation-v1.json")
     ap.add_argument("--notes-output", default="data/reference-intel/iteration-notes-v1.md")
+    ap.add_argument("--min-closed-trades", type=int, default=5,
+                    help="Evidence floor: candidate leg must close at least this many trades")
+    ap.add_argument("--reevaluate", action="store_true",
+                    help="Skip the replay; re-run the go/no-go gates against the existing matrix + CIO artifacts")
     args = ap.parse_args()
 
     tickers = [t.strip().upper() for t in args.tickers.split(",") if t.strip()]
+
+    if args.reevaluate:
+        matrix = json.loads(Path(args.matrix_output).read_text(encoding="utf-8"))
+        legs = matrix.get("legs") or []
+        control = next((l for l in legs if "control" in str(l.get("name", ""))), legs[0] if legs else {})
+        candidate = next((l for l in legs if "candidate" in str(l.get("name", ""))), legs[-1] if legs else {})
+        delta = matrix.get("delta") or {}
+        cio_existing = {}
+        cio_path = Path(args.cio_output)
+        if cio_path.exists():
+            try:
+                cio_existing = (json.loads(cio_path.read_text(encoding="utf-8")) or {}).get(
+                    "global_cio_eval_snapshot"
+                ) or {}
+            except Exception:
+                cio_existing = {}
+        go_no_go = evaluate_go_no_go(control, candidate, delta, cio_existing, args.min_closed_trades)
+        Path(args.go_no_go_output).write_text(json.dumps(go_no_go, indent=2), encoding="utf-8")
+        print(f"go_no_go={args.go_no_go_output}")
+        print(f"verdict={go_no_go['verdict']}")
+        if go_no_go["invalid_reasons"]:
+            print("invalid_reasons=" + ",".join(go_no_go["invalid_reasons"]))
+        return
     env_overrides = {
         "ENTRY_ENGINE": "legacy",
         "MANAGEMENT_ENGINE": "legacy",
@@ -253,39 +385,8 @@ def main() -> None:
     }
     Path(args.matrix_output).write_text(json.dumps(matrix, indent=2), encoding="utf-8")
 
-    # Strict enough to block obvious regressions in this compact cycle.
-    gates = [
-        {
-            "gate": "candidate_has_trades",
-            "value": nsum["trade_count_total"],
-            "threshold": 1,
-            "operator": ">=",
-            "pass": int(nsum["trade_count_total"]) >= 1,
-        },
-        {
-            "gate": "candidate_pnl_not_materially_worse",
-            "value": delta["realized_pnl_delta"],
-            "threshold": -200.0,
-            "operator": ">=",
-            "pass": float(delta["realized_pnl_delta"]) >= -200.0,
-        },
-        {
-            "gate": "candidate_win_rate_not_materially_worse",
-            "value": delta["win_rate_delta"],
-            "threshold": -0.25,
-            "operator": ">=",
-            "pass": float(delta["win_rate_delta"]) >= -0.25,
-        },
-    ]
-    go_no_go = {
-        "generated_at_utc": now_iso(),
-        "overall_pass": all(g["pass"] for g in gates),
-        "gates": gates,
-        "delta": delta,
-    }
-    Path(args.go_no_go_output).write_text(json.dumps(go_no_go, indent=2), encoding="utf-8")
-
-    # CIO validation rollup (global) from prior artifact + run stamp.
+    # CIO eval snapshot is loaded BEFORE gating — zero decision rows must
+    # invalidate the run, not decorate the artifact after a green verdict.
     existing = {}
     p = Path("data/reference-intel/cio-eval-loop-v1.json")
     if p.exists():
@@ -293,6 +394,10 @@ def main() -> None:
             existing = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             existing = {}
+
+    go_no_go = evaluate_go_no_go(control, candidate, delta, existing, args.min_closed_trades)
+    Path(args.go_no_go_output).write_text(json.dumps(go_no_go, indent=2), encoding="utf-8")
+
     cio_val = {
         "generated_at_utc": now_iso(),
         "window": {"start_date": args.start_date, "end_date": args.end_date, "tickers": tickers},
@@ -320,7 +425,8 @@ Generated: {now_iso()}
 - realized_pnl_delta: {delta['realized_pnl_delta']}
 
 ## Outcome
-- go_no_go: {"PASS" if go_no_go['overall_pass'] else "FAIL"}
+- go_no_go: {go_no_go['verdict']}
+- invalid_reasons: {", ".join(go_no_go['invalid_reasons']) or "none"}
 """
     Path(args.notes_output).write_text(notes, encoding="utf-8")
 
@@ -328,7 +434,9 @@ Generated: {now_iso()}
     print(f"go_no_go={args.go_no_go_output}")
     print(f"cio={args.cio_output}")
     print(f"notes={args.notes_output}")
-    print(f"overall_pass={go_no_go['overall_pass']}")
+    print(f"verdict={go_no_go['verdict']}")
+    if go_no_go["invalid_reasons"]:
+        print("invalid_reasons=" + ",".join(go_no_go["invalid_reasons"]))
 
 
 if __name__ == "__main__":
