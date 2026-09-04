@@ -63523,11 +63523,14 @@ export default {
           .replace(/(?<![.\w])exit_ts\b/g, "t.exit_ts")
           .replace(/(?<![.\w])trade_id\b/g, "t.trade_id");
         const whereJoin = _qualifyTrades(where);
+        // t.entry_path (stable snake_case play id) rides along for canonical
+        // grouping — the column is in the ensure-schema auto-migration list,
+        // so every env serving this route has it.
         const _selectCols = (incTrimPrice, incTrimTs, incRemaining = true) => `
             t.trade_id, t.ticker, t.direction, t.entry_ts, t.entry_price, t.rank, t.rr, t.status,
             t.exit_ts, t.exit_price, t.exit_reason, t.trimmed_pct, t.pnl, t.pnl_pct,
             t.script_version, t.created_at, t.updated_at${incTrimTs ? ", t.trim_ts" : ""}${incTrimPrice ? ", t.trim_price" : ""},
-            t.setup_name, t.setup_grade, t.risk_budget, t.shares, t.notional,
+            t.setup_name, t.setup_grade, t.entry_path, t.risk_budget, t.shares, t.notional,
             p.stop_loss AS sl, p.take_profit AS tp${incRemaining ? ",\n            p.total_qty AS remaining_qty" : ""}`;
         const _buildSql = (incTrimPrice, incTrimTs, incRemaining = true) => `SELECT
             ${_selectCols(incTrimPrice, incTrimTs, incRemaining)}
@@ -63700,6 +63703,21 @@ export default {
             t.shares = 0;
           }
         }
+
+        // Packet B (2026-09-04 ledger audit, F10) — canonical play identity
+        // on every row. Historical display aliases ("TT Tt Ath Breakout" vs
+        // "TT ATH Breakout") split proof/scorecard cohorts; consumers must
+        // group on canonical_play_id / canonical_play_label, keeping
+        // setup_name as a display string only. Null when the name maps to
+        // no catalog play (junk labels stay unattributed rather than being
+        // forced onto a real cohort).
+        try {
+          const { canonicalPlayId: _canonId, playLabel: _canonLabel } = await import("./foundation/play-catalog.js");
+          for (const t of page) {
+            t.canonical_play_id = _canonId(t.entry_path, t.setup_name, t.direction);
+            t.canonical_play_label = t.canonical_play_id ? _canonLabel(t.canonical_play_id) : null;
+          }
+        } catch (_) { /* rows stay usable without canonical stamps */ }
 
         return sendJSON(
           { ok: true, count: page.length, hasMore, nextCursor, trades: page },

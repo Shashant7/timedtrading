@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="tt-tokens.css?v=1788471754027" />
+  <link rel="stylesheet" href="tt-tokens.css?v=1788491728196" />
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     /* 2026-06-10 — Verda Finance palette (Ink/Bark/Moss/Cream/Sage + mint
@@ -491,11 +491,16 @@
       setHTML("topLosses", topLossesList.length > 0 ? topLossesList.map(renderRow).join("") : '<div class="loading">No losses in the last 30 days.</div>');
 
       // ── Setup distribution (top 6 by trade count) ──
+      // Group by the server's canonical play label (Packet B, 2026-09-04
+      // ledger audit) so historical display aliases ("TT Tt Ath Breakout"
+      // vs "TT ATH Breakout") land in ONE cohort. The string-normalize
+      // fallback only handles rows from before the API stamped
+      // canonical_play_label.
       const bySetup = new Map();
       for (const t of all) {
         const raw = String(t.setup_name || t.entry_path || "Other").trim();
-        const key = raw
-          .replace(/^TT\s+Tt[\s_]?/i, "")
+        const key = t.canonical_play_label || raw
+          .replace(/^TT\s+(Tt[\s_]?)+/i, "")
           .replace(/^TT\s+/i, "")
           .replace(/^Tt[\s_]/i, "")
           .replace(/_/g, " ")
@@ -597,4 +602,4 @@
 </body>
 </html>
 
-<!-- cache-bust:1788471754027:378307341 -->
+<!-- cache-bust:1788491728196:8401939 -->

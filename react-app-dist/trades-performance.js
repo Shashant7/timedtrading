@@ -141,7 +141,9 @@
           else slot.flats++;
           if (pnl > slot.bestPnlUsd) { slot.bestPnlUsd = pnl; slot.bestTicker = t?.ticker; slot.bestPnlPct = pnlPct; }
           if (pnl < slot.worstPnlUsd) { slot.worstPnlUsd = pnl; slot.worstTicker = t?.ticker; slot.worstPnlPct = pnlPct; }
-          const setupKey = String(t?.setup_name || t?.entry_path || "unknown");
+          // Packet B (2026-09-04) — canonical id first so display aliases
+          // ("TT Tt Ath Breakout" vs "TT ATH Breakout") share one cohort.
+          const setupKey = String(t?.canonical_play_label || t?.canonical_play_id || t?.setup_name || t?.entry_path || "unknown");
           const setupSlot = slot.setups.get(setupKey) || { n: 0, wins: 0, pnlUsd: 0 };
           setupSlot.n++;
           if (status === "WIN") setupSlot.wins++;
@@ -619,4 +621,4 @@
   };
 })();
 
-// cache-bust:1788471754027:378307341
+// cache-bust:1788491728196:8401939

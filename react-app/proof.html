@@ -484,11 +484,16 @@
       setHTML("topLosses", topLossesList.length > 0 ? topLossesList.map(renderRow).join("") : '<div class="loading">No losses in the last 30 days.</div>');
 
       // ── Setup distribution (top 6 by trade count) ──
+      // Group by the server's canonical play label (Packet B, 2026-09-04
+      // ledger audit) so historical display aliases ("TT Tt Ath Breakout"
+      // vs "TT ATH Breakout") land in ONE cohort. The string-normalize
+      // fallback only handles rows from before the API stamped
+      // canonical_play_label.
       const bySetup = new Map();
       for (const t of all) {
         const raw = String(t.setup_name || t.entry_path || "Other").trim();
-        const key = raw
-          .replace(/^TT\s+Tt[\s_]?/i, "")
+        const key = t.canonical_play_label || raw
+          .replace(/^TT\s+(Tt[\s_]?)+/i, "")
           .replace(/^TT\s+/i, "")
           .replace(/^Tt[\s_]/i, "")
           .replace(/_/g, " ")
