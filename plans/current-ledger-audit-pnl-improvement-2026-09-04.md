@@ -473,7 +473,12 @@ tracking surface — there is no separate issue tracker for this program.
 
 | Date (UTC) | Packet / Finding | PR | Config hash | Evidence window + snapshot | Verdict |
 |---|---|---|---|---|---|
-| 2026-09-04 | Plan authored + charter added | #1413, this PR | n/a (docs) | 2026-09-04 01:23:52 UTC pull | Plan accepted; Slice 1 = A, B, F24 fix, I |
+| 2026-09-04 | Plan authored + charter added | #1413, #1415 | n/a (docs) | 2026-09-04 01:23:52 UTC pull | Plan accepted; Slice 1 = A, B, F24 fix, I |
+| 2026-09-04 | F24 — validation INVALID verdicts | #1416 | n/a (tooling) | shipped go-no-go artifacts | Degenerate run now INVALID with 4 reasons; 9 unit tests |
+| 2026-09-04 | F24 — closed-loop readiness bar | #1418 | n/a (scorecard) | trust-spine epochs | Ready needs 2 epochs ≥15 closes each + decision rows |
+| 2026-09-04 | A — EXIT idempotency + reconcile route | #1417 | n/a (ledger infra) | prod D1 2026-09-04 | $142.44 gap = 339.64 drift − 197.20 open-trade trims, to the cent; 13 drift trades, 5 doubled EXITs enumerated; duplicate EXITs now no-ops. Historical event repair still pending (needs balance rewrite + operator sign-off) |
+| 2026-09-04 | B — canonical play identity | #1419 | n/a (attribution) | live ledger 766 rows | 18/20 aliases collapse (2 junk stay null); API stamps canonical_play_id; proof/monthly group canonically. Verified live: both ATH aliases merge |
+| 2026-09-04 | F11/F22 follow-up — rank stamping regression | (open) | — | live ledger | Only 2/114 trades closed in last 90d carry `rank`; 46% of ranked history pins at 100 (saturated). Must fix stamping before Packet D calibration |
 
 ## Financial and audit caveat
 
