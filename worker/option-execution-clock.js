@@ -444,8 +444,10 @@ function distPct(price, ema) {
  * action:
  *   SELL — invalidation, hard stop, time stop, or TP1 already printed
  *          (09:30–16:15 ET only — invalidation waits for the cash open)
- *   BUY  — SuperTrend with the lean, price in/near the 21 EMA band, cash RTH after 09:45
- *   WAIT — everything else (premarket, chase, against-trend, 09:30-09:45 open print)
+ *   BUY  — (a) game-plan trigger pierce while still fresh to the target, or
+ *          (b) SuperTrend with the lean + price in/near the 21 EMA band;
+ *          cash RTH after 09:45. Never newly enter after the lean target tags.
+ *   WAIT — everything else (premarket, chase-after-target, against-trend, 09:30-09:45 open print)
  */
 export function buildExecutionClock({
   ticker,
@@ -569,9 +571,27 @@ export function buildExecutionClock({
   const rrBlocked = rr != null && !rr.positive;
   const premiumRich = value?.band === "over";
   const premiumCheap = value?.band === "under";
+  // Day-trade game-plan trigger/target (same levels the Daily Brief grades).
+  // Trigger-pierce lets the 1-min lane fire when cash breaks the level —
+  // without waiting for a late EMA mean-revert that often arrives after
+  // the target is already tagged (SPY/QQQ 2026-09-03 bought at 15:06).
+  const leanTrigger = isPut ? num(gp.bear_trigger) : num(gp.bull_trigger);
+  const leanTarget = isPut ? num(gp.bear_target) : num(gp.bull_target);
+  const triggerPierced = px != null && leanTrigger != null
+    && (isPut ? px <= leanTrigger : px >= leanTrigger);
+  const targetTagged = px != null && leanTarget != null
+    && (isPut ? px <= leanTarget : px >= leanTarget);
+  let triggerProgress = null;
+  if (px != null && leanTrigger != null && leanTarget != null) {
+    const span = leanTarget - leanTrigger;
+    if (span !== 0) triggerProgress = (px - leanTrigger) / span;
+  }
+  // Fresh = through the trigger but not yet most of the way to the target.
+  const triggerFresh = triggerProgress != null && triggerProgress >= 0 && triggerProgress < 0.55;
 
   let action = "WAIT";
   let sellKind = null;
+  let entryMode = null;
   let why = "Stalk the first pullback into the 5-minute 21 EMA. The opening print usually overpays premium.";
 
   if (beforeCashOpen) {
@@ -630,6 +650,11 @@ export function buildExecutionClock({
   } else if (path && prem != null && path.trough_mid > 0 && prem <= path.trough_mid * (1 + hardStop / 100 + 0.02) && path.peak_mid && prem < path.peak_mid * 0.55) {
     action = "WAIT";
     why = `Premium already bled from $${path.peak_mid} (${path.peak_et} ET) to $${round2(prem)}. Do not chase a dead contract.`;
+  } else if (targetTagged && stWith && !hasLiveBook) {
+    // Anti-chase must beat premium-rich / EMA-pullback — Sep 3 SPY bought
+    // at 15:06 on a late EMA tag after bull target was already done.
+    action = "WAIT";
+    why = `${sym} already tagged the day-trade ${isPut ? "bear" : "bull"} target at $${round2(leanTarget)}. Do not chase a late entry — the brief move is done.`;
   } else if (premiumRich && stWith) {
     action = "WAIT";
     why = `Tape agrees but premium $${round2(prem)} is rich vs FMV $${value.fmv} (pin $${value.pin} if ${sym} closes $${value.expected_close}). Wait for a print at or under $${value.buy_ceil}.`;
@@ -647,14 +672,21 @@ export function buildExecutionClock({
   )) {
     action = "WAIT";
     why = `${sym} is above the premarket pivot while the opening range is still forming. Do not buy the put into the bounce — wait for the 10:00 ET OR vote.`;
-  } else if (rth && stWith && nearEma && !openPrint && !extended && !premiumRich) {
+  } else if (rth && stWith && triggerPierced && triggerFresh && !openPrint && !premiumRich && !hasLiveBook) {
     action = "BUY";
+    entryMode = "trigger_pierce";
+    why = `${sym} pierced the ${isPut ? "bear" : "bull"} trigger at $${round2(leanTrigger)} with SuperTrend ${ind.st_label || "aligned"} — enter on the break, not a late EMA tag. Target $${round2(leanTarget)}.`;
+  } else if (rth && stWith && nearEma && !openPrint && !extended && !premiumRich && !targetTagged) {
+    action = "BUY";
+    entryMode = "ema_pullback";
     why = `${sym} is holding the ${ind.tf || "5"}-minute 21 EMA${ema21 ? ` ($${ema21})` : ""} with SuperTrend ${ind.st_label || "aligned"}. Premium is ${value?.band || "unpriced"} vs FMV $${value?.fmv ?? "—"}.`;
-  } else if (rth && stWith && atTrough && !openPrint && !premiumRich) {
+  } else if (rth && stWith && atTrough && !openPrint && !premiumRich && !targetTagged) {
     action = "BUY";
+    entryMode = "premium_trough";
     why = `This contract is at the session trough ($${path.trough_mid} at ${path.trough_et} ET) while SuperTrend still agrees.`;
-  } else if (rth && stWith && premiumCheap && !openPrint && !extended) {
+  } else if (rth && stWith && premiumCheap && !openPrint && !extended && !targetTagged) {
     action = "BUY";
+    entryMode = "premium_cheap";
     why = `Premium $${round2(prem)} is under FMV $${value.fmv} (expected close $${value.expected_close}) and SuperTrend agrees.`;
   } else if (stAgainst) {
     action = "WAIT";
@@ -681,7 +713,7 @@ export function buildExecutionClock({
   const fmvBit = value
     ? ` Pay at or under $${value.buy_ceil} (FMV $${value.fmv} if ${sym} closes $${value.expected_close}; rich ≥ $${value.over}).`
     : "";
-  const buyRule = `Buy the ${contractBit} when ${sym} holds${emaBit} and ${stBit}.${fmvBit} Typical trough ${tod.buy_window_et} ET — first pullback, not the open print.`;
+  const buyRule = `Buy the ${contractBit} when ${sym} holds${emaBit} and ${stBit}.${fmvBit} Prefer the game-plan trigger pierce while the target is still open; otherwise the first pullback into the 21 EMA (${tod.buy_window_et} ET) — not the open print, and not after the target tags.`;
   const invBit = invPx != null
     ? (isPut ? ` or if ${sym} reclaims $${round2(invPx)}` : ` or if ${sym} loses $${round2(invPx)}`)
     : "";
@@ -704,7 +736,9 @@ export function buildExecutionClock({
       : "Flatten by 15:45 ET unless leftover R:R still justifies holding overnight. Do not wait until 16:15 to take an intended exit.";
 
   const headline = action === "BUY"
-    ? `BUY ${contractBit} — ${premiumCheap ? "under FMV" : "pullback into"}${premiumCheap ? "" : emaBit}`
+    ? `BUY ${contractBit} — ${entryMode === "trigger_pierce"
+      ? `trigger $${round2(leanTrigger)}`
+      : (premiumCheap ? "under FMV" : "pullback into")}${entryMode === "trigger_pierce" || premiumCheap ? "" : emaBit}`
     : action === "TRIM"
       ? `TRIM ${contractBit} — take the open, do not wait for 09:45`
       : action === "SELL"
@@ -744,6 +778,15 @@ export function buildExecutionClock({
     premium_band: value ? { ...value, display_buy_ceil: displayBuyCeil } : value,
     tod,
     path,
+    entry_mode: entryMode,
+    trigger: {
+      level: leanTrigger,
+      target: leanTarget,
+      pierced: triggerPierced,
+      target_tagged: targetTagged,
+      progress: triggerProgress != null ? round2(triggerProgress) : null,
+      fresh: triggerFresh,
+    },
     indicators: {
       ema21,
       st_dir: ind.st_dir ?? null,

@@ -6594,3 +6594,9 @@ maps close actions to chip **FLAT** (`display_action`) and headline **FLAT**
 weekends or when flat. `isOptionsSellWindowEt` uses equity **trading day**
 (not `isNyRegularMarketOpenStatic`, which ends at 16:00) so the 16:00–16:15
 close-auction window stays live through 16:14.
+
+## 2026-09-04 — Index day-trade 15:06 entry was EMA-chase, not cash-open/chain
+- **Symptom:** Daily Brief SPY/QQQ bull triggers tagged at the open and full-hit by ~11:15; paper BUY only at 15:06 on far-OTM 1DTE.
+- **Cause:** `buildExecutionClock` only BOUGHT on SuperTrend-with + near 21 EMA (and refused `extended`). A trending day never mean-reverted into the EMA until late afternoon — after the brief target was already tagged.
+- **Fix:** Trigger-pierce BUY while progress to target is still fresh (<55%), and hard WAIT once the lean target is tagged (anti-chase beats premium-rich / EMA pullback).
+- **Not the cause:** cash-open gate (09:30), open-print wait (09:30-09:45), lean, or options chain — all were fine; the clock simply never said BUY until the late EMA tag.

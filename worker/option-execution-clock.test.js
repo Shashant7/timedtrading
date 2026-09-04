@@ -708,4 +708,107 @@ describe("buildExecutionClock", () => {
     expect(out.action).toBe("WAIT");
     expect(out.why).toMatch(/reclaimed \$764\.49/i);
   });
+
+  // 2026-09-03 autopsy: brief bull trigger tagged at the open, bull target
+  // by ~11:15, but the 1-min lane waited for an EMA pullback and BOUGHT at
+  // 15:06 — after the move was done. Trigger-pierce + anti-chase fix.
+  it("BUYs a call on a fresh bull-trigger pierce even when extended above the 21 EMA", () => {
+    const out = buildExecutionClock({
+      ticker: "SPY",
+      flavor: "call",
+      strike: 769,
+      expiration: { dte: 1, iso: "2026-09-04", label: "1 DTE" },
+      // Through bull trigger 767.82, only ~40% of the way to 771.42,
+      // but >0.40% above the 21 EMA so the old pullback gate would WAIT.
+      spot: 769.3,
+      premium: 1.35,
+      indicators: { ema21: 766.0, st_dir: -1, st_label: "long", tf: "5" },
+      gamePlan: {
+        lean: "LONG",
+        bull_trigger: 767.82,
+        bull_target: 771.42,
+        bear_trigger: 764.48,
+        bear_target: 754.02,
+      },
+      management: {
+        take_profit_1: { pct: 50, size: 0.5 },
+        take_profit_2: { pct: 100, size: 0.5 },
+        hard_stop_pct: -50,
+        time_stop_et: "15:45",
+        invalidation: { underlying_below: 764.48 },
+      },
+      now: ts(`2026-09-03T09:50:00${ET}`),
+    });
+    expect(out.action).toBe("BUY");
+    expect(out.entry_mode).toBe("trigger_pierce");
+    expect(out.trigger.pierced).toBe(true);
+    expect(out.trigger.fresh).toBe(true);
+    expect(out.trigger.target_tagged).toBe(false);
+    expect(out.why).toMatch(/pierced the bull trigger/i);
+    expect(out.headline).toMatch(/trigger \$767\.82/);
+  });
+
+  it("WAITs on a late EMA pullback after the bull target is already tagged (Sep 3 autopsy)", () => {
+    const out = buildExecutionClock({
+      ticker: "SPY",
+      flavor: "call",
+      strike: 777,
+      expiration: { dte: 1, iso: "2026-09-04", label: "1 DTE" },
+      // Spot past bull target; sitting on the 21 EMA at 15:06 — the old
+      // clock would BUY here. Must WAIT: the brief move is done.
+      spot: 773.54,
+      premium: 0.63,
+      indicators: { ema21: 773.2, st_dir: -1, st_label: "long", tf: "5" },
+      gamePlan: {
+        lean: "LONG",
+        bull_trigger: 767.82,
+        bull_target: 771.42,
+        bear_trigger: 764.48,
+        bear_target: 754.02,
+      },
+      management: {
+        take_profit_1: { pct: 50, size: 0.5 },
+        take_profit_2: { pct: 100, size: 0.5 },
+        hard_stop_pct: -50,
+        time_stop_et: "15:45",
+        invalidation: { underlying_below: 764.48 },
+      },
+      now: ts(`2026-09-03T15:06:00${ET}`),
+    });
+    expect(out.action).toBe("WAIT");
+    expect(out.entry_mode).toBeNull();
+    expect(out.trigger.target_tagged).toBe(true);
+    expect(out.why).toMatch(/already tagged/i);
+    expect(out.why).toMatch(/771\.42/);
+  });
+
+  it("BUYs a put on a fresh bear-trigger pierce while extended below the 21 EMA", () => {
+    const out = buildExecutionClock({
+      ticker: "QQQ",
+      flavor: "put",
+      strike: 710,
+      expiration: { dte: 1, iso: "2026-09-04", label: "1 DTE" },
+      spot: 709.4,
+      premium: 1.10,
+      indicators: { ema21: 712.8, st_dir: 1, st_label: "short", tf: "5" },
+      gamePlan: {
+        lean: "SHORT",
+        bull_trigger: 714.0,
+        bull_target: 718.0,
+        bear_trigger: 710.5,
+        bear_target: 705.0,
+      },
+      management: {
+        take_profit_1: { pct: 50, size: 0.5 },
+        take_profit_2: { pct: 100, size: 0.5 },
+        hard_stop_pct: -50,
+        time_stop_et: "15:45",
+        invalidation: { underlying_above: 714.0 },
+      },
+      now: ts(`2026-09-03T10:05:00${ET}`),
+    });
+    expect(out.action).toBe("BUY");
+    expect(out.entry_mode).toBe("trigger_pierce");
+    expect(out.why).toMatch(/pierced the bear trigger/i);
+  });
 });
