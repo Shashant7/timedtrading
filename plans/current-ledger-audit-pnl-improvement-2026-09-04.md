@@ -1,6 +1,6 @@
 # Current Ledger Audit and PnL Improvement Plan — 2026-09-04
 
-**Status:** Audit complete; implementation not started  
+**Status:** Audit complete; expanded finding-to-action plan; implementation not started  
 **Scope:** Active Trader paper ledger and the model paths that select, size, manage, and attribute trades  
 **Safety:** Read-only production review. No model, flag, configuration, ledger, broker, or deployment state was changed.  
 **Primary snapshot:** Public ledger generated 2026-09-04 01:23:52 UTC; latest closed trade 2026-09-03 19:29:40 UTC.
@@ -115,6 +115,54 @@ All-time, trimmed rows earned +$69,851.76 while untrimmed rows lost -$32,803.85.
 9. **Calibrated edge is not yet the selector contract:** calibrated probability/EV exists in trust-spine code, while focus rank remains a static feature sum and selector RR is only a tiebreaker. The live caller/config could not be verified without authenticated access.
 10. **Learning-loop visibility is incomplete:** exact setup × regime × personality × side cohorts are sparse and the loops fail open. Setup aliases and missing catalog entries further divide evidence.
 
+
+## Complete finding-to-action register
+
+This register is the controlling checklist. A finding is not considered covered merely because it resembles a broad work packet; each row must receive a disposition, test evidence, and PR or issue reference.
+
+| ID | Finding and evidence | Why it matters | Required disposition |
+|---|---|---|---|
+| F01 | Current edge is negative: 7d PF 0.26, 30d PF 0.79, 90d PF 0.93, and 180d PF 1.01. | Inception metrics conceal current stagnation. | A, G: epoch-aware rolling scorecard and explicit current-edge state. |
+| F02 | One $647.21 RTX winner changes 30d P&L from -$285.97 to -$933.18 when removed. | Mean P&L and setup promotion are outlier-dependent. | G: top-1/top-5 sensitivity and median/bootstrap intervals are mandatory gates. |
+| F03 | Gap Reversal Long produced +$38,088.14, more than total closed-ledger net; the rest of the book is net negative in aggregate. | Historical performance is one-engine concentration, not broad model quality. | F, G: setup concentration limits and current-regime validation. |
+| F04 | ATH aliases: 110 trades, -$2,756.57, PF 0.55. Cloud Pivot: 22 trades, PF 0.30. Several other setups are at or below break-even before costs. | The system continues allocating attempts to cohorts with demonstrated negative expectancy. | C: shadow reject/demotion policy with cohort-specific recovery gates. |
+| F05 | Recent longs: 55 trades, -$312.43, PF 0.77; shorts: 9 trades, +$26.46, PF 1.65. | Direction may be informative, but the short sample is insufficient to flip bias. | D, G: include side in calibration and uncertainty; no side promotion from n=9. |
+| F06 | All-time Prime is strong, Confirmed is flat, Speculative is negative; recent grade ordering collapses and is outlier-sensitive. | Grade is not a stationary probability estimate and should not directly determine size. | D, F, L: epoch-calibrate grade and reconcile grade definitions. |
+| F07 | 30d trimmed rows: +$761.75, PF 3.41; untrimmed: -$1,047.72, PF 0.02. Month-end review similarly found 23/28 losses untrimmed. | Entries that never develop are the main bleed, but trim status is post-treatment and cannot be used as a causal input. | H, J: model probability/time to first favorable excursion; do not “force trims.” |
+| F08 | Closed WIN/LOSS/FLAT P&L exceeds account realized P&L by $142.44. | No trustworthy optimization is possible without financial reconciliation. | A: event-level P&L reconciliation to $0.01. |
+| F09 | Ledger has WIN, LOSS, FLAT, OPEN, and TP_HIT_TRIM; account open count treats TP_HIT_TRIM as open while public KPIs omit FLAT. | Status-dependent denominators can silently change metrics. | A: one documented state machine and common metric view. |
+| F10 | Setup aliases split identical plays, including TT Tt Ath Breakout vs TT ATH Breakout. | Learning samples and UI attribution are fragmented. | B: canonical_play_id backfill and API/UI grouping. |
+| F11 | Public rows lack decision_id, config_hash, regime, personality, calibrated EV, MFE/MAE, candidate context, and exit owner. | Outcomes cannot be attributed to the logic/config that produced them. | B, G: provenance completeness contract and exclusion flags. |
+| F12 | Results exclude fees and slippage. | Near-break-even cohorts likely become negative after realistic execution. | A, D, G: explicit cost model and sensitivity bands. |
+| F13 | July autopsy found stale entry prints, exits at prices that never traded, degenerate bars, and duplicated daily bars. | Some historical “losses” and signals may be artifacts; training on them corrupts the loop. | B: tape-range, freshness, duplicate-bar, and quarantine checks. |
+| F14 | July entries clustered in 30–90 second scan bursts, often just after the open; several were opening chases. | Correlated admissions amplify one bad market state and bypass evidence accumulation. | I, J: opening-window policy, batch correlation cap, and per-cycle exposure limit. |
+| F15 | Cohorts marked always-blocked still entered; suspected causes are missing-input default allow or bypass of tt-core admission. | A correct policy is useless if not enforced on every path. | I: one mandatory admission seam, fail-closed reasons, and bypass tests. |
+| F16 | Slow/range-bound tickers consumed short-term slots; there is no reliable expected-move-versus-risk-and-hold-time screen. | Capital is spent on trades unable to pay for risk or opportunity cost. | J: ATR/ADR expected-move and horizon-fit gate. |
+| F17 | The system often catches part of a move, exits, then has no level-aware re-entry doctrine; liquidity zones are largely stop inputs rather than entry memory. | Valid theses are abandoned while later reclaim legs are missed. | J: shadow re-entry state machine keyed to thesis, sweep, level, and reclaim. |
+| F18 | Support-bounce stops can be ATR/dollar fallbacks rather than the support that justified entry; clock/force exits have fired into mapped support or flushes. | Risk and exit logic can contradict the trade thesis. | K, E: structural invalidation first, dollar caps as disaster bounds, support-aware exit tests. |
+| F19 | Protection stage can dissolve when P&L falls below zero; some trimmed runners skip breakeven protection; a losing liquidation was labeled as a trim. | Profit protection and analytics semantics can both fail at the point of need. | K, A: persistent monotonic protection stage and event-level trim semantics. |
+| F20 | Self-calibration review reported only 57 captured moves versus 662 qualifying opportunities, about 4.8%. | Optimizing only executed trades cannot distinguish selectivity from missed edge. | H: candidate/opportunity funnel with resolved counterfactuals. |
+| F21 | Confirm-stack filtering improved OOS win rate (57.1% vs 52.7%), while conviction sizing degraded OOS SQN (+0.58 IS to -0.26 OOS); the proposed flip reduced losses but remained negative. | Signal gating has evidence; size amplification does not. | C, F: test confirmation as admission evidence; do not promote conviction sizing without new OOS proof. |
+| F22 | Focus-rank correlation was approximately +0.002 in V11; entry selector defaults are off and RR is only a tiebreaker; calibrated-edge fallback uses fixed probabilities and is not clearly the live selector source of truth. | The ranking stack is not demonstrably ordering economic outcomes. | D: calibration/reliability curves, rank monotonicity test, and a single consumed EV contract. |
+| F23 | Phase-C loops use sparse exact cohorts and fail open; Cloud Pivot was missing from the catalog; trade-review C labels did not automatically mutate policy. | “Learning” can observe losses without changing admission behavior. | B, C, G: catalog completeness, hierarchical shrinkage, explicit review-to-policy workflow, safe fallback. |
+| F24 | CIO validation had zero decision/outcome rows; another matrix used two identical losses, reset_ok=false, zero delta, yet recorded PASS. Closed-loop readiness can be reached with two epochs and only five closes. | Promotion status can be green without meaningful evidence. | G: hard invalidation on reset/evidence/reconciliation failures and stronger sample policy. |
+| F25 | tt_core lifecycle output can be advisory while inline fallback continues; multiple exit families may act. | Outcome attribution and replay equivalence are ambiguous. | E: exactly one authoritative owner per lot/action and parity tests. |
+| F26 | Sizing composes many multipliers with a floor; minimum notional can weaken a low-conviction haircut. | Risk can increase after the model expresses low confidence. | F: monotonic sizing invariant and floor-after-haircut tests. |
+| F27 | MFE-ratchet autopsy on 55 trades estimated -$2,602 actual versus +$436 counterfactual and a 34.5% to 41.8% WR change. | There is meaningful management upside, but only if the ratchet actually fires and the counterfactual uses valid prices. | E: reproduce on quarantined-clean data, verify live firing and authority, then shadow test. |
+| F28 | Edge scorecard covers rolling outcomes but omits the full candidate denominator, missed opportunities, costs, confidence intervals, and robust outlier views. | The scorecard cannot judge selection quality or statistical reliability. | G, H: complete the scorecard contract. |
+| F29 | The codebase contains many overlapping flags, exceptions, and setup carve-outs; recent work has not produced a clean isolated alpha cycle. | Interactions make causal learning and rollback difficult. | M: active-config manifest, dependency graph, one-lever experiment rule, dead-flag retirement. |
+| F30 | Product narrative says Prime/Confirmed/Early and grade-aware 72h/36h management, while the current ledger uses Prime/Confirmed/Speculative and shows much faster exits in some cohorts. It also claims eight-timeframe alignment and a CIO gate. | User-facing claims, ledger taxonomy, and actual enforcement may have drifted. | L: claim-to-code-to-ledger contract tests and corrected product language where needed. |
+
+### Historical evidence that must remain visible
+
+- Baseline self-calibration report: 646 trades, 50.5% WR, PF 1.89, +$58/trade, +$37.4K; only about 4.8% of qualifying moves captured.
+- Month-end last-40 review: 10 wins / 28 losses, about 27% WR; 23 of 28 losses were untrimmed and totaled about -40%, while trimmed trades were net positive.
+- Aug 13–19 review: 25 closes, 4W / 19L / 2F, -$817; 20 were Speculative and lost $598; CIO usually adjusted size rather than rejecting.
+- July short-term autopsy: 32 trades, 8W / 22L / 2 open; only one trade trimmed; 12 reached at least +1.5% MFE and many round-tripped.
+- Ratchet counterfactual: 55-trade sample improved from approximately -$2,602 actual to +$436 counterfactual, subject to clean-price reproduction.
+- Confirm-stack evidence is more promising as an admission filter than conviction sizing is as a capital multiplier.
+
+
 ## Prioritized plan
 
 ### P0 — Establish ledger truth before changing behavior
@@ -204,14 +252,120 @@ For each config epoch and cohort, publish:
 
 Use one changed lever per challenger. Promotion requires an out-of-sample holdout and a rollback-ready flag. A PASS is invalid when reset, evidence count, reconciliation, or data-quality checks fail.
 
+
+### P5 — Measure the opportunity funnel, not only executed trades
+
+**Work packet H: Candidate capture and missed-opportunity ledger**
+
+- Persist every qualifying candidate, admission decision, rejection reason, score/EV snapshot, and later path outcome.
+- Define the denominator behind the reported 57 captured versus 662 qualifying moves and make it reproducible.
+- Measure capture rate by setup, side, regime, ticker personality, hour, opening window, and config epoch.
+- Label counterfactual outcomes using the same price-validity and cost rules as executed trades.
+- Separate “correct reject,” “missed winner,” “avoided loser,” and “unresolved” rather than optimizing raw capture upward.
+
+**Acceptance:** every scan cycle reconciles candidate counts to decisions; missed-opportunity metrics are reproducible; promotion optimizes net opportunity value, not trade count.
+
+### P6 — Guarantee admission policy enforcement
+
+**Work packet I: Single mandatory gate and correlated-entry controls**
+
+- Route every tt_core entry path through one admission seam.
+- Replace missing-input default allow with an explicit safe outcome and observable reason code.
+- Add contract tests proving an always-blocked setup/side/grade cannot enter through HTTP, cron, queue, replay, or fallback paths.
+- Add opening-window and scan-burst controls in shadow: batch exposure, sector correlation, and maximum new risk per cycle.
+- Confirm that CIO REJECT can stop a trade; distinguish REJECT from ADJUST in decision records.
+
+**Acceptance:** zero bypasses in path coverage tests; every admission names the gate result; blocked cohorts generate shadow records but no paper order when enforcement is enabled.
+
+### P7 — Align timing, ticker opportunity, and re-entry
+
+**Work packet J: Expected-move, timing, and thesis-memory experiments**
+
+- Add a shadow horizon-fit screen comparing ATR/ADR, distance to targets, stop distance, expected holding window, spread/cost, and opportunity cost.
+- Test opening-window confirmation requirements and reject stale/pre-market prices for regular-session entries.
+- Record leg maturity: distance/time from HTF reclaim, proximity to prior swing high, premium/discount zone, and trend age.
+- Build a shadow re-entry watch after a valid exit when HTF thesis remains intact; require mapped support/sweep plus reclaim confirmation.
+- Consume liquidity zones as decision context and thesis memory, not only stop anchors.
+
+**Acceptance:** horizon-fit score orders realized opportunity; stale/opening chases fail deterministic tests; re-entry is independently measured and cannot duplicate live exposure.
+
+### P8 — Make risk and protection thesis-aware
+
+**Work packet K: Structural stop and persistent protection state**
+
+- Anchor setup stops to the level that invalidates the setup; retain dollar/percentage caps only as disaster limits.
+- Persist protection stage monotonically per lot so breakeven/runner protection cannot disappear when price crosses entry.
+- Remove blanket exemptions that leave trimmed runners without an entry floor unless a tested structural alternative is active.
+- Define a trim as a profitable partial realization; loss liquidations must be CLOSE/REDUCE_LOSS events.
+- Prevent clock/force exits from firing directly into valid mapped support without an explicit structural-break reason.
+
+**Acceptance:** replay invariants cover stage persistence, event semantics, and structural anchors; clean-data shadow results improve capture/drawdown before any live-paper promotion.
+
+### P9 — Reconcile product claims with executable behavior
+
+**Work packet L: Claim-to-code-to-ledger contract**
+
+- Choose and document one grade vocabulary: Prime/Confirmed/Speculative or Prime/Confirmed/Early.
+- Verify whether grade truly changes maximum hold windows, stop width, and management; publish the actual rules.
+- Trace the claimed eight-timeframe alignment and CIO gate to mandatory decision fields and enforcement tests.
+- Ensure every public explanation can be reproduced from ledger/decision data; revise claims that are descriptive rather than guaranteed.
+- Add documentation/version metadata to config epochs so historical trades are interpreted under the rules active at entry.
+
+**Acceptance:** each material product claim maps to a test, field, and current code path; UI, API, docs, and ledger use the same taxonomy.
+
+### P10 — Reduce configuration and flag interaction risk
+
+**Work packet M: Active behavior manifest**
+
+- Generate a versioned manifest of active flags, defaults, D1 overrides, dependencies, and the final behavior each path sees.
+- Identify duplicate/obsolete gates and carve-outs; retire only after parity tests.
+- Require one behavioral lever per experiment and record its config delta.
+- Block PASS when an experiment changes admission, exit, and sizing simultaneously or cannot identify the active config hash.
+- Produce a rollback recipe alongside every promoted flag.
+
+**Acceptance:** an agent can reproduce the live-paper behavior from one manifest; no unknown override wins; each promoted result has an isolated causal delta.
+
+## Multi-agent execution board
+
+| Track | Primary scope | Depends on | Deliverable |
+|---|---|---|---|
+| Ledger truth | A, B, K event semantics | None | Reconciled event view, canonical IDs, quarantine rules |
+| Config/enforcement | I, M | B provenance schema | Mandatory gate tests and active behavior manifest |
+| Selection research | C, D, H | A, B, G foundation | Shadow admission challenger and calibrated EV contract |
+| Timing/re-entry | J | B, H | Expected-move and re-entry shadow reports |
+| Exit management | E, K | A, B clean data | Authoritative exit owner and clean ratchet replay |
+| Validation/governance | G | A, B | Epoch scorecard and non-bypassable promotion gates |
+| Product contract | L | B, I, M | Claim-to-code-to-ledger matrix and taxonomy alignment |
+
+Each track must append its issue/PR, config hash, evidence window, and verdict to this document or a linked execution log. Parallel work is allowed only where dependencies are satisfied; no track may silently change another track’s lever.
+
+## Global acceptance and stop rules
+
+A behavior-changing promotion is blocked when any of the following is true:
+
+- account and ledger do not reconcile or the cohort contains unquarantined invalid-price rows;
+- candidate denominator or active config hash is unknown;
+- reset/parity checks fail;
+- the result depends on one winner or loses significance after reasonable costs;
+- in-sample improves while holdout expectancy, SQN, or drawdown worsens;
+- more than one of admission, management, and sizing changed;
+- the changed path can be bypassed or another exit owner remains active;
+- rollback is not immediate and tested.
+
+A cohort can move from shadow to limited paper only with a predeclared sample policy, positive after-cost expectancy, PF at least 1.20, acceptable drawdown, outlier robustness, and a clean holdout. These are minimum governance gates, not guarantees of live profitability.
+
+
 ## Recommended execution order
 
-1. **A + B:** reconciliation, status definitions, canonical IDs, and traceability.
-2. **G foundation:** epoch-aware scorecard and hard validation gates.
-3. **C:** shadow admissions for ATH, Cloud Pivot, and weak grade/regime cohorts.
-4. **D:** selector consumes calibrated EV with uncertainty.
-5. **E:** verify ratchet/exit ownership and capture metrics.
-6. **F:** revisit sizing only after stable out-of-sample selection edge.
+1. **A + B:** reconciliation, status definitions, canonical IDs, price quarantine, and traceability.
+2. **M + I:** active behavior manifest and proof that every admission path obeys the same gate.
+3. **G + H foundation:** epoch-aware scorecard, candidate denominator, missed opportunities, and hard validation gates.
+4. **C:** shadow admissions for ATH, Cloud Pivot, high-chop Speculative, and weak grade/regime cohorts.
+5. **D:** selector consumes calibrated after-cost EV with uncertainty; verify rank monotonicity.
+6. **J:** expected-move, opening-window, leg-maturity, and re-entry shadow experiments.
+7. **E + K:** clean-data ratchet replay, structural stops, persistent protection, and one exit owner.
+8. **L:** reconcile public claims and grade/holding taxonomy with executable behavior.
+9. **F:** revisit sizing only after stable out-of-sample selection edge; do not reuse the failed conviction-sizing evidence as a promotion basis.
 
 No agent should combine admission, exit, and sizing changes in one experiment.
 
