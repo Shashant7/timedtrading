@@ -23911,6 +23911,43 @@ async function processTradeSimulation(
           }
         }
       }
+      // RUNNER EXTENSION TRIM (2026-09-04, TSLA 382 lesson): bank a slice
+      // INTO strength when the position is deep in profit (>= 8%) and price
+      // is statistically stretched (>= 1.5 ATR above the daily fast EMA).
+      // Strength-side complement to the weakness-side rules below — every
+      // other profit rule is a trail that waits for the give-back. Once per
+      // NY session, +25% of original size, capped at 75% so a runner always
+      // survives for the trail rules.
+      if (!fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && !_referenceHoldUntilExit) {
+        try {
+          const { assessRunnerExtensionTrim } = await import("./runner-extension-trim.js");
+          const _extPlan = assessRunnerExtensionTrim({
+            openTrade,
+            execState,
+            tickerData,
+            pxNow,
+            entryPx,
+            direction: isLong ? "LONG" : "SHORT",
+            daCfg: tickerData?._env?._deepAuditConfig,
+            now,
+          });
+          if (_extPlan && _extPlan.action === "trim") {
+            console.log(`[RUNNER_EXT_TRIM] ${sym} trim-into-strength pnl=${_extPlan.pnlPct}% ext=${_extPlan.atrExt} ATR → trimmed ${(_extPlan.diag.trimmed_before * 100).toFixed(0)}% → ${(_extPlan.newTargetTrimPct * 100).toFixed(0)}%`);
+            await trimTradeToPct(openTrade, _extPlan.newTargetTrimPct, pxNow, "RUNNER_EXTENSION_TRIM");
+            const _extExec = {
+              ...execState,
+              lastTrimMs: now,
+              extTrimSession: _extPlan.diag.session,
+              extTrimPx: pxNow,
+              runnerPeakPrice: Math.max(Number(execState?.runnerPeakPrice) || 0, pxNow),
+            };
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _extExec);
+            else if (!isReplay) await kvPutJSON(KV, execKey, _extExec);
+          }
+        } catch (_extErr) {
+          console.warn(`[RUNNER_EXT_TRIM] ${sym} failed:`, String(_extErr?.message || _extErr).slice(0, 150));
+        }
+      }
       // RUNNER TOP FORMATION (1H): after a runner is in profit and MFE has run,
       // watch for the exhaustion / double-top confluence the user calls out —
       // bear RSI divergence, TD prep >= 7 / TD9, 1H 5/12 cloud break, 1H 21 EMA
