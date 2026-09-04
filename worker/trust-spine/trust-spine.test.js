@@ -143,6 +143,48 @@ describe("scorecard", () => {
     expect(s.epochs[0].net_pnl).toBe(50);
     expect(s.epochs[0].win_rate).toBe(50);
   });
+
+  // F24 — the old bar (2 epochs, any one with 5 closes) declared the loop
+  // ready on five trades of evidence.
+  it("does not flip closed_loop_ready at 2 epochs / 5 closes", () => {
+    const trades = (hash, n) => Array.from({ length: n }, (_, i) => ({
+      config_hash: hash,
+      pnl: i % 2 === 0 ? 10 : -5,
+    }));
+    const s = scoreEpochMetrics(
+      [
+        { config_hash: "a", decisions: 10, entries: 5 },
+        { config_hash: "b", decisions: 0, entries: 0 },
+      ],
+      [...trades("a", 5), ...trades("b", 1)],
+    );
+    expect(s.closed_loop_ready).toBe(false);
+  });
+
+  it("requires two epochs at the per-epoch closed minimum, one with decisions", () => {
+    const trades = (hash, n) => Array.from({ length: n }, (_, i) => ({
+      config_hash: hash,
+      pnl: i % 2 === 0 ? 10 : -5,
+    }));
+    const ready = scoreEpochMetrics(
+      [
+        { config_hash: "a", decisions: 40, entries: 20 },
+        { config_hash: "b", decisions: 35, entries: 18 },
+      ],
+      [...trades("a", 20), ...trades("b", 16)],
+    );
+    expect(ready.closed_loop_ready).toBe(true);
+
+    // Same volume but zero recorded decisions anywhere → not ready.
+    const noDecisions = scoreEpochMetrics(
+      [
+        { config_hash: "a", decisions: 0, entries: 20 },
+        { config_hash: "b", decisions: 0, entries: 18 },
+      ],
+      [...trades("a", 20), ...trades("b", 16)],
+    );
+    expect(noDecisions.closed_loop_ready).toBe(false);
+  });
 });
 
 describe("sector concentration", () => {

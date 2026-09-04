@@ -27,10 +27,22 @@ export function scoreEpochMetrics(epochRows = [], tradeRows = []) {
     };
   });
 
+  // F24 (2026-09-04 ledger audit) — the old bar (2 epochs, ANY epoch with
+  // 5 closes) could declare the loop "ready" on five trades of evidence.
+  // Readiness now requires two epochs that EACH have a minimum closed
+  // sample, at least one of them with attributed decision rows — a loop
+  // whose epochs never recorded decisions has nothing to learn from.
+  const CLOSED_LOOP_MIN_TRADES_PER_EPOCH = 15;
+  const qualifyingEpochs = epochs.filter(
+    (e) => e.closed_trades >= CLOSED_LOOP_MIN_TRADES_PER_EPOCH,
+  );
   return {
     generated_at: Date.now(),
     epoch_count: epochs.length,
     epochs,
-    closed_loop_ready: epochs.length >= 2 && epochs.some((e) => e.closed_trades >= 5),
+    closed_loop_ready:
+      qualifyingEpochs.length >= 2
+      && qualifyingEpochs.some((e) => e.decision_rows > 0),
+    closed_loop_min_trades_per_epoch: CLOSED_LOOP_MIN_TRADES_PER_EPOCH,
   };
 }
