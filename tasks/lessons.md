@@ -6600,3 +6600,8 @@ close-auction window stays live through 16:14.
 - **Cause:** `buildExecutionClock` only BOUGHT on SuperTrend-with + near 21 EMA (and refused `extended`). A trending day never mean-reverted into the EMA until late afternoon — after the brief target was already tagged.
 - **Fix:** Trigger-pierce BUY while progress to target is still fresh (<55%), and hard WAIT once the lean target is tagged (anti-chase beats premium-rich / EMA pullback).
 - **Not the cause:** cash-open gate (09:30), open-print wait (09:30-09:45), lean, or options chain — all were fine; the clock simply never said BUY until the late EMA tag.
+
+## 2026-09-04 — account_ledger balance column is identity-resynced, not cumulative
+- **Symptom:** After deleting duplicate EXIT events and shifting subsequent `balance` values down by the phantom cash_delta, displayed cash dropped ~$35.7k below reality.
+- **Cause:** The `balance` column does NOT track cumulative cash_delta (it drifts; June 2026 lesson). Its tail is kept equal to `start + realized − open cost basis` by maintenance, so post-hoc shifts double-correct.
+- **Rule:** When repairing account_ledger events, fix `realized_pnl` rows only, then resync the LATEST row's balance to the identity. Never rewrite historical balances by delta.
