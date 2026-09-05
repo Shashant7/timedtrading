@@ -27,10 +27,14 @@
       spike guard, holdings-truth reducers (guards + fan-out), smart gates
       revived (`nyDayString`) with 12/8/6 core caps, paper-family budget
       4/3/conviction>=2, Cloud Pivot profit lock trim-then-trail.
-      Next: durable order-intent ledger; notification honesty ("model fill"
-      + mirror state); DELL compound-growth entry audit; ST ratchet through
-      the shared window; paper-short budget decision.
-      Branch: `cursor/execution-discipline-plan-dbdd` (PR #1426).
+      Packet 3 landed: durable `broker_intents` ledger + `*/5` drain,
+      "model fill" notifications, DELL audit -> compounder patience
+      override, ST window review (no change), paper-short decision.
+      Next: context playbooks out of shadow for compounders; options desk
+      follow-through into the intent ledger; paper-close-on-fill for
+      operator lanes.
+      Branches: `cursor/execution-discipline-plan-dbdd` (PR #1426, merged),
+      `cursor/execution-discipline-packet-2-dbdd` (PR #1427).
 - [ ] **SPY options still missing on holdings (2026-09-03).** Options
       normalize ignored Webull `position_list` (equity path already read
       it), so OPTION rows never reached Broker Connections. Bundle options

@@ -6619,3 +6619,12 @@ close-auction window stays live through 16:14.
 ## 2026-09-05 — Holdings truth beats manifest state on reducers
 - **Symptom:** DPZ EXIT died as `no_manifest_for_trade`; the only sleeve holding shares was `mirror_suppressed`.
 - **Rule:** `broker_remaining_qty > 0` means the sleeve holds the trade. Suppression / `mothership_orphan` / stale `sync_state` describe why the model stopped mirroring, not whether shares exist. Both `manifestAwareReducerCheck` (guards, `held_override`) and `rowHoldsReducerQty` (fan-out) follow that rule now; only `rejected` / `expired` / qty 0 are out.
+
+## 2026-09-05 — DELL was never a blackout miss; the LTF veto never lets a compounder dip in
+- **Symptom:** DELL, a growth-elite compounder, held support into earnings and gapped +5%; the model never entered and the 475c the earnings desk called was never a ticket.
+- **Evidence:** `decision_records`: Investor engine scored DELL 86-100 in `accumulate` (`compounder_dip_override_exhaustion:growth_elite:timing_bottom`) Aug 11 -> Sep 4 and rejected every hourly admit with `ltf_st_sloping_down` / `ltf_5_12_cloud_not_curled`. Trader engine: only `daily_ema21_reclaim` CONTEXT_SHADOW rows. Earnings blackout was not the blocker.
+- **Rule:** A dip on a compounder IS a bearish LTF. The LTF stabilization veto is right for rushed July entries (NBIS/AMD) and wrong for a scored compounder dip that has been rejected for hours. `investorCompounderPatienceOverride` admits a 34% starter after 3+ hourly LTF rejects when the name is not still breaking; structural vetoes (majority below 233, opposing daily FVG) stand. When a gate rejects the same high-score name every hour for days, that is the gate failing, not the name.
+
+## 2026-09-05 — Broker reducers are intents, not fire-and-forget calls
+- **Symptom:** UDOW/DPZ/AMZN: paper closed, Discord said filled, broker still held. `forwardOrderToBridge` returned a skip and nothing retried.
+- **Rule:** Every trader SELL/TRIM/EXIT that does not place becomes a `broker_intents` row and is drained on `*/5` while the broker can act (`worker/broker-intents.js`). Terminal rejects close the intent; deferred/transient retry. Entries never become intents (re-qualify, do not chase). Check `GET /timed/admin/broker-intents` before assuming a reducer is stranded. "model fill" in notifications is paper truth; broker truth is the mirror log + intents.

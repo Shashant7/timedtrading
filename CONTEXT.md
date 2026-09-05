@@ -235,6 +235,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   regardless of `mirror_suppressed` / `mothership_orphan` (guards + fan-out).
 - `spikeTol` applies to every high/low source feeding MFE/MAE
   (`_live_daily_high`, `day_high`, `dh`/`dl`).
+- Broker reducers are durable intents: non-placed trader SELL/TRIM/EXIT ->
+  D1 `broker_intents`, drained `*/5` while the broker can act
+  (`worker/broker-intents.js`; `GET /timed/admin/broker-intents`). Entries
+  never retry. Notifications say "model fill" (paper truth).
+- DELL lesson: a scored compounder dip rejected by the LTF stabilize gate for
+  3+ hourly admits gets a 34% starter (`investorCompounderPatienceOverride`);
+  structural vetoes (below-233 majority, opposing daily FVG) still stand.
 
 **CI `npm install` edgesOut — pin vitest, do not use a caret (2026-09-03)**
 - No lockfile in git. `vitest: ^4.1.8` plus a just-published `vitest@5.0.0`
