@@ -39,8 +39,10 @@
       Packet 4 landed: context playbooks KEPT in shadow (30d report card:
       DELL-class reclaim 39% positive); convexity ticket ledger
       (`convexity_tickets`, */5 mark, admin report card).
-      Next: options desk mirror once >= 20 graded tickets;
-      paper-close-on-fill for operator lanes.
+      Options desk mirror landed behind the grade gate (`lotto` vehicle,
+      options closes in the intent ledger); paper-close-on-fill decided
+      against (paper book is model truth). Remaining: re-read the ticket
+      report card at closed_n >= 20 and toggle the vehicle if it earns it.
       Branches: `cursor/execution-discipline-plan-dbdd` (PR #1426, merged),
       `cursor/execution-discipline-packet-2-dbdd` (PR #1427, merged),
       `cursor/execution-discipline-packet-3-dbdd` (PR #1428, merged),

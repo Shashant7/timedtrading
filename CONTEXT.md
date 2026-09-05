@@ -245,6 +245,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 - A called options play is a ticket: CONFLUENT live-priced convexity cards
   -> D1 `convexity_tickets` (2/day, 4 open), marked `*/5`, closed by rule,
   graded at `GET /timed/admin/convexity-tickets` (`worker/convexity-tickets.js`).
+- Convexity broker leg (`worker/convexity-mirror.js`) is gated on that grade
+  (>= 20 closed, median > 0, win >= 40%; `CONVEXITY_MIRROR` forces) plus the
+  `lotto` vehicle toggle; ticket closes ride `broker_intents` as
+  `options_close` (options sell window). Paper closes never wait on the broker.
 - DELL lesson: a scored compounder dip rejected by the LTF stabilize gate for
   3+ hourly admits gets a 34% starter (`investorCompounderPatienceOverride`);
   structural vetoes (below-233 majority, opposing daily FVG) still stand.
