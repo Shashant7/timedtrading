@@ -1375,6 +1375,12 @@ function VehicleTogglesCard({
         max_per_order_usd: 100,
         max_loss_per_order_usd: 100
       },
+      lotto: {
+        enabled: false,
+        daily_cap: 1,
+        max_per_order_usd: 250,
+        max_loss_per_order_usd: 250
+      },
       index_trend_letf: {
         enabled: false,
         daily_cap: 2,
@@ -1424,6 +1430,10 @@ function VehicleTogglesCard({
   }, {
     key: "moonshot",
     label: "Moonshot",
+    showLoss: true
+  }, {
+    key: "lotto",
+    label: "Convexity Ticket",
     showLoss: true
   }, {
     key: "index_trend_letf",
@@ -4201,6 +4211,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1788572977344:214042866
+// cache-bust:1788579207650:751825617
 
-// cache-bust:1788572977344:214042866
+// cache-bust:1788579207650:751825617

@@ -16,13 +16,19 @@
 // (45% positive, -0.31% median) away from capital: the desk earns the
 // mirror by being graded, and the grade lives in one table.
 //
-// Scope (first slice): paper tickets + Discord, no broker order. The
-// mirror decision is made from GET /timed/admin/convexity-tickets once the
-// grade exists, not from a screenshot of one good call.
+// Broker leg: convexity-mirror.js. Off until the report card earns it
+// (>= 20 graded, positive median, win rate >= 40%) AND the operator has
+// the `lotto` vehicle on; then entries go through the options auto-mirror
+// and closes ride the broker_intents drain.
 
 import { shareLaneExecutionWindow } from "./execution-window.js";
 import { overlayConvexityCardPremium, chainStrikeRangeForPlay } from "./options-convexity.js";
 import { getETDateStr } from "./market-calendar.js";
+import {
+  mirrorConvexityTicketEntry as _mirrorEntry,
+  mirrorConvexityTicketClose as _mirrorClose,
+  convexityMirrorDecision,
+} from "./convexity-mirror.js";
 
 export const CONVEXITY_TICKET_MAX_OPEN = 4;
 export const CONVEXITY_TICKET_MAX_DAILY = 2;
@@ -237,6 +243,10 @@ export async function ensureConvexityTicketSchema(env) {
     await db.prepare(
       `CREATE INDEX IF NOT EXISTS idx_convexity_tickets_status ON convexity_tickets(status, opened_ts)`,
     ).run().catch(() => {});
+    // Broker leg columns (added after the first deploy; ignore "duplicate column").
+    for (const col of ["mirror_status TEXT", "mirror_contracts INTEGER DEFAULT 0", "mirror_order_id TEXT", "mirror_close_status TEXT"]) {
+      await db.prepare(`ALTER TABLE convexity_tickets ADD COLUMN ${col}`).run().catch(() => {});
+    }
     _schemaReady = true;
     return true;
   } catch (e) {
@@ -266,12 +276,19 @@ async function countOpenedToday(env, now) {
  * Open tickets for the cards the scan just produced. Returns the tickets
  * opened this call (already persisted). Never throws.
  */
-export async function openConvexityTicketsFromCards(env, cards, { now = Date.now(), cfg = {}, notify = null } = {}) {
+export async function openConvexityTicketsFromCards(env, cards, {
+  now = Date.now(), cfg = {}, notify = null, mirror = _mirrorEntry,
+} = {}) {
   const opened = [];
   const skipped = [];
   try {
     if (!Array.isArray(cards) || cards.length === 0) return { opened, skipped };
     if (!(await ensureConvexityTicketSchema(env))) return { opened, skipped };
+    // One report card per call: the mirror gate reads it for every ticket.
+    let report = null;
+    if (typeof mirror === "function") {
+      try { report = await convexityTicketReport(env, { days: 90, now }); } catch (_) { report = null; }
+    }
     const open = await listOpenConvexityTickets(env);
     const openIds = new Set(open.map((r) => r.id));
     let openCount = open.length;
@@ -301,6 +318,15 @@ export async function openConvexityTicketsFromCards(env, cards, { now = Date.now
       todayCount += 1;
       opened.push(t);
       console.log(`[CONVEXITY TICKET] opened ${t.id} @ ${t.entry_premium} x${t.contracts} (${t.open_reason})`);
+      if (typeof mirror === "function") {
+        const m = await mirror(env, t, { report, now });
+        t.mirror_status = m?.mirror_status || null;
+        t.mirror_contracts = Number(m?.mirror_contracts) || 0;
+        await env.DB.prepare(
+          `UPDATE convexity_tickets SET mirror_status = ?, mirror_contracts = ?, mirror_order_id = ?, updated_ts = ? WHERE id = ?`,
+        ).bind(t.mirror_status, t.mirror_contracts, m?.mirror_order_id || null, now, t.id).run().catch(() => {});
+        console.log(`[CONVEXITY TICKET] ${t.id} broker leg: ${t.mirror_status} x${t.mirror_contracts}`);
+      }
       if (typeof notify === "function") {
         try { await notify(openEmbed(t, card)); } catch (_) { /* best effort */ }
       }
@@ -321,6 +347,9 @@ export function openEmbed(t, card = {}) {
     t.earnings_prep ? `Earnings ${t.report_session || ""} ${t.report_date || ""}`.trim() : `Class ${t.play_class}`,
     t.crush_recommendation ? `Crush: ${t.crush_recommendation}${t.exit_by_date ? ` -- exit by ${t.exit_by_date} close` : ""}` : null,
     `Stop ${Math.round(CONVEXITY_TICKET_STOP_FRAC * 100)}% of premium · take ${CONVEXITY_TICKET_TAKE_MULT}x · trail after ${CONVEXITY_TICKET_TRAIL_ARM_MULT}x`,
+    t.mirror_status
+      ? (t.mirror_contracts > 0 ? `Broker: ${t.mirror_status} x${t.mirror_contracts}` : `Broker: not mirrored (${t.mirror_status})`)
+      : "Broker: not mirrored",
     card?.shot_reason ? String(card.shot_reason).slice(0, 240) : null,
   ].filter(Boolean);
   return {
@@ -330,13 +359,14 @@ export function openEmbed(t, card = {}) {
   };
 }
 
-export function closeEmbed(t, { mark, reason, pnlPct, mfePct }) {
+export function closeEmbed(t, { mark, reason, pnlPct, mfePct, brokerNote = null }) {
   const sign = pnlPct >= 0 ? "+" : "";
   return {
-    title: `OPTIONS DESK · closed ${contractLabel(t)} ${sign}${pnlPct ?? "?"}% (${reason})`,
+    title: `OPTIONS DESK · closed ${contractLabel(t)} ${sign}${pnlPct ?? "?"}% (${reason}, model fill)`,
     description: [
       `Entry $${t.entry_premium} -> exit $${mark ?? "n/a"}`,
       mfePct !== null && mfePct !== undefined ? `Peak +${mfePct}%` : null,
+      brokerNote ? `Broker: ${brokerNote}` : null,
     ].filter(Boolean).join("\n"),
     color: pnlPct >= 0 ? 0x30a46c : 0xe5484d,
   };
@@ -346,7 +376,7 @@ export function closeEmbed(t, { mark, reason, pnlPct, mfePct }) {
  * Mark every open ticket off the chain and apply the exit rules.
  * @param opts.fetchChain (env, sym, expIso, opts) => chain
  */
-export async function markConvexityTickets(env, { fetchChain, now = Date.now(), notify = null } = {}) {
+export async function markConvexityTickets(env, { fetchChain, now = Date.now(), notify = null, mirrorClose = _mirrorClose } = {}) {
   const out = { scanned: 0, marked: 0, closed: 0, held: 0, results: [] };
   try {
     const rows = await listOpenConvexityTickets(env);
@@ -391,10 +421,17 @@ export async function markConvexityTickets(env, { fetchChain, now = Date.now(), 
          WHERE id = ? AND status = 'open'
       `).bind(exitMark, ev.reason, pnlPct, mfePct, exitMark, ev.peak, now, now, row.id).run().catch(() => {});
       out.closed += 1;
-      out.results.push({ id: row.id, reason: ev.reason, exit: exitMark, pnl_pct: pnlPct, mfe_pct: mfePct });
-      console.log(`[CONVEXITY TICKET] closed ${row.id} ${ev.reason} exit=${exitMark} pnl=${pnlPct}%`);
+      let brokerNote = null;
+      if ((Number(row.mirror_contracts) || 0) > 0 && typeof mirrorClose === "function") {
+        const m = await mirrorClose(env, row, { mark: exitMark, reason: ev.reason, now });
+        brokerNote = m?.mirrored ? "broker sell placed" : `broker sell -> intent (${m?.outcome || "queued"})`;
+        await env.DB.prepare(`UPDATE convexity_tickets SET mirror_close_status = ? WHERE id = ?`)
+          .bind(brokerNote, row.id).run().catch(() => {});
+      }
+      out.results.push({ id: row.id, reason: ev.reason, exit: exitMark, pnl_pct: pnlPct, mfe_pct: mfePct, broker: brokerNote });
+      console.log(`[CONVEXITY TICKET] closed ${row.id} ${ev.reason} exit=${exitMark} pnl=${pnlPct}%${brokerNote ? ` (${brokerNote})` : ""}`);
       if (typeof notify === "function") {
-        try { await notify(closeEmbed(row, { mark: exitMark, reason: ev.reason, pnlPct, mfePct })); } catch (_) {}
+        try { await notify(closeEmbed(row, { mark: exitMark, reason: ev.reason, pnlPct, mfePct, brokerNote })); } catch (_) {}
       }
     }
   } catch (e) {
@@ -419,6 +456,11 @@ export async function convexityTicketReport(env, { days = 30, now = Date.now() }
   return {
     ok: true,
     days,
+    mirror: convexityMirrorDecision({
+      closed_n: closed.length,
+      median_pnl_pct: median,
+      win_rate_pct: closed.length ? Math.round((closed.filter((r) => Number(r.pnl_pct) > 0).length / closed.length) * 100) : null,
+    }, env),
     open: rows.filter((r) => r.status === "open").length,
     closed_n: closed.length,
     win_rate_pct: closed.length ? Math.round((closed.filter((r) => Number(r.pnl_pct) > 0).length / closed.length) * 100) : null,
