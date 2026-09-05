@@ -2507,6 +2507,8 @@ const ROUTES = [
   ["POST", "/timed/admin/broker-intents/drain",          "POST /timed/admin/broker-intents/drain"],
   ["GET",  "/timed/admin/convexity-tickets",             "GET /timed/admin/convexity-tickets"],
   ["GET",  "/timed/admin/execution/report-card",         "GET /timed/admin/execution/report-card"],
+  ["GET",  "/timed/admin/execution/review",              "GET /timed/admin/execution/review"],
+  ["POST", "/timed/admin/execution/review",              "POST /timed/admin/execution/review"],
   ["POST", "/timed/admin/convexity-tickets/mark",        "POST /timed/admin/convexity-tickets/mark"],
   ["GET",  "/timed/broker/positions",                    "GET /timed/broker/positions"],
   // 2026-08-13 — Day timeline (model actions × mirror outcomes) + scoped
@@ -2653,7 +2655,7 @@ const ROUTES = [
   // P0.7.158 — Weekly retrospective: aggregate the past 7 days of
   // trades + brief accuracy + system health into a markdown summary,
   // store it in KV, and email it to opted-in users. Wired into a
-  // Sunday 6 PM ET cron tick.
+  // Friday 5 PM ET cron tick.
   ["POST", "/timed/admin/weekly-retrospective", "POST /timed/admin/weekly-retrospective"],
   // P0.7.158 — Engagement metrics for Mission Control user table.
   // Per-user composite of login frequency, page-visit count (when
@@ -73127,7 +73129,7 @@ export default {
       // single markdown digest. Stored at KV `timed:retro:weekly:latest`
       // and `timed:retro:weekly:{ISO_WEEK}` (7d retention) so Mission
       // Control + the user-facing email can render it. Wired into a
-      // Sunday 6 PM ET cron.
+      // Friday 5 PM ET cron.
       //
       // Behind a feature flag (`weekly_retro_enabled` in model_config,
       // default OFF) so emails don't go out before the operator
@@ -85849,6 +85851,48 @@ export default {
             for (const c of cRows) (candles[String(c.ticker).toUpperCase()] = candles[String(c.ticker).toUpperCase()] || []).push(c);
           }
           return sendJSON(gradeExecution(rows, candles, { days }), 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      // 2026-09-05 — weekly execution review. GET serves the latest stored
+      // review (KV) for the Execution Review page; `?history=1` returns the
+      // 12-week verdict history. POST builds a fresh one now (`email=1` also
+      // sends it to the operator, `notify=1` posts the Discord line) — the
+      // same function the Friday 17:00 ET cron runs.
+      if (routeKey === "GET /timed/admin/execution/review") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { REVIEW_KV_LATEST, REVIEW_KV_HISTORY, buildWeeklyExecutionReview } = await import("./execution-review.js");
+          if (String(url.searchParams.get("history") || "0") === "1") {
+            const hist = await env.KV_TIMED.get(REVIEW_KV_HISTORY, "json").catch(() => null);
+            return sendJSON({ ok: true, history: Array.isArray(hist) ? hist : [] }, 200, corsHeaders(env, req));
+          }
+          let review = await env.KV_TIMED.get(REVIEW_KV_LATEST, "json").catch(() => null);
+          let source = "kv";
+          if (!review || String(url.searchParams.get("fresh") || "0") === "1") {
+            review = await buildWeeklyExecutionReview(env);
+            source = "fresh";
+          }
+          return sendJSON({ ...review, source }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/execution/review") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { runWeeklyExecutionReview } = await import("./execution-review.js");
+          const wantEmail = String(url.searchParams.get("email") || "0") === "1";
+          const wantNotify = String(url.searchParams.get("notify") || "0") === "1";
+          const out = await runWeeklyExecutionReview(env, {
+            sendEmail: wantEmail ? sendEmail : null,
+            notify: wantNotify ? ((embed) => notifyDiscord(env, embed, "system")) : null,
+            emailTo: url.searchParams.get("to") || null,
+          });
+          return sendJSON({ ok: true, stored: out.stored, email: out.email, verdict: out.review?.verdict, label: out.review?.label }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -107881,22 +107925,46 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
     // ── Weekly Retrospective (P0.7.158, 2026-05-14) ──
     //
-    // Sunday 6 PM ET (22:00 UTC EDT / 23:00 UTC EST). Aggregates the past
-    // 7 days of trades + brief accuracy + system health into a markdown
-    // digest stored at KV `timed:retro:weekly:latest`. Behind the
-    // `weekly_retro_enabled` flag in model_config (default OFF) so emails
-    // don't go out before the operator smoke-tests once.
+    // Friday 5 PM ET (moved from Sunday 6 PM ET on 2026-09-05: the week is
+    // graded when the week closes). Aggregates the past 7 days of trades +
+    // brief accuracy + system health into a markdown digest stored at KV
+    // `timed:retro:weekly:latest`. Behind the `weekly_retro_enabled` flag
+    // in model_config (default OFF) so emails don't go out before the
+    // operator smoke-tests once.
     //
-    // 22 UTC Sunday is registered as `0 22 * * 1-5` only on weekdays — so
-    // for Sunday (UTC day=0) we piggy-back on the hourly cron and gate by
-    // ET day + hour explicitly.
+    // Piggy-backs on the hourly cron and gates by ET day + hour explicitly
+    // (DST-safe; a `0 21/22 * * 5` UTC entry would drift twice a year).
     if (_isHourly) {
       const _retNyParts = new Date().toLocaleString("en-US", {
         timeZone: "America/New_York", weekday: "short", hour: "numeric", hour12: false,
       }).split(", ");
       const _retDay = _retNyParts[0] || "";
       const _retHour = parseInt(_retNyParts[1] || "0", 10);
-      if (_retDay === "Sun" && _retHour === 18) ctx.waitUntil((async () => {
+      const _isWeeklyReviewSlot = _retDay === "Fri" && _retHour === 17;
+      // 2026-09-05 — Weekly execution review (the self-grading loop from the
+      // execution-discipline plan). Same slot. Grades the ledger against the
+      // plan's pass condition, stores to KV, emails the operator, posts one
+      // Discord line. Not behind the retro flag: this one is the operator's
+      // own review, not member mail. Module: worker/execution-review.js.
+      if (_isWeeklyReviewSlot) ctx.waitUntil((async () => {
+        try {
+          const { runWeeklyExecutionReview } = await import("./execution-review.js");
+          const out = await runWeeklyExecutionReview(env, {
+            sendEmail,
+            notify: (embed) => notifyDiscord(env, embed, "system"),
+          });
+          console.log(`[EXEC REVIEW] ${out.review?.label}: ${out.review?.verdict?.status} stored=${out.stored} email=${JSON.stringify(out.email)}`);
+          recordCronSuccess(env, "execution_review_weekly").catch(() => {});
+        } catch (e) {
+          console.warn("[EXEC REVIEW] cron failed:", String(e?.message || e).slice(0, 200));
+          recordCronFailure(env, {
+            op: "execution_review_weekly",
+            error: String(e?.message || e).slice(0, 200),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
+      if (_isWeeklyReviewSlot) ctx.waitUntil((async () => {
         try {
           const flagRow = await env.DB.prepare(
             "SELECT config_value FROM model_config WHERE config_key = 'weekly_retro_enabled' LIMIT 1"
