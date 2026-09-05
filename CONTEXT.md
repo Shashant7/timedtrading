@@ -256,6 +256,16 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 - DELL lesson: a scored compounder dip rejected by the LTF stabilize gate for
   3+ hourly admits gets a 34% starter (`investorCompounderPatienceOverride`);
   structural vetoes (below-233 majority, opposing daily FVG) still stand.
+- The MFE ratchet's `mfe_ratchet_giveback` is a hard profit-lock class at the
+  lifecycle exit block (`isMfeRatchetExit`): bypasses pullback shield, 30m
+  cadence, min-age, bleeder shield, CIO HOLD; RTH-only; keeps the stale-tick
+  guard. Any new "unsuppressible" reason must be classed there too, or the
+  `[EXIT SHIELD]` re-gates it as soft (TSLA/TJX/ELF 2026-09-04).
+- Weekly execution review: Friday 17:00 ET cron (`worker/execution-review.js`)
+  -> KV `timed:execution:review:latest` + history, operator email, Discord
+  line; `/execution-review.html` (Admin menu) renders / reruns it;
+  `GET|POST /timed/admin/execution/review`. Member Weekly Retrospective is
+  in the same Friday slot (was Sunday 18:00).
 
 **CI `npm install` edgesOut — pin vitest, do not use a caret (2026-09-03)**
 - No lockfile in git. `vitest: ^4.1.8` plus a just-published `vitest@5.0.0`

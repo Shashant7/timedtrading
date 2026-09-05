@@ -1225,7 +1225,7 @@ import { evaluateExit as ttCoreEvaluateExit } from "./pipeline/tt-core-exit.js";
 import { evaluateExit as ripsterEvaluateExit } from "./pipeline/ripster-exit.js";
 import { evaluateExit as legacyEvaluateExit } from "./pipeline/legacy-exit.js";
 import { runLifecycleEngineSeam } from "./pipeline/lifecycle-seam.js";
-import { evaluateMfeRatchet, MFE_RATCHET_EXIT_REASON } from "./pipeline/mfe-ratchet.js";
+import { evaluateMfeRatchet, MFE_RATCHET_EXIT_REASON, isMfeRatchetExit } from "./pipeline/mfe-ratchet.js";
 import { CHAIN_GAP_ALARM_THRESHOLD } from "./feed/candle-chain-heal.js";
 import { loadHistoricalVixSeries, resolveHistoricalVixAtTs } from "./vix-source.js";
 import {
@@ -2507,6 +2507,8 @@ const ROUTES = [
   ["POST", "/timed/admin/broker-intents/drain",          "POST /timed/admin/broker-intents/drain"],
   ["GET",  "/timed/admin/convexity-tickets",             "GET /timed/admin/convexity-tickets"],
   ["GET",  "/timed/admin/execution/report-card",         "GET /timed/admin/execution/report-card"],
+  ["GET",  "/timed/admin/execution/review",              "GET /timed/admin/execution/review"],
+  ["POST", "/timed/admin/execution/review",              "POST /timed/admin/execution/review"],
   ["POST", "/timed/admin/convexity-tickets/mark",        "POST /timed/admin/convexity-tickets/mark"],
   ["GET",  "/timed/broker/positions",                    "GET /timed/broker/positions"],
   // 2026-08-13 — Day timeline (model actions × mirror outcomes) + scoped
@@ -2653,7 +2655,7 @@ const ROUTES = [
   // P0.7.158 — Weekly retrospective: aggregate the past 7 days of
   // trades + brief accuracy + system health into a markdown summary,
   // store it in KV, and email it to opted-in users. Wired into a
-  // Sunday 6 PM ET cron tick.
+  // Friday 5 PM ET cron tick.
   ["POST", "/timed/admin/weekly-retrospective", "POST /timed/admin/weekly-retrospective"],
   // P0.7.158 — Engagement metrics for Mission Control user table.
   // Per-user composite of login frequency, page-visit count (when
@@ -24644,6 +24646,11 @@ async function processTradeSimulation(
       }
     }
     const isSLExit = /\bSL\b|stop.?loss|max.?loss|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
+    // 2026-09-05 — the MFE ratchet's profit lock is a price level, not a
+    // signal. It bypasses the soft-exit gates below (pullback shield, 30m
+    // cadence, min-age, bleeder shield, CIO HOLD) but is NOT an SL-class
+    // exit: it still waits for RTH so the broker can follow through.
+    const _profitLockExit = isMfeRatchetExit(exitReasonRaw);
     const _exitPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
     const _paritySkipSlRaw = tickerData?._env?._deepAuditConfig?.deep_audit_parity_skip_sl_breach;
     // P2 HOTFIX 2026-05-19 (part 14 — Bug #11): parity_skip_sl_breach is a
@@ -24672,7 +24679,7 @@ async function processTradeSimulation(
     // preventing trimmed trades from being shielded indefinitely.
     const _exitTrimmedPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
     let _exitPullbackShield = false;
-    if (_exitTrimmedPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && !isSLExit && openTrade && isOpenTradeStatus(openTrade.status)) {
+    if (_exitTrimmedPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && !isSLExit && !_profitLockExit && openTrade && isOpenTradeStatus(openTrade.status)) {
       const _eTf15 = tickerData?.tf_tech?.["15"];
       const _eTf30 = tickerData?.tf_tech?.["30"];
       const _eStDir15 = _eTf15?.stDir ?? 0;
@@ -24759,7 +24766,7 @@ async function processTradeSimulation(
 
     // V15 P0.7.17: gate signal-based exits on 30m cadence in live mode.
     // Hard exits (SL, max-loss, V13 nets) bypass the cadence gate.
-    const _exitGateAllowsLive = _liveManageGateOk || isSLExit;
+    const _exitGateAllowsLive = _liveManageGateOk || isSLExit || _profitLockExit;
     // P1 HOTFIX 2026-05-19 (part 8): hard SL exits must bypass the 15-min
     // minimum-age gate. Stops hit in the first 15 minutes were silently
     // held until the gate opened, then routed through CIO. SL is a hard
@@ -24767,7 +24774,8 @@ async function processTradeSimulation(
     // signal noise" guard which doesn't apply to actual SL breaches.
     // Also exempt v13_hard_* / max_loss / HARD_LOSS_CAP — these are the
     // same hard-exit class flagged elsewhere by the `_exitIsHard` regex.
-    const _exitIsHardClass = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
+    const _exitIsHardClass = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw))
+      || _profitLockExit;
     const _exitMinAgeOkForGate = exitMinAgeOk || _exitIsHardClass;
     // P0 HOTFIX 2026-05-19 (part 4 — diagnostics): if isSLExit is true,
     // trace every gate value so we can see why the close skips. Gated on
@@ -24850,7 +24858,8 @@ async function processTradeSimulation(
         // Hard protective exits (SL, max loss) bypass CIO entirely — they are non-negotiable
         // P0 HOTFIX 2026-05-19: include `sl_breached` / `sl_hit` / `hard_loss` (mirror of
         // isSLExit above). Without this, sl_breached exits would still go through CIO HOLD.
-        const _exitIsHard = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
+        const _exitIsHard = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw))
+          || _profitLockExit;
         // Cooldown: if CIO already said HOLD within last 30 min for this ticker, skip re-eval
         const _exitCioCooldownMs = 30 * 60000;
         const _exitLastCioMs = Number(execState._cioExitHoldMs || 0);
@@ -24929,7 +24938,9 @@ async function processTradeSimulation(
           // re-served prev_close just keeps the position appearing "above
           // SL", which is fine to defer.)
           let _exitDeferred = false;
-          if (!isReplay && !_exitIsHard) {
+          // The profit lock skips the soft gates but keeps the stale-tick
+          // guard: a re-served prev_close must not read as a floor breach.
+          if (!isReplay && (!_exitIsHard || _profitLockExit)) {
             const _exitStaleCheck = await checkPriceFeedStale(env, sym, pxNow);
             if (_exitStaleCheck?.stale) {
               const _staleMeta = {
@@ -73118,7 +73129,7 @@ export default {
       // single markdown digest. Stored at KV `timed:retro:weekly:latest`
       // and `timed:retro:weekly:{ISO_WEEK}` (7d retention) so Mission
       // Control + the user-facing email can render it. Wired into a
-      // Sunday 6 PM ET cron.
+      // Friday 5 PM ET cron.
       //
       // Behind a feature flag (`weekly_retro_enabled` in model_config,
       // default OFF) so emails don't go out before the operator
@@ -85840,6 +85851,48 @@ export default {
             for (const c of cRows) (candles[String(c.ticker).toUpperCase()] = candles[String(c.ticker).toUpperCase()] || []).push(c);
           }
           return sendJSON(gradeExecution(rows, candles, { days }), 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      // 2026-09-05 — weekly execution review. GET serves the latest stored
+      // review (KV) for the Execution Review page; `?history=1` returns the
+      // 12-week verdict history. POST builds a fresh one now (`email=1` also
+      // sends it to the operator, `notify=1` posts the Discord line) — the
+      // same function the Friday 17:00 ET cron runs.
+      if (routeKey === "GET /timed/admin/execution/review") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { REVIEW_KV_LATEST, REVIEW_KV_HISTORY, buildWeeklyExecutionReview } = await import("./execution-review.js");
+          if (String(url.searchParams.get("history") || "0") === "1") {
+            const hist = await env.KV_TIMED.get(REVIEW_KV_HISTORY, "json").catch(() => null);
+            return sendJSON({ ok: true, history: Array.isArray(hist) ? hist : [] }, 200, corsHeaders(env, req));
+          }
+          let review = await env.KV_TIMED.get(REVIEW_KV_LATEST, "json").catch(() => null);
+          let source = "kv";
+          if (!review || String(url.searchParams.get("fresh") || "0") === "1") {
+            review = await buildWeeklyExecutionReview(env);
+            source = "fresh";
+          }
+          return sendJSON({ ...review, source }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/execution/review") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { runWeeklyExecutionReview } = await import("./execution-review.js");
+          const wantEmail = String(url.searchParams.get("email") || "0") === "1";
+          const wantNotify = String(url.searchParams.get("notify") || "0") === "1";
+          const out = await runWeeklyExecutionReview(env, {
+            sendEmail: wantEmail ? sendEmail : null,
+            notify: wantNotify ? ((embed) => notifyDiscord(env, embed, "system")) : null,
+            emailTo: url.searchParams.get("to") || null,
+          });
+          return sendJSON({ ok: true, stored: out.stored, email: out.email, verdict: out.review?.verdict, label: out.review?.label }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -107872,22 +107925,46 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
     // ── Weekly Retrospective (P0.7.158, 2026-05-14) ──
     //
-    // Sunday 6 PM ET (22:00 UTC EDT / 23:00 UTC EST). Aggregates the past
-    // 7 days of trades + brief accuracy + system health into a markdown
-    // digest stored at KV `timed:retro:weekly:latest`. Behind the
-    // `weekly_retro_enabled` flag in model_config (default OFF) so emails
-    // don't go out before the operator smoke-tests once.
+    // Friday 5 PM ET (moved from Sunday 6 PM ET on 2026-09-05: the week is
+    // graded when the week closes). Aggregates the past 7 days of trades +
+    // brief accuracy + system health into a markdown digest stored at KV
+    // `timed:retro:weekly:latest`. Behind the `weekly_retro_enabled` flag
+    // in model_config (default OFF) so emails don't go out before the
+    // operator smoke-tests once.
     //
-    // 22 UTC Sunday is registered as `0 22 * * 1-5` only on weekdays — so
-    // for Sunday (UTC day=0) we piggy-back on the hourly cron and gate by
-    // ET day + hour explicitly.
+    // Piggy-backs on the hourly cron and gates by ET day + hour explicitly
+    // (DST-safe; a `0 21/22 * * 5` UTC entry would drift twice a year).
     if (_isHourly) {
       const _retNyParts = new Date().toLocaleString("en-US", {
         timeZone: "America/New_York", weekday: "short", hour: "numeric", hour12: false,
       }).split(", ");
       const _retDay = _retNyParts[0] || "";
       const _retHour = parseInt(_retNyParts[1] || "0", 10);
-      if (_retDay === "Sun" && _retHour === 18) ctx.waitUntil((async () => {
+      const _isWeeklyReviewSlot = _retDay === "Fri" && _retHour === 17;
+      // 2026-09-05 — Weekly execution review (the self-grading loop from the
+      // execution-discipline plan). Same slot. Grades the ledger against the
+      // plan's pass condition, stores to KV, emails the operator, posts one
+      // Discord line. Not behind the retro flag: this one is the operator's
+      // own review, not member mail. Module: worker/execution-review.js.
+      if (_isWeeklyReviewSlot) ctx.waitUntil((async () => {
+        try {
+          const { runWeeklyExecutionReview } = await import("./execution-review.js");
+          const out = await runWeeklyExecutionReview(env, {
+            sendEmail,
+            notify: (embed) => notifyDiscord(env, embed, "system"),
+          });
+          console.log(`[EXEC REVIEW] ${out.review?.label}: ${out.review?.verdict?.status} stored=${out.stored} email=${JSON.stringify(out.email)}`);
+          recordCronSuccess(env, "execution_review_weekly").catch(() => {});
+        } catch (e) {
+          console.warn("[EXEC REVIEW] cron failed:", String(e?.message || e).slice(0, 200));
+          recordCronFailure(env, {
+            op: "execution_review_weekly",
+            error: String(e?.message || e).slice(0, 200),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
+      if (_isWeeklyReviewSlot) ctx.waitUntil((async () => {
         try {
           const flagRow = await env.DB.prepare(
             "SELECT config_value FROM model_config WHERE config_key = 'weekly_retro_enabled' LIMIT 1"

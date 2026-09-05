@@ -4202,7 +4202,7 @@ function MissionControl({
     apiBase: API_BASE
   })), React.createElement("div", {
     className: "text-center text-[10px] mc-mute mt-6 mb-4"
-  }, "Mission Control \xB7 admin only \xB7 auto-refreshes every 30s when enabled", React.createElement("br", null), "Weekly retrospective fires Sunday 6 PM ET \xB7 brief accuracy evaluator runs at 4:30 PM ET", React.createElement("br", null), "Daily candle auto-refresh runs at 6 AM ET \xB7 Public reads rate-limited to 120/hr per IP"));
+  }, "Mission Control \xB7 admin only \xB7 auto-refreshes every 30s when enabled", React.createElement("br", null), "Weekly retrospective fires Friday 5 PM ET \xB7 brief accuracy evaluator runs at 4:30 PM ET", React.createElement("br", null), "Daily candle auto-refresh runs at 6 AM ET \xB7 Public reads rate-limited to 120/hr per IP"));
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(React.createElement(AuthGate, {
@@ -4211,6 +4211,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1788614168784:547855904
+// cache-bust:1788615708089:706333049
 
-// cache-bust:1788614168784:547855904
+// cache-bust:1788615708089:706333049

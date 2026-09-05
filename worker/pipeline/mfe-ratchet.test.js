@@ -4,6 +4,7 @@ import {
   loadMfeRatchetConfig,
   resolveRatchetPeak,
   MFE_RATCHET_EXIT_REASON,
+  isMfeRatchetExit,
 } from "./mfe-ratchet.js";
 
 describe("loadMfeRatchetConfig", () => {
@@ -194,5 +195,20 @@ describe("evaluateMfeRatchet", () => {
       expect(r.floorPct).toBeCloseTo(9.0, 3);
       expect(r.fire).toBe(true);
     });
+  });
+});
+
+describe("isMfeRatchetExit (execution-layer gate class)", () => {
+  it("recognises the ratchet reason in any casing", () => {
+    expect(isMfeRatchetExit(MFE_RATCHET_EXIT_REASON)).toBe(true);
+    expect(isMfeRatchetExit("MFE_RATCHET_GIVEBACK")).toBe(true);
+  });
+  it("is not an SL-class reason and ignores everything else", () => {
+    // Stays RTH-only: the SL regex in the lifecycle must NOT match it.
+    const slClass = /\bSL\b|stop.?loss|max.?loss|v13_hard_|sl_breached|sl_hit|hard_loss/i;
+    expect(slClass.test(MFE_RATCHET_EXIT_REASON)).toBe(false);
+    for (const r of ["sl_breached", "max_loss", "doctrine_force_exit", "", null, undefined]) {
+      expect(isMfeRatchetExit(r)).toBe(false);
+    }
   });
 });
