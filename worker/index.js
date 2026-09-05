@@ -85734,7 +85734,8 @@ export default {
         try {
           const { drainBrokerIntents } = await import("./broker-intents.js");
           const { forwardOrderToBridge: _fwd } = await import("./broker-bridge-client.js");
-          const out = await drainBrokerIntents(env, { forward: _fwd });
+          const { forwardOptionsClose: _fwdOpt } = await import("./convexity-mirror.js");
+          const out = await drainBrokerIntents(env, { forward: _fwd, forwardOptions: _fwdOpt });
           return sendJSON({ ok: true, ...out }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -105951,7 +105952,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const { drainBrokerIntents } = await import("./broker-intents.js");
           const { forwardOrderToBridge: _fwd } = await import("./broker-bridge-client.js");
-          const out = await drainBrokerIntents(env, { forward: _fwd });
+          const { forwardOptionsClose: _fwdOpt } = await import("./convexity-mirror.js");
+          const out = await drainBrokerIntents(env, { forward: _fwd, forwardOptions: _fwdOpt });
           if (out.scanned > 0 || out.expired > 0) {
             console.log(
               `[BROKER INTENT] drain scanned=${out.scanned} attempted=${out.attempted}`

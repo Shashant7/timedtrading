@@ -18,6 +18,15 @@ import {
   isNyRegularMarketOpenStatic,
   isEquityBrokerFollowThroughStatic,
 } from "./market-calendar.js";
+import { isOptionsSellWindowEt } from "./option-day-trade-plan.js";
+
+// Options reducers (convexity ticket closes) ride the same ledger. They are
+// tagged by the caller and drained through an options forwarder, inside
+// the options sell window (09:30-16:15 ET) only.
+export const OPTIONS_CLOSE_KIND = "options_close";
+export function isOptionsIntentOrder(order) {
+  return String(order?._kind || "") === OPTIONS_CLOSE_KIND;
+}
 
 export const INTENT_MAX_ATTEMPTS = 12;
 export const INTENT_TTL_MS = 3 * 24 * 60 * 60 * 1000; // three calendar days covers a weekend
@@ -53,6 +62,7 @@ const TRANSIENT_PATTERNS = [
 
 export function isReducerOrder(order) {
   if (!order || typeof order !== "object") return false;
+  if (isOptionsIntentOrder(order)) return REDUCER_SIDES.has(String(order.side || "").toLowerCase());
   if (String(order.mode || "") !== "trader") return false;
   const side = String(order.side || "").toLowerCase();
   if (!REDUCER_SIDES.has(side)) return false;
@@ -103,6 +113,7 @@ export function intentIdFor(order) {
  */
 export function intentWindowOpen(intent, now = new Date()) {
   const d = now instanceof Date ? now : new Date(Number(now));
+  if (String(intent?.lane || "") === OPTIONS_CLOSE_KIND) return isOptionsSellWindowEt(d.getTime());
   const qty = Number(intent?.qty);
   const fractional = Number.isFinite(qty) && qty > 0 && Math.abs(qty - Math.round(qty)) > 1e-9;
   const deferredReason = String(intent?.last_reason || "");
@@ -193,7 +204,9 @@ export async function recordBrokerIntent(env, order, result, now = Date.now()) {
     if (!(await ensureBrokerIntentSchema(env))) return outcome;
     const id = intentIdFor(order);
     const reason = outcomeReason(result);
-    const lane = String(order?.meta?.lane || order?.vehicle || "trader");
+    const lane = isOptionsIntentOrder(order)
+      ? OPTIONS_CLOSE_KIND
+      : String(order?.meta?.lane || order?.vehicle || "trader");
     const orderJson = JSON.stringify({ ...order, client_order_id: undefined });
     await env.DB.prepare(`
       INSERT INTO broker_intents
@@ -264,7 +277,7 @@ export async function listPendingBrokerIntents(env, { limit = 25, now = Date.now
  *   forward(env, order) must be forwardOrderToBridge (injected to avoid an
  *   import cycle).
  */
-export async function drainBrokerIntents(env, { forward, now = Date.now(), limit = 25 } = {}) {
+export async function drainBrokerIntents(env, { forward, forwardOptions = null, now = Date.now(), limit = 25 } = {}) {
   const out = { scanned: 0, attempted: 0, filled: 0, rejected: 0, exhausted: 0, deferred: 0, expired: 0, results: [] };
   if (typeof forward !== "function") return out;
   const db = env?.DB;
@@ -296,10 +309,12 @@ export async function drainBrokerIntents(env, { forward, now = Date.now(), limit
       client_order_id: clientOrderId,
       meta: { ...(order.meta || {}), intent_id: row.id, intent_attempt: attempt, catch_up: true },
     };
+    const isOptions = String(row.lane || "") === OPTIONS_CLOSE_KIND || isOptionsIntentOrder(order);
+    if (isOptions && typeof forwardOptions !== "function") { out.deferred += 1; continue; }
     out.attempted += 1;
     let result;
     try {
-      result = await forward(env, liveOrder);
+      result = isOptions ? await forwardOptions(env, liveOrder) : await forward(env, liveOrder);
     } catch (e) {
       result = { ok: false, error: String(e?.message || e) };
     }

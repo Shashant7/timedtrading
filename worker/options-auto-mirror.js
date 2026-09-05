@@ -78,6 +78,9 @@ const VEHICLE_DEFAULTS = {
   leaps:           { enabled: false, daily_cap: 1, max_per_order_usd: 500, max_loss_per_order_usd: 500 },
   straddle:        { enabled: false, daily_cap: 1, max_per_order_usd: 300, max_loss_per_order_usd: 200 },
   moonshot:        { enabled: false, daily_cap: 1, max_per_order_usd: 100, max_loss_per_order_usd: 100 },
+  // Convexity tickets (earnings-prep / gamma lottos). Off until the ticket
+  // report card earns it; see worker/convexity-mirror.js.
+  lotto:           { enabled: false, daily_cap: 1, max_per_order_usd: 250, max_loss_per_order_usd: 250 },
   index_trend_letf: { enabled: false, daily_cap: 2, max_per_order_usd: 2000 },
 };
 
@@ -155,6 +158,7 @@ export function archetypeToVehicleKey(archetype) {
   if (a === "stock_long")                  return "equity_long";
   if (a === "leap_call" || a === "leap_put") return "leaps";
   if (a === "moonshot_call" || a === "moonshot_put") return "moonshot";
+  if (a === "lotto_call" || a === "lotto_put") return "lotto";
   if (a === "long_call")                   return "long_call";
   if (a === "long_put")                    return "long_put";
   if (a === "day_trade_call")              return "long_call";
