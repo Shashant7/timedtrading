@@ -23,6 +23,9 @@
 //   v10 mobile scroll-shell: body is a flex column; page content scrolls
 //       inside #tt-mobile-scroll; nav is in-flow at the flex bottom.
 //       Avoids position:fixed entirely on mobile.
+//   v11 shell height = visualViewport (100svh fallback). Journey pages set
+//       `body { min-height: 100vh }` which beats `max-height: 100dvh` on iOS
+//       (min-height wins when larger) and clips the in-flow tab bar.
 
 (function () {
   if (typeof document === "undefined" || typeof window === "undefined") return;
@@ -56,7 +59,7 @@
       /* Never use transform or backdrop-filter on the bar (iOS detaches
          the compositor layer from the viewport). */
       z-index: 2147483000;
-      padding: 8px 8px max(24px, env(safe-area-inset-bottom));
+      padding: 8px 8px max(34px, env(safe-area-inset-bottom, 0px));
       background: rgba(11,20,16,0.97);
       border-top: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 -2px 16px rgba(0,0,0,0.45);
@@ -210,12 +213,14 @@
       font-weight: 600;
     }
 
-    /* v10 — mobile scroll shell: page scrolls; nav stays in-flow at bottom */
+    /* v11 — size the shell to the visible viewport. Page-level
+       body min-height 100vh overflows the iOS visual viewport
+       (min-height wins when it is larger than max-height) and clips the
+       in-flow tab bar. --tt-shell-h is set from visualViewport.height. */
     html.tt-mobile-shell,
     html.tt-mobile-shell body.tt-mobile-shell {
-      height: 100%;
-      height: 100dvh;
-      max-height: 100dvh;
+      height: var(--tt-shell-h, 100svh);
+      max-height: var(--tt-shell-h, 100svh);
       overflow: hidden;
       overscroll-behavior: none;
     }
@@ -223,6 +228,9 @@
       display: flex;
       flex-direction: column;
       margin: 0;
+      min-height: 0 !important;
+      height: var(--tt-shell-h, 100svh) !important;
+      max-height: var(--tt-shell-h, 100svh) !important;
       padding-bottom: 0 !important;
       box-sizing: border-box;
     }
@@ -382,6 +390,39 @@
     return shell;
   }
 
+  function visibleShellHeight() {
+    const vv = window.visualViewport;
+    const candidates = [];
+    if (vv && Number.isFinite(vv.height) && vv.height > 100) candidates.push(vv.height);
+    if (Number.isFinite(window.innerHeight) && window.innerHeight > 100) candidates.push(window.innerHeight);
+    const clientH = document.documentElement && document.documentElement.clientHeight;
+    if (Number.isFinite(clientH) && clientH > 100) candidates.push(clientH);
+    if (!candidates.length) return 0;
+    return Math.round(Math.min.apply(null, candidates));
+  }
+
+  function syncShellHeight() {
+    if (!document.documentElement) return;
+    if (!isMobileViewport()) {
+      document.documentElement.style.removeProperty("--tt-shell-h");
+      return;
+    }
+    const h = visibleShellHeight();
+    if (h > 0) document.documentElement.style.setProperty("--tt-shell-h", `${h}px`);
+  }
+
+  let _shellRaf = 0;
+  function scheduleShellHeight() {
+    if (_shellRaf) return;
+    const raf = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (fn) => setTimeout(fn, 16);
+    _shellRaf = raf(() => {
+      _shellRaf = 0;
+      syncShellHeight();
+    });
+  }
+
   function clearFixedPinStyles(navEl) {
     if (!navEl) return;
     navEl.style.removeProperty("position");
@@ -402,7 +443,7 @@
   // Diagnostic: document.getElementById("tt-bottom-nav").dataset
   //   ttBnState: "pinned" | "keyboard"
   nav.dataset.ttBnMounted = "1";
-  nav.dataset.ttBnBuiltAt = "2026-09-05-v10";
+  nav.dataset.ttBnBuiltAt = "2026-09-05-v11";
   nav.dataset.ttBnState = "pinned";
   nav.dataset.ttBnPin = "shell";
 
@@ -565,6 +606,7 @@
       // After shell: clear any leftover fixed pin styles so CSS
       // `position: relative` (in-flow flex child) wins.
       clearFixedPinStyles(navEl);
+      syncShellHeight();
       navEl.dataset.ttBnPin = "shell";
       return;
     }
@@ -572,6 +614,7 @@
     // Desktop: bar is display:none; leave body unscoped.
     document.documentElement.classList.remove("tt-mobile-shell");
     document.body.classList.remove("tt-mobile-shell");
+    document.documentElement.style.removeProperty("--tt-shell-h");
     clearFixedPinStyles(navEl);
     navEl.dataset.ttBnPin = "desktop";
   }
@@ -734,6 +777,13 @@
   window.addEventListener("orientationchange", () => {
     setTimeout(pinNavToViewport, 280);
   }, { passive: true });
+  // Resize only — vv *scroll* was the v7 jump/snap. Chrome show/hide
+  // fires resize and updates --tt-shell-h without moving the nav.
+  try {
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", scheduleShellHeight, { passive: true });
+    }
+  } catch (_) { /* older WebKit */ }
   try {
     window.matchMedia(MOBILE_MQ).addEventListener("change", () => pinNavToViewport());
   } catch (_) {
@@ -744,4 +794,4 @@
   setTimeout(pinNavToViewport, 400);
 })();
 
-// cache-bust:1788615708089:706333049
+// cache-bust:1788639477826:635900832
