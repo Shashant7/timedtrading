@@ -150,17 +150,41 @@ Every 15 min inside the entry window the cron self-fetches the scan with
 `GET /timed/admin/convexity-tickets` is the report card; the broker
 mirror for this desk is decided from that table, not from one screenshot.
 
-## 6. Next packets
+### 5.3 Options desk mirror, gated on the grade (`worker/convexity-mirror.js`)
 
-1. **Options desk mirror.** Once `convexity_tickets` has >= 20 closed
-   rows with a positive median, route new tickets through the options
-   auto-mirror (vehicle `lotto`, per-order cap = `max_loss_usd`) and the
-   intent ledger (options sell window 09:30-16:15 ET for reducers).
-2. **Paper-close-on-fill for operator lanes.** Index trend and family
-   tickets could hold the paper close until the broker fills (or the intent
-   expires) for the operator's own book; members keep model truth.
+The broker leg exists in code and is off until the evidence is there:
 
-## 6. Verification
+- `convexityMirrorDecision(report, env)`: >= 20 graded tickets, positive
+  median, win rate >= 40%. `CONVEXITY_MIRROR=true` forces on (operator
+  judgment), `false` forces off. Reported on every
+  `GET /timed/admin/convexity-tickets` call (`mirror.enabled`, `mirror.reason`).
+- Vehicle `lotto` in the options auto-mirror prefs (Mission Control row
+  "Convexity Ticket", off by default, $250/order). Sizing never buys a lot
+  the cap cannot cover; buy limit = mid + 3% (min one tick), capped at ask.
+- Every ticket close with a broker leg is a SELL that places or becomes a
+  `broker_intents` row of kind `options_close`. The intent ledger windows
+  those to the options sell window (09:30-16:15 ET) and the drain routes
+  them through `forwardOptionsClose`.
+
+### 5.4 Paper-close-on-fill: decided against
+
+The paper book is model truth: it is the member product and the model's
+own grade. Holding a paper close until the broker fills would write broker
+latency into the model's P&L (the UDOW 19:01 ET skip would have graded as
+a worse model exit, not as a broker miss). Broker truth already has its
+own ledger for the operator: `mirror_trade_manifest`, `bridge_audit`,
+`broker_intents`, and the drain's Discord summary. Notifications say
+"model fill" so nobody reads one as the other. No change.
+
+## 6. Next
+
+- Let `convexity_tickets` grade itself. Re-read the report card at
+  `closed_n >= 20`; if `mirror.enabled` flips, toggle the Convexity Ticket
+  vehicle in Mission Control. Until then the desk is paper.
+- Weekly retest on compounders (55% at n=20): re-read the shadow report at
+  n >= 50.
+
+## 7. Verification
 
 - `vitest run`: 317 files / 3436 tests green.
 - Deploys: bridge `b346c476`, monolith default `7e972544`, production
@@ -172,6 +196,10 @@ mirror for this desk is decided from that table, not from one screenshot.
 - Packet 4: 3471 tests green. Monolith `4e8fc416` / `eca20ded`, tt-engine
   `93ab3a12`, tt-research `1507499c`. `GET /timed/admin/convexity-tickets`
   -> `{ok:true,open:0}` (table created); `POST .../mark` -> `scanned:0`.
+- Packet 4b (mirror): 3480 tests green. Monolith `896cd26e` / `bd9718f0`,
+  tt-engine `b78e3e47`, tt-research `423fdcfd`. Report card shows
+  `mirror: {enabled:false, reason:"graded_0_of_20"}`; D1 has the four
+  `mirror_*` columns.
 - Monday 09-08 watch: `[SMART_GATE]` and `[PAPER_FAMILY_ENTRY] ... held`
   lines should appear; no more than 3 family opens; no index-trend
   EXIT/TRIM after 16:00 ET; no `no_manifest_for_trade` on a sleeve with

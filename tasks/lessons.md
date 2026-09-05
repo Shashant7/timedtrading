@@ -6650,3 +6650,7 @@ close-auction window stays live through 16:14.
 - **Symptom:** The lotto strip priced DELL 475c off the live chain and forgot it five minutes later. No entry premium on record, no exit, no grade, nothing for a mirror decision to read.
 - **Rule:** Every desk that calls a play writes a row (`convexity_tickets`: entry premium, contracts, exit rule, grade) and something marks it on a cron. `worker/convexity-tickets.js` opens CONFLUENT live-priced cards (2/day, 4 open, never an estimate), marks `*/5`, closes by rule, and `GET /timed/admin/convexity-tickets` grades it. The mirror comes after the grade, not before.
 
+## 2026-09-05 — Build the mirror behind the grade, not after it
+- **Symptom:** "Wire the options desk to the broker" and "prove the desk first" pull in opposite directions; doing the second alone leaves the mirror unbuilt when the grade arrives, doing the first alone is the shadow-and-experiments pattern with real money.
+- **Rule:** Build the broker leg now, gate it on the report card (`convexityMirrorDecision`: >= 20 graded, positive median, win rate >= 40%), and surface the gate on the report endpoint so the operator sees why it is off. Reducers for the new leg go through `broker_intents` from day one (kind `options_close`, options sell window). The paper book stays model truth; never hold a paper close hostage to a broker fill.
+
