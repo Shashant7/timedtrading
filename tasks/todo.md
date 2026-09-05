@@ -21,6 +21,12 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **Bottom nav scrolls mid-page on mobile (2026-09-05).** Screenshot:
+      nav floats ~2/3 down Today (content above + below). v8/v9 CSS
+      `bottom:0` + post-scroll settle leaves the bar detached during
+      scroll on iOS. Fix: mobile scroll-shell (`#tt-mobile-scroll`) so
+      nav is in-flow at viewport bottom; bump SW to `tt-shell-v10`.
+      Branch: `cursor/bottom-nav-fixed-ios-5225`.
 - [ ] **Execution discipline (2026-09-04/05).** Plan + ledger:
       [`2026-09-04-execution-discipline-plan.md`](2026-09-04-execution-discipline-plan.md).
       Landed: execution window + escalating peak floor (index trend), MFE

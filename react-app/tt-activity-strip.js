@@ -25,9 +25,9 @@
         background: rgba(11,20,16,0.85);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
-        transform: translate3d(0, 0, 0);
-        -webkit-transform: translate3d(0, 0, 0);
-        will-change: transform;
+        /* 2026-09-05 — no translate3d/will-change here. Transform on an
+           ancestor creates a containing block that can detach
+           position:fixed descendants (and fights the mobile scroll-shell). */
       }
       .tt-sticky-top > nav.topnav {
         position: static !important;
@@ -50,7 +50,6 @@
         background: rgba(11,20,16,0.85);
         backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
         border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.06));
-        transform: translate3d(0,0,0); will-change: transform;
       }
       .tt-activity-strip__inner {
         max-width: 1600px; margin: 0 auto; padding: 6px 24px;

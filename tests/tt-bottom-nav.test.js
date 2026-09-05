@@ -8,20 +8,47 @@ function loadBottomNav() {
   document.getElementById("tt-bottom-nav")?.remove();
   document.getElementById("tt-bottom-nav-style")?.remove();
   document.getElementById("tt-bn-admin-sheet")?.remove();
+  document.getElementById("tt-mobile-scroll")?.remove();
+  document.documentElement.classList.remove("tt-mobile-shell");
+  document.body.classList.remove("tt-mobile-shell");
   const src = readFileSync(join(process.cwd(), "react-app/tt-bottom-nav.js"), "utf8");
   // eslint-disable-next-line no-eval
   window.eval(src);
   return document.getElementById("tt-bottom-nav");
 }
 
-describe("tt-bottom-nav pin-to-bottom v8", () => {
+function stubMobileViewport(matches = true) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: vi.fn().mockImplementation((query) => ({
+      matches: matches && String(query).includes("768"),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: matches ? 390 : 1200,
+  });
+}
+
+describe("tt-bottom-nav mobile scroll-shell v10", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+    document.documentElement.classList.remove("tt-mobile-shell");
     delete document.body.dataset.isAdmin;
     delete document.body.dataset.tier;
     delete document.body.dataset.userRole;
     try { delete window._ttIsAdmin; } catch (_) {}
     window.history.replaceState({}, "", "/today.html");
+    stubMobileViewport(true);
     Object.defineProperty(window, "visualViewport", {
       configurable: true,
       value: {
@@ -41,53 +68,95 @@ describe("tt-bottom-nav pin-to-bottom v8", () => {
     document.getElementById("tt-bottom-nav")?.remove();
     document.getElementById("tt-bottom-nav-style")?.remove();
     document.getElementById("tt-bn-admin-sheet")?.remove();
+    document.getElementById("tt-mobile-scroll")?.remove();
+    document.documentElement.classList.remove("tt-mobile-shell");
+    document.body.classList.remove("tt-mobile-shell");
   });
 
-  it("mounts five journey tabs and v9 vintage for non-admin", () => {
+  it("mounts five journey tabs and v10 vintage for non-admin", () => {
     const nav = loadBottomNav();
     expect(nav).toBeTruthy();
-    expect(nav.dataset.ttBnBuiltAt).toBe("2026-08-02-v9");
+    expect(nav.dataset.ttBnBuiltAt).toBe("2026-09-05-v10");
+    expect(nav.dataset.ttBnPin).toBe("shell");
     expect(nav.parentNode).toBe(document.body);
     const labels = [...nav.querySelectorAll(".tt-bn-label")].map((el) => el.textContent);
     expect(labels).toEqual(["Today", "Model", "Portfolio", "Insights", "Learn"]);
     expect(nav.querySelector('[data-tt-bn-id="admin"]')).toBeNull();
   });
 
-  it("CSS pins with bottom:0 and no transform/backdrop-filter", () => {
+  it("wraps page content in #tt-mobile-scroll and keeps nav a body sibling", () => {
+    const main = document.createElement("main");
+    main.id = "page-main";
+    main.textContent = "Capital shortlist";
+    document.body.appendChild(main);
+
+    const nav = loadBottomNav();
+    const shell = document.getElementById("tt-mobile-scroll");
+    expect(shell).toBeTruthy();
+    expect(document.documentElement.classList.contains("tt-mobile-shell")).toBe(true);
+    expect(document.body.classList.contains("tt-mobile-shell")).toBe(true);
+    expect(shell.contains(main)).toBe(true);
+    expect(nav.parentNode).toBe(document.body);
+    expect(shell.contains(nav)).toBe(false);
+    // Shell before nav in DOM order (content scrolls; nav stays at flex end)
+    expect(shell.nextElementSibling).toBe(nav);
+  });
+
+  it("CSS uses in-flow relative nav under the mobile shell (no transform)", () => {
     loadBottomNav();
     const css = document.getElementById("tt-bottom-nav-style").textContent;
     expect(css).not.toMatch(/\.tt-bn\s*\{[^}]*\btransform\s*:/);
     expect(css).not.toMatch(/(?:^|[^-])backdrop-filter\s*:/);
-    expect(css).toMatch(/position:\s*fixed\s*!important/);
-    expect(css).toMatch(/bottom:\s*0\s*!important/);
-    expect(css).toMatch(/top:\s*auto\s*!important/);
+    expect(css).toMatch(/html\.tt-mobile-shell\s+\.tt-bn\s*\{[^}]*position:\s*relative\s*!important/);
+    expect(css).toMatch(/#tt-mobile-scroll\.tt-mobile-scroll/);
+    expect(css).toMatch(/overflow-y:\s*auto/);
   });
 
-  it("inline style uses bottom:0 / top:auto (no per-frame top)", () => {
+  it("does not invent fixed top/bottom inline styles on mobile shell", () => {
     const nav = loadBottomNav();
-    expect(nav.style.bottom).toBe("0px");
-    expect(nav.style.top).toBe("auto");
+    expect(nav.style.bottom || "").toBe("");
+    expect(nav.style.top || "").toBe("");
+    expect(nav.style.position || "").toBe("");
     expect(nav.style.transform || "").toBe("");
     expect(nav.dataset.ttBnTop).toBeUndefined();
   });
 
-  it("does not rewrite top on scroll events (jitter guard)", () => {
+  it("does not rewrite geometry on scroll events", () => {
+    const main = document.createElement("div");
+    main.id = "long-page";
+    document.body.appendChild(main);
     const nav = loadBottomNav();
-    nav.style.setProperty("top", "auto", "important");
     window.dispatchEvent(new Event("scroll"));
-    // Immediate (non-debounced) scroll must not invent a top px
-    expect(nav.style.top).toBe("auto");
-    expect(nav.style.bottom).toBe("0px");
+    expect(nav.style.top || "").toBe("");
+    expect(nav.style.bottom || "").toBe("");
+    expect(nav.parentNode).toBe(document.body);
+    expect(document.getElementById("tt-mobile-scroll").contains(main)).toBe(true);
   });
 
   it("hides via class when a text input is focused (no transform)", () => {
     const input = document.createElement("input");
     document.body.appendChild(input);
-    input.focus();
     const nav = loadBottomNav();
+    // Focus after mount — moving the input into #tt-mobile-scroll can
+    // drop focus in jsdom if we focused before the shell wrapped it.
+    input.focus();
+    window.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
     expect(nav.classList.contains("is-keyboard-hidden")).toBe(true);
     expect(nav.dataset.ttBnState).toBe("keyboard");
     expect(nav.style.transform || "").not.toContain("200%");
+  });
+
+  it("leaves scripts and admin sheet on body (not in scroll shell)", () => {
+    document.body.dataset.isAdmin = "true";
+    const script = document.createElement("script");
+    script.id = "page-script";
+    document.body.appendChild(script);
+    loadBottomNav();
+    const shell = document.getElementById("tt-mobile-scroll");
+    const sheet = document.getElementById("tt-bn-admin-sheet");
+    expect(shell.contains(script)).toBe(false);
+    expect(sheet.parentNode).toBe(document.body);
+    expect(shell.contains(sheet)).toBe(false);
   });
 
   it("adds Admin tab for admin users and opens bottom sheet", () => {

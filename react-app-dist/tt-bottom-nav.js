@@ -14,6 +14,15 @@
 // Usage: <script src="tt-bottom-nav.js?v=…"></script> after body
 // content. The script auto-injects markup + styles, detects current page
 // from window.location.pathname, and highlights the matching tab.
+//
+// History of pin strategies (iOS Safari):
+//   v6  fixed + bottom:0 — bar floated mid-page when URL chrome collapsed
+//   v7  per-frame visualViewport `top` — jump-then-snap with Safari chrome
+//   v8/v9  bottom:0 + settle after scrollend — bar still mid-page *during*
+//          scroll (matches production screenshot: content above + below)
+//   v10 mobile scroll-shell: body is a flex column; page content scrolls
+//       inside #tt-mobile-scroll; nav is in-flow at the flex bottom.
+//       Avoids position:fixed entirely on mobile.
 
 (function () {
   if (typeof document === "undefined" || typeof window === "undefined") return;
@@ -21,6 +30,16 @@
   // Idempotent — multiple script loads won't double-inject.
   if (document.getElementById("tt-bottom-nav")) return;
   if (document.getElementById("tt-bottom-nav-style")) return;
+
+  const MOBILE_MQ = "(max-width: 768px)";
+
+  function isMobileViewport() {
+    try {
+      return window.matchMedia(MOBILE_MQ).matches;
+    } catch (_) {
+      return window.innerWidth <= 768;
+    }
+  }
 
   // ── Inject styles ───────────────────────────────────────────
   const style = document.createElement("style");
@@ -34,10 +53,8 @@
       bottom: 0 !important;
       top: auto !important;
       width: 100% !important;
-      /* 2026-07-23 — never use transform or backdrop filter (iOS detaches
-         the compositor layer). v7 tried per-frame visualViewport top
-         writes; that fought Safari chrome and caused jump-then-snap.
-         v8 stays on CSS bottom:0 and only re-settles after scroll ends. */
+      /* Never use transform or backdrop-filter on the bar (iOS detaches
+         the compositor layer from the viewport). */
       z-index: 2147483000;
       padding: 8px 8px max(24px, env(safe-area-inset-bottom));
       background: rgba(11,20,16,0.97);
@@ -193,10 +210,47 @@
       font-weight: 600;
     }
 
+    /* v10 — mobile scroll shell: page scrolls; nav stays in-flow at bottom */
+    html.tt-mobile-shell,
+    html.tt-mobile-shell body.tt-mobile-shell {
+      height: 100%;
+      height: 100dvh;
+      max-height: 100dvh;
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
+    html.tt-mobile-shell body.tt-mobile-shell {
+      display: flex;
+      flex-direction: column;
+      margin: 0;
+      padding-bottom: 0 !important;
+      box-sizing: border-box;
+    }
+    #tt-mobile-scroll.tt-mobile-scroll {
+      flex: 1 1 auto;
+      min-height: 0;
+      width: 100%;
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
+    }
+
     @media (max-width: 768px) {
       .tt-bn { display: block; }
       #legal-footer { bottom: 56px !important; }
-      body { padding-bottom: 64px; }
+      body:not(.tt-mobile-shell) { padding-bottom: 64px; }
+
+      html.tt-mobile-shell .tt-bn {
+        position: relative !important;
+        left: auto !important;
+        right: auto !important;
+        bottom: auto !important;
+        top: auto !important;
+        flex: 0 0 auto;
+        width: 100% !important;
+        z-index: 2147483000;
+      }
     }
   `;
   document.head.appendChild(style);
@@ -271,6 +325,76 @@
     return false;
   }
 
+  function shouldStayOnBody(node) {
+    if (!node) return true;
+    if (node.nodeType === 3) {
+      // Keep insignificant whitespace on body; move real text into shell.
+      return !String(node.textContent || "").trim();
+    }
+    if (node.nodeType !== 1) return true;
+    const tag = String(node.tagName || "").toUpperCase();
+    if (tag === "SCRIPT" || tag === "STYLE" || tag === "LINK" || tag === "META" || tag === "NOSCRIPT") {
+      return true;
+    }
+    const id = node.id || "";
+    if (id === "tt-bottom-nav" || id === "tt-bn-admin-sheet" || id === "tt-mobile-scroll") {
+      return true;
+    }
+    if (node.classList && (node.classList.contains("tt-bn") || node.classList.contains("tt-bn-sheet-root"))) {
+      return true;
+    }
+    if (node.getAttribute && node.getAttribute("data-tt-portal") === "body") return true;
+    return false;
+  }
+
+  /**
+   * v10 — Put page content in a flex-grow scrollport; keep the nav as a
+   * non-scrolling flex sibling at the bottom of the viewport. This avoids
+   * iOS Safari's position:fixed detachment during URL-bar collapse.
+   */
+  function ensureMobileScrollShell() {
+    if (!document.body || !isMobileViewport()) return null;
+
+    document.documentElement.classList.add("tt-mobile-shell");
+    document.body.classList.add("tt-mobile-shell");
+
+    let shell = document.getElementById("tt-mobile-scroll");
+    if (!shell) {
+      shell = document.createElement("div");
+      shell.id = "tt-mobile-scroll";
+      shell.className = "tt-mobile-scroll";
+      shell.setAttribute("data-tt-mobile-scroll", "1");
+
+      const toMove = [];
+      for (const child of Array.from(document.body.childNodes)) {
+        if (shouldStayOnBody(child)) continue;
+        toMove.push(child);
+      }
+      for (const child of toMove) shell.appendChild(child);
+
+      const navEl = document.getElementById("tt-bottom-nav");
+      if (navEl && navEl.parentNode === document.body) {
+        document.body.insertBefore(shell, navEl);
+      } else {
+        document.body.insertBefore(shell, document.body.firstChild);
+      }
+    }
+    return shell;
+  }
+
+  function clearFixedPinStyles(navEl) {
+    if (!navEl) return;
+    navEl.style.removeProperty("position");
+    navEl.style.removeProperty("left");
+    navEl.style.removeProperty("right");
+    navEl.style.removeProperty("width");
+    navEl.style.removeProperty("bottom");
+    navEl.style.removeProperty("top");
+    navEl.style.removeProperty("transform");
+    navEl.style.removeProperty("-webkit-transform");
+    delete navEl.dataset.ttBnTop;
+  }
+
   const nav = document.createElement("nav");
   nav.id = "tt-bottom-nav";
   nav.className = "tt-bn";
@@ -278,8 +402,9 @@
   // Diagnostic: document.getElementById("tt-bottom-nav").dataset
   //   ttBnState: "pinned" | "keyboard"
   nav.dataset.ttBnMounted = "1";
-  nav.dataset.ttBnBuiltAt = "2026-08-02-v9";
+  nav.dataset.ttBnBuiltAt = "2026-09-05-v10";
   nav.dataset.ttBnState = "pinned";
+  nav.dataset.ttBnPin = "shell";
 
   const row = document.createElement("div");
   row.className = "tt-bn-row";
@@ -424,8 +549,36 @@
     }
   }
 
+  /**
+   * Keep nav a direct body child. On mobile, wrap page content in the
+   * scroll shell so the nav stays at the viewport bottom without fixed.
+   */
+  function pinNavToViewport() {
+    const navEl = document.getElementById("tt-bottom-nav");
+    if (!navEl || !document.body) return;
+
+    if (isMobileViewport()) {
+      ensureMobileScrollShell();
+      if (navEl.parentNode !== document.body) {
+        document.body.appendChild(navEl);
+      }
+      // After shell: clear any leftover fixed pin styles so CSS
+      // `position: relative` (in-flow flex child) wins.
+      clearFixedPinStyles(navEl);
+      navEl.dataset.ttBnPin = "shell";
+      return;
+    }
+
+    // Desktop: bar is display:none; leave body unscoped.
+    document.documentElement.classList.remove("tt-mobile-shell");
+    document.body.classList.remove("tt-mobile-shell");
+    clearFixedPinStyles(navEl);
+    navEl.dataset.ttBnPin = "desktop";
+  }
+
   function mountNav() {
     if (!document.body) return;
+    if (isMobileViewport()) ensureMobileScrollShell();
     if (nav.parentNode !== document.body) {
       document.body.appendChild(nav);
     }
@@ -433,43 +586,7 @@
       document.body.appendChild(sheetRoot);
     }
     ensureAdminTab();
-  }
-
-  let _settleTimer = 0;
-
-  /**
-   * Keep the bar a direct body child on CSS bottom:0.
-   *
-   * v7 wrote `top` from visualViewport on every scroll/rAF. Safari also
-   * moves fixed bars while the URL chrome animates, so our correction
-   * looked like jump-up-then-snap-back. v8 does not touch geometry during
-   * an active scroll — only re-assert bottom:0 after the gesture settles.
-   */
-  function pinNavToViewport() {
-    const navEl = document.getElementById("tt-bottom-nav");
-    if (!navEl || !document.body) return;
-    if (navEl.parentNode !== document.body) {
-      document.body.appendChild(navEl);
-    }
-    navEl.style.setProperty("position", "fixed", "important");
-    navEl.style.setProperty("left", "0px", "important");
-    navEl.style.setProperty("right", "0px", "important");
-    navEl.style.setProperty("width", "100%", "important");
-    navEl.style.setProperty("bottom", "0px", "important");
-    navEl.style.setProperty("top", "auto", "important");
-    navEl.style.removeProperty("transform");
-    navEl.style.removeProperty("-webkit-transform");
-    delete navEl.dataset.ttBnTop;
-  }
-
-  /** Debounced settle — runs after scroll/chrome animation finishes. */
-  function scheduleSettle(delayMs) {
-    const ms = Number.isFinite(delayMs) ? delayMs : 140;
-    if (_settleTimer) clearTimeout(_settleTimer);
-    _settleTimer = setTimeout(() => {
-      _settleTimer = 0;
-      pinNavToViewport();
-    }, ms);
+    pinNavToViewport();
   }
 
   if (document.body) {
@@ -477,10 +594,8 @@
   } else {
     document.addEventListener("DOMContentLoaded", () => {
       mountNav();
-      pinNavToViewport();
     });
   }
-  pinNavToViewport();
 
   // Auth resolves async (auth-gate → tt-auth-bootstrap-updated). Re-try
   // Admin tab injection when role flags land after first paint.
@@ -614,20 +729,19 @@
 
   window.addEventListener("focusin", syncNavKeyboardState, true);
   window.addEventListener("focusout", () => setTimeout(syncNavKeyboardState, 50), true);
-  // Do NOT pin on every scroll tick — that caused jump/snap with v7.
-  // scrollend (where supported) + debounced fallback after scroll.
-  window.addEventListener("scrollend", () => pinNavToViewport(), { passive: true });
-  window.addEventListener("scroll", () => scheduleSettle(160), { passive: true, capture: true });
-  window.addEventListener("resize", () => scheduleSettle(100), { passive: true });
-  window.addEventListener("orientationchange", () => scheduleSettle(280), { passive: true });
-  // visualViewport resize = chrome finished changing. Skip vv *scroll*
-  // (fires continuously while the URL bar animates → jitter).
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", () => scheduleSettle(120), { passive: true });
+  // Shell keeps nav in-flow — no per-scroll geometry writes (v7 jump/snap).
+  window.addEventListener("resize", () => pinNavToViewport(), { passive: true });
+  window.addEventListener("orientationchange", () => {
+    setTimeout(pinNavToViewport, 280);
+  }, { passive: true });
+  try {
+    window.matchMedia(MOBILE_MQ).addEventListener("change", () => pinNavToViewport());
+  } catch (_) {
+    // Older Safari: matchMedia change may be addListener-only; resize covers it.
   }
   syncNavKeyboardState();
   setTimeout(pinNavToViewport, 150);
   setTimeout(pinNavToViewport, 400);
 })();
 
-// cache-bust:1788491728196:8401939
+// cache-bust:1788572977344:214042866
