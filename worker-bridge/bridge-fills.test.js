@@ -6,7 +6,7 @@ import {
   ocoSiblingClientOrderId,
   reconcileAccountFills,
 } from "./bridge-fills.js";
-import { buildOrderBody } from "./bridge-webull-api.js";
+import { buildOrderBody, buildWebullOrderHistoryQuery } from "./bridge-webull-api.js";
 
 describe("normalizeOrderStatus", () => {
   it("canonicalizes broker status strings", () => {
@@ -221,5 +221,22 @@ describe("Webull buildOrderBody — Connect API schema (new_orders array)", () =
     expect(b.new_orders[0].order_type).toBe("LIMIT");
     expect(b.new_orders[0].limit_price).toBe("195.15");
     expect(b.new_orders[0].support_trading_session).toBe("ALL");
+  });
+});
+
+describe("buildWebullOrderHistoryQuery", () => {
+  const user = { webull_account_id: "WB1" };
+  it("defaults account_id + page_size and passes date/cursor", () => {
+    const q = buildWebullOrderHistoryQuery(user, {
+      limit: 100,
+      start_time: "2026-08-31 00:00:00",
+      last_create_time: "1788543544899",
+      query: { last_create_time0: "1788500000000" },
+    });
+    expect(q.account_id).toBe("WB1");
+    expect(q.page_size).toBe("100");
+    expect(q.start_time).toBe("2026-08-31 00:00:00");
+    expect(q.last_create_time).toBe("1788543544899");
+    expect(q.last_create_time0).toBe("1788500000000");
   });
 });
