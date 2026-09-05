@@ -2491,6 +2491,8 @@ const ROUTES = [
   ["GET",  "/timed/broker/accounts",                     "GET /timed/broker/accounts"],
   ["GET",  "/timed/admin/broker-intents",                "GET /timed/admin/broker-intents"],
   ["POST", "/timed/admin/broker-intents/drain",          "POST /timed/admin/broker-intents/drain"],
+  ["GET",  "/timed/admin/convexity-tickets",             "GET /timed/admin/convexity-tickets"],
+  ["POST", "/timed/admin/convexity-tickets/mark",        "POST /timed/admin/convexity-tickets/mark"],
   ["GET",  "/timed/broker/positions",                    "GET /timed/broker/positions"],
   // 2026-08-13 — Day timeline (model actions × mirror outcomes) + scoped
   // per-account position sync for the Broker Connections second pass.
@@ -85699,6 +85701,33 @@ export default {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
+      // 2026-09-05 — options desk report card. Every convexity ticket with
+      // its entry premium, exit, grade. The mirror decision reads this.
+      if (routeKey === "GET /timed/admin/convexity-tickets") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { convexityTicketReport } = await import("./convexity-tickets.js");
+          const days = Math.max(1, Math.min(120, Number(url.searchParams.get("days")) || 30));
+          return sendJSON(await convexityTicketReport(env, { days }), 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/convexity-tickets/mark") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { markConvexityTickets } = await import("./convexity-tickets.js");
+          const out = await markConvexityTickets(env, {
+            fetchChain: _alpacaFetchOptionsChain,
+            notify: (embed) => notifyDiscord(env, embed, "trade"),
+          });
+          return sendJSON({ ok: true, ...out }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
       if (routeKey === "POST /timed/admin/broker-intents/drain") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -95866,6 +95895,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           } catch (e) {
             console.warn("[CONVEXITY] earnings-play enrich failed:", String(e?.message || e).slice(0, 160));
           }
+          // 2026-09-05 — a called play is a ticket. CONFLUENT, live-priced
+          // cards inside the entry window become convexity_tickets rows
+          // (paper + Discord); the */5 cron marks and closes them by rule.
+          if (!_diag) {
+            ctx.waitUntil((async () => {
+              try {
+                const { openConvexityTicketsFromCards } = await import("./convexity-tickets.js");
+                await openConvexityTicketsFromCards(env, plays, {
+                  notify: (embed) => notifyDiscord(env, embed, "trade"),
+                });
+              } catch (e) {
+                console.warn("[CONVEXITY TICKET] open hook failed:", String(e?.message || e).slice(0, 160));
+              }
+            })());
+          }
           const payload = {
             ok: true,
             count: plays.length,
@@ -105933,6 +105977,37 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             error: String(e?.message || e),
             caller: "scheduled_event",
           }).catch(() => {});
+        }
+      })());
+    }
+
+    // ── Convexity tickets (*/5 inside the options sell window) ──
+    //
+    // 2026-09-05 — the lotto strip was a scan with no owner (DELL 475c).
+    // Every 5 min: mark open tickets off the live chain and close by rule.
+    // Every 15 min inside the entry window: warm the scan so tickets open
+    // whether or not anyone has the page up.
+    if (!_isDedicatedEngine && _isEvery5Min && _calIsNyRegularMarketOpenStatic()) {
+      ctx.waitUntil((async () => {
+        try {
+          const { markConvexityTickets } = await import("./convexity-tickets.js");
+          const out = await markConvexityTickets(env, {
+            fetchChain: _alpacaFetchOptionsChain,
+            notify: (embed) => notifyDiscord(env, embed, "trade"),
+          });
+          if (out.scanned > 0) {
+            console.log(`[CONVEXITY TICKET] mark scanned=${out.scanned} marked=${out.marked} closed=${out.closed}`);
+          }
+          if (_utcM % 15 === 0) {
+            const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+            const _hdrs = env?.TIMED_API_KEY ? { "X-API-Key": env.TIMED_API_KEY } : {};
+            await fetch(`${selfUrl}/timed/options/convexity?limit=10&_nocache=1`, {
+              headers: _hdrs,
+              signal: AbortSignal.timeout(25000),
+            }).catch((e) => console.warn("[CONVEXITY TICKET] scan warm failed:", String(e?.message || e).slice(0, 120)));
+          }
+        } catch (e) {
+          console.warn("[CONVEXITY TICKET] cron failed:", String(e?.message || e).slice(0, 300));
         }
       })());
     }
