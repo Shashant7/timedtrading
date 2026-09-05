@@ -67,35 +67,72 @@ bridge worker.
 - `worker/foundation/tt-cloud-pivot.js`: `cloudPivotConviction` stamped on
   the proposal; profit lock trim-then-trail with escalating keep.
 
-## 4. Next packets (in priority order)
+## 4. Packet 3 — landed (deployed 2026-09-05 02:00 UTC)
 
-1. **Durable order-intent ledger.** Every model reducer writes a
-   `broker_intents` row (trade_id, side, qty, reason, window) before
-   dispatch; a `*/5` drain retries anything not `filled` while the window
-   allows and closes the paper book only on broker fill (or explicit
-   paper-only flag). Replaces fire-and-forget for `it:` and family tickets;
-   folds `runTraderExitCatchup` into the same drain.
-2. **Notification honesty.** `(filled)` in trader emails / Discord means
-   paper fill. Label "model fill" and append the broker mirror state
-   (`filled` / `skipped: <reason>` / `pending`).
-3. **DELL / compound-growth entry audit.** Replay 08-18 -> 08-28 through
-   the qualifier with decision records; list every gate that held DELL and
-   whether the earnings blackout (24-36h) or conviction was the blocker.
-   Output: a `compound_growth` profile that allows pre-earnings support
-   holds with the options desk (the 475c) as the vehicle.
-4. **ST share lane exits through `shareLaneExecutionWindow`.** ST already
-   blocks soft exits outside RTH and after 19:00, but the ratchet /
-   runner-extension paths should use the shared window so there is one
-   answer, not three.
-5. **Paper shorts.** Cloud Pivot SHORT tickets cannot mirror (naked short
-   deferred). They now count against the family budget; decide whether they
-   stay paper-only research (no budget) or leave the book.
+- **Durable order-intent ledger** (`worker/broker-intents.js`, D1
+  `broker_intents`). Every trader SELL/TRIM/EXIT on equities/LETFs that does
+  not come back placed from `forwardOrderToBridge` is a pending intent
+  (deferred: after 19:00 ET, sub-share outside RTH; transient: fetch error,
+  5xx, throttle). Terminal rejects (`no_manifest`, `naked_short`, config)
+  close it. The `*/5` cron drains pending rows while the broker can act
+  (whole shares until 19:00 ET, sub-share RTH only), fresh
+  `client_order_id` per attempt, max 12 attempts / 3 days, Discord summary
+  when anything is attempted. A placed reducer settles a pending intent for
+  the same trade/side, so a manual catch-up cannot double-fire (bridge
+  position guard clamps qty regardless). Entries and options are excluded
+  on purpose: a deferred entry re-qualifies, it does not chase.
+  Admin: `GET /timed/admin/broker-intents?status=pending|all`,
+  `POST /timed/admin/broker-intents/drain`.
+- **Notification honesty.** Trader exit/entry subjects and bodies say
+  "model fill", not "filled". Broker mirror state lives in the mirror log
+  and `broker_intents`.
+- **DELL audit -> compounder patience override.** `decision_records` show
+  the Investor engine scored DELL 86-100 in `accumulate` with
+  `compounder_dip_override_exhaustion:growth_elite:timing_bottom` from
+  Aug 11 to Sep 4 and rejected EVERY hourly admit on the LTF stabilize gate
+  (`ltf_st_sloping_down` / `ltf_5_12_cloud_not_curled`). The trader engine
+  only ever saw DELL as a `daily_ema21_reclaim` CONTEXT_SHADOW (08-21,
+  08-28, 08-31) — shadow, never live. The blocker was not the earnings
+  blackout; it was demanding a 10m curl on a dip whose whole point is a
+  bearish LTF. `investorCompounderPatienceOverride`: after 3+ hourly LTF
+  rejects on a growth-elite compounder dip scored >= 85, admit a 34%
+  starter tranche when the name is not still breaking (1H ST not sloping
+  down, no fresh 10m 5-12 cross-down, not majority-below LTF 233).
+  Structural vetoes are never overridden. Records `ADMIT_OVERRIDE`.
+- **ST ratchet through the shared window.** Reviewed, no code change: ST
+  soft exits (ratchet, runner extension, profit locks) already execute RTH
+  only and queue outside; hard stops already stop at the 19:00 ET
+  follow-through cutoff. The index-trend lane was the outlier and is fixed.
+- **Paper shorts — decision.** Cloud Pivot SHORT tickets share the
+  paper-family budget. A short slot is model conviction the paper book (the
+  member-facing product) should show; the broker not being able to short is
+  a broker limitation, not a signal-quality one. Revisit only if shorts
+  crowd out mirrorable longs at the 4-open cap.
 
-## 5. Verification
+## 5. Next packets
+
+1. **Context playbooks out of shadow.** `daily_ema21_reclaim` saw DELL
+   three times as CONTEXT_SHADOW with confidence 65. Promote the playbook to
+   a live entry path for compounders (the same names the Investor engine
+   scores >= 85) with the options desk as the vehicle when premium is rich.
+2. **Options desk follow-through.** The earnings desk called DELL 475c and
+   nothing routed it. Wire earnings-lotto / day-trade options plays for
+   compounders into the same intent ledger so a called play is a ticket.
+3. **Intent ledger for options reducers.** Same drain, options sell window
+   (09:30-16:15 ET).
+4. **Paper-close-on-fill for operator lanes.** Index trend and family
+   tickets could hold the paper close until the broker fills (or the intent
+   expires) for the operator's own book; members keep model truth.
+
+## 6. Verification
 
 - `vitest run`: 317 files / 3436 tests green.
 - Deploys: bridge `b346c476`, monolith default `7e972544`, production
   `15f39a08`, tt-engine `b1ed9198` / `891c31de`. `/timed/health` ok.
+- Packet 3: 3451 tests green. Monolith `c7549ada` / `e7f78ed5`, tt-engine
+  `6a423402` / `243af8bb`, tt-research `8ab80d58` / `c8a45bcf`.
+  `GET /timed/admin/broker-intents?status=all` -> `{ok:true,count:0}`
+  (table created).
 - Monday 09-08 watch: `[SMART_GATE]` and `[PAPER_FAMILY_ENTRY] ... held`
   lines should appear; no more than 3 family opens; no index-trend
   EXIT/TRIM after 16:00 ET; no `no_manifest_for_trade` on a sleeve with

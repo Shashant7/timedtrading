@@ -120,7 +120,7 @@ export function formatNotificationTitle(raw, opts = {}) {
 
 /**
  * Email / bell subject with horizon:
- * `SHORT TERM · Exit GEV LONG -1.00% @ $1042.00 (filled)`
+ * `SHORT TERM · Exit GEV LONG -1.00% @ $1042.00 (model fill)`
  */
 export function renderEmailSubject(signal, extras = {}) {
   const s = typeof signal === "object" ? signal : buildSignal(signal);
