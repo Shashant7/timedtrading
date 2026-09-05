@@ -1940,7 +1940,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
       paper_mult: _paperLabel.paperMult,
     } : {},
   });
-  const threadLabel = isExitSignal ? "open position" : isExit ? "filled" : null;
+  const threadLabel = isExitSignal ? "open position" : isExit ? "model fill" : null;
   const subject = renderEmailSubject(sig, { threadLabel });
 
   return sendEmail(env, { to: userEmail, subject, html, text, category: "trade_alert" });
