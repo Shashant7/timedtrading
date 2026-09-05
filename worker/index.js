@@ -460,10 +460,12 @@ import {
 } from "./foundation/confirm-stack-paper-queue.js";
 import {
   resolvePaperFamilyStandaloneEntry,
+  paperFamilyBudgetAllows,
   isPaperFamilyEntryPath,
   paperFamilySetupLabel,
   stampPaperFamilyOnTrade,
 } from "./foundation/paper-family-entry.js";
+import { shareLaneExecutionWindow } from "./execution-window.js";
 import { playLabel } from "./foundation/play-catalog.js";
 import {
   stampContinuationThinSlice,
@@ -955,6 +957,55 @@ import * as Journey from "./journey.js";
 let _cronCalendar = null;
 // Cached set of removed tickers (populated on first read, refreshed per cron cycle)
 let _removedTickersCache = null;
+// NY-session day key ("YYYY-MM-DD") for a ms timestamp or Date.
+//
+// 2026-09-05: this helper was referenced (calibration guards, re-confirm
+// waiver, move-ending) since 2026-06-26 but never defined. The
+// ReferenceError was swallowed by the smart-gate try/catch, which silently
+// disabled EVERY entry gate below it — position cap, sector cap, direction
+// cap, daily cap, loss-streak cooldown — for ten weeks. Defining it is
+// what turns those gates back on.
+function nyDayString(tsOrDate) {
+  const d = tsOrDate instanceof Date ? tsOrDate : new Date(Number(tsOrDate) || Date.now());
+  if (!Number.isFinite(d.getTime())) return "";
+  return _calGetETDateStr(d);
+}
+// Paper-family entry budget counts (open tickets + today's opens), cached
+// briefly so a 200-ticker cycle costs two D1 reads, not four hundred. The
+// caller bumps the counts in-memory on each accepted open so one cycle
+// cannot overshoot the cap between refreshes.
+let _paperFamilyBudgetCache = { ts: 0, dayKey: "", open: 0, today: 0 };
+async function _paperFamilyBudgetCounts(env, nowMs = Date.now()) {
+  const dayKey = nyDayString(new Date(nowMs));
+  const fresh = _paperFamilyBudgetCache.dayKey === dayKey
+    && (nowMs - _paperFamilyBudgetCache.ts) < 45_000;
+  if (fresh) return _paperFamilyBudgetCache;
+  const db = env?.DB;
+  if (!db) return _paperFamilyBudgetCache;
+  try {
+    const like = ["tt_cloud_pivot%", "confirm_stack%", "momentum_continuation%"];
+    const where = like.map(() => "entry_path LIKE ?").join(" OR ");
+    const openRow = await db.prepare(
+      `SELECT COUNT(*) AS cnt FROM trades WHERE status IN ('OPEN','TP_HIT_TRIM') AND (${where})`,
+    ).bind(...like).first();
+    const dayStart = new Date(nowMs);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const todayRow = await db.prepare(
+      `SELECT COUNT(*) AS cnt FROM trades WHERE entry_ts >= ? AND (${where})`,
+    ).bind(dayStart.getTime(), ...like).first();
+    _paperFamilyBudgetCache = {
+      ts: nowMs,
+      dayKey,
+      open: Number(openRow?.cnt) || 0,
+      today: Number(todayRow?.cnt) || 0,
+    };
+  } catch (e) {
+    console.warn(`[PAPER_FAMILY_ENTRY] budget count failed: ${String(e?.message || e).slice(0, 120)}`);
+    _paperFamilyBudgetCache.ts = nowMs;
+    _paperFamilyBudgetCache.dayKey = dayKey;
+  }
+  return _paperFamilyBudgetCache;
+}
 const REPLAY_TRADES_KV_KEY = "timed:trades:replay";
 import {
   shouldLogPrediction,
@@ -20163,7 +20214,30 @@ async function processTradeSimulation(
           tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
           { isReplay },
         );
-        if (_paperOpen) {
+        // 2026-09-05 entry discipline: a paper-family ticket is a share
+        // order at the broker. It obeys the share-lane entry window
+        // (09:45-15:30 ET) and a shared budget (open cap, daily cap,
+        // conviction floor) so the best few proposals get the capital.
+        let _paperBudgetBlock = null;
+        if (_paperOpen && !isReplay) {
+          const _win = shareLaneExecutionWindow(now);
+          if (!_win.can_enter) {
+            _paperBudgetBlock = `entry_window:${_win.blocked_reason || "outside_enter_window"}`;
+          } else {
+            const _budget = await _paperFamilyBudgetCounts(env, now);
+            const _chk = paperFamilyBudgetAllows(
+              _paperOpen,
+              _budget,
+              tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
+            );
+            if (!_chk.allow) _paperBudgetBlock = _chk.reason;
+            else { _budget.open += 1; _budget.today += 1; }
+          }
+        }
+        if (_paperOpen && _paperBudgetBlock) {
+          tickerData.__paper_family_budget_block = _paperBudgetBlock;
+          console.log(`[PAPER_FAMILY_ENTRY] ${sym} ${_paperOpen.family} ${_paperOpen.direction} held: ${_paperBudgetBlock} (conviction=${_paperOpen.conviction ?? "n/a"})`);
+        } else if (_paperOpen) {
           entryPath = _paperOpen.path;
           direction = _paperOpen.direction;
           tickerData.__entry_path = _paperOpen.path;
@@ -20171,8 +20245,9 @@ async function processTradeSimulation(
           tickerData.__entry_family = _paperOpen.family;
           tickerData.__paper_family_ticket = true;
           tickerData.__paper_queue_size_mult = _paperOpen.size_mult;
+          tickerData.__paper_family_conviction = _paperOpen.conviction;
           isEnter = true;
-          console.log(`[PAPER_FAMILY_ENTRY] ${sym} ${_paperOpen.family} ${_paperOpen.direction} 0.1× (${_paperOpen.path})`);
+          console.log(`[PAPER_FAMILY_ENTRY] ${sym} ${_paperOpen.family} ${_paperOpen.direction} 0.1× (${_paperOpen.path}) conviction=${_paperOpen.conviction ?? "n/a"}`);
         }
       } catch (_paperErr) {
         console.warn(`[PAPER_FAMILY_ENTRY] ${sym} promote failed: ${String(_paperErr?.message || _paperErr).slice(0, 120)}`);
@@ -25773,11 +25848,24 @@ async function processTradeSimulation(
     // MAX_SAME_DIRECTION raised to 25 — given universe LONG-bias, the
     // 12 cap was hitting on every strong-trend day. Real correlation
     // risk is via sector concentration, not total direction count.
-    const MAX_OPEN_POSITIONS = 35;      // raised from 20; runaway-safety only
+    //
+    // 2026-09-05 (execution discipline): the caps above never actually
+    // ran — a ReferenceError (`nyDayString`) inside this try block had
+    // disabled every gate since 2026-06-26. With the gates live again the
+    // caps are set for a convicted book, not a runaway-safety net: 12 core
+    // positions, 8 same direction, 6 new core entries a day. Paper-family
+    // 0.1x tickets are excluded from these counts and governed by their
+    // own budget (paperFamilyBudgetAllows). DA config overrides:
+    // deep_audit_max_open_positions / deep_audit_max_same_direction /
+    // deep_audit_max_daily_entries.
+    const _daCoreCfg = tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {};
+    const _daMaxOpen = Number(_daCoreCfg.deep_audit_max_open_positions);
+    const _daMaxDir = Number(_daCoreCfg.deep_audit_max_same_direction);
+    const MAX_OPEN_POSITIONS = Number.isFinite(_daMaxOpen) && _daMaxOpen > 0 ? _daMaxOpen : 12;
     const MAX_OPEN_POSITIONS_HARD_LIMIT = 50;  // absolute backstop
     const MAX_PER_SECTOR_PCT = 0.20;    // 20% of sector universe size
     const MAX_PER_SECTOR_FLOOR = 4;     // never less than 4
-    const MAX_SAME_DIRECTION = 25;      // raised from 12 (LONG-bias of universe)
+    const MAX_SAME_DIRECTION = Number.isFinite(_daMaxDir) && _daMaxDir > 0 ? _daMaxDir : 8;
     const CORRELATION_SECTOR_THRESHOLD = Math.max(3, MAX_PER_SECTOR_FLOOR - 1);
     // v3 → V15 P0.7.6 (2026-04-27): regime-adaptive daily entry cap
     // *deprecated* — the cap was an artificial time-of-day filter that
@@ -25815,7 +25903,7 @@ async function processTradeSimulation(
     );
     const MAX_DAILY_ENTRIES = (Number.isFinite(_daCapRaw) && _daCapRaw > 0)
       ? _daCapRaw
-      : 999;
+      : 6;
     
     const db = env?.DB;
     const canRunSmartGates = isEnter && !weekendNow && !outsideRTH && enterCooldownOk && !sameEnterCycle && !openTrade && (db || isReplay);
@@ -25831,11 +25919,17 @@ async function processTradeSimulation(
             .filter(t => t && (t.status === "OPEN" || t.status === "TP_HIT_TRIM"))
             .map(t => ({ ticker: String(t.ticker || "").toUpperCase(), direction: t.direction }));
         } else if (db) {
+          // trades (not positions) so entry_path is available: 0.1x
+          // paper-family tickets must not consume core slots.
           const openPosResult = await db.prepare(
-            `SELECT ticker, direction FROM positions WHERE status = 'OPEN'`
+            `SELECT ticker, direction, entry_path FROM trades WHERE status IN ('OPEN','TP_HIT_TRIM')`
           ).all();
-          openPositions = openPosResult?.results || [];
+          openPositions = (openPosResult?.results || [])
+            .filter((p) => !isPaperFamilyEntryPath(p?.entry_path));
         }
+        // A paper-family ticket is governed by its own budget upstream;
+        // it never counts against, nor is blocked by, the core caps.
+        const _isPaperFamilyCandidate = tickerData?.__paper_family_ticket === true;
         
         // Determine candidate's direction and sector
         const entryPath = String(tickerData?.__entry_path || tickerData?.entry_path || "").toLowerCase();
@@ -25879,7 +25973,7 @@ async function processTradeSimulation(
 
         // Gate 0: Total open position cap
         const _jaGate0Cap = _jaNoLimits ? MAX_OPEN_POSITIONS_HARD_LIMIT : MAX_OPEN_POSITIONS;
-        if (openPositions.length >= _jaGate0Cap) {
+        if (!_isPaperFamilyCandidate && openPositions.length >= _jaGate0Cap) {
           smartGateBlocked = true;
           smartGateReason = `position_cap:${openPositions.length}/${_jaGate0Cap}`;
           console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
@@ -25917,7 +26011,7 @@ async function processTradeSimulation(
         }
         
         // Gate 2: Directional concentration
-        if (!smartGateBlocked && !_jaNoLimits) {
+        if (!smartGateBlocked && !_jaNoLimits && !_isPaperFamilyCandidate) {
           let dirCount = 0;
           for (const pos of openPositions) {
             if (String(pos.direction).toUpperCase() === candidateDir) dirCount++;
@@ -25946,8 +26040,8 @@ async function processTradeSimulation(
           }
         }
         
-        // Safety net: daily entry count
-        if (!smartGateBlocked) {
+        // Safety net: daily entry count (core only; paper family has its own)
+        if (!smartGateBlocked && !_isPaperFamilyCandidate) {
           let dailyCount = 0;
           if (isReplay && replayCtx?.allTrades) {
             const dayStart = asOfMs ? new Date(asOfMs).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
@@ -25964,9 +26058,14 @@ async function processTradeSimulation(
               d.setUTCHours(0, 0, 0, 0);
               return d.getTime();
             })();
+            // Core opens only — paper-family tickets have their own daily
+            // budget and must not eat the core allowance.
             const dailyResult = await db.prepare(
-              `SELECT COUNT(*) as cnt FROM execution_actions
-               WHERE action_type = 'ENTRY' AND ts >= ?`
+              `SELECT COUNT(*) as cnt FROM trades
+               WHERE entry_ts >= ?
+                 AND NOT (entry_path LIKE 'tt_cloud_pivot%'
+                       OR entry_path LIKE 'confirm_stack%'
+                       OR entry_path LIKE 'momentum_continuation%')`
             ).bind(_todayStartMs).first();
             dailyCount = Number(dailyResult?.cnt) || 0;
           }
@@ -48810,6 +48909,7 @@ const TRADE_EXIT_REASON_DISPLAY_MAP = {
   tt_cloud_pivot_magnet_tag_cover: "Cloud Pivot — price tagged the higher-timeframe cloud magnet; covering the remaining runner",
   tt_cloud_pivot_ribbon_trail: "Cloud Pivot — ride still held; trailing the stop to the last held 5/12 then 34/50 ribbon",
   tt_cloud_pivot_profit_lock: "Cloud Pivot — locked the run; price gave back past the peak-keep floor, so banking the move instead of round-tripping to the stop",
+  tt_cloud_pivot_profit_lock_trim: "Cloud Pivot — price gave back past the peak-keep floor while the 1H cloud still backs the trade; banking half and trailing the runner",
   KANBAN_EXIT: "Engine exit lane triggered — model recommends closing the position",
 };
 
@@ -49307,6 +49407,8 @@ function createTradeClosedEmbed(
   exitReasonMap.tt_cloud_pivot_magnet_tag_trim = "Cloud Pivot — price tagged the higher-timeframe cloud magnet; trimming into the attractor";
   exitReasonMap.tt_cloud_pivot_magnet_tag_cover = "Cloud Pivot — price tagged the higher-timeframe cloud magnet; covering the remaining runner";
   exitReasonMap.tt_cloud_pivot_ribbon_trail = "Cloud Pivot — ride still held; trailing the stop to the last held 5/12 then 34/50 ribbon";
+  exitReasonMap.tt_cloud_pivot_profit_lock = "Cloud Pivot — locked the run; price gave back past the peak-keep floor, so banking the move instead of round-tripping to the stop";
+  exitReasonMap.tt_cloud_pivot_profit_lock_trim = "Cloud Pivot — price gave back past the peak-keep floor while the 1H cloud still backs the trade; banking half and trailing the runner";
   const rawReason = exitReason || "";
   // Fallback: strip 'ripster' / 'saty' indicator-author jargon entirely
   // (was previously rewritten as 'TT ' which still looked odd).

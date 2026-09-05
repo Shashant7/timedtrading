@@ -26,10 +26,48 @@ export {
 
 const FAMILY_SET = new Set(PAPER_EXPERIMENT_FAMILIES);
 
+// Entry budget (2026-09-05). Before this, every live proposal opened a
+// ticket: 12 Cloud Pivot opens in 3 minutes on 2026-09-04, 25 of 28 open
+// books were 0.1x paper tickets that cancelled each other out. Five convicted
+// trades beat forty. Defaults are deliberately tight; DA config can widen.
+export const PAPER_FAMILY_MAX_OPEN_DEFAULT = 4;
+export const PAPER_FAMILY_MAX_DAILY_DEFAULT = 3;
+export const PAPER_FAMILY_MIN_CONVICTION_DEFAULT = 2;
+
 export function loadPaperFamilyEntryConfig(daCfg = {}) {
   const enabled = String(daCfg.deep_audit_paper_family_standalone_entry_enabled ?? "true") === "true";
   const replayEnabled = String(daCfg.deep_audit_paper_family_standalone_entry_replay ?? "false") === "true";
-  return { enabled, replayEnabled };
+  const maxOpenRaw = Number(daCfg.deep_audit_paper_family_max_open);
+  const maxDailyRaw = Number(daCfg.deep_audit_paper_family_max_daily);
+  const minConvRaw = Number(daCfg.deep_audit_paper_family_min_conviction);
+  return {
+    enabled,
+    replayEnabled,
+    maxOpen: Number.isFinite(maxOpenRaw) && maxOpenRaw >= 0 ? maxOpenRaw : PAPER_FAMILY_MAX_OPEN_DEFAULT,
+    maxDaily: Number.isFinite(maxDailyRaw) && maxDailyRaw >= 0 ? maxDailyRaw : PAPER_FAMILY_MAX_DAILY_DEFAULT,
+    minConviction: Number.isFinite(minConvRaw) && minConvRaw >= 0 ? minConvRaw : PAPER_FAMILY_MIN_CONVICTION_DEFAULT,
+  };
+}
+
+/**
+ * Pure budget check for a resolved standalone paper-family entry.
+ * `budget` = { open, today } counts across ALL paper families (they share
+ * the same 0.1x capital sleeve). Conviction floor applies only when the
+ * proposal carries a numeric `conviction` (Cloud Pivot does).
+ * @returns {{ allow: boolean, reason: string|null }}
+ */
+export function paperFamilyBudgetAllows(entry, budget = {}, daCfg = {}) {
+  if (!entry) return { allow: false, reason: "no_entry" };
+  const cfg = loadPaperFamilyEntryConfig(daCfg);
+  const open = Number(budget.open) || 0;
+  const today = Number(budget.today) || 0;
+  const conv = entry.conviction == null || entry.conviction === "" ? null : Number(entry.conviction);
+  if (conv != null && Number.isFinite(conv) && conv < cfg.minConviction) {
+    return { allow: false, reason: `conviction:${conv}<${cfg.minConviction}` };
+  }
+  if (open >= cfg.maxOpen) return { allow: false, reason: `family_open_cap:${open}/${cfg.maxOpen}` };
+  if (today >= cfg.maxDaily) return { allow: false, reason: `family_daily_cap:${today}/${cfg.maxDaily}` };
+  return { allow: true, reason: null };
 }
 
 /** Strip `_long` / `_short` so `tt_cloud_pivot_long` matches the family id. */
@@ -106,12 +144,14 @@ export function resolvePaperFamilyStandaloneEntry(payload = {}, daCfg = {}, opts
   const size_mult = Number.isFinite(rawMult) && rawMult > 0 && rawMult <= 1 ? rawMult : 0.1;
   const path = paperFamilyEntryPath(family, direction);
 
+  const convRaw = Number(proposal.conviction);
   return {
     family,
     path,
     direction,
     size_mult,
     paper: true,
+    conviction: Number.isFinite(convRaw) ? convRaw : null,
     reason: proposal.reason || `paper_family_standalone:${family}`,
     label: PAPER_FAMILY_LABELS[family] || family,
   };
