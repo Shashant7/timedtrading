@@ -41,6 +41,25 @@
 
 export const MFE_RATCHET_EXIT_REASON = "mfe_ratchet_giveback";
 
+/**
+ * Pure. Is this exit reason the ratchet's profit lock?
+ *
+ * 2026-09-05: the ratchet was unsuppressible inside classifyKanbanStage
+ * but the live execution layer re-gated its "exit" as a soft signal exit:
+ * the trimmed-runner pullback shield (15m ST / ripster clouds), the 30-min
+ * management cadence, the 15-min minimum-age gate, the bleeder shield and
+ * the CIO HOLD all sat between the floor breach and closeTradeAtPrice.
+ * tt-engine logs 2026-09-04: "[EXIT SHIELD] TSLA runner EXIT blocked ...
+ * reason=mfe_ratchet_giveback" (and TJX, ELF, SWK, J, DKNG, TSM); the
+ * fires that did close (DE, RTX, SN) landed a full cadence bucket below
+ * their floors. The lock is a price level, like a stop: it bypasses those
+ * gates. It stays RTH-only (execution-window doctrine: profit management
+ * inside the session, the broker follows through).
+ */
+export function isMfeRatchetExit(reason) {
+  return String(reason || "").toLowerCase() === MFE_RATCHET_EXIT_REASON;
+}
+
 export function loadMfeRatchetConfig(daCfg) {
   const cfg = daCfg || {};
   const enabledRaw = cfg.deep_audit_mfe_ratchet_enabled;

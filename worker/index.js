@@ -1225,7 +1225,7 @@ import { evaluateExit as ttCoreEvaluateExit } from "./pipeline/tt-core-exit.js";
 import { evaluateExit as ripsterEvaluateExit } from "./pipeline/ripster-exit.js";
 import { evaluateExit as legacyEvaluateExit } from "./pipeline/legacy-exit.js";
 import { runLifecycleEngineSeam } from "./pipeline/lifecycle-seam.js";
-import { evaluateMfeRatchet, MFE_RATCHET_EXIT_REASON } from "./pipeline/mfe-ratchet.js";
+import { evaluateMfeRatchet, MFE_RATCHET_EXIT_REASON, isMfeRatchetExit } from "./pipeline/mfe-ratchet.js";
 import { CHAIN_GAP_ALARM_THRESHOLD } from "./feed/candle-chain-heal.js";
 import { loadHistoricalVixSeries, resolveHistoricalVixAtTs } from "./vix-source.js";
 import {
@@ -24644,6 +24644,11 @@ async function processTradeSimulation(
       }
     }
     const isSLExit = /\bSL\b|stop.?loss|max.?loss|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
+    // 2026-09-05 — the MFE ratchet's profit lock is a price level, not a
+    // signal. It bypasses the soft-exit gates below (pullback shield, 30m
+    // cadence, min-age, bleeder shield, CIO HOLD) but is NOT an SL-class
+    // exit: it still waits for RTH so the broker can follow through.
+    const _profitLockExit = isMfeRatchetExit(exitReasonRaw);
     const _exitPath = String(openTrade?.entryPath || openTrade?.entry_path || "").toLowerCase();
     const _paritySkipSlRaw = tickerData?._env?._deepAuditConfig?.deep_audit_parity_skip_sl_breach;
     // P2 HOTFIX 2026-05-19 (part 14 — Bug #11): parity_skip_sl_breach is a
@@ -24672,7 +24677,7 @@ async function processTradeSimulation(
     // preventing trimmed trades from being shielded indefinitely.
     const _exitTrimmedPct = clamp(Number(openTrade?.trimmedPct || 0), 0, 1);
     let _exitPullbackShield = false;
-    if (_exitTrimmedPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && !isSLExit && openTrade && isOpenTradeStatus(openTrade.status)) {
+    if (_exitTrimmedPct >= THREE_TIER_CONFIG.TRIM.trimPct - 0.01 && !isSLExit && !_profitLockExit && openTrade && isOpenTradeStatus(openTrade.status)) {
       const _eTf15 = tickerData?.tf_tech?.["15"];
       const _eTf30 = tickerData?.tf_tech?.["30"];
       const _eStDir15 = _eTf15?.stDir ?? 0;
@@ -24759,7 +24764,7 @@ async function processTradeSimulation(
 
     // V15 P0.7.17: gate signal-based exits on 30m cadence in live mode.
     // Hard exits (SL, max-loss, V13 nets) bypass the cadence gate.
-    const _exitGateAllowsLive = _liveManageGateOk || isSLExit;
+    const _exitGateAllowsLive = _liveManageGateOk || isSLExit || _profitLockExit;
     // P1 HOTFIX 2026-05-19 (part 8): hard SL exits must bypass the 15-min
     // minimum-age gate. Stops hit in the first 15 minutes were silently
     // held until the gate opened, then routed through CIO. SL is a hard
@@ -24767,7 +24772,8 @@ async function processTradeSimulation(
     // signal noise" guard which doesn't apply to actual SL breaches.
     // Also exempt v13_hard_* / max_loss / HARD_LOSS_CAP — these are the
     // same hard-exit class flagged elsewhere by the `_exitIsHard` regex.
-    const _exitIsHardClass = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
+    const _exitIsHardClass = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw))
+      || _profitLockExit;
     const _exitMinAgeOkForGate = exitMinAgeOk || _exitIsHardClass;
     // P0 HOTFIX 2026-05-19 (part 4 — diagnostics): if isSLExit is true,
     // trace every gate value so we can see why the close skips. Gated on
@@ -24850,7 +24856,8 @@ async function processTradeSimulation(
         // Hard protective exits (SL, max loss) bypass CIO entirely — they are non-negotiable
         // P0 HOTFIX 2026-05-19: include `sl_breached` / `sl_hit` / `hard_loss` (mirror of
         // isSLExit above). Without this, sl_breached exits would still go through CIO HOLD.
-        const _exitIsHard = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw));
+        const _exitIsHard = /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|v13_hard_|sl_breached|sl_hit|hard_loss/i.test(String(exitReasonRaw))
+          || _profitLockExit;
         // Cooldown: if CIO already said HOLD within last 30 min for this ticker, skip re-eval
         const _exitCioCooldownMs = 30 * 60000;
         const _exitLastCioMs = Number(execState._cioExitHoldMs || 0);
@@ -24929,7 +24936,9 @@ async function processTradeSimulation(
           // re-served prev_close just keeps the position appearing "above
           // SL", which is fine to defer.)
           let _exitDeferred = false;
-          if (!isReplay && !_exitIsHard) {
+          // The profit lock skips the soft gates but keeps the stale-tick
+          // guard: a re-served prev_close must not read as a floor breach.
+          if (!isReplay && (!_exitIsHard || _profitLockExit)) {
             const _exitStaleCheck = await checkPriceFeedStale(env, sym, pxNow);
             if (_exitStaleCheck?.stale) {
               const _staleMeta = {
