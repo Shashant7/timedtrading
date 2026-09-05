@@ -39,6 +39,8 @@ const ADMIN_ONLY_PAGES = new Set([
   "/ticker-management.html",
   "/trade-autopsy.html",
   "/trade-review.html",
+  "/desk-journal.html",
+  "/desk-journal",
   "/debug-dashboard.html",
   "/model-dashboard.html",
   "/model-performance.html",

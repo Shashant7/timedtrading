@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin — Desk Journal — Timed Trading</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3C%2Fsvg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="auth-gate.js?v=20260601-nav-inject"></script>
+    <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
+    <script src="tt-nav-extras.js?v=20260817-trade-review-nav" defer></script>
+    <script src="tt-global-search.js?v=20260610-verda3" defer></script>
+    <style>
+      :root {
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-border-hi: var(--vf-moss-hi, #2A4136);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-text-faint: #51635A;
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
+        --tt-red: #FF6B6B;
+        --tt-amber: #F5C451;
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --tt-font-display: "Manrope", "Inter", -apple-system, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--tt-bg-base); color: var(--tt-text); font-family: var(--tt-font); -webkit-font-smoothing: antialiased; }
+      .tt-page { max-width: 1500px; margin: 0 auto; padding: 18px 24px 96px; }
+      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: var(--vf-radius-md, 18px); }
+      .tt-card-pad { padding: 18px 20px 16px; }
+      .tt-page-title { margin: 0 0 6px; font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+      .tt-page-lede { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tt-text-muted); max-width: 780px; }
+      .tt-stat {
+        appearance: none; text-align: left; color: inherit; font: inherit;
+        background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 12px;
+        padding: 10px 14px; min-width: 92px; cursor: pointer;
+        transition: border-color .15s, box-shadow .15s;
+      }
+      .tt-stat:hover { border-color: var(--tt-border-hi); }
+      .tt-stat--on { border-color: var(--tt-accent); box-shadow: 0 0 0 1px var(--tt-accent-dim); }
+      .tt-stat-label { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tt-text-faint); }
+      .tt-stat-value { margin-top: 4px; font-family: var(--tt-font-mono); font-size: 20px; font-weight: 700; }
+      .tt-btn { border-radius: 999px; padding: 7px 13px; font-size: 12px; font-weight: 600; border: 1px solid transparent; cursor: pointer; transition: background .15s, border-color .15s, opacity .15s; }
+      .tt-btn:disabled { opacity: .45; cursor: not-allowed; }
+      .tt-btn--primary { background: var(--tt-accent); color: #0B1410; }
+      .tt-btn--primary:hover:not(:disabled) { filter: brightness(1.05); }
+      .tt-btn--ghost { background: var(--tt-bg-elev); border-color: var(--tt-border); color: var(--tt-text-muted); }
+      .tt-btn--ghost:hover:not(:disabled) { border-color: var(--tt-border-hi); color: var(--tt-text); }
+      .tt-input, .tt-select, .tt-textarea { background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 12px; font-size: 13px; color: var(--tt-text); font-family: inherit; }
+      .tt-textarea { width: 100%; resize: vertical; min-height: 88px; line-height: 1.5; }
+      .tt-input:focus, .tt-select:focus, .tt-textarea:focus { outline: none; border-color: var(--tt-accent); box-shadow: 0 0 0 2px var(--tt-accent-dim); }
+      .grade { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 26px; border-radius: 8px; font-family: var(--tt-font-mono); font-size: 13px; font-weight: 700; padding: 0 6px; cursor: pointer; border: 1px solid transparent; background: var(--tt-bg-elev); color: var(--tt-text-muted); }
+      .grade--on.grade--good, .grade--good.grade--on { background: rgba(56,242,161,.16); color: var(--tt-accent); border-color: rgba(56,242,161,.35); }
+      .grade--on.grade--mid, .grade--mid.grade--on { background: rgba(245,196,81,.14); color: var(--tt-amber); border-color: rgba(245,196,81,.35); }
+      .grade--on.grade--bad, .grade--bad.grade--on { background: rgba(255,107,107,.14); color: var(--tt-red); border-color: rgba(255,107,107,.35); }
+      .pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+      .pill--open { background: rgba(245,196,81,.14); color: var(--tt-amber); }
+      .pill--done { background: rgba(56,242,161,.16); color: var(--tt-accent); }
+      .pill--todo { background: var(--tt-bg-elev); color: var(--tt-text-dim); }
+      .trade-row { display: grid; grid-template-columns: 18px 1fr 72px 88px 88px 72px 88px 88px; gap: 10px; align-items: center; padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--tt-border); }
+      .trade-row:hover { background: rgba(255,255,255,.02); }
+      .trade-row--on { background: rgba(56,242,161,.04); }
+      .trade-head { display: grid; grid-template-columns: 18px 1fr 72px 88px 88px 72px 88px 88px; gap: 10px; padding: 8px 16px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--tt-text-faint); font-weight: 600; border-bottom: 1px solid var(--tt-border); }
+      .mono { font-family: var(--tt-font-mono); }
+      .muted { color: var(--tt-text-muted); }
+      .dim { color: var(--tt-text-dim); }
+      .pos { color: var(--tt-accent); }
+      .neg { color: var(--tt-red); }
+      .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); gap: 8px; margin: 14px 0; }
+      .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 16px 0 8px; }
+      .fill-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      .fill-table th { text-align: left; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--tt-text-faint); padding: 6px 8px; }
+      .fill-table td { padding: 6px 8px; border-top: 1px solid var(--tt-border); }
+      .chart-box { height: 280px; width: 100%; background: var(--tt-bg-base); border: 1px solid var(--tt-border); border-radius: 12px; }
+      .tag { appearance: none; border: 1px solid var(--tt-border); background: var(--tt-bg-elev); color: var(--tt-text-muted); border-radius: 999px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+      .tag--on { border-color: var(--tt-accent); color: var(--tt-accent); background: var(--tt-accent-dim); }
+      .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--tt-border-hi); border-top-color: var(--tt-accent); border-radius: 50%; animation: spin .7s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .footer-note { margin-top: 28px; font-size: 11px; color: var(--tt-text-faint); }
+      body:not([data-user-role="admin"]) a[data-admin-only] { display: none !important; }
+      nav.topnav {
+        position: sticky; top: 0; z-index: 50;
+        background: rgba(11, 20, 16, 0.92);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.08));
+      }
+      .nav-row {
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .nav-brand {
+        display: inline-flex; align-items: center; gap: 10px;
+        text-decoration: none; color: var(--tt-text, #e8f0ec); font-weight: 700;
+      }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px; color: var(--tt-text-muted, #8aa399);
+        text-decoration: none; padding: 6px 12px; border-radius: 8px;
+      }
+      .nav-link:hover { color: var(--tt-text, #e8f0ec); background: rgba(255,255,255,0.05); }
+      .nav-link.active { color: var(--tt-accent, #38F2A1); background: rgba(56, 242, 161, 0.12); }
+      @media (max-width: 980px) {
+        .trade-head { display: none; }
+        .trade-row { grid-template-columns: 18px 1fr auto; }
+        .hide-sm { display: none; }
+      }
+    </style>
+  </head>
+  <body class="vf-page">
+    <div id="global-nav-root"></div>
+    <script src="shared-nav.js?v=20260817-trade-review-nav"></script>
+    <div id="root"></div>
+    <script type="text/babel">
+      const { useState, useEffect, useRef, useCallback } = React;
+      const API_BASE = "";
+      const fetchOpts = { credentials: "include", cache: "no-store" };
+      const TAGS = ["overnight", "chase", "scratch", "hold", "cut", "size", "timing", "open"];
+      const GRADES = [
+        { id: "REPEAT", cls: "grade--good" },
+        { id: "A", cls: "grade--good" },
+        { id: "B", cls: "grade--good" },
+        { id: "C", cls: "grade--mid" },
+        { id: "D", cls: "grade--bad" },
+        { id: "F", cls: "grade--bad" },
+        { id: "AVOID", cls: "grade--bad" },
+      ];
+
+      const fmtUsd = (v) => (v == null || !Number.isFinite(Number(v)) ? "—" : `${Number(v) < 0 ? "-" : ""}$${Math.abs(Number(v)).toFixed(2)}`);
+      const fmtPx = (v) => (v == null || !Number.isFinite(Number(v)) ? "—" : Number(v).toFixed(2));
+      const fmtPct = (v) => (v == null || !Number.isFinite(Number(v)) ? "—" : `${Math.round(Number(v) * 100)}%`);
+      const signClass = (v) => (v == null ? "" : Number(v) > 0 ? "pos" : Number(v) < 0 ? "neg" : "");
+      const fmtTs = (ts) => {
+        if (!ts) return "—";
+        return new Date(Number(ts)).toLocaleString("en-US", {
+          month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York",
+        });
+      };
+      const fmtHold = (s) => {
+        if (s == null || !Number.isFinite(Number(s))) return "—";
+        const n = Number(s);
+        if (n < 60) return `${n}s`;
+        if (n < 3600) return `${Math.round(n / 60)}m`;
+        const h = Math.floor(n / 3600);
+        const m = Math.round((n % 3600) / 60);
+        return m ? `${h}h ${m}m` : `${h}h`;
+      };
+
+      async function api(path, opts = {}) {
+        const res = await fetch(`${API_BASE}${path}`, { ...fetchOpts, ...opts });
+        const data = await res.json().catch(() => ({ ok: false, error: `bad_json_${res.status}` }));
+        if (!res.ok && data.ok !== true) throw new Error(data.error || `http_${res.status}`);
+        return data;
+      }
+      const post = (path, body) => api(path, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}),
+      });
+
+      function TripChart({ bars, fills }) {
+        const ref = useRef(null);
+        useEffect(() => {
+          const el = ref.current;
+          const LWC = window.LightweightCharts;
+          if (!el || !LWC || !bars || !bars.length) return undefined;
+          const chart = LWC.createChart(el, {
+            width: el.clientWidth,
+            height: 280,
+            layout: { background: { type: "solid", color: "#0B1410" }, textColor: "#8AA39A", fontSize: 11 },
+            grid: { vertLines: { color: "rgba(31,49,40,0.6)" }, horzLines: { color: "rgba(31,49,40,0.6)" } },
+            rightPriceScale: { borderColor: "#1F3128" },
+            timeScale: { borderColor: "#1F3128", timeVisible: true, secondsVisible: false },
+            crosshair: { mode: LWC.CrosshairMode.Normal },
+          });
+          const series = chart.addCandlestickSeries({
+            upColor: "#38F2A1", downColor: "#FF6B6B", borderVisible: false,
+            wickUpColor: "#38F2A1", wickDownColor: "#FF6B6B",
+          });
+          const seen = new Set();
+          const data = [];
+          for (const b of bars) {
+            const time = Math.floor(Number(b.ts) / 1000);
+            if (!Number.isFinite(time) || seen.has(time)) continue;
+            seen.add(time);
+            data.push({ time, open: b.o, high: b.h, low: b.l, close: b.c });
+          }
+          data.sort((a, b) => a.time - b.time);
+          series.setData(data);
+          const markers = (fills || []).map((f) => ({
+            time: Math.floor(Number(f.filled_ts) / 1000),
+            position: f.side === "BUY" ? "belowBar" : "aboveBar",
+            color: f.side === "BUY" ? "#38F2A1" : "#FF6B6B",
+            shape: f.side === "BUY" ? "arrowUp" : "arrowDown",
+            text: `${f.side} ${f.qty}@${Number(f.px).toFixed(2)}`,
+          })).filter((m) => Number.isFinite(m.time));
+          if (markers.length) series.setMarkers(markers);
+          chart.timeScale().fitContent();
+          const onResize = () => chart.applyOptions({ width: el.clientWidth });
+          window.addEventListener("resize", onResize);
+          return () => {
+            window.removeEventListener("resize", onResize);
+            chart.remove();
+          };
+        }, [bars, fills]);
+        if (!bars || !bars.length) {
+          return <div className="chart-box muted" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>No bars for this window.</div>;
+        }
+        return <div className="chart-box" ref={ref} />;
+      }
+
+      function TripDetail({ trip, onSaved }) {
+        const [detail, setDetail] = useState(null);
+        const [err, setErr] = useState("");
+        const [text, setText] = useState(trip.journal_text || "");
+        const [grade, setGrade] = useState(trip.journal_grade || "");
+        const [tags, setTags] = useState(Array.isArray(trip.journal_tags) ? trip.journal_tags : []);
+        const [busy, setBusy] = useState(false);
+
+        useEffect(() => {
+          let alive = true;
+          api(`/timed/admin/desk-journal/trip?trip_id=${encodeURIComponent(trip.trip_id)}`)
+            .then((d) => {
+              if (!alive) return;
+              setDetail(d);
+              setText(d.trip?.journal_text || "");
+              setGrade(d.trip?.journal_grade || "");
+              setTags(d.trip?.journal_tags || []);
+            })
+            .catch((e) => { if (alive) setErr(String(e.message || e)); });
+          return () => { alive = false; };
+        }, [trip.trip_id]);
+
+        const toggleTag = (tag) => {
+          setTags((cur) => cur.includes(tag) ? cur.filter((t) => t !== tag) : [...cur, tag]);
+        };
+
+        const save = async () => {
+          setBusy(true); setErr("");
+          try {
+            await post("/timed/admin/desk-journal/journal", {
+              trip_id: trip.trip_id, journal_text: text, journal_grade: grade, journal_tags: tags,
+            });
+            onSaved?.();
+          } catch (e) {
+            setErr(String(e.message || e));
+          } finally {
+            setBusy(false);
+          }
+        };
+
+        const cap = detail?.capture;
+        return (
+          <div className="tt-card-pad" style={{ borderTop: "1px solid var(--tt-border)", background: "rgba(0,0,0,.15)" }}>
+            {err && <div className="neg" style={{ fontSize: 13, marginBottom: 8 }}>{err}</div>}
+            {!detail && !err && <div className="muted">Loading fills and chart…</div>}
+            {detail && (
+              <>
+                <div className="metrics" style={{ marginTop: 0 }}>
+                  <div className="tt-stat" style={{ cursor: "default" }}>
+                    <div className="tt-stat-label">Entry / exit</div>
+                    <div className="tt-stat-value" style={{ fontSize: 15 }}>{fmtPx(trip.entry_px)} → {fmtPx(trip.exit_px)}</div>
+                  </div>
+                  <div className="tt-stat" style={{ cursor: "default" }}>
+                    <div className="tt-stat-label">Hold</div>
+                    <div className="tt-stat-value" style={{ fontSize: 15 }}>{fmtHold(trip.hold_s)}</div>
+                  </div>
+                  <div className="tt-stat" style={{ cursor: "default" }}>
+                    <div className="tt-stat-label">MFE / MAE</div>
+                    <div className="tt-stat-value" style={{ fontSize: 15 }}>
+                      <span className="pos">{cap?.mfe_pct != null ? `${cap.mfe_pct >= 0 ? "+" : ""}${cap.mfe_pct.toFixed(1)}%` : "—"}</span>
+                      {" / "}
+                      <span className="neg">{cap?.mae_pct != null ? `${cap.mae_pct.toFixed(1)}%` : "—"}</span>
+                    </div>
+                  </div>
+                  <div className="tt-stat" style={{ cursor: "default" }}>
+                    <div className="tt-stat-label">DTE in</div>
+                    <div className="tt-stat-value" style={{ fontSize: 15 }}>{trip.dte_in == null ? "—" : trip.dte_in}</div>
+                  </div>
+                </div>
+                <TripChart bars={detail.bars} fills={detail.fills} />
+                <div className="dim" style={{ fontSize: 11, margin: "6px 0 12px" }}>
+                  {detail.bars_source ? `Chart: ${detail.bars_source} ${detail.bars_timeframe || ""}` : "Chart unavailable — fills still list below."}
+                </div>
+                <table className="fill-table">
+                  <thead>
+                    <tr><th>Time ET</th><th>Side</th><th>Qty</th><th>Price</th><th>Intent</th></tr>
+                  </thead>
+                  <tbody>
+                    {(detail.fills || []).map((f) => (
+                      <tr key={f.fill_id}>
+                        <td className="mono">{fmtTs(f.filled_ts)}</td>
+                        <td className={f.side === "BUY" ? "pos" : "neg"}>{f.side}</td>
+                        <td className="mono">{f.qty}</td>
+                        <td className="mono">{fmtPx(f.px)}</td>
+                        <td className="dim">{f.intent || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ marginTop: 16 }}>
+                  <div className="tt-stat-label" style={{ marginBottom: 8 }}>Journal</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                    {GRADES.map((g) => (
+                      <button key={g.id} type="button" className={`grade ${g.cls} ${grade === g.id ? "grade--on" : ""}`}
+                        onClick={() => setGrade(grade === g.id ? "" : g.id)}>{g.id}</button>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                    {TAGS.map((tag) => (
+                      <button key={tag} type="button" className={`tag ${tags.includes(tag) ? "tag--on" : ""}`}
+                        onClick={() => toggleTag(tag)}>{tag}</button>
+                    ))}
+                  </div>
+                  <textarea className="tt-textarea" value={text} onChange={(e) => setText(e.target.value)}
+                    placeholder="Plan, what printed, what to repeat or avoid next session." />
+                  <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center" }}>
+                    <button className="tt-btn tt-btn--primary" disabled={busy} onClick={save}>Save journal</button>
+                    {busy && <span className="spinner" />}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      }
+
+      function App() {
+        const [accounts, setAccounts] = useState([]);
+        const [accountId, setAccountId] = useState("");
+        const [from, setFrom] = useState("");
+        const [to, setTo] = useState("");
+        const [sessionDay, setSessionDay] = useState("");
+        const [unjournaled, setUnjournaled] = useState(true);
+        const [side, setSide] = useState("");
+        const [data, setData] = useState(null);
+        const [err, setErr] = useState("");
+        const [busy, setBusy] = useState("");
+        const [openId, setOpenId] = useState(null);
+        const fileRef = useRef(null);
+
+        const loadAccounts = useCallback(async () => {
+          const res = await api("/timed/admin/desk-journal/accounts");
+          setAccounts(res.accounts || []);
+          setAccountId((cur) => {
+            if (cur) return cur;
+            const margin = (res.accounts || []).find((a) => /margin/i.test(a.label || a.account_id || ""));
+            return (margin || res.accounts?.[0])?.account_id || "";
+          });
+          const day = res.default_from || res.default_to || "";
+          setSessionDay(day);
+          setFrom((cur) => cur || day);
+          setTo((cur) => cur || res.default_to || day);
+        }, []);
+
+        const loadTrips = useCallback(async (acct, dayFrom, dayTo, onlyOpen, sideFilter) => {
+          if (!acct) return;
+          const qs = new URLSearchParams({ account_id: acct, from: dayFrom || "", to: dayTo || "" });
+          if (onlyOpen) qs.set("unjournaled", "1");
+          if (sideFilter) qs.set("side", sideFilter);
+          const res = await api(`/timed/admin/desk-journal/trips?${qs.toString()}`);
+          setData(res);
+        }, []);
+
+        useEffect(() => { loadAccounts().catch((e) => setErr(String(e.message || e))); }, [loadAccounts]);
+        useEffect(() => {
+          if (!accountId || !from || !to) return;
+          loadTrips(accountId, from, to, unjournaled, side).catch((e) => setErr(String(e.message || e)));
+        }, [accountId, from, to, unjournaled, side, loadTrips]);
+
+        const refresh = () => loadTrips(accountId, from, to, unjournaled, side);
+
+        const sync = async () => {
+          setBusy("sync"); setErr("");
+          try {
+            const res = await post("/timed/admin/desk-journal/sync", { user_id: accountId, from, to });
+            if (res.ok === false) throw new Error(res.error || "sync_failed");
+            await refresh();
+          } catch (e) { setErr(String(e.message || e)); }
+          finally { setBusy(""); }
+        };
+
+        const importCsv = async (file) => {
+          if (!file) return;
+          setBusy("import"); setErr("");
+          try {
+            const csv = await file.text();
+            const res = await post("/timed/admin/desk-journal/import", { account_id: accountId, csv });
+            if (res.ok === false) throw new Error(res.error || "import_failed");
+            await refresh();
+          } catch (e) { setErr(String(e.message || e)); }
+          finally { setBusy(""); }
+        };
+
+        const m = data?.metrics;
+        const trips = data?.trips || [];
+        const acct = accounts.find((a) => a.account_id === accountId);
+
+        return (
+          <div className="tt-page">
+            <h1 className="tt-page-title">Desk Journal</h1>
+            <p className="tt-page-lede">
+              After the session, pick a connected account, review the round-trips, and write the note while the tape is still fresh.
+              This book is the broker sleeve — not the model Trade Review queue.
+            </p>
+
+            <div className="toolbar">
+              <select className="tt-select" value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ minWidth: 260 }}>
+                <option value="">Select an account</option>
+                {accounts.map((a) => (
+                  <option key={a.account_id} value={a.account_id}>
+                    {a.label || a.account_id}{a.connected ? "" : " (imported)"}
+                  </option>
+                ))}
+              </select>
+              <input className="tt-input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <input className="tt-input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+              <button className="tt-btn tt-btn--ghost" type="button" onClick={() => { if (sessionDay) { setFrom(sessionDay); setTo(sessionDay); } }}>Last session</button>
+              <button className="tt-btn tt-btn--primary" type="button" disabled={!accountId || !!busy} onClick={sync}>
+                {busy === "sync" ? "Syncing…" : "Sync Webull"}
+              </button>
+              <button className="tt-btn tt-btn--ghost" type="button" disabled={!accountId || !!busy} onClick={() => fileRef.current?.click()}>
+                {busy === "import" ? "Importing…" : "Import CSV"}
+              </button>
+              <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(e) => importCsv(e.target.files?.[0])} />
+              <button className="tt-btn tt-btn--ghost" type="button" onClick={() => refresh()}>Refresh</button>
+              {busy && <span className="spinner" />}
+            </div>
+            <div className="dim" style={{ fontSize: 12 }}>
+              {acct?.syncable
+                ? "Sync pulls the newest 100 Webull fills in the window. Import the Webull order-history CSV to backfill older days."
+                : "This account is CSV-only until a live Webull sleeve is selected."}
+            </div>
+
+            {m && (
+              <div className="metrics">
+                <button className={`tt-stat ${side === "" && !unjournaled ? "tt-stat--on" : ""}`} onClick={() => { setSide(""); setUnjournaled(false); }}>
+                  <div className="tt-stat-label">Closed</div>
+                  <div className="tt-stat-value">{m.n_closed}</div>
+                </button>
+                <button className="tt-stat" style={{ cursor: "default" }}>
+                  <div className="tt-stat-label">P&L</div>
+                  <div className={`tt-stat-value ${signClass(m.pnl)}`}>{fmtUsd(m.pnl)}</div>
+                </button>
+                <button className={`tt-stat ${side === "winners" ? "tt-stat--on" : ""}`} onClick={() => setSide(side === "winners" ? "" : "winners")}>
+                  <div className="tt-stat-label">Win rate</div>
+                  <div className="tt-stat-value">{fmtPct(m.win_rate)}</div>
+                </button>
+                <button className="tt-stat" style={{ cursor: "default" }}>
+                  <div className="tt-stat-label">Avg win / loss</div>
+                  <div className="tt-stat-value" style={{ fontSize: 15 }}>
+                    <span className="pos">{fmtUsd(m.avg_win)}</span>
+                    <span className="dim"> / </span>
+                    <span className="neg">{fmtUsd(m.avg_loss)}</span>
+                  </div>
+                </button>
+                <button className={`tt-stat ${side === "overnight" ? "tt-stat--on" : ""}`} onClick={() => setSide(side === "overnight" ? "" : "overnight")}>
+                  <div className="tt-stat-label">Overnight</div>
+                  <div className={`tt-stat-value ${signClass(m.overnight_pnl)}`}>{fmtUsd(m.overnight_pnl)}</div>
+                </button>
+                <button className={`tt-stat ${side === "after13" ? "tt-stat--on" : ""}`} onClick={() => setSide(side === "after13" ? "" : "after13")}>
+                  <div className="tt-stat-label">Exit after 13:00</div>
+                  <div className={`tt-stat-value ${signClass(m.after_13_pnl)}`}>{fmtUsd(m.after_13_pnl)}</div>
+                </button>
+                <button className={`tt-stat ${unjournaled ? "tt-stat--on" : ""}`} onClick={() => setUnjournaled(!unjournaled)}>
+                  <div className="tt-stat-label">Unjournaled</div>
+                  <div className="tt-stat-value">{m.unjournaled}</div>
+                </button>
+                <button className="tt-stat" style={{ cursor: "default" }}>
+                  <div className="tt-stat-label">Median hold</div>
+                  <div className="tt-stat-value" style={{ fontSize: 16 }}>{fmtHold(m.median_hold_s)}</div>
+                </button>
+              </div>
+            )}
+
+            {err && <div className="neg" style={{ fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+            <div className="tt-card" style={{ overflow: "hidden" }}>
+              <div className="trade-head">
+                <span />
+                <span>Contract</span>
+                <span>Qty</span>
+                <span className="hide-sm">In</span>
+                <span className="hide-sm">Out</span>
+                <span className="hide-sm">Hold</span>
+                <span>P&L</span>
+                <span>Journal</span>
+              </div>
+              {!accountId && <div className="tt-card-pad muted">Select an account to load trips.</div>}
+              {accountId && !data && <div className="tt-card-pad muted">Loading trips…</div>}
+              {data && trips.length === 0 && (
+                <div className="tt-card-pad muted">
+                  No trips in this window. Sync the sleeve or import the Webull CSV, then clear the Unjournaled filter if notes already exist.
+                </div>
+              )}
+              {trips.map((t) => {
+                const open = openId === t.trip_id;
+                const journaled = !!(t.journal_text || t.journal_grade);
+                return (
+                  <div key={t.trip_id}>
+                    <div className={`trade-row ${open ? "trade-row--on" : ""}`} onClick={() => setOpenId(open ? null : t.trip_id)}>
+                      <span className="dim">{open ? "▾" : "▸"}</span>
+                      <div>
+                        <div style={{ fontWeight: 700 }}>{t.label || t.symbol}</div>
+                        <div className="dim" style={{ fontSize: 11 }}>{fmtTs(t.entry_ts)} → {fmtTs(t.exit_ts)}</div>
+                      </div>
+                      <span className="mono">{t.qty}</span>
+                      <span className="mono hide-sm">{fmtPx(t.entry_px)}</span>
+                      <span className="mono hide-sm">{fmtPx(t.exit_px)}</span>
+                      <span className="mono hide-sm">{fmtHold(t.hold_s)}</span>
+                      <span className={`mono ${signClass(t.pnl)}`}>{fmtUsd(t.pnl)}</span>
+                      <span>
+                        {t.status === "open"
+                          ? <span className="pill pill--open">Open</span>
+                          : journaled
+                            ? <span className="pill pill--done">{t.journal_grade || "Noted"}</span>
+                            : <span className="pill pill--todo">Write</span>}
+                      </span>
+                    </div>
+                    {open && <TripDetail trip={t} onSaved={refresh} />}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="footer-note">Market data powered by Twelve Data. Option path charts from Alpaca.</p>
+          </div>
+        );
+      }
+
+      const AuthGate = window.TimedAuthGate;
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(
+        AuthGate
+          ? <AuthGate apiBase={API_BASE} requiredTier="admin">{() => <App />}</AuthGate>
+          : <App />
+      );
+    </script>
+  </body>
+</html>
