@@ -20,6 +20,8 @@ import {
   annotateCloudPivotLeaderFollows,
   cloudPivotFollowersOf,
   CLOUD_PIVOT_FAMILY,
+  cloudPivotKeepFrac,
+  cloudPivotConviction,
 } from "./tt-cloud-pivot.js";
 
 /** Wed 2026-07-15 11:15 ET ≈ midday curl window. */
@@ -221,16 +223,46 @@ describe("tt_cloud_pivot", () => {
     expect(trim?.reason).toBe("tt_cloud_pivot_5_12_close_trim");
   });
 
-  it("profit-lock banks a retraced winner before the lagging cloud stop", () => {
+  it("profit-lock trims a retraced winner while the 1H cloud still backs it", () => {
     // Healthy 5/12 (no cross-down) and no magnet lo/hi, so neither the 5/12
     // loss nor the magnet-tag fires. A +5% MFE run that retraced to +2% (past
-    // the 50% keep floor of 2.5%) must be banked by the profit-lock instead of
-    // round-tripping to max_loss.
+    // the 60% keep floor of 3.0%) banks half; the 1H 34/50 is still bull so
+    // the runner stays on to trail.
     const base = { tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" }, direction: "LONG", currentPrice: 100, positionAgeMin: 20, trimmedPct: 0 };
     const res = evaluateTtCloudPivotExit({ ...base, pnlPct: 2, mfePct: 5 });
+    expect(res?.reason).toBe("tt_cloud_pivot_profit_lock_trim");
+    expect(res?.stage).toBe("trim");
+    expect(res?.metadata?.keep_floor_pct).toBe(3);
+    expect(res?.metadata?.keep_frac).toBe(0.6);
+  });
+
+  it("profit-lock exits in full when the 1H 34/50 has flipped against the trade", () => {
+    const td = payload();
+    td.tf_tech["1H"].ripster.c34_50 = { bull: false, bear: true, below: true };
+    const res = evaluateTtCloudPivotExit({
+      tickerData: td, openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" },
+      direction: "LONG", currentPrice: 100, pnlPct: 2, mfePct: 5, positionAgeMin: 20, trimmedPct: 0,
+    });
     expect(res?.reason).toBe("tt_cloud_pivot_profit_lock");
     expect(res?.stage).toBe("exit");
-    expect(res?.metadata?.keep_floor_pct).toBe(2.5);
+    expect(res?.metadata?.one_h_lost).toBe(true);
+  });
+
+  it("profit-lock runner (already trimmed) exits at 25% of peak and never red", () => {
+    const base = { tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" }, direction: "LONG", currentPrice: 100, positionAgeMin: 40, trimmedPct: 0.5, mfePct: 5 };
+    // +2.0% on a +5% peak: above the 1.25% runner floor -> hold the runner.
+    expect(evaluateTtCloudPivotExit({ ...base, pnlPct: 2 })?.reason).not.toBe("tt_cloud_pivot_profit_lock");
+    const res = evaluateTtCloudPivotExit({ ...base, pnlPct: 1.1 });
+    expect(res?.reason).toBe("tt_cloud_pivot_profit_lock");
+    expect(res?.metadata?.runner).toBe(true);
+    expect(res?.metadata?.runner_floor_pct).toBe(1.25);
+  });
+
+  it("keep fraction escalates with the peak", () => {
+    expect(cloudPivotKeepFrac(1.5)).toBe(0.4);
+    expect(cloudPivotKeepFrac(3)).toBe(0.5);
+    expect(cloudPivotKeepFrac(6)).toBe(0.6);
+    expect(cloudPivotKeepFrac(12)).toBe(0.7);
   });
 
   it("profit-lock holds a winner still near its peak", () => {
@@ -253,11 +285,11 @@ describe("tt_cloud_pivot", () => {
     const base = { tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" }, direction: "LONG", currentPrice: 100, positionAgeMin: 20, trimmedPct: 0, mfePct: 5 };
     const off = evaluateTtCloudPivotExit({ ...base, pnlPct: 2, daCfg: { deep_audit_tt_cloud_pivot_profit_lock_enabled: "false" } });
     expect(off?.reason).not.toBe("tt_cloud_pivot_profit_lock");
-    // keep 30% → floor 1.5%: pnl 2 holds, pnl 1.0 exits.
+    // flat keep 30% → floor 1.5%: pnl 2 holds, pnl 1.0 trims (1H intact).
     const hold = evaluateTtCloudPivotExit({ ...base, pnlPct: 2, daCfg: { deep_audit_tt_cloud_pivot_profit_lock_keep_frac: "0.3" } });
-    expect(hold?.reason).not.toBe("tt_cloud_pivot_profit_lock");
+    expect(String(hold?.reason || "")).not.toContain("tt_cloud_pivot_profit_lock");
     const exit = evaluateTtCloudPivotExit({ ...base, pnlPct: 1.0, daCfg: { deep_audit_tt_cloud_pivot_profit_lock_keep_frac: "0.3" } });
-    expect(exit?.reason).toBe("tt_cloud_pivot_profit_lock");
+    expect(exit?.reason).toBe("tt_cloud_pivot_profit_lock_trim");
     expect(exit?.metadata?.keep_floor_pct).toBe(1.5);
   });
 
@@ -286,8 +318,8 @@ describe("tt_cloud_pivot", () => {
       positionAgeMin: 4000,
       trimmedPct: 0,
     });
-    expect(res?.reason).toBe("tt_cloud_pivot_profit_lock");
-    expect(res?.metadata?.keep_floor_pct).toBe(2.59);
+    expect(res?.reason).toBe("tt_cloud_pivot_profit_lock_trim");
+    expect(res?.metadata?.keep_floor_pct).toBe(3.11);
   });
 
   it("profit-lock fires without a 10m 5/12 print", () => {
@@ -301,7 +333,7 @@ describe("tt_cloud_pivot", () => {
       positionAgeMin: 4000,
       trimmedPct: 0,
     });
-    expect(res?.reason).toBe("tt_cloud_pivot_profit_lock");
+    expect(res?.reason).toBe("tt_cloud_pivot_profit_lock_trim");
   });
 
   it("does not treat a canonical core path as a Cloud Pivot trade", () => {
@@ -762,5 +794,31 @@ describe("cloudDeskPlanCopy", () => {
     expect(follow.punch).not.toMatch(/BTCUSD|lead|toward/i);
     expect(follow.scan).toContain("WAIT");
     expect(cloudMagnetCoverLine({ px: 290 }, "ahead")).toBe("$290.00 next cover");
+  });
+});
+
+describe("cloud pivot conviction (entry budget ranking)", () => {
+  const det = (over = {}) => ({
+    fires: true, direction: "LONG",
+    clouds: { c34_50_10: "LONG", c34_50_1h: "LONG" },
+    ...over,
+  });
+  it("both 34/50 clouds aligned is the baseline convicted setup (2)", () => {
+    expect(cloudPivotConviction(det())).toBe(2);
+  });
+  it("leader, catalyst and a magnet ahead add", () => {
+    expect(cloudPivotConviction(det({
+      leader_follow: { leader: "NVDA", direction: "LONG" },
+      session_plan: { catalyst: "cpi" },
+      cloud_magnet: { ahead: true },
+    }))).toBe(4.5);
+  });
+  it("a soft-opposed cloud subtracts and drops below the floor", () => {
+    expect(cloudPivotConviction(det({ clouds: { c34_50_10: "SHORT", c34_50_1h: "LONG" } }))).toBe(0);
+    expect(cloudPivotConviction(det({ clouds: { c34_50_10: null, c34_50_1h: "LONG" } }))).toBe(1);
+  });
+  it("proposal carries conviction", () => {
+    const prop = buildCloudPivotPaperQueueProposal(payload());
+    if (prop) expect(typeof prop.conviction).toBe("number");
   });
 });
