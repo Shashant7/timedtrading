@@ -2492,6 +2492,7 @@ const ROUTES = [
   ["GET",  "/timed/admin/broker-intents",                "GET /timed/admin/broker-intents"],
   ["POST", "/timed/admin/broker-intents/drain",          "POST /timed/admin/broker-intents/drain"],
   ["GET",  "/timed/admin/convexity-tickets",             "GET /timed/admin/convexity-tickets"],
+  ["GET",  "/timed/admin/execution/report-card",         "GET /timed/admin/execution/report-card"],
   ["POST", "/timed/admin/convexity-tickets/mark",        "POST /timed/admin/convexity-tickets/mark"],
   ["GET",  "/timed/broker/positions",                    "GET /timed/broker/positions"],
   // 2026-08-13 — Day timeline (model actions × mirror outcomes) + scoped
@@ -85714,6 +85715,35 @@ export default {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
+      // 2026-09-05 — execution report card: the grade the discipline plan
+      // is read against (baseline by lane, entry-hour buckets, MFE integrity,
+      // caps counterfactual). Pure module over trades + daily candles.
+      if (routeKey === "GET /timed/admin/execution/report-card") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { gradeExecution } = await import("./execution-report-card.js");
+          const days = Math.max(7, Math.min(120, Number(url.searchParams.get("days")) || 42));
+          const since = Date.now() - days * 86400000;
+          const rows = (await env.DB.prepare(
+            `SELECT ticker, direction, status, entry_ts, exit_ts, pnl_pct, max_favorable_excursion,
+                    entry_path, exit_reason, entry_price
+               FROM trades WHERE entry_ts >= ?1 AND (run_id IS NULL OR run_id = '') ORDER BY entry_ts LIMIT 2000`,
+          ).bind(since).all())?.results || [];
+          const tickers = [...new Set(rows.map((r) => String(r.ticker || "").toUpperCase()))].filter(Boolean).slice(0, 300);
+          const candles = {};
+          if (tickers.length) {
+            const marks = tickers.map(() => "?").join(",");
+            const cRows = (await env.DB.prepare(
+              `SELECT ticker, ts, h, l FROM ticker_candles WHERE tf = 'D' AND ts >= ? AND ticker IN (${marks})`,
+            ).bind(since - 3 * 86400000, ...tickers).all())?.results || [];
+            for (const c of cRows) (candles[String(c.ticker).toUpperCase()] = candles[String(c.ticker).toUpperCase()] || []).push(c);
+          }
+          return sendJSON(gradeExecution(rows, candles, { days }), 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
       if (routeKey === "POST /timed/admin/convexity-tickets/mark") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -85734,7 +85764,8 @@ export default {
         try {
           const { drainBrokerIntents } = await import("./broker-intents.js");
           const { forwardOrderToBridge: _fwd } = await import("./broker-bridge-client.js");
-          const out = await drainBrokerIntents(env, { forward: _fwd });
+          const { forwardOptionsClose: _fwdOpt } = await import("./convexity-mirror.js");
+          const out = await drainBrokerIntents(env, { forward: _fwd, forwardOptions: _fwdOpt });
           return sendJSON({ ok: true, ...out }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -105951,7 +105982,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const { drainBrokerIntents } = await import("./broker-intents.js");
           const { forwardOrderToBridge: _fwd } = await import("./broker-bridge-client.js");
-          const out = await drainBrokerIntents(env, { forward: _fwd });
+          const { forwardOptionsClose: _fwdOpt } = await import("./convexity-mirror.js");
+          const out = await drainBrokerIntents(env, { forward: _fwd, forwardOptions: _fwdOpt });
           if (out.scanned > 0 || out.expired > 0) {
             console.log(
               `[BROKER INTENT] drain scanned=${out.scanned} attempted=${out.attempted}`

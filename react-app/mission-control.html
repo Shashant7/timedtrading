@@ -1384,6 +1384,7 @@
             leaps:           { enabled: false, daily_cap: 1, max_per_order_usd: 500, max_loss_per_order_usd: 500 },
             straddle:        { enabled: false, daily_cap: 1, max_per_order_usd: 300, max_loss_per_order_usd: 200 },
             moonshot:        { enabled: false, daily_cap: 1, max_per_order_usd: 100, max_loss_per_order_usd: 100 },
+            lotto:           { enabled: false, daily_cap: 1, max_per_order_usd: 250, max_loss_per_order_usd: 250 },
             index_trend_letf: { enabled: false, daily_cap: 2, max_per_order_usd: 2000 },
           };
           const out = {};
@@ -1409,6 +1410,7 @@
           { key: "leaps",           label: "LEAPs",          showLoss: true  },
           { key: "straddle",        label: "Straddle",       showLoss: true  },
           { key: "moonshot",        label: "Moonshot",       showLoss: true  },
+          { key: "lotto",           label: "Convexity Ticket", showLoss: true },
           { key: "index_trend_letf", label: "Index Trend LETF", showLoss: false },
         ];
 
