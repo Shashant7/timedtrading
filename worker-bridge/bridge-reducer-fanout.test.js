@@ -50,4 +50,17 @@ describe("pickReducerFanoutAccounts", () => {
     expect(accountMatchesManifestRow(ROTH, HELD)).toBe(true);
     expect(accountMatchesManifestRow(CASH, HELD)).toBe(false);
   });
+
+  it("holdings truth: a suppressed sleeve that still holds shares stays in the fan-out (DPZ)", () => {
+    const suppressedHeld = { ...HELD, mirror_suppressed: 1, sync_state: "mirror_suppressed" };
+    expect(rowHoldsReducerQty(suppressedHeld)).toBe(true);
+    const orphanHeld = { ...HELD, sync_state: "mothership_orphan" };
+    expect(rowHoldsReducerQty(orphanHeld)).toBe(true);
+    expect(pickReducerFanoutAccounts([ROTH, CASH, FUT], [suppressedHeld])).toHaveLength(1);
+  });
+
+  it("holdings truth: suppressed with zero remaining is still out", () => {
+    expect(rowHoldsReducerQty({ ...HELD, mirror_suppressed: 1, broker_remaining_qty: 0 })).toBe(false);
+    expect(rowHoldsReducerQty({ ...HELD, sync_state: "expired" })).toBe(false);
+  });
 });
