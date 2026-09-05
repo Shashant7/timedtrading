@@ -312,6 +312,7 @@
     { href: "/trade-autopsy.html",         label: "Trade Autopsy" },
     { href: "/trade-review.html",          label: "Trade Review" },
     { href: "/desk-journal.html",          label: "Desk Journal" },
+    { href: "/execution-review.html",      label: "Execution Review" },
     { href: "/admin-clients.html",         label: "Admin Clients" },
     { href: "/model-performance.html",     label: "Model Performance" },
     { href: "/system-intelligence.html",   label: "System Intelligence" },
@@ -463,6 +464,7 @@
       // (FAQ/Learn order mismatch + FAQ looking "active").
       "/trade-review",
       "/desk-journal",
+      "/execution-review",
     ]);
     if (JOURNEY_PATHS.has(path)) {
       // If a prior version of this script injected the strip on a

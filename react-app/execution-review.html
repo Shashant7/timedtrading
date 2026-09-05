@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin — Execution Review — Timed Trading</title>
+    <meta name="description" content="Operator-only: the weekly execution review. The ledger grades the execution-discipline plan every Friday at 5 PM ET." />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3C%2Fsvg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="auth-gate.js?v=20260601-nav-inject"></script>
+    <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
+    <script src="tt-nav-extras.js?v=20260905-exec-review-nav" defer></script>
+    <script src="tt-global-search.js?v=20260610-verda3" defer></script>
+    <style>
+      :root {
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-border-hi: var(--vf-moss-hi, #2A4136);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-text-faint: #51635A;
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
+        --tt-red: #FF6B6B;
+        --tt-amber: #F5C451;
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --tt-font-display: "Manrope", "Inter", -apple-system, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--tt-bg-base); color: var(--tt-text); font-family: var(--tt-font); -webkit-font-smoothing: antialiased; }
+      main { max-width: 1280px; margin: 0 auto; padding: 24px 20px 96px; }
+      h1 { font-family: var(--tt-font-display); font-size: 26px; font-weight: 800; margin: 0; letter-spacing: -0.01em; }
+      h2 { font-family: var(--tt-font-display); font-size: 15px; font-weight: 700; margin: 0 0 10px; color: var(--tt-text); }
+      .sub { color: var(--tt-text-muted); font-size: 13px; margin: 6px 0 0; }
+      .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+      .actions { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+      .btn { appearance: none; border: 1px solid var(--tt-border-hi); background: var(--tt-bg-elev); color: var(--tt-text); border-radius: 8px; padding: 7px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+      .btn:hover { border-color: var(--tt-accent); }
+      .btn:disabled { opacity: 0.5; cursor: default; }
+      .btn--accent { background: var(--tt-accent-dim); border-color: var(--tt-accent); color: var(--tt-accent); }
+      .card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 14px; padding: 16px 18px; }
+      .grid { display: grid; gap: 14px; }
+      .grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      @media (max-width: 980px) { .grid--2, .grid--3 { grid-template-columns: 1fr; } }
+      .badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; font-weight: 800; font-size: 12px; letter-spacing: 0.06em; }
+      .badge--pass { background: rgba(56,242,161,0.14); color: var(--tt-accent); border: 1px solid rgba(56,242,161,0.4); }
+      .badge--fail { background: rgba(255,107,107,0.12); color: var(--tt-red); border: 1px solid rgba(255,107,107,0.4); }
+      .badge--insufficient { background: rgba(245,196,81,0.12); color: var(--tt-amber); border: 1px solid rgba(245,196,81,0.4); }
+      .checks { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+      .checks li { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: baseline; font-size: 13px; }
+      .checks .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 3px; }
+      .dot--ok { background: var(--tt-accent); }
+      .dot--miss { background: var(--tt-red); }
+      .checks .target { color: var(--tt-text-dim); font-family: var(--tt-font-mono); font-size: 11px; }
+      table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+      th { text-align: left; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tt-text-faint); padding: 6px 8px; border-bottom: 1px solid var(--tt-border); }
+      td { padding: 6px 8px; border-bottom: 1px solid var(--tt-border); font-family: var(--tt-font-mono); font-size: 12px; }
+      td.label { font-family: var(--tt-font); color: var(--tt-text-muted); }
+      tr.section td.label { color: var(--tt-text); font-weight: 600; }
+      .pos { color: var(--tt-accent); }
+      .neg { color: var(--tt-red); }
+      .dim { color: var(--tt-text-dim); }
+      .kv { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; font-size: 12.5px; }
+      .kv .k { color: var(--tt-text-muted); }
+      .kv .v { font-family: var(--tt-font-mono); }
+      .note { font-size: 11.5px; color: var(--tt-text-dim); margin-top: 10px; line-height: 1.5; }
+      .hist { display: flex; gap: 8px; flex-wrap: wrap; }
+      .hist .pill { border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 10px; min-width: 128px; background: var(--tt-bg-elev); }
+      .hist .pill .l { font-size: 10.5px; color: var(--tt-text-dim); }
+      .hist .pill .s { font-weight: 800; font-size: 12px; letter-spacing: 0.05em; margin-top: 2px; }
+      .hist .pill .n { font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); margin-top: 2px; }
+      .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--tt-border-hi); border-top-color: var(--tt-accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .footer-note { margin-top: 28px; font-size: 11px; color: var(--tt-text-faint); }
+      .toast { font-size: 12px; color: var(--tt-text-muted); margin-top: 8px; }
+      body:not([data-user-role="admin"]) a[data-admin-only] { display: none !important; }
+      nav.topnav { position: sticky; top: 0; z-index: 50; background: rgba(11, 20, 16, 0.92); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.08)); }
+      .nav-row { max-width: 1600px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .nav-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--tt-text, #e8f0ec); font-weight: 700; }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link { font-size: 12.5px; color: var(--tt-text-muted, #8aa399); text-decoration: none; padding: 6px 12px; border-radius: 8px; }
+      .nav-link:hover { color: var(--tt-text, #e8f0ec); background: rgba(255,255,255,0.05); }
+      .nav-link.active { color: var(--tt-accent, #38F2A1); background: rgba(56, 242, 161, 0.12); }
+    </style>
+  </head>
+  <body class="vf-page">
+    <div id="global-nav-root"></div>
+    <script src="shared-nav.js?v=20260817-trade-review-nav"></script>
+    <div id="root"></div>
+    <script type="text/babel">
+      const { useState, useEffect, useCallback } = React;
+      const API_BASE = "";
+      const fetchOpts = { credentials: "include", cache: "no-store" };
+
+      const fmt = (v, suffix = "") => (v === null || v === undefined || v === "" ? "n/a" : `${v}${suffix}`);
+      const signed = (v, suffix = "pp") => {
+        if (v === null || v === undefined) return "n/a";
+        const n = Number(v);
+        return `${n > 0 ? "+" : ""}${n}${suffix}`;
+      };
+      const cls = (v) => (v === null || v === undefined ? "dim" : Number(v) >= 0 ? "pos" : "neg");
+      const fmtTs = (ms) => (ms ? new Date(Number(ms)).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " ET" : "n/a");
+
+      function SummaryRow({ label, s, section }) {
+        if (!s || !s.n) {
+          return <tr className={section ? "section" : ""}><td className="label">{label}</td><td className="dim" colSpan={4}>n=0</td></tr>;
+        }
+        return (
+          <tr className={section ? "section" : ""}>
+            <td className="label">{label}</td>
+            <td>{s.n}</td>
+            <td>{fmt(s.win_rate_pct, "%")}</td>
+            <td className={cls(s.sum_pct)}>{signed(s.sum_pct)}</td>
+            <td className={cls(s.median_pct)}>{signed(s.median_pct)}</td>
+          </tr>
+        );
+      }
+
+      function GradePanel({ title, grade, subtitle }) {
+        if (!grade) return <div className="card"><h2>{title}</h2><div className="dim" style={{ fontSize: 13 }}>no data</div></div>;
+        const b = grade.baseline || {};
+        const hours = grade.core?.by_entry_hour_et || {};
+        const fam = grade.family?.by_direction || {};
+        const gb = grade.mfe?.giveback || {};
+        const caps = grade.caps_counterfactual || {};
+        return (
+          <div className="card">
+            <h2>{title}</h2>
+            {subtitle && <div className="sub" style={{ marginTop: -6, marginBottom: 10 }}>{subtitle}</div>}
+            <table>
+              <thead><tr><th>slice</th><th>n</th><th>win</th><th>sum</th><th>median</th></tr></thead>
+              <tbody>
+                <SummaryRow label="all closed" s={b.all} section />
+                <SummaryRow label="core" s={b.core} />
+                <SummaryRow label="paper family" s={b.family} />
+                {Object.entries(hours).map(([k, s]) => <SummaryRow key={k} label={`core ${k} ET`} s={s} />)}
+                <SummaryRow label="family LONG" s={fam.LONG} />
+                <SummaryRow label="family SHORT" s={fam.SHORT} />
+                <SummaryRow label="caps would have blocked" s={caps.blocked} />
+                <SummaryRow label="caps would have kept" s={caps.kept} />
+              </tbody>
+            </table>
+            <div className="note">
+              MFE integrity: {grade.mfe?.corrupt_n ?? 0} impossible peak{(grade.mfe?.corrupt_n ?? 0) === 1 ? "" : "s"} flagged and excluded.
+              Winners (peak ≥ 1.5%) closing under 40% of peak — core {gb.core?.closed_below_40pct ?? 0}/{gb.core?.armed ?? 0}, family {gb.family?.closed_below_40pct ?? 0}/{gb.family?.armed ?? 0}.
+              Trades: {grade.trades?.closed ?? 0} closed, {grade.trades?.open ?? 0} open.
+            </div>
+          </div>
+        );
+      }
+
+      function App() {
+        const [review, setReview] = useState(null);
+        const [history, setHistory] = useState([]);
+        const [busy, setBusy] = useState(false);
+        const [err, setErr] = useState(null);
+        const [toast, setToast] = useState(null);
+
+        const load = useCallback(async (fresh = false) => {
+          setBusy(true); setErr(null);
+          try {
+            const [r, h] = await Promise.all([
+              fetch(`${API_BASE}/timed/admin/execution/review${fresh ? "?fresh=1" : ""}`, fetchOpts),
+              fetch(`${API_BASE}/timed/admin/execution/review?history=1`, fetchOpts),
+            ]);
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${r.status}`);
+            setReview(j);
+            const hj = await h.json().catch(() => ({}));
+            setHistory(Array.isArray(hj?.history) ? hj.history : []);
+          } catch (e) { setErr(String(e?.message || e)); }
+          finally { setBusy(false); }
+        }, []);
+
+        useEffect(() => { load(false); }, [load]);
+
+        const runNow = async (withEmail) => {
+          setBusy(true); setToast(null);
+          try {
+            const q = withEmail ? "?email=1&notify=1" : "?notify=0";
+            const r = await fetch(`${API_BASE}/timed/admin/execution/review${q}`, { ...fetchOpts, method: "POST" });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || !j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+            setToast(`Review stored (${j.verdict?.status}).${withEmail ? (j.email?.sent ? ` Email sent to ${j.email.to}.` : ` Email not sent: ${j.email?.reason || "unknown"}.`) : ""}`);
+            await load(false);
+          } catch (e) { setToast(`Run failed: ${String(e?.message || e)}`); setBusy(false); }
+        };
+
+        const v = review?.verdict || null;
+        const od = review?.options_desk || null;
+        const bi = review?.broker_intents || {};
+        const knobs = review?.knobs || {};
+
+        return (
+          <main>
+            <div className="head">
+              <div>
+                <h1>Execution Review</h1>
+                <div className="sub">
+                  The ledger grades the execution-discipline plan. Runs every Friday at 5 PM ET; emailed to the operator; one line to Discord.
+                  {review && <> Latest: <strong>{review.label}</strong> · generated {fmtTs(review.generated_at)} · source {review.source || "kv"}.</>}
+                </div>
+              </div>
+              <div className="actions">
+                <button className="btn" disabled={busy} onClick={() => load(true)}>{busy ? <span className="spinner" /> : "Recompute"}</button>
+                <button className="btn" disabled={busy} onClick={() => runNow(false)}>Store snapshot</button>
+                <button className="btn btn--accent" disabled={busy} onClick={() => runNow(true)}>Run + email operator</button>
+              </div>
+            </div>
+            {toast && <div className="toast">{toast}</div>}
+            {err && <div className="card" style={{ borderColor: "rgba(255,107,107,0.4)", color: "var(--tt-red)", marginBottom: 14 }}>{err}</div>}
+            {!review && !err && <div className="card"><span className="spinner" /> Loading the latest review…</div>}
+
+            {review && (
+              <>
+                <div className="grid grid--2" style={{ marginBottom: 14 }}>
+                  <div className="card">
+                    <h2>Verdict — since the changes ({review.changes_since})</h2>
+                    <span className={`badge badge--${v?.status || "insufficient"}`}>
+                      {v?.status === "pass" ? "PASS" : v?.status === "fail" ? "FAIL" : `INSUFFICIENT · ${v?.closed_n ?? 0} closed`}
+                    </span>
+                    <ul className="checks">
+                      {(v?.checks || []).map((c) => (
+                        <li key={c.name}>
+                          <span className={`dot ${c.ok ? "dot--ok" : "dot--miss"}`} />
+                          <span>{c.name}: <strong>{fmt(c.value)}</strong></span>
+                          <span className="target">{c.target}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="note">A pass needs 30 closed trades since the changes. Until then the verdict is a progress read, not a grade.</div>
+                  </div>
+                  <div className="card">
+                    <h2>Twelve-week history</h2>
+                    {history.length === 0 ? <div className="dim" style={{ fontSize: 13 }}>First review not stored yet.</div> : (
+                      <div className="hist">
+                        {history.map((h) => (
+                          <div className="pill" key={h.generated_at}>
+                            <div className="l">{h.label}</div>
+                            <div className={`s ${h.status === "pass" ? "pos" : h.status === "fail" ? "neg" : ""}`} style={h.status === "insufficient" ? { color: "var(--tt-amber)" } : undefined}>{String(h.status || "").toUpperCase()}</div>
+                            <div className="n">wk n={h.week_all?.n ?? 0} {signed(h.week_all?.sum_pct)} · core since n={h.core_since?.n ?? 0} {signed(h.core_since?.sum_pct)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid--3" style={{ marginBottom: 14 }}>
+                  <GradePanel title="This week" grade={review.week} subtitle="Trades entered in the last 7 days" />
+                  <GradePanel title={`Since changes (${review.changes_since})`} grade={review.since_changes} subtitle="The cohort the pass condition is judged on" />
+                  <GradePanel title="Baseline" grade={review.baseline_42d_pre_change} subtitle="The 42 days before the changes" />
+                </div>
+
+                <div className="grid grid--3">
+                  <div className="card">
+                    <h2>Options desk</h2>
+                    {od ? (
+                      <div className="kv">
+                        <span className="k">open tickets</span><span className="v">{od.open ?? 0}</span>
+                        <span className="k">graded (closed)</span><span className="v">{od.closed_n ?? 0}</span>
+                        <span className="k">win rate</span><span className="v">{fmt(od.win_rate_pct, "%")}</span>
+                        <span className="k">median P&amp;L</span><span className={`v ${cls(od.median_pnl_pct)}`}>{signed(od.median_pnl_pct, "%")}</span>
+                        <span className="k">broker mirror</span><span className={`v ${od.mirror?.enabled ? "pos" : "dim"}`}>{od.mirror?.enabled ? "ON" : "off"} · {od.mirror?.reason || ""}</span>
+                        {Object.entries(od.exit_reasons || {}).map(([k, n]) => (
+                          <React.Fragment key={k}><span className="k">exit · {k}</span><span className="v">{n}</span></React.Fragment>
+                        ))}
+                      </div>
+                    ) : <div className="dim" style={{ fontSize: 13 }}>no data</div>}
+                    <div className="note">The mirror turns on by evidence: 20 graded tickets, positive median, win rate ≥ 40%, plus the Convexity Ticket vehicle switch in Mission Control.</div>
+                  </div>
+                  <div className="card">
+                    <h2>Broker intents (7 days)</h2>
+                    {Object.keys(bi).length === 0 ? <div className="dim" style={{ fontSize: 13 }}>none recorded</div> : (
+                      <div className="kv">
+                        {Object.entries(bi).map(([k, n]) => (
+                          <React.Fragment key={k}><span className="k">{k}</span><span className={`v ${k === "failed" || k === "expired" ? "neg" : ""}`}>{n}</span></React.Fragment>
+                        ))}
+                      </div>
+                    )}
+                    <div className="note">Every reducer the bridge did not place becomes an intent and is retried inside the broker window. `placed` and `settled` are the good outcomes; `expired` means the window closed with shares still held.</div>
+                  </div>
+                  <div className="card">
+                    <h2>Live knobs</h2>
+                    {Object.keys(knobs).length === 0 ? <div className="dim" style={{ fontSize: 13 }}>defaults in force</div> : (
+                      <div className="kv">
+                        {Object.entries(knobs).map(([k, val]) => (
+                          <React.Fragment key={k}><span className="k">{k.replace(/^deep_audit_/, "")}</span><span className="v">{fmt(val)}</span></React.Fragment>
+                        ))}
+                      </div>
+                    )}
+                    <div className="note">model_config overrides read at review time. Defaults: 6 core entries/day, late-day block from 14:00 ET, ratchet arms at 1.5% peak.</div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="footer-note">
+              Operator-only. Model truth from the D1 ledger; broker truth from broker_intents and the bridge audit. Market data powered by Twelve Data.
+            </div>
+          </main>
+        );
+      }
+
+      const AuthGate = window.TimedAuthGate;
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(
+        AuthGate
+          ? <AuthGate apiBase={API_BASE} requiredTier="admin">{() => <App />}</AuthGate>
+          : <App />
+      );
+    </script>
+  </body>
+</html>
