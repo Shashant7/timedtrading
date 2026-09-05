@@ -6219,6 +6219,17 @@ and `ttBnBuiltAt` to `2026-09-05-v10`. Also drop `translate3d` /
 `will-change:transform` from `.tt-sticky-top` (ancestor transform
 containing-block landmine).
 
+## Mobile Tab Nav: v10 shell clipped under iOS chrome [2026-09-05]
+
+v10 used `height/max-height: 100dvh` but journey pages set
+`body { min-height: 100vh }`. When Safari chrome is showing, `100vh`
+(large) > `100dvh`/`svh` (visible) and **min-height wins**, so the
+flex column is taller than the visual viewport and the in-flow tab
+bar is clipped to a sliver. Fix (v11): `min-height: 0 !important` on
+the shell body, height = `--tt-shell-h` from `visualViewport.height`
+(`100svh` fallback), listen to vv **resize** only. Bump
+`SHELL_VERSION` to `tt-shell-v11`.
+
 
 ## 2026-07-24 — Full sweep: three silent bridge bugs behind a green board
 

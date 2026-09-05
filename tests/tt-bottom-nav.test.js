@@ -39,7 +39,7 @@ function stubMobileViewport(matches = true) {
   });
 }
 
-describe("tt-bottom-nav mobile scroll-shell v10", () => {
+describe("tt-bottom-nav mobile scroll-shell v11", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
     document.documentElement.classList.remove("tt-mobile-shell");
@@ -73,10 +73,10 @@ describe("tt-bottom-nav mobile scroll-shell v10", () => {
     document.body.classList.remove("tt-mobile-shell");
   });
 
-  it("mounts five journey tabs and v10 vintage for non-admin", () => {
+  it("mounts five journey tabs and v11 vintage for non-admin", () => {
     const nav = loadBottomNav();
     expect(nav).toBeTruthy();
-    expect(nav.dataset.ttBnBuiltAt).toBe("2026-09-05-v10");
+    expect(nav.dataset.ttBnBuiltAt).toBe("2026-09-05-v11");
     expect(nav.dataset.ttBnPin).toBe("shell");
     expect(nav.parentNode).toBe(document.body);
     const labels = [...nav.querySelectorAll(".tt-bn-label")].map((el) => el.textContent);
@@ -110,6 +110,15 @@ describe("tt-bottom-nav mobile scroll-shell v10", () => {
     expect(css).toMatch(/html\.tt-mobile-shell\s+\.tt-bn\s*\{[^}]*position:\s*relative\s*!important/);
     expect(css).toMatch(/#tt-mobile-scroll\.tt-mobile-scroll/);
     expect(css).toMatch(/overflow-y:\s*auto/);
+    expect(css).toMatch(/min-height:\s*0\s*!important/);
+    expect(css).toMatch(/--tt-shell-h/);
+    expect(css).toMatch(/100svh/);
+    expect(css).not.toMatch(/(?:height|max-height):\s*100dvh/);
+  });
+
+  it("sizes the shell to the visual viewport height", () => {
+    loadBottomNav();
+    expect(document.documentElement.style.getPropertyValue("--tt-shell-h")).toBe("700px");
   });
 
   it("does not invent fixed top/bottom inline styles on mobile shell", () => {
