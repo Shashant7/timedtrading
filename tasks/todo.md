@@ -44,12 +44,19 @@
       against (paper book is model truth). Report card endpoint
       `/timed/admin/execution/report-card` landed; DA config corrected
       (daily cap 6 was overridden by a 999 row; late-day block 120; ratchet
-      arm 1.5). Remaining: read the report cards weekly; toggle the
-      Convexity Ticket vehicle when `mirror.enabled` flips.
+      arm 1.5). Packet 6 landed: the ratchet exit was being re-gated as a
+      soft exit (`[EXIT SHIELD]`, 30m cadence, CIO) -- now a hard
+      profit-lock class, RTH-only; weekly execution review automated
+      (Friday 17:00 ET cron, KV, operator email, Discord,
+      `/execution-review.html`); member retro moved to the same slot.
+      Remaining: Monday 09-08 watch list in the plan (section 8); toggle
+      the Convexity Ticket vehicle when `mirror.enabled` flips.
       Branches: `cursor/execution-discipline-plan-dbdd` (PR #1426, merged),
       `cursor/execution-discipline-packet-2-dbdd` (PR #1427, merged),
       `cursor/execution-discipline-packet-3-dbdd` (PR #1428, merged),
-      `cursor/execution-discipline-packet-4-dbdd` (PR #1430).
+      `cursor/execution-discipline-packet-4-dbdd` (PR #1430, merged),
+      `cursor/execution-discipline-packet-5-dbdd` (PR #1431, merged),
+      `cursor/execution-discipline-packet-6-dbdd`.
 - [ ] **SPY options still missing on holdings (2026-09-03).** Options
       normalize ignored Webull `position_list` (equity path already read
       it), so OPTION rows never reached Broker Connections. Bundle options

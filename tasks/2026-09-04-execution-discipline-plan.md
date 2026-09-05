@@ -235,6 +235,54 @@ says, and what each change does to it:
   core sum > 0 over >= 30 closed trades, with the 12:00+ buckets no
   longer the dominant loss; family LONG win rate >= 35%.
 
+## 6.3 Packet 6 — the ratchet was firing and being blocked (2026-09-05, deployed)
+
+The report card said 17 of 21 real core winners (peak >= 1.5%) closed
+below 40% of peak. Only 3 of those were below the old 2.0% arm and 2 were
+next-day gap stops. The other 12 (CF, JCI, SNOW, FLR, AXON, CSX, WAL ...)
+sat under their floor for hours of RTH and still died at `max_loss` /
+`sl_breached`. FLR 08-20: peak +2.77%, floor +1.11%, below the floor from
+09:40 to the 15:50 max_loss at -1.74%.
+
+tt-engine logs 2026-09-04 show why. The ratchet fires (`[MFE_RATCHET] TSLA
+LONG peak=10.59% floor=8.47% pnl=8.38% -> exit`, 12 times overnight and
+at the open) and the live execution layer then re-gates it as a soft
+signal exit:
+
+- `[EXIT SHIELD] TSLA runner EXIT blocked: c7289_15,c3450_15,c7289_30
+  reason=mfe_ratchet_giveback` (also TJX, ELF, SWK, J, DKNG, TSM) -- the
+  trimmed-runner pullback shield holds the runner while price is above a
+  15m/30m ripster cloud, i.e. the exact "suppression web" the ratchet was
+  written to be immune to.
+- the 30-minute management cadence (`LIVE_MANAGE_INTERVAL_MIN`) -- the
+  three fires that did close (DE, RTX, SN) landed a full bucket below
+  their floors (SN floor +0.86%, exit -0.54%).
+- min-age gate, bleeder shield, CIO HOLD -- same soft-exit class.
+
+Fix (`isMfeRatchetExit`, `worker/pipeline/mfe-ratchet.js`; gates in the
+lifecycle exit block of `worker/index.js`): the profit lock is a price
+level, like a stop. It bypasses the pullback shield, the 30m cadence, the
+min-age gate, the bleeder shield and the CIO exit review. It is NOT an
+SL-class exit: it still waits for RTH (execution-window doctrine) and it
+keeps the stale-tick guard so a re-served prev_close cannot read as a
+floor breach. TSLA under the fix: runner out at the first 09:30 tick
+under +8.47% instead of the 10:09 `sl_breached` at +2.73% blended.
+
+## 6.4 Weekly execution review (automated, Friday 17:00 ET)
+
+`worker/execution-review.js` + `GET|POST /timed/admin/execution/review` +
+`react-app/execution-review.html` (Admin menu > Execution Review).
+Every Friday 17:00 ET (hourly cron slot, ET day+hour gated; the member
+Weekly Retrospective moved to the same slot from Sunday 18:00): grade the
+week, the since-changes cohort and the 42-day pre-change baseline with
+`gradeExecution`; judge the pass condition in 6.2; add the options desk
+report, the 7-day broker_intents summary and the live DA knobs; store
+`timed:execution:review:latest` + 12-week history; email the operator
+(`sendEmail`, category `execution_review`); one Discord line (system
+lane). First live run 2026-09-05 13:45Z: stored, email sent, verdict
+`insufficient` (0 closed since changes; the changes landed after Friday's
+session). The page reads KV and can recompute / store / run+email.
+
 ## 7. Next
 
 - Let `convexity_tickets` grade itself. Re-read the report card at
@@ -245,7 +293,7 @@ says, and what each change does to it:
 
 ## 8. Verification
 
-- `vitest run`: 317 files / 3436 tests green.
+- `vitest run`: 317 files / 3436 tests green (packet 6: 323 files / 3517).
 - Deploys: bridge `b346c476`, monolith default `7e972544`, production
   `15f39a08`, tt-engine `b1ed9198` / `891c31de`. `/timed/health` ok.
 - Packet 3: 3451 tests green. Monolith `c7549ada` / `e7f78ed5`, tt-engine
@@ -262,6 +310,14 @@ says, and what each change does to it:
 - Report card: 3485 tests green. Monolith `c8304210` / `5a80fd30`. Live
   `GET /timed/admin/execution/report-card?days=42` reproduces the offline
   table (73 closed, 30% win, -45.3pp; 3 corrupt MFEs).
+- Packet 6: monolith `bf435d5a` / `4da9e296`, tt-engine `8cbefc6b`,
+  tt-research `cb8358f7`. `GET /timed/admin/execution/review?fresh=1` ->
+  `Week ending Sep 5, 2026`, baseline core n=47 28% -29.1pp (matches the
+  report card); `POST ...?email=1&notify=1` -> `stored:true, email.sent:true`.
+- Monday 09-08 watch (packet 6): a `[MFE_RATCHET] ... -> exit` line during
+  RTH must be followed by the close, not by `[EXIT SHIELD] ... blocked
+  reason=mfe_ratchet_giveback`. The open ratchet calls from Friday night
+  (GE, JD, LULU, LRN, J, BABA, SWK, ELF) should close in the first ticks.
 - Monday 09-08 watch: `[SMART_GATE]` and `[PAPER_FAMILY_ENTRY] ... held`
   lines should appear; no more than 3 family opens; no index-trend
   EXIT/TRIM after 16:00 ET; no `no_manifest_for_trade` on a sleeve with
