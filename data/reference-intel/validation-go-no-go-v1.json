@@ -1,18 +1,18 @@
 {
-  "generated_at_utc": "2026-09-05T10:31:32.792390+00:00",
+  "generated_at_utc": "2026-09-05T20:22:22.368749+00:00",
   "verdict": "INVALID",
   "overall_pass": false,
   "invalid_reasons": [
     "control_reset_failed",
     "candidate_reset_failed",
     "legs_observed_identical_trade_set",
-    "candidate_closed_trades_2_below_min_5",
+    "candidate_closed_trades_1_below_min_5",
     "cio_eval_zero_decision_rows"
   ],
   "gates": [
     {
       "gate": "candidate_min_closed_trades",
-      "value": 2,
+      "value": 1,
       "threshold": 5,
       "operator": ">=",
       "pass": false
@@ -38,7 +38,7 @@
     "realized_pnl_delta": 0.0
   },
   "evidence": {
-    "candidate_closed_trades": 2,
+    "candidate_closed_trades": 1,
     "min_closed_trades": 5,
     "cio_decision_rows": 0,
     "control_reset_ok": false,

@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-09-05T10:31:32.792002+00:00",
+  "generated_at_utc": "2026-09-05T20:22:22.367885+00:00",
   "window": {
     "start_date": "2025-07-31",
     "end_date": "2025-08-01",
@@ -32,24 +32,22 @@
         }
       ],
       "summary": {
-        "trade_count_total": 2,
-        "trade_count_closed": 2,
+        "trade_count_total": 1,
+        "trade_count_closed": 1,
         "trade_count_open": 0,
         "wins": 0,
-        "losses": 2,
+        "losses": 1,
         "flats": 0,
         "win_rate_closed": 0.0,
-        "realized_pnl": -116.8895,
+        "realized_pnl": -102.5962,
         "exit_class_counts": {
-          "trim_related": 1,
-          "loss_protect": 1
+          "trim_related": 1
         },
         "ticker_counts": {
-          "CSX": 2
+          "CSX": 1
         }
       },
       "trade_fingerprint": [
-        "CSX-1786032380745-wuo9tyc8p",
         "CSX-1786723435380-3ni1n2gdh"
       ]
     },
@@ -73,24 +71,22 @@
         }
       ],
       "summary": {
-        "trade_count_total": 2,
-        "trade_count_closed": 2,
+        "trade_count_total": 1,
+        "trade_count_closed": 1,
         "trade_count_open": 0,
         "wins": 0,
-        "losses": 2,
+        "losses": 1,
         "flats": 0,
         "win_rate_closed": 0.0,
-        "realized_pnl": -116.8895,
+        "realized_pnl": -102.5962,
         "exit_class_counts": {
-          "trim_related": 1,
-          "loss_protect": 1
+          "trim_related": 1
         },
         "ticker_counts": {
-          "CSX": 2
+          "CSX": 1
         }
       },
       "trade_fingerprint": [
-        "CSX-1786032380745-wuo9tyc8p",
         "CSX-1786723435380-3ni1n2gdh"
       ]
     }
