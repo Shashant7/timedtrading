@@ -508,13 +508,21 @@ export async function readManifestRow(env, userId, tradeId, brokerAccountId) {
 }
 
 /** True when a reducer/close should actually hit this account. */
+/**
+ * Holdings truth (2026-09-05): a sleeve that still has broker_remaining_qty
+ * holds the trade, full stop. mirror_suppressed / mothership_orphan / stale
+ * sync_state describe why the MODEL stopped mirroring, not whether shares
+ * exist at the broker. DPZ 2026-09-04: the suppressed sleeve still held
+ * shares, was filtered out here, and the EXIT died as no_manifest_for_trade.
+ * Only a row that never/no longer holds (rejected / expired / qty 0) is out.
+ */
 export function rowHoldsReducerQty(row) {
   if (!row) return false;
-  if (Number(row.mirror_suppressed) === 1) return false;
-  const state = String(row.sync_state || "");
-  if (state === "rejected" || state === "expired" || state === "mirror_suppressed") return false;
   const remaining = Number(row.broker_remaining_qty);
-  return Number.isFinite(remaining) && remaining > 1e-9;
+  if (!Number.isFinite(remaining) || remaining <= 1e-9) return false;
+  const state = String(row.sync_state || "");
+  if (state === "rejected" || state === "expired") return false;
+  return true;
 }
 
 function accountIdSet(acct) {

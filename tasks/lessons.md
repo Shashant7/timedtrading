@@ -6605,3 +6605,17 @@ close-auction window stays live through 16:14.
 - **Symptom:** After deleting duplicate EXIT events and shifting subsequent `balance` values down by the phantom cash_delta, displayed cash dropped ~$35.7k below reality.
 - **Cause:** The `balance` column does NOT track cumulative cash_delta (it drifts; June 2026 lesson). Its tail is kept equal to `start + realized − open cost basis` by maintenance, so post-hoc shifts double-correct.
 - **Rule:** When repairing account_ledger events, fix `realized_pnl` rows only, then resync the LATEST row's balance to the identity. Never rewrite historical balances by delta.
+
+## 2026-09-05 — Smart entry gates were silently dead for ten weeks (undefined `nyDayString`)
+- **Symptom:** 12 Cloud Pivot tickets opened in 3 minutes; 25 of 28 open books were 0.1x paper tickets; position / direction / daily caps never logged a block.
+- **Cause:** `nyDayString(now)` was added inside the smart-gate `try` on 2026-06-26 (calibration guards) but the function was never defined. The `ReferenceError` was swallowed by `catch (e) { console.error("[SMART_GATE] Error checking gates") }` — which sits BELOW every gate, so all of them were skipped for every entry.
+- **Rule:** A `catch` that only logs around a chain of gates turns any typo into "all gates off". When adding a helper call inside such a block, grep for its definition, and `node --check` does not catch undefined identifiers — a unit test or a `wrangler tail` for the error line does. Look for `Error checking gates` in logs after any edit near the smart gates.
+- **Also:** Caps re-sized for a convicted book (12 open / 8 same direction / 6 new a day; paper families 4 / 3 / conviction >= 2). Counts read from `trades` so 0.1x paper tickets are not core slots.
+
+## 2026-09-05 — Share-lane actions only when the broker can act; peak protection escalates
+- **Symptom:** UDOW index-trend `trail_giveback` EXIT classified at 19:01 ET (paper "+1.79% (filled)"); bridge skipped `equity_ah_too_late_for_broker`; no re-fire; broker still long. Cloud Pivot profit lock full-exited +1.3% blips at +0.65% while +12% runs gave back six points.
+- **Rule:** `worker/execution-window.js` is the one answer for share lanes: enter 09:45-15:30 ET, reduce RTH only (skip 09:30), stop until 19:00 ET (17:00 early close), MFE/peak bookkeeping on RTH prints only. Never close a paper book the broker cannot act on. Protection is peak-anchored and escalating (`peakGivebackFloor`: +1R never red, +1.5R keep 50%, +2R 60%, +3R 70%; Cloud Pivot `cloudPivotKeepFrac` 40/50/60/70% by MFE tier, trim-then-trail).
+
+## 2026-09-05 — Holdings truth beats manifest state on reducers
+- **Symptom:** DPZ EXIT died as `no_manifest_for_trade`; the only sleeve holding shares was `mirror_suppressed`.
+- **Rule:** `broker_remaining_qty > 0` means the sleeve holds the trade. Suppression / `mothership_orphan` / stale `sync_state` describe why the model stopped mirroring, not whether shares exist. Both `manifestAwareReducerCheck` (guards, `held_override`) and `rowHoldsReducerQty` (fan-out) follow that rule now; only `rejected` / `expired` / qty 0 are out.

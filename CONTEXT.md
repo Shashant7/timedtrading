@@ -217,6 +217,25 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Execution discipline (2026-09-05) — see `tasks/2026-09-04-execution-discipline-plan.md`**
+- Smart entry gates were dead 06-26 -> 09-05: undefined `nyDayString` inside
+  the smart-gate `try` was swallowed by the catch. Grep for the definition of
+  any helper added there; watch logs for `Error checking gates`.
+- Caps are for a convicted book: core 12 open / 8 same direction / 6 new a
+  day; paper families 4 open / 3 a day / conviction >= 2. Counts come from
+  `trades` and exclude paper-family paths. DA overrides in `loadPaperFamilyEntryConfig`
+  and the smart-gate block.
+- `worker/execution-window.js` is the one answer for share-lane timing:
+  enter 09:45-15:30 ET, reduce RTH only, stop until 19:00 ET, ratchet on RTH
+  prints. Never close a paper book the broker cannot act on.
+- Peak protection escalates: index trend `peakGivebackFloor` (+1R never red,
+  50/60/70% keep); Cloud Pivot `cloudPivotKeepFrac` 40/50/60/70% by MFE,
+  trim-then-trail, full exit only when the 1H 34/50 is lost.
+- Holdings truth: `broker_remaining_qty > 0` = sleeve holds. Reducers reach it
+  regardless of `mirror_suppressed` / `mothership_orphan` (guards + fan-out).
+- `spikeTol` applies to every high/low source feeding MFE/MAE
+  (`_live_daily_high`, `day_high`, `dh`/`dl`).
+
 **CI `npm install` edgesOut — pin vitest, do not use a caret (2026-09-03)**
 - No lockfile in git. `vitest: ^4.1.8` plus a just-published `vitest@5.0.0`
   crashes npm 10.9.8 arborist (`Cannot read properties of null (reading

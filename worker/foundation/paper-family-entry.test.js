@@ -10,6 +10,7 @@ import {
   paperFamilyEntryPath,
   paperFamilySetupLabel,
   resolvePaperFamilyStandaloneEntry,
+  paperFamilyBudgetAllows,
   stampPaperFamilyOnTrade,
 } from "./paper-family-entry.js";
 
@@ -167,5 +168,42 @@ describe("paper family standalone entry", () => {
       entry_path: "tt_n_test_support",
       slice_family: CLOUD_PIVOT_FAMILY,
     })).toBe(false);
+  });
+});
+
+describe("paper family entry budget (2026-09-05)", () => {
+  const entry = { family: CLOUD_PIVOT_FAMILY, path: "tt_cloud_pivot_long", direction: "LONG", conviction: 2 };
+
+  it("carries the proposal conviction onto the resolved entry", () => {
+    const res = resolvePaperFamilyStandaloneEntry({
+      _sequence_queue_proposal: { paper: true, family: CLOUD_PIVOT_FAMILY, direction: "LONG", conviction: 2.5 },
+    });
+    expect(res?.conviction).toBe(2.5);
+  });
+
+  it("allows within defaults (4 open, 3 today, conviction >= 2)", () => {
+    expect(paperFamilyBudgetAllows(entry, { open: 3, today: 2 })).toEqual({ allow: true, reason: null });
+  });
+
+  it("holds when the open cap is full", () => {
+    expect(paperFamilyBudgetAllows(entry, { open: 4, today: 0 }).reason).toBe("family_open_cap:4/4");
+  });
+
+  it("holds when the daily cap is full", () => {
+    expect(paperFamilyBudgetAllows(entry, { open: 0, today: 3 }).reason).toBe("family_daily_cap:3/3");
+  });
+
+  it("holds a low-conviction proposal even with room", () => {
+    // 2026-09-04 burst: 12 Cloud Pivot opens in 3 min, most with a soft-opposed cloud.
+    expect(paperFamilyBudgetAllows({ ...entry, conviction: 1 }, { open: 0, today: 0 }).reason).toBe("conviction:1<2");
+  });
+
+  it("does not apply the conviction floor to families without a score", () => {
+    expect(paperFamilyBudgetAllows({ ...entry, conviction: null }, { open: 0, today: 0 }).allow).toBe(true);
+  });
+
+  it("is configurable via DA config", () => {
+    const da = { deep_audit_paper_family_max_open: "10", deep_audit_paper_family_max_daily: "8", deep_audit_paper_family_min_conviction: "0" };
+    expect(paperFamilyBudgetAllows({ ...entry, conviction: 0 }, { open: 9, today: 7 }, da).allow).toBe(true);
   });
 });

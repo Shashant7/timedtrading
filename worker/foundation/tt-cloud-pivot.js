@@ -71,9 +71,51 @@ export function loadCloudPivotConfig(daCfg = {}) {
     profitLockEnabled: plEnabled,
     // arm once MFE ≥ 1.2% (a genuine winner, above intraday noise)
     profitLockArmPct: Number.isFinite(plArm) && plArm > 0 ? plArm : 0.012,
-    // keep half the peak: exit the runner if it retraces past 50% of MFE
-    profitLockKeepFrac: Number.isFinite(plKeep) && plKeep > 0 && plKeep < 1 ? plKeep : 0.5,
+    // Flat keep-fraction override. When unset (default) the floor escalates
+    // with the peak — see cloudPivotKeepFrac.
+    profitLockKeepFrac: Number.isFinite(plKeep) && plKeep > 0 && plKeep < 1 ? plKeep : null,
   };
+}
+
+/**
+ * Peak-scaled keep fraction for the Cloud Pivot profit lock (2026-09-05).
+ * A flat 50% treated a +1.3% blip and a +12% run the same: the blip was
+ * banked at +0.65% (dust) while the run could give back six points. The
+ * more the trade has made, the more of it we keep.
+ *
+ *   MFE  1.2 - 2.5%  -> keep 40%   (let a small winner breathe)
+ *   MFE  2.5 - 5%    -> keep 50%
+ *   MFE  5   - 8%    -> keep 60%
+ *   MFE  >= 8%       -> keep 70%
+ */
+export function cloudPivotKeepFrac(mfePct) {
+  const m = Math.abs(Number(mfePct) || 0);
+  if (m >= 8) return 0.7;
+  if (m >= 5) return 0.6;
+  if (m >= 2.5) return 0.5;
+  return 0.4;
+}
+
+/**
+ * Conviction for a fired Cloud Pivot detection, 0..5. Both 34/50 clouds
+ * aligned with the direction is the baseline "real" setup (2); a leader,
+ * a catalyst or a magnet ahead add to it; a soft-opposed cloud subtracts.
+ * Used by the paper-family entry budget to take the best few, not all.
+ */
+export function cloudPivotConviction(det) {
+  if (!det || det.fires !== true) return 0;
+  const dir = String(det.direction || "").toUpperCase();
+  const c10 = det.clouds?.c34_50_10 || null;
+  const c1h = det.clouds?.c34_50_1h || null;
+  let score = 0;
+  if (c10 === dir) score += 1;
+  else if (c10 && c10 !== dir) score -= 1;
+  if (c1h === dir) score += 1;
+  else if (c1h && c1h !== dir) score -= 1;
+  if (det.leader_follow?.leader) score += 1;
+  if (det.session_plan?.catalyst) score += 1;
+  if (det.cloud_magnet?.ahead === true) score += 0.5;
+  return Math.max(0, Math.min(5, Math.round(score * 10) / 10));
 }
 
 function num(v) {
@@ -648,6 +690,7 @@ export function buildCloudPivotPaperQueueProposal(payload = {}, daCfg = {}) {
     direction: det.direction,
     session: det.session,
     trigger: det.trigger,
+    conviction: cloudPivotConviction(det),
     tt_cloud_pivot: true,
     cloud_magnet: det.cloud_magnet || null,
     session_plan: det.session_plan || null,
@@ -854,24 +897,56 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
     tickerData?.__mfe_pct,
   ) || 0);
 
+  const rt10 = tfRipster(tickerData, "10");
+  const rt1H = tfRipsterAny(tickerData, ["1H", "60"]);
+
   // Profit-lock is a peak-giveback rule. It must not wait on a 10m
   // 5/12 print — overnight / first-bar / missing ripster used to skip
   // the whole family exit and let TJX-style +12% MFEs die at the stop.
-  if (cfg.profitLockEnabled
-    && age >= 5
-    && mfe >= cfg.profitLockArmPct * 100
-    && pnl <= mfe * cfg.profitLockKeepFrac) {
-    const keepFloorPct = Math.round(mfe * cfg.profitLockKeepFrac * 100) / 100;
-    return {
-      stage: "exit",
-      reason: "tt_cloud_pivot_profit_lock",
-      family: CLOUD_PIVOT_FAMILY,
-      metadata: { direction, pnlPct: pnl, mfePct: mfe, keep_floor_pct: keepFloorPct },
+  //
+  // 2026-09-05 shape: trim-then-trail instead of a one-shot full exit.
+  // First breach of the keep floor banks half while the 1H 34/50 still
+  // backs the trade; the remainder trails a deeper floor and is never
+  // allowed to go red. A lost 1H cloud, or a runner already trimmed,
+  // exits in full. Floor escalates with the peak (cloudPivotKeepFrac).
+  if (cfg.profitLockEnabled && age >= 5 && mfe >= cfg.profitLockArmPct * 100) {
+    const keepFrac = cfg.profitLockKeepFrac ?? cloudPivotKeepFrac(mfe);
+    const keepFloorPct = Math.round(mfe * keepFrac * 100) / 100;
+    const c34_1h_pl = rt1H?.c34_50;
+    const oneHLost = direction === "LONG"
+      ? !!(c34_1h_pl?.bear || c34_1h_pl?.below)
+      : !!(c34_1h_pl?.bull || c34_1h_pl?.above);
+    const meta = {
+      direction, pnlPct: pnl, mfePct: mfe, keep_floor_pct: keepFloorPct, keep_frac: keepFrac,
     };
+    if (trimmed >= 0.5) {
+      // Runner floor: 25% of peak, and never red.
+      const runnerFloorPct = Math.round(Math.max(0.15, mfe * 0.25) * 100) / 100;
+      if (pnl <= runnerFloorPct) {
+        return {
+          stage: "exit",
+          reason: "tt_cloud_pivot_profit_lock",
+          family: CLOUD_PIVOT_FAMILY,
+          metadata: { ...meta, runner_floor_pct: runnerFloorPct, runner: true },
+        };
+      }
+    } else if (pnl <= keepFloorPct) {
+      if (oneHLost) {
+        return {
+          stage: "exit",
+          reason: "tt_cloud_pivot_profit_lock",
+          family: CLOUD_PIVOT_FAMILY,
+          metadata: { ...meta, one_h_lost: true },
+        };
+      }
+      return {
+        stage: "trim",
+        reason: "tt_cloud_pivot_profit_lock_trim",
+        family: CLOUD_PIVOT_FAMILY,
+        metadata: meta,
+      };
+    }
   }
-
-  const rt10 = tfRipster(tickerData, "10");
-  const rt1H = tfRipsterAny(tickerData, ["1H", "60"]);
   const c512 = rt10?.c5_12;
   if (!c512) return null;
 

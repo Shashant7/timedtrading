@@ -21,6 +21,16 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **Execution discipline (2026-09-04/05).** Plan + ledger:
+      [`2026-09-04-execution-discipline-plan.md`](2026-09-04-execution-discipline-plan.md).
+      Landed: execution window + escalating peak floor (index trend), MFE
+      spike guard, holdings-truth reducers (guards + fan-out), smart gates
+      revived (`nyDayString`) with 12/8/6 core caps, paper-family budget
+      4/3/conviction>=2, Cloud Pivot profit lock trim-then-trail.
+      Next: durable order-intent ledger; notification honesty ("model fill"
+      + mirror state); DELL compound-growth entry audit; ST ratchet through
+      the shared window; paper-short budget decision.
+      Branch: `cursor/execution-discipline-plan-dbdd` (PR #1426).
 - [ ] **SPY options still missing on holdings (2026-09-03).** Options
       normalize ignored Webull `position_list` (equity path already read
       it), so OPTION rows never reached Broker Connections. Bundle options
