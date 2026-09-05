@@ -728,6 +728,14 @@ import {
   loadExecMemos,
 } from "./review/trade-review-apply.js";
 import { fileProposal as fileTradeReviewProposal } from "./review/trade-review-github.js";
+import {
+  listDeskJournalAccounts,
+  syncDeskJournalFromWebull,
+  importDeskJournalCsv,
+  listDeskJournalTrips,
+  getDeskJournalTrip,
+  saveDeskJournalEntry,
+} from "./desk-journal.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
 /* 2026-05-22 — Markov regime framework. Tier 1.1 / 1.2 / 4.7 / 4.8 of
@@ -2103,6 +2111,12 @@ const ROUTES = [
   ["GET", "/timed/admin/trade-review/proposals", "GET /timed/admin/trade-review/proposals"],
   ["POST", "/timed/admin/trade-review/proposal/file", "POST /timed/admin/trade-review/proposal/file"],
   ["GET", "/timed/admin/exec-memos", "GET /timed/admin/exec-memos"],
+  ["GET", "/timed/admin/desk-journal/accounts", "GET /timed/admin/desk-journal/accounts"],
+  ["GET", "/timed/admin/desk-journal/trips", "GET /timed/admin/desk-journal/trips"],
+  ["GET", "/timed/admin/desk-journal/trip", "GET /timed/admin/desk-journal/trip"],
+  ["POST", "/timed/admin/desk-journal/sync", "POST /timed/admin/desk-journal/sync"],
+  ["POST", "/timed/admin/desk-journal/import", "POST /timed/admin/desk-journal/import"],
+  ["POST", "/timed/admin/desk-journal/journal", "POST /timed/admin/desk-journal/journal"],
   // 2026-05-27 (PR #321): nuke a ticker entirely — closes/deletes all
   // open trades + positions + lots + execution_actions + trade_events +
   // account_ledger rows, removes from universe overlay, blocks future
@@ -85637,6 +85651,92 @@ export default {
           status: 200,
           headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) },
         });
+      }
+
+      // Desk Journal — operator broker-book review (not the model Trade Review).
+      if (routeKey === "GET /timed/admin/desk-journal/accounts") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const out = await listDeskJournalAccounts(env, { callBridge: _callBridge });
+          return sendJSON(out, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/admin/desk-journal/trips") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        if (!env?.DB) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const out = await listDeskJournalTrips(env, {
+            accountId: url.searchParams.get("account_id"),
+            from: url.searchParams.get("from"),
+            to: url.searchParams.get("to"),
+            unjournaled: url.searchParams.get("unjournaled"),
+            side: url.searchParams.get("side"),
+            limit: url.searchParams.get("limit"),
+          });
+          return sendJSON(out, out.ok === false ? 400 : 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/admin/desk-journal/trip") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        if (!env?.DB) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const out = await getDeskJournalTrip(env, { tripId: url.searchParams.get("trip_id") });
+          const status = out.ok === false ? (out.error === "trip_not_found" ? 404 : 400) : 200;
+          return sendJSON(out, status, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/desk-journal/sync") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        if (!env?.DB) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const out = await syncDeskJournalFromWebull(env, {
+            userId: body.user_id || body.account_id,
+            from: body.from || body.start_date,
+            to: body.to || body.end_date,
+            postBridge: _postBridge,
+          });
+          return sendJSON(out, out.ok === false ? 400 : 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/desk-journal/import") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        if (!env?.DB) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const out = await importDeskJournalCsv(env, {
+            accountId: body.account_id || body.user_id,
+            csv: body.csv || body.text,
+          });
+          return sendJSON(out, out.ok === false ? 400 : 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/desk-journal/journal") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        if (!env?.DB) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const body = await req.json().catch(() => ({}));
+          const out = await saveDeskJournalEntry(env, body);
+          return sendJSON(out, out.ok === false ? (out.error === "trip_not_found" ? 404 : 400) : 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
       }
 
       // 2026-06-01 — GET /timed/admin/broker-bridge/portfolio

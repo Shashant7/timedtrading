@@ -10,7 +10,7 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Admin — Trade Review — Timed Trading</title>
+    <title>Admin — Desk Journal — Timed Trading</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3C%2Fsvg%3E" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -18,7 +18,8 @@
     <link rel="stylesheet" href="tt-tokens.css?v=1788614168784" />
     <script defer src="/vendor/react.production.min.js?v=1788614168784"></script>
     <script defer src="/vendor/react-dom.production.min.js?v=1788614168784"></script>
-<script defer src="auth-gate.js?v=1788614168784"></script>
+<script defer src="/vendor/lightweight-charts.standalone.production.js?v=1788614168784"></script>
+    <script defer src="auth-gate.js?v=1788614168784"></script>
     <script src="tt-bottom-nav.js?v=1788614168784" defer></script>
     <script src="tt-nav-extras.js?v=1788614168784" defer></script>
     <script src="tt-global-search.js?v=1788614168784" defer></script>
@@ -64,52 +65,38 @@
       .tt-btn--primary:hover:not(:disabled) { filter: brightness(1.05); }
       .tt-btn--ghost { background: var(--tt-bg-elev); border-color: var(--tt-border); color: var(--tt-text-muted); }
       .tt-btn--ghost:hover:not(:disabled) { border-color: var(--tt-border-hi); color: var(--tt-text); }
-      .tt-btn--danger { background: rgba(255,107,107,.12); border-color: rgba(255,107,107,.35); color: var(--tt-red); }
       .tt-input, .tt-select, .tt-textarea { background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 12px; font-size: 13px; color: var(--tt-text); font-family: inherit; }
-      .tt-textarea { width: 100%; resize: vertical; min-height: 64px; line-height: 1.5; }
+      .tt-textarea { width: 100%; resize: vertical; min-height: 88px; line-height: 1.5; }
       .tt-input:focus, .tt-select:focus, .tt-textarea:focus { outline: none; border-color: var(--tt-accent); box-shadow: 0 0 0 2px var(--tt-accent-dim); }
-      .tt-tab-bar { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--tt-border); overflow-x: auto; }
-      .tt-tab { padding: 10px 16px; font-size: 13px; font-weight: 600; border: none; background: transparent; color: var(--tt-text-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
-      .tt-tab.active { color: var(--tt-text); border-bottom-color: var(--tt-accent); }
-      .grade { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 26px; border-radius: 8px; font-family: var(--tt-font-mono); font-size: 13px; font-weight: 700; padding: 0 6px; }
-      .grade--good { background: rgba(56,242,161,.16); color: var(--tt-accent); }
-      .grade--mid { background: rgba(245,196,81,.14); color: var(--tt-amber); }
-      .grade--bad { background: rgba(255,107,107,.14); color: var(--tt-red); }
-      .grade--none { background: var(--tt-bg-elev); color: var(--tt-text-faint); }
+      .grade { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 26px; border-radius: 8px; font-family: var(--tt-font-mono); font-size: 13px; font-weight: 700; padding: 0 6px; cursor: pointer; border: 1px solid transparent; background: var(--tt-bg-elev); color: var(--tt-text-muted); }
+      .grade--on.grade--good, .grade--good.grade--on { background: rgba(56,242,161,.16); color: var(--tt-accent); border-color: rgba(56,242,161,.35); }
+      .grade--on.grade--mid, .grade--mid.grade--on { background: rgba(245,196,81,.14); color: var(--tt-amber); border-color: rgba(245,196,81,.35); }
+      .grade--on.grade--bad, .grade--bad.grade--on { background: rgba(255,107,107,.14); color: var(--tt-red); border-color: rgba(255,107,107,.35); }
       .pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-      .pill--pending { background: var(--tt-bg-elev); color: var(--tt-text-dim); }
-      .pill--reviewed { background: rgba(103,232,249,.12); color: #67E8F9; }
-      .pill--approved { background: rgba(56,242,161,.16); color: var(--tt-accent); }
-      .pill--modified { background: rgba(245,196,81,.16); color: var(--tt-amber); }
-      .pill--rejected { background: rgba(255,107,107,.14); color: var(--tt-red); }
-      .pill--error { background: rgba(255,107,107,.2); color: var(--tt-red); }
-      .leg-kind { font-family: var(--tt-font-mono); font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--tt-text-muted); }
-      .trade-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 14px 18px; cursor: pointer; border-bottom: 1px solid var(--tt-border); }
+      .pill--open { background: rgba(245,196,81,.14); color: var(--tt-amber); }
+      .pill--done { background: rgba(56,242,161,.16); color: var(--tt-accent); }
+      .pill--todo { background: var(--tt-bg-elev); color: var(--tt-text-dim); }
+      .trade-row { display: grid; grid-template-columns: 18px 1fr 72px 88px 88px 72px 88px 88px; gap: 10px; align-items: center; padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--tt-border); }
       .trade-row:hover { background: rgba(255,255,255,.02); }
+      .trade-row--on { background: rgba(56,242,161,.04); }
+      .trade-head { display: grid; grid-template-columns: 18px 1fr 72px 88px 88px 72px 88px 88px; gap: 10px; padding: 8px 16px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--tt-text-faint); font-weight: 600; border-bottom: 1px solid var(--tt-border); }
       .mono { font-family: var(--tt-font-mono); }
       .muted { color: var(--tt-text-muted); }
       .dim { color: var(--tt-text-dim); }
-      .faint { color: var(--tt-text-faint); }
-      .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); gap: 8px; margin: 12px 0; }
-      .metric { background: var(--tt-bg-base); border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 10px; }
-      .metric-label { font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--tt-text-faint); font-weight: 600; }
-      .metric-value { margin-top: 3px; font-family: var(--tt-font-mono); font-size: 15px; font-weight: 700; }
       .pos { color: var(--tt-accent); }
       .neg { color: var(--tt-red); }
-      .section-h { font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--tt-text-faint); margin: 14px 0 5px; }
-      .prose { font-size: 13px; line-height: 1.6; color: var(--tt-text); margin: 0; }
-      .fail-list { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.6; color: var(--tt-text-muted); }
-      .bar { height: 6px; border-radius: 3px; background: var(--tt-bg-base); overflow: hidden; margin-top: 6px; }
-      .bar-fill { height: 100%; background: var(--tt-accent); }
+      .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); gap: 8px; margin: 14px 0; }
+      .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 16px 0 8px; }
+      .fill-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      .fill-table th { text-align: left; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--tt-text-faint); padding: 6px 8px; }
+      .fill-table td { padding: 6px 8px; border-top: 1px solid var(--tt-border); }
+      .chart-box { height: 280px; width: 100%; background: var(--tt-bg-base); border: 1px solid var(--tt-border); border-radius: 12px; }
+      .tag { appearance: none; border: 1px solid var(--tt-border); background: var(--tt-bg-elev); color: var(--tt-text-muted); border-radius: 999px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+      .tag--on { border-color: var(--tt-accent); color: var(--tt-accent); background: var(--tt-accent-dim); }
       .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--tt-border-hi); border-top-color: var(--tt-accent); border-radius: 50%; animation: spin .7s linear infinite; }
       @keyframes spin { to { transform: rotate(360deg); } }
-      ::-webkit-scrollbar { width: 6px; height: 6px; }
-      ::-webkit-scrollbar-thumb { background: var(--tt-border-hi); border-radius: 3px; }
+      .footer-note { margin-top: 28px; font-size: 11px; color: var(--tt-text-faint); }
       body:not([data-user-role="admin"]) a[data-admin-only] { display: none !important; }
-
-      /* Top nav — same structure as journey pages (shared-nav.js).
-         Without these rules the brand + links stack and look like a
-         second broken nav row above the real header. */
       nav.topnav {
         position: sticky; top: 0; z-index: 50;
         background: rgba(11, 20, 16, 0.92);
@@ -130,27 +117,21 @@
       .nav-link {
         font-size: 12.5px; color: var(--tt-text-muted, #8aa399);
         text-decoration: none; padding: 6px 12px; border-radius: 8px;
-        transition: background 120ms ease, color 120ms ease;
       }
       .nav-link:hover { color: var(--tt-text, #e8f0ec); background: rgba(255,255,255,0.05); }
-      .nav-link.active {
-        color: var(--tt-accent, #38F2A1);
-        background: rgba(56, 242, 161, 0.12);
+      .nav-link.active { color: var(--tt-accent, #38F2A1); background: rgba(56, 242, 161, 0.12); }
+      @media (max-width: 980px) {
+        .trade-head { display: none; }
+        .trade-row { grid-template-columns: 18px 1fr auto; }
+        .hide-sm { display: none; }
       }
-      .nav-link.learn { color: var(--tt-up-soft, #6ee7b7); }
-      .nav-link.faq { color: var(--tt-text-2, #a3b5ad); }
     </style>
   </head>
   <body class="vf-page">
-    <!-- Global nav (Today · Model · Portfolio · Insights · Daily Brief …)
-         Same shared header as Broker Connections / journey pages. Must come
-         before #root so deferred consumers (tt-nav-extras, tt-bottom-nav)
-         find their mount target. Listed in JOURNEY_PATHS so extras does not
-         inject a duplicate journey strip above this row. -->
     <div id="global-nav-root"></div>
     <script defer src="shared-nav.js?v=1788614168784"></script>
     <div id="root"></div>
-    <script defer src="trade-review.compiled.js?v=1788614168784"></script>
+    <script defer src="desk-journal.compiled.js?v=1788614168784"></script>
   </body>
 </html>
 
