@@ -282,6 +282,33 @@ export async function manifestAwareReducerCheck(env, payload, user) {
     };
   }
 
+  // 2026-09-04 — HOLDINGS TRUTH BEATS SUPPRESSION FOR REDUCERS. DPZ-1788443309854:
+  // the entry was cash-rejected on the operator sleeve, the row was stamped
+  // rejected + mirror_suppressed, yet a 0.2714-share fill landed anyway.
+  // The model's doctrine_force_exit then bounced here as
+  // `mirror_suppressed:insufficient_cash_for_one_unit` and the broker kept
+  // the shares while the paper book closed. Suppression exists to stop the
+  // bridge OPENING more risk on a sleeve; it must never stop it CLOSING
+  // risk the sleeve demonstrably holds. The live-position guard downstream
+  // still clamps qty to what the account actually holds.
+  const heldQtyOnRow = Number(row.broker_remaining_qty) || 0;
+  const stateOnRow = String(row.sync_state || "unknown");
+  // `pending` keeps its own pending-but-placed handling below.
+  const BLOCKED_STATES = new Set(["rejected", "mothership_orphan", "expired", "untracked", "mirror_suppressed", "reconcile_error"]);
+  if (heldQtyOnRow > 1e-9 && (Number(row.mirror_suppressed) === 1 || BLOCKED_STATES.has(stateOnRow))) {
+    console.warn(`[MANIFEST] held_override ${payload.side} on ${payload.ticker}/${tradeId}: sleeve holds ${heldQtyOnRow} (state=${stateOnRow}, suppressed=${Number(row.mirror_suppressed) === 1}) — allowing reducer`);
+    return {
+      ok: true,
+      lifecycle,
+      manifest_sync_state: stateOnRow,
+      broker_remaining_qty: heldQtyOnRow,
+      held_override: true,
+      held_override_reason: Number(row.mirror_suppressed) === 1
+        ? `mirror_suppressed:${String(row.mirror_suppressed_reason || "operator_suppressed").slice(0, 120)}`
+        : `sync_state:${stateOnRow}`,
+    };
+  }
+
   // Operator-set suppression always wins.
   if (Number(row.mirror_suppressed) === 1) {
     const reason = String(row.mirror_suppressed_reason || "operator_suppressed").slice(0, 200);
