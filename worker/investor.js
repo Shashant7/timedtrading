@@ -860,6 +860,71 @@ export function investorLtfEntryStabilizationBlock(tickerData, cfg = DEFAULT_INV
   return null;
 }
 
+/**
+ * Compounder patience override for the LTF stabilization veto (2026-09-05).
+ *
+ * DELL Aug 11 -> Sep 4: the Investor engine scored DELL 86-100 in
+ * `accumulate` with stage_reason `compounder_dip_override_exhaustion:
+ * growth_elite:timing_bottom` — i.e. the compounder engine said "this is
+ * the dip to buy" for three weeks — and every hourly admit was rejected by
+ * `investorLtfEntryStabilizationBlock` (10m ST sloping down / 5-12 cloud not
+ * curled). A dip on a compounder IS a bearish LTF; demanding a 10m curl at
+ * the hourly check moment means never owning the name. Earnings then gapped
+ * it +5% and the 475c the earnings desk called out was never taken.
+ *
+ * Rule: after the LTF veto has held a growth-elite compounder dip (score
+ * >= 85) for `minRejects` consecutive hourly admits, admit a STARTER
+ * tranche (a third of the planned size) provided the name is not still
+ * breaking (1H ST not actively sloping down, no fresh 10m 5-12 cross-down,
+ * not majority-below the LTF 233). The remaining size arrives through the
+ * normal path once the LTF actually curls. Pure; returns null when the
+ * veto should stand.
+ */
+export function investorCompounderPatienceOverride({
+  block,
+  score,
+  stageReason,
+  ltfRejectStreak,
+  tickerData,
+  cfg = DEFAULT_INVESTOR_CONFIG,
+} = {}) {
+  if (!block || typeof block !== "object") return null;
+  if (cfg?.investor_compounder_patience_override_enabled === false) return null;
+  const reason = String(block.reason || "");
+  // Only the timing vetoes are overridable; "majority below 233" and an
+  // opposing daily FVG mean the structure itself is not there yet.
+  if (!["ltf_st_sloping_down", "ltf_5_12_cloud_not_curled", "ltf_233_not_reclaimed"].includes(reason)) return null;
+  const sr = String(stageReason || "");
+  if (!sr.includes("compounder_dip_override")) return null;
+  const minScore = Number.isFinite(Number(cfg?.investor_compounder_patience_min_score))
+    ? Number(cfg.investor_compounder_patience_min_score) : 85;
+  if (!(Number(score) >= minScore)) return null;
+  const minRejects = Number.isFinite(Number(cfg?.investor_compounder_patience_min_rejects))
+    ? Number(cfg.investor_compounder_patience_min_rejects) : 3;
+  if (!(Number(ltfRejectStreak) >= minRejects)) return null;
+
+  const tf10 = tickerData?.tf_tech?.["10"] || tickerData?.tf_tech?.["10m"] || null;
+  const tf1h = tickerData?.tf_tech?.["1H"] || tickerData?.tf_tech?.["60"] || null;
+  const c512 = tf10?.ripster?.c5_12 || null;
+  if (c512?.crossDn === true) return null;
+  const stSlope1h = Number(tf1h?.stSlope);
+  const slopingDn1h = tf1h?.stSlopeDn === true || (Number.isFinite(stSlope1h) && stSlope1h < 0);
+  if (slopingDn1h) return null;
+  const snap233 = resolveInvestorLtfEma233Snapshot(tickerData, cfg);
+  if (snap233.rows.length >= 2 && snap233.nearOrBelowCount >= 2 && snap233.reclaimingCount < 1) return null;
+
+  const trancheRaw = Number(cfg?.investor_compounder_patience_tranche_frac);
+  const tranche = Number.isFinite(trancheRaw) && trancheRaw > 0 && trancheRaw <= 1 ? trancheRaw : 0.34;
+  return {
+    allow: true,
+    reason: "compounder_patience_starter",
+    overrode: reason,
+    tranche_frac: tranche,
+    ltf_reject_streak: Number(ltfRejectStreak),
+    score: Number(score),
+  };
+}
+
 /** Monthly + D/W/M structural alignment; no opposing 4H ST slope for act_now. */
 export function computeInvestorSimEligible(tickerData, cfg = DEFAULT_INVESTOR_CONFIG) {
   const _stDirD = tickerData?.tf_tech?.D?.stDir ?? 0;

@@ -1056,6 +1056,7 @@ import {
   computeInvestorSimEligible,
   investor4hCapitalDeploymentBlock,
   investorLtfEntryStabilizationBlock,
+  investorCompounderPatienceOverride,
   resolveInvestorFailedEntryReclaim,
   parseInvestorPositionNotes,
   resolveInvestor4hTiming,
@@ -98740,10 +98741,57 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
             // 2026-08-04 — July LT autopsy: HTF score ≠ timed entry. Require
             // 10m ST / 5-12 cloud / FVG stabilization before deploying capital.
-            const _ltfBlock = investorLtfEntryStabilizationBlock(
+            const _ltfBlockRaw = investorLtfEntryStabilizationBlock(
               _tdAddGate || { ticker: t.ticker },
               _invRebalCfg,
             );
+            // 2026-09-05 — compounder patience (DELL): a growth-elite dip the
+            // compounder engine scored 85+ for 3+ hourly admits gets a
+            // starter tranche instead of another "wait for the 10m curl".
+            let _ltfBlock = _ltfBlockRaw;
+            let _admitSizeFrac = 1;
+            if (_ltfBlockRaw) {
+              try {
+                const _streakRow = await env.DB.prepare(
+                  `SELECT COUNT(*) AS c FROM decision_records
+                   WHERE ticker = ?1 AND engine = 'investor' AND event_type = 'ADMIT_REJECT'
+                     AND reason LIKE 'ltf_%' AND ts >= ?2`,
+                ).bind(t.ticker, now - 72 * 3600 * 1000).first();
+                const _override = investorCompounderPatienceOverride({
+                  block: _ltfBlockRaw,
+                  score: t.score,
+                  stageReason: _scoreRowTier.stageReason || scores[t.ticker]?.stageReason,
+                  ltfRejectStreak: Number(_streakRow?.c) || 0,
+                  tickerData: _tdAddGate || { ticker: t.ticker },
+                  cfg: _invRebalCfg,
+                });
+                if (_override?.allow) {
+                  _ltfBlock = null;
+                  _admitSizeFrac = _override.tranche_frac;
+                  console.log(`[AUTO-REBALANCE] compounder patience: ${t.ticker} starter ${Math.round(_override.tranche_frac * 100)}% after ${_override.ltf_reject_streak} LTF rejects (${_override.overrode})`);
+                  recordInvestorDecision(env, {
+                    lotId: `admit-${t.ticker}-${now}`,
+                    ticker: t.ticker,
+                    eventType: "ADMIT_OVERRIDE",
+                    ts: now,
+                    reason: _override.reason,
+                    inputCtx: {
+                      event: "ADMIT_OVERRIDE",
+                      ticker: t.ticker,
+                      ts: now,
+                      score: t.score,
+                      stage: t.stage,
+                      stageReason: _scoreRowTier.stageReason || scores[t.ticker]?.stageReason,
+                      tickerData: _tdAddGate,
+                      gateTrace: [{ gate: "ltf_entry_stabilize", decision: "override", reason: _override.reason, override: _override, ltf: _ltfBlockRaw }],
+                    },
+                    gateTrace: [{ gate: "ltf_entry_stabilize", decision: "override", reason: _override.reason, overrode: _override.overrode }],
+                  }).catch(() => {});
+                }
+              } catch (_pe) {
+                console.warn(`[AUTO-REBALANCE] compounder patience check threw for ${t.ticker}: ${String(_pe?.message || _pe).slice(0, 120)}`);
+              }
+            }
             if (_ltfBlock) {
               skipped.push({
                 ticker: t.ticker,
@@ -98839,7 +98887,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 continue;
               }
               // Only add up to half the gap per rebalance (gradual scaling)
-              const addValue = Math.min(gap * 0.5, remainingCapital);
+              const addValue = Math.min(gap * 0.5, remainingCapital) * _admitSizeFrac;
               if (addValue < MIN_ORDER_VALUE) {
                 skipped.push({ ticker: t.ticker, reason: "insufficient_capital_for_add" });
                 continue;
@@ -99087,7 +99135,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 skipped.push({ ticker: t.ticker, reason: "max_new_per_day_reached", maxPerDay: _maxNewPerDay, openedToday: _opensToday + opened.length });
                 continue;
               }
-              const orderValue = Math.min(targetValue, remainingCapital);
+              const orderValue = Math.min(targetValue, remainingCapital) * _admitSizeFrac;
               if (orderValue < MIN_ORDER_VALUE) {
                 skipped.push({ ticker: t.ticker, reason: "insufficient_capital" });
                 continue;
