@@ -109,18 +109,54 @@ bridge worker.
   a broker limitation, not a signal-quality one. Revisit only if shorts
   crowd out mirrorable longs at the 4-open cap.
 
-## 5. Next packets
+## 5. Packet 4 — landed (deployed 2026-09-05 02:25 UTC)
 
-1. **Context playbooks out of shadow.** `daily_ema21_reclaim` saw DELL
-   three times as CONTEXT_SHADOW with confidence 65. Promote the playbook to
-   a live entry path for compounders (the same names the Investor engine
-   scores >= 85) with the options desk as the vehicle when premium is rich.
-2. **Options desk follow-through.** The earnings desk called DELL 475c and
-   nothing routed it. Wire earnings-lotto / day-trade options plays for
-   compounders into the same intent ledger so a called play is a ticket.
-3. **Intent ledger for options reducers.** Same drain, options sell window
-   (09:30-16:15 ET).
-4. **Paper-close-on-fill for operator lanes.** Index trend and family
+### 5.1 Context playbooks: kept in shadow (evidence)
+
+`GET /timed/admin/context/shadow-report?days=30`, sliced by the set of
+tickers the Investor engine tagged `compounder_dip_override` in the last
+45 days:
+
+| playbook | slice | n | fwd median | positive |
+|---|---|---|---|---|
+| `daily_ema21_reclaim` | all | 154 | -0.31% | 45% |
+| `daily_ema21_reclaim` | compounders (DELL class) | 31 | -0.95% | 39% |
+| `daily_ema21_reclaim` | later-session (>= 11:30 ET) | 122 | -0.65% | 39% |
+| `weekly_breakout_retest` | all | 99 | -0.33% | 42% |
+| `weekly_breakout_retest` | compounders | 20 | +0.47% | 55% |
+
+The "DELL saw it three times" observation was survivorship: the same
+trigger on the same class of name is the worst slice in the table. No
+promotion. Weekly retest on compounders is the only positive cell and is
+n=20; re-read at n>=50 before deciding anything. `playbooks.js` unchanged.
+
+### 5.2 Convexity ticket ledger (`worker/convexity-tickets.js`)
+
+The lotto strip was a scan with no owner. A CONFLUENT, live-chain-priced
+card inside the options entry window now becomes a `convexity_tickets`
+row (paper + Discord "model fill"), 2/day, 4 open, estimates never. The
+`*/5` RTH cron marks open tickets off the chain and closes by rule:
+
+- `premium_stop` at 50% of entry
+- `take_3x`
+- `peak_giveback` after 2x: keep 60% of the peak gain
+- `pre_print_exit` at 15:45 ET on the crush block's exit-by date, only
+  when it said `EXIT_BEFORE_PRINT` / `TIGHT_HOLD` (a `CAN_HOLD_THROUGH`
+  ticket rides the print, which is what the DELL call needed)
+- `expiry`
+
+Every 15 min inside the entry window the cron self-fetches the scan with
+`_nocache=1` so tickets open without a page view.
+`GET /timed/admin/convexity-tickets` is the report card; the broker
+mirror for this desk is decided from that table, not from one screenshot.
+
+## 6. Next packets
+
+1. **Options desk mirror.** Once `convexity_tickets` has >= 20 closed
+   rows with a positive median, route new tickets through the options
+   auto-mirror (vehicle `lotto`, per-order cap = `max_loss_usd`) and the
+   intent ledger (options sell window 09:30-16:15 ET for reducers).
+2. **Paper-close-on-fill for operator lanes.** Index trend and family
    tickets could hold the paper close until the broker fills (or the intent
    expires) for the operator's own book; members keep model truth.
 
@@ -133,7 +169,11 @@ bridge worker.
   `6a423402` / `243af8bb`, tt-research `8ab80d58` / `c8a45bcf`.
   `GET /timed/admin/broker-intents?status=all` -> `{ok:true,count:0}`
   (table created).
+- Packet 4: 3471 tests green. Monolith `4e8fc416` / `eca20ded`, tt-engine
+  `93ab3a12`, tt-research `1507499c`. `GET /timed/admin/convexity-tickets`
+  -> `{ok:true,open:0}` (table created); `POST .../mark` -> `scanned:0`.
 - Monday 09-08 watch: `[SMART_GATE]` and `[PAPER_FAMILY_ENTRY] ... held`
   lines should appear; no more than 3 family opens; no index-trend
   EXIT/TRIM after 16:00 ET; no `no_manifest_for_trade` on a sleeve with
-  `broker_remaining_qty > 0`.
+  `broker_remaining_qty > 0`. `[CONVEXITY TICKET] opened` at most twice;
+  first Discord "OPTIONS DESK · ticket" embed carries a live premium.

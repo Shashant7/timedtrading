@@ -239,6 +239,12 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   D1 `broker_intents`, drained `*/5` while the broker can act
   (`worker/broker-intents.js`; `GET /timed/admin/broker-intents`). Entries
   never retry. Notifications say "model fill" (paper truth).
+- Shadow lanes have report cards: pull `/timed/admin/context/shadow-report`
+  and slice before promoting. `daily_ema21_reclaim` on compounders is 39%
+  positive (30d) -- it stays in shadow.
+- A called options play is a ticket: CONFLUENT live-priced convexity cards
+  -> D1 `convexity_tickets` (2/day, 4 open), marked `*/5`, closed by rule,
+  graded at `GET /timed/admin/convexity-tickets` (`worker/convexity-tickets.js`).
 - DELL lesson: a scored compounder dip rejected by the LTF stabilize gate for
   3+ hourly admits gets a 34% starter (`investorCompounderPatienceOverride`);
   structural vetoes (below-233 majority, opposing daily FVG) still stand.
