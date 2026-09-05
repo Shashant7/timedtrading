@@ -6641,3 +6641,12 @@ close-auction window stays live through 16:14.
 ## 2026-09-05 — Broker reducers are intents, not fire-and-forget calls
 - **Symptom:** UDOW/DPZ/AMZN: paper closed, Discord said filled, broker still held. `forwardOrderToBridge` returned a skip and nothing retried.
 - **Rule:** Every trader SELL/TRIM/EXIT that does not place becomes a `broker_intents` row and is drained on `*/5` while the broker can act (`worker/broker-intents.js`). Terminal rejects close the intent; deferred/transient retry. Entries never become intents (re-qualify, do not chase). Check `GET /timed/admin/broker-intents` before assuming a reducer is stranded. "model fill" in notifications is paper truth; broker truth is the mirror log + intents.
+
+## 2026-09-05 — Read the shadow report card before promoting a playbook
+- **Symptom:** "DELL was seen three times by `daily_ema21_reclaim`" looked like a missed lane. The 30-day `GET /timed/admin/context/shadow-report` said the opposite: 154 triggers, -0.31% median, 45% positive; the compounder slice (DELL class) was the worst cell at 39% / -0.95%.
+- **Rule:** Any shadow lane has its own report card. Pull it and slice it (compounders, session bucket, confluence) before writing an entry path. One remembered good call is survivorship; the table is the evidence. Keep the lane in shadow if the median is not positive, and say so in the plan.
+
+## 2026-09-05 — A called options play must be a ticket
+- **Symptom:** The lotto strip priced DELL 475c off the live chain and forgot it five minutes later. No entry premium on record, no exit, no grade, nothing for a mirror decision to read.
+- **Rule:** Every desk that calls a play writes a row (`convexity_tickets`: entry premium, contracts, exit rule, grade) and something marks it on a cron. `worker/convexity-tickets.js` opens CONFLUENT live-priced cards (2/day, 4 open, never an estimate), marks `*/5`, closes by rule, and `GET /timed/admin/convexity-tickets` grades it. The mirror comes after the grade, not before.
+

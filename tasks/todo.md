@@ -36,11 +36,15 @@
       Packet 3 landed: durable `broker_intents` ledger + `*/5` drain,
       "model fill" notifications, DELL audit -> compounder patience
       override, ST window review (no change), paper-short decision.
-      Next: context playbooks out of shadow for compounders; options desk
-      follow-through into the intent ledger; paper-close-on-fill for
-      operator lanes.
+      Packet 4 landed: context playbooks KEPT in shadow (30d report card:
+      DELL-class reclaim 39% positive); convexity ticket ledger
+      (`convexity_tickets`, */5 mark, admin report card).
+      Next: options desk mirror once >= 20 graded tickets;
+      paper-close-on-fill for operator lanes.
       Branches: `cursor/execution-discipline-plan-dbdd` (PR #1426, merged),
-      `cursor/execution-discipline-packet-2-dbdd` (PR #1427).
+      `cursor/execution-discipline-packet-2-dbdd` (PR #1427, merged),
+      `cursor/execution-discipline-packet-3-dbdd` (PR #1428, merged),
+      `cursor/execution-discipline-packet-4-dbdd` (PR #1430).
 - [ ] **SPY options still missing on holdings (2026-09-03).** Options
       normalize ignored Webull `position_list` (equity path already read
       it), so OPTION rows never reached Broker Connections. Bundle options
