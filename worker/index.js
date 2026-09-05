@@ -2779,10 +2779,22 @@ async function bumpOpenTradeExcursions(env, sym, openTrade, pxNow, tickerData) {
 
   let sessionHigh = pxNow;
   let sessionLow = pxNow;
+  // Reject session extremes that diverge sharply from the live mark — a bad
+  // print otherwise permanently poisons MFE/MAE. AMZN 2026-07-20: dl≈236 vs
+  // px≈251 cascaded into a false SL close. TJX 2026-09-03/04: a ~$158 high
+  // on a $131 stock stored MFE 20.06% (true 1.15%), fired
+  // BIG_MFE_PROGRESSIVE_TRIM on a +0.6% position and armed the ratchet
+  // floor at +16%. The guard used to cover only the KV dh/dl path; the
+  // tickerData day-high path (same feed field) was unguarded.
+  const spikeTol = 0.025;
+  const saneVsPx = (ext) => {
+    if (!(Number.isFinite(ext) && ext > 0) || !(Number.isFinite(pxNow) && pxNow > 0)) return false;
+    return Math.abs(ext - pxNow) / pxNow <= spikeTol;
+  };
   const tdHigh = Number(tickerData?._live_daily_high ?? tickerData?.day_high ?? tickerData?.session_high);
   const tdLow = Number(tickerData?._live_daily_low ?? tickerData?.day_low ?? tickerData?.session_low);
-  if (Number.isFinite(tdHigh) && tdHigh > 0) sessionHigh = isLong ? Math.max(sessionHigh, tdHigh) : Math.min(sessionHigh, tdHigh);
-  if (Number.isFinite(tdLow) && tdLow > 0) sessionLow = isLong ? Math.min(sessionLow, tdLow) : Math.max(sessionLow, tdLow);
+  if (saneVsPx(tdHigh)) sessionHigh = isLong ? Math.max(sessionHigh, tdHigh) : Math.min(sessionHigh, tdHigh);
+  if (saneVsPx(tdLow)) sessionLow = isLong ? Math.min(sessionLow, tdLow) : Math.max(sessionLow, tdLow);
 
   try {
     const KV = env?.KV_TIMED || env?.KV;
@@ -2795,14 +2807,6 @@ async function bumpOpenTradeExcursions(env, sym, openTrade, pxNow, tickerData) {
         if (row && typeof row === "object") {
           const dh = Number(row.dh);
           const dl = Number(row.dl);
-          // Reject session extremes that diverge sharply from the live mark —
-          // a bad daily-low print otherwise permanently poisons MAE and can
-          // cascade into a false SL close (AMZN 2026-07-20: dl≈236 vs px≈251).
-          const spikeTol = 0.025;
-          const saneVsPx = (ext) => {
-            if (!(Number.isFinite(ext) && ext > 0) || !(Number.isFinite(pxNow) && pxNow > 0)) return false;
-            return Math.abs(ext - pxNow) / pxNow <= spikeTol;
-          };
           if (Number.isFinite(dh) && dh > 0 && saneVsPx(dh)) {
             sessionHigh = isLong ? Math.max(sessionHigh, dh) : Math.min(sessionHigh, dh);
           }

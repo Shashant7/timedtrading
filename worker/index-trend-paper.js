@@ -3,7 +3,7 @@
 // Paper book classification for index trend LETF share plays (SPYU/SPXU).
 // Pure — no I/O.
 
-import { isNyRegularMarketOpenStatic } from "./market-calendar.js";
+import { shareLaneExecutionWindow, peakGivebackFloor } from "./execution-window.js";
 
 function num(v) {
   const n = Number(v);
@@ -90,6 +90,7 @@ export function classifyIndexTrendPaperEvent({
   const targetUl = num(mgmt.target_underlying);
   const deadlineMs = num(mgmt.target_deadline_ms);
   const defaultShares = shares || defaultIndexTrendPaperShares(letfPx);
+  const win = shareLaneExecutionWindow(now);
 
   const closed = (event, reason, extra = {}) => ({
     event,
@@ -121,7 +122,10 @@ export function classifyIndexTrendPaperEvent({
   }
 
   const canEnter = (status === "flat" || status === "closed") && !book?.needs_wait;
-  if (canEnter && activate && isNyRegularMarketOpenStatic(new Date(now))) {
+  if (canEnter && activate && !win.can_enter) {
+    return { event: null, nextBook: book || null, reason: `entry_window:${win.blocked_reason || "open_print_or_late"}` };
+  }
+  if (canEnter && activate && win.can_enter) {
     if (!(letfPx > 0) || !(ulPx > 0)) return { event: null, nextBook: null };
     // Price action first: do not open a book that is already through the stop
     // (TNA 2026-08-31: IWM $293.23 vs stop $297.27 — FSD still said BUY).
@@ -165,7 +169,10 @@ export function classifyIndexTrendPaperEvent({
     stopUnderlying: stopUl ?? book.stop_underlying,
     currentUnderlying: ulPx,
   });
-  const peakR = Math.max(num(book.peak_underlying_r) || 0, r ?? 0);
+  // Peak only advances on RTH prints — an AH spike must not arm a giveback
+  // exit that then fires at the open on a normal print.
+  const prevPeakR = num(book.peak_underlying_r) || 0;
+  const peakR = win.can_ratchet ? Math.max(prevPeakR, r ?? 0) : prevPeakR;
   const stamped = {
     ...book,
     last_letf_price: letfPx,
@@ -173,12 +180,22 @@ export function classifyIndexTrendPaperEvent({
     peak_underlying_r: peakR,
   };
 
-  // Hard stop on underlying invalidation.
+  // Hard stop on underlying invalidation — only while the broker can still
+  // take a share order. Outside that window the book stays open and the
+  // stop re-evaluates on the first tick the mirror can act.
   if (stopUl != null && ulPx != null) {
     const stopped = dir === "LONG" ? ulPx <= stopUl + 1e-9 : ulPx >= stopUl - 1e-9;
     if (stopped) {
+      if (!win.can_stop) {
+        return { event: null, nextBook: stamped, reason: `stop_deferred:${win.blocked_reason || "broker_closed"}` };
+      }
       return closed("STOP", "underlying_invalidation", { ...stamped, peak_underlying_r: peakR });
     }
+  }
+
+  // Everything below is profit management on a share book: RTH only.
+  if (!win.can_reduce) {
+    return { event: null, nextBook: stamped, reason: `reduce_window:${win.blocked_reason || "outside_rth"}` };
   }
 
   // FSD month-end is guidance, not a flatten. Replay `replay_end_close`
@@ -223,19 +240,25 @@ export function classifyIndexTrendPaperEvent({
     }
   }
 
-  // Trail remainder after +2R trim: exit if R gives back 40% from peak.
-  const trailStep = ladder.find((s) => s?.trail_remainder);
-  if (trailStep && trimsFired.includes(2) && peakR >= 2 && r != null && peakR > 0) {
-    const floorR = peakR * 0.6;
-    if (r + 1e-9 <= floorR) {
-      return closed("EXIT", "trail_giveback", { ...stamped, peak_underlying_r: peakR });
-    }
+  // Peak-anchored giveback floor on the whole book (not just the post-2R
+  // remainder). UDOW W36 peaked +1.5R on the underlying, trimmed 25% at +1R,
+  // then had nothing between +1R and the hard stop; the trail only armed
+  // after a +2R trim. Now: +1R never goes red, +1.5R keeps half, +2R keeps
+  // 60%, +3R keeps 70%. Evaluated on RTH prints only (see can_reduce above).
+  const floorR = peakGivebackFloor(peakR);
+  if (floorR != null && r != null && r + 1e-9 <= floorR) {
+    return closed("EXIT", "trail_giveback", {
+      ...stamped,
+      peak_underlying_r: peakR,
+      giveback_floor_r: floorR,
+      exit_r: r,
+    });
   }
 
   // DCA on compression dip while rally window active (not after FSD month-end).
   if (!pastDeadline && mgmt.dca_on_dip && r != null && r >= -0.25 && r <= 0.5
     && (Number(book.dca_count) || 0) < 1
-    && isNyRegularMarketOpenStatic(new Date(now))) {
+    && win.can_enter) {
     const addQty = Math.max(1, Math.round(defaultShares * 0.5));
     return {
       event: "DCA_ADD",
