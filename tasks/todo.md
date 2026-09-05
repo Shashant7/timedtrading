@@ -41,8 +41,11 @@
       (`convexity_tickets`, */5 mark, admin report card).
       Options desk mirror landed behind the grade gate (`lotto` vehicle,
       options closes in the intent ledger); paper-close-on-fill decided
-      against (paper book is model truth). Remaining: re-read the ticket
-      report card at closed_n >= 20 and toggle the vehicle if it earns it.
+      against (paper book is model truth). Report card endpoint
+      `/timed/admin/execution/report-card` landed; DA config corrected
+      (daily cap 6 was overridden by a 999 row; late-day block 120; ratchet
+      arm 1.5). Remaining: read the report cards weekly; toggle the
+      Convexity Ticket vehicle when `mirror.enabled` flips.
       Branches: `cursor/execution-discipline-plan-dbdd` (PR #1426, merged),
       `cursor/execution-discipline-packet-2-dbdd` (PR #1427, merged),
       `cursor/execution-discipline-packet-3-dbdd` (PR #1428, merged),

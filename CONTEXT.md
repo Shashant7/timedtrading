@@ -249,6 +249,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   (>= 20 closed, median > 0, win >= 40%; `CONVEXITY_MIRROR` forces) plus the
   `lotto` vehicle toggle; ticket closes ride `broker_intents` as
   `options_close` (options sell window). Paper closes never wait on the broker.
+- `deep_audit_*` D1 rows override code defaults: change the row, not the
+  constant. Grade the plan with `GET /timed/admin/execution/report-card`
+  (lane baseline, entry-hour buckets, MFE integrity, caps replay); core
+  entries are blocked 14:00-16:00 ET, daily cap 6, ratchet arms at +1.5%.
 - DELL lesson: a scored compounder dip rejected by the LTF stabilize gate for
   3+ hourly admits gets a 34% starter (`investorCompounderPatienceOverride`);
   structural vetoes (below-233 majority, opposing daily FVG) still stand.

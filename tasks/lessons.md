@@ -6654,3 +6654,11 @@ close-auction window stays live through 16:14.
 - **Symptom:** "Wire the options desk to the broker" and "prove the desk first" pull in opposite directions; doing the second alone leaves the mirror unbuilt when the grade arrives, doing the first alone is the shadow-and-experiments pattern with real money.
 - **Rule:** Build the broker leg now, gate it on the report card (`convexityMirrorDecision`: >= 20 graded, positive median, win rate >= 40%), and surface the gate on the report endpoint so the operator sees why it is off. Reducers for the new leg go through `broker_intents` from day one (kind `options_close`, options sell window). The paper book stays model truth; never hold a paper close hostage to a broker fill.
 
+## 2026-09-05 — A code default is not a setting when a DA row exists
+- **Symptom:** Packet 2 changed `MAX_DAILY_ENTRIES` default 999 -> 6 and reported the cap "landed". `model_config` still held `deep_audit_max_daily_entries = 999`, which the code prefers, so the cap was never in effect.
+- **Rule:** Any `deep_audit_*` knob has a D1 row that wins over the code default. Changing the default is documentation; changing the row (`POST /timed/admin/model-config`) is the change. After touching a DA-backed default, `SELECT config_key, config_value FROM model_config WHERE config_key = ...` and fix the row.
+
+## 2026-09-05 — Grade with the ledger, and say when the grade does not exist yet
+- **Symptom:** "Confirm the model selects better trades now" one day after the changes. There are no post-change trades; asserting improvement would be a story.
+- **Rule:** Answer with the pre-change table and the mechanism each change targets, then give the pass condition and the endpoint that produces the grade (`/timed/admin/execution/report-card`). The 42d table: exits leaked more than entries (17/21 core winners closed under 40% of peak), late-day core entries were the loss engine (12:00+ ET: 36 trades, 22% win, -28.5pp), and 3 recorded MFEs were impossible. Fix the knobs those point at (late-day block 120, ratchet arm 1.5), then wait for n.
+

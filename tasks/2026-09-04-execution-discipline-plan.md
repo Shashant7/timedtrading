@@ -176,7 +176,66 @@ own ledger for the operator: `mirror_trade_manifest`, `bridge_audit`,
 `broker_intents`, and the drain's Discord summary. Notifications say
 "model fill" so nobody reads one as the other. No change.
 
-## 6. Next
+## 6. Grade so far (2026-09-05, `GET /timed/admin/execution/report-card?days=42`)
+
+Honest answer to "did this improve trade selection": not yet provable.
+Every change above landed on 2026-09-04/05; there are zero sessions of
+post-change trades to grade. What the 42-day ledger before the changes
+says, and what each change does to it:
+
+| slice (closed, 42d) | n | win | sum |
+|---|---|---|---|
+| all | 73 | 30% | -45.3pp |
+| core | 47 | 28% | -29.1pp |
+| paper family (cloud pivot) | 26 | 35% | -16.2pp |
+| core entered 09:30-12:00 ET | 11 | 45% | -0.5pp |
+| core entered 12:00-16:00 ET | 36 | 22% | -28.5pp |
+| core entered 15:00-16:00 ET | 12 | 17% | -12.9pp |
+| cloud pivot LONG / SHORT | 15 / 9 | 20% / 67% | -22.3 / +6.1pp |
+| entries the new caps would have blocked | 27 | 33% | -18.3pp |
+| entries the caps keep | 46 | 28% | -27.0pp |
+
+- **Caps** cut exposure to a losing process (blocked set is worse than
+  kept), they do not make the kept set a winner. Selection is not fixed by
+  counting.
+- **Exits were the bigger leak than entries.** Of real winners with MFE
+  >= 1.5%: core 17 of 21 and family 10 of 13 closed below 40% of peak.
+  The cloud pivot lock counterfactual alone (+~60pp on a -16pp lane) flips
+  the family positive, with the caveat that it assumes a fill at the floor.
+  The core ratchet (armed 2.0%, 40% lock) fired 3 times in 42 days.
+- **Late-day core entries are the loss engine.** After 12:00 ET: 36
+  trades, 22% win, -28.5pp; the 15:00 bucket alone -12.9pp. Mechanism:
+  entry at 15:0x, overnight gap, `sl_breached`/`max_loss` before 10:00.
+- **MFE integrity**: 3 of 73 recorded peaks (GEV 14.25% vs a 4.9% candle
+  ceiling, TJX, CAT) were physically impossible; the spike guard from
+  packet 2 stops new ones. The report card flags and excludes them.
+
+### 6.1 Config corrections applied (model_config, hot)
+
+- `deep_audit_max_daily_entries` 999 -> **6**. The packet-2 code default
+  of 6 was being overridden by this DA row; the core daily cap was NOT in
+  effect until now.
+- `deep_audit_late_day_entry_block_min` 30 -> **120**: core entries blocked
+  14:00-16:00 ET (momentum-breakout bypass still applies). July evidence
+  had the 15:00 bucket profitable; Aug-Sep reversed it. Revisit when the
+  14:00-15:00 bucket is positive over 30d.
+- `deep_audit_mfe_ratchet_activation_pct` 2.0 -> **1.5**: a +1.5% winner
+  gets the 40% floor.
+
+### 6.2 How the system grades itself from here
+
+- `GET /timed/admin/execution/report-card?days=N` -- baseline by lane,
+  entry-hour buckets, setup/direction, MFE integrity + giveback, caps
+  replay. Read weekly; compare the post-09-05 window to the table above.
+- `GET /timed/admin/convexity-tickets` -- options desk grade; mirror gate
+  flips itself when earned.
+- `GET /timed/admin/context/shadow-report?days=30` -- playbooks.
+- `GET /timed/admin/broker-intents?status=all` -- broker follow-through.
+- Pass condition for "selection improved": core win rate >= 40% and
+  core sum > 0 over >= 30 closed trades, with the 12:00+ buckets no
+  longer the dominant loss; family LONG win rate >= 35%.
+
+## 7. Next
 
 - Let `convexity_tickets` grade itself. Re-read the report card at
   `closed_n >= 20`; if `mirror.enabled` flips, toggle the Convexity Ticket
@@ -184,7 +243,7 @@ own ledger for the operator: `mirror_trade_manifest`, `bridge_audit`,
 - Weekly retest on compounders (55% at n=20): re-read the shadow report at
   n >= 50.
 
-## 7. Verification
+## 8. Verification
 
 - `vitest run`: 317 files / 3436 tests green.
 - Deploys: bridge `b346c476`, monolith default `7e972544`, production
@@ -200,6 +259,9 @@ own ledger for the operator: `mirror_trade_manifest`, `bridge_audit`,
   tt-engine `b78e3e47`, tt-research `423fdcfd`. Report card shows
   `mirror: {enabled:false, reason:"graded_0_of_20"}`; D1 has the four
   `mirror_*` columns.
+- Report card: 3485 tests green. Monolith `c8304210` / `5a80fd30`. Live
+  `GET /timed/admin/execution/report-card?days=42` reproduces the offline
+  table (73 closed, 30% win, -45.3pp; 3 corrupt MFEs).
 - Monday 09-08 watch: `[SMART_GATE]` and `[PAPER_FAMILY_ENTRY] ... held`
   lines should appear; no more than 3 family opens; no index-trend
   EXIT/TRIM after 16:00 ET; no `no_manifest_for_trade` on a sleeve with
