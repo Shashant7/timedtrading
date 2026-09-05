@@ -2488,6 +2488,8 @@ const ROUTES = [
   // proxy. Session-authed + gated on users.broker_connections_enabled;
   // every call is scoped to the signed-in user's own owner namespace.
   ["GET",  "/timed/broker/accounts",                     "GET /timed/broker/accounts"],
+  ["GET",  "/timed/admin/broker-intents",                "GET /timed/admin/broker-intents"],
+  ["POST", "/timed/admin/broker-intents/drain",          "POST /timed/admin/broker-intents/drain"],
   ["GET",  "/timed/broker/positions",                    "GET /timed/broker/positions"],
   // 2026-08-13 — Day timeline (model actions × mirror outcomes) + scoped
   // per-account position sync for the Broker Connections second pass.
@@ -21292,8 +21294,8 @@ async function processTradeSimulation(
                 title: sgRenderEmailSubject(buildSignal({
                   engine: "trader", mode: "doing", execState: "done", action: "exit",
                   ticker: sym, direction: trade.direction, price: trade.exitPrice, pnlPct: trade.pnlPct,
-                }), { threadLabel: "filled" }),
-                body: `Closed ${sym} ${String(trade.direction || "").toUpperCase()}${_exitEtTime ? ` at ${_exitEtTime}` : ""} · Filled $${Number(trade.exitPrice).toFixed(2)} · P&L ${Number(trade.pnlPct || 0) >= 0 ? "+" : ""}${Number(trade.pnlPct || 0).toFixed(2)}%`,
+                }), { threadLabel: "model fill" }),
+                body: `Closed ${sym} ${String(trade.direction || "").toUpperCase()}${_exitEtTime ? ` at ${_exitEtTime}` : ""} · Model fill $${Number(trade.exitPrice).toFixed(2)} · P&L ${Number(trade.pnlPct || 0) >= 0 ? "+" : ""}${Number(trade.pnlPct || 0).toFixed(2)}%`,
                 link: `/simulation-dashboard.html`,
                 ...notificationMetaFromSignal(buildSignal({
                   engine: "trader", mode: "doing", execState: "done", action: "exit",
@@ -34786,7 +34788,7 @@ function buildTraderEntryNotificationBody({
   parts.push(
     `Entered ${sym} ${String(direction || "").toUpperCase()}${entryEtTime ? ` at ${entryEtTime}` : ""}`,
   );
-  parts.push(`Filled $${Number(entryPx).toFixed(2)}`);
+  parts.push(`Model fill $${Number(entryPx).toFixed(2)}`);
   const sl = Number(trade?.sl ?? tickerData?.sl);
   const tp = Number(trade?.tp ?? tickerData?.tp);
   if (Number.isFinite(sl) && sl > 0) parts.push(`SL $${sl.toFixed(2)}`);
@@ -39977,7 +39979,7 @@ function bellNotificationFromActivityEvent(ev) {
       id: `activity-${tradeId || ticker}-entry-${ts}`,
       email: null,
       type: "trade_entry",
-      title: sgRenderEmailSubject(sig, { threadLabel: "filled" }),
+      title: sgRenderEmailSubject(sig, { threadLabel: "model fill" }),
       body: `Entered ${ticker} ${dir}${Number.isFinite(price) ? ` @ $${price.toFixed(2)}` : ""}`,
       link: `/today.html?ticker=${encodeURIComponent(ticker)}`,
       read_at: null,
@@ -39996,7 +39998,7 @@ function bellNotificationFromActivityEvent(ev) {
       id: `activity-${tradeId || ticker}-trim-${ts}`,
       email: null,
       type: "trade_trim",
-      title: sgRenderEmailSubject(sig, { threadLabel: "filled" }),
+      title: sgRenderEmailSubject(sig, { threadLabel: "model fill" }),
       body: `Trimmed ${ticker} ${dir}${Number.isFinite(price) ? ` @ $${price.toFixed(2)}` : ""}${pnlPct != null ? ` · P&L ${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%` : ""}`,
       link: `/today.html?ticker=${encodeURIComponent(ticker)}`,
       read_at: null,
@@ -40015,7 +40017,7 @@ function bellNotificationFromActivityEvent(ev) {
       id: `activity-${tradeId || ticker}-exit-${ts}`,
       email: null,
       type: "trade_exit",
-      title: sgRenderEmailSubject(sig, { threadLabel: "filled" }),
+      title: sgRenderEmailSubject(sig, { threadLabel: "model fill" }),
       body: `Closed ${ticker} ${dir}${Number.isFinite(price) ? ` @ $${price.toFixed(2)}` : ""}${pnlPct != null ? ` · P&L ${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%` : ""}`,
       link: `/simulation-dashboard.html`,
       read_at: null,
@@ -85674,6 +85676,41 @@ export default {
         }
       }
 
+      // 2026-09-05 — Durable broker intent ledger. ?status=pending|filled|
+      // rejected|exhausted|expired|all (default pending) &limit=<n>.
+      if (routeKey === "GET /timed/admin/broker-intents") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { ensureBrokerIntentSchema } = await import("./broker-intents.js");
+          if (!(await ensureBrokerIntentSchema(env))) {
+            return sendJSON({ ok: false, error: "no_db" }, 503, corsHeaders(env, req));
+          }
+          const status = String(url.searchParams.get("status") || "pending").toLowerCase();
+          const limit = Math.min(200, Number(url.searchParams.get("limit")) || 50);
+          const q = status === "all"
+            ? env.DB.prepare(`SELECT * FROM broker_intents ORDER BY updated_ts DESC LIMIT ?`).bind(limit)
+            : env.DB.prepare(`SELECT * FROM broker_intents WHERE status = ? ORDER BY updated_ts DESC LIMIT ?`).bind(status, limit);
+          const res = await q.all();
+          const rows = (res?.results || []).map((r) => ({ ...r, order_json: undefined }));
+          return sendJSON({ ok: true, count: rows.length, rows }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/broker-intents/drain") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { drainBrokerIntents } = await import("./broker-intents.js");
+          const { forwardOrderToBridge: _fwd } = await import("./broker-bridge-client.js");
+          const out = await drainBrokerIntents(env, { forward: _fwd });
+          return sendJSON({ ok: true, ...out }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // 2026-07-21 — Durable silent-failure breadcrumb ring. Survives the
       // 256KB/request Cloudflare log cap that truncates late console.error
       // lines during heavy scoring crons (which is how the entry-finalize
@@ -105801,6 +105838,50 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[INVESTOR CATCHUP AUTO] Failed:", String(e?.message || e).slice(0, 300));
           recordCronFailure(env, {
             op: "investor_catchup_auto",
+            error: String(e?.message || e),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
+    }
+
+    // ── Durable broker intents drain (*/5 while the broker can act) ──
+    //
+    // 2026-09-05 — every trader reducer that did not place (skipped after
+    // 19:00 ET, sub-share outside RTH, fetch error, 5xx) is a row in
+    // broker_intents. Retry with a fresh client_order_id whenever the
+    // window is open; the bridge position guard clamps qty so a manual
+    // catch-up that already sold cannot double-fire.
+    if (!_isDedicatedEngine
+        && _isEvery5Min
+        && _calIsEquityBrokerFollowThroughStatic()) {
+      ctx.waitUntil((async () => {
+        try {
+          const { drainBrokerIntents } = await import("./broker-intents.js");
+          const { forwardOrderToBridge: _fwd } = await import("./broker-bridge-client.js");
+          const out = await drainBrokerIntents(env, { forward: _fwd });
+          if (out.scanned > 0 || out.expired > 0) {
+            console.log(
+              `[BROKER INTENT] drain scanned=${out.scanned} attempted=${out.attempted}`
+              + ` filled=${out.filled} rejected=${out.rejected} exhausted=${out.exhausted}`
+              + ` deferred=${out.deferred} expired=${out.expired}`,
+            );
+          }
+          if (out.attempted > 0) {
+            recordCronSuccess(env, "broker_intents_drain").catch(() => {});
+            const lines = (out.results || []).map((r) =>
+              `${r.ticker} ${String(r.side).toUpperCase()} qty=${r.qty ?? "?"} -> ${r.status}`
+              + (r.reason ? ` (${String(r.reason).slice(0, 60)})` : ""));
+            await notifyDiscord(env, {
+              title: `SHORT TERM · broker intent drain (${out.filled} filled / ${out.rejected + out.exhausted} closed)`,
+              description: lines.join("\n").slice(0, 1800),
+              color: out.filled > 0 ? 0x4a90d9 : 0xf0a020,
+            }, "trade").catch(() => {});
+          }
+        } catch (e) {
+          console.warn("[BROKER INTENT] drain failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, {
+            op: "broker_intents_drain",
             error: String(e?.message || e),
             caller: "scheduled_event",
           }).catch(() => {});

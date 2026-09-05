@@ -16,6 +16,7 @@
  * pre/post so we only need to know "am I inside the RTH window?".
  */
 import { isEquityBrokerFollowThroughStatic } from "./market-calendar.js";
+import { recordBrokerIntent } from "./broker-intents.js";
 
 function isNyRthOpen(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -511,7 +512,9 @@ export async function forwardOrderToBridge(env, order) {
         qty: order.qty,
         meta: { mode: "trader" },
       });
-      return { ok: false, skip: eth.reason };
+      const _skipRes = { ok: false, skip: eth.reason };
+      await recordBrokerIntent(env, order, _skipRes).catch(() => null);
+      return _skipRes;
     }
     if (eth.fields && Object.keys(eth.fields).length) {
       liveOrder = { ...order, ...eth.fields };
@@ -619,7 +622,11 @@ export async function forwardOrderToBridge(env, order) {
         },
       });
     }
-    return { ok, http_status: r.status, response: parsed, latency_ms: ringEntry.latency_ms, transport: ringEntry.transport };
+    const _res = { ok, http_status: r.status, response: parsed, latency_ms: ringEntry.latency_ms, transport: ringEntry.transport };
+    // Non-placed reducers become durable intents; a placed one settles any
+    // pending intent for the same trade/side (e.g. a manual catch-up won).
+    await recordBrokerIntent(env, order, _res).catch(() => null);
+    return _res;
   } catch (e) {
     ringEntry.status = "fetch_error";
     ringEntry.error = String(e?.message || e).slice(0, 200);
@@ -636,7 +643,9 @@ export async function forwardOrderToBridge(env, order) {
         transport: ringEntry.transport,
       },
     });
-    return { ok: false, error: ringEntry.error, transport: ringEntry.transport };
+    const _errRes = { ok: false, error: ringEntry.error, transport: ringEntry.transport };
+    await recordBrokerIntent(env, order, _errRes).catch(() => null);
+    return _errRes;
   } finally {
     clearTimeout(tid);
   }
