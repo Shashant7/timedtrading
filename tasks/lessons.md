@@ -6206,6 +6206,19 @@ correction read as jump-up-then-snap-back. v8 keeps CSS
 debounced scroll + `visualViewport` *resize* (not vv scroll). Bump
 `SHELL_VERSION` to `tt-shell-v8`.
 
+## Mobile Tab Nav: scroll-shell, not fixed (mid-page during scroll) [2026-09-05]
+
+v8/v9 still floated the bar mid-page *during* scroll (content above +
+below the nav in screenshots) — settle-after-scrollend cannot fix
+detachment while the gesture is active. Fix (v10): on ≤768px wrap page
+content in `#tt-mobile-scroll` (flex:1, overflow-y:auto), keep
+`#tt-bottom-nav` as an in-flow flex sibling (`position:relative`),
+`html/body` `height:100dvh; overflow:hidden`. No visualViewport top
+loop, no transform on the bar. Bump `SHELL_VERSION` to `tt-shell-v10`
+and `ttBnBuiltAt` to `2026-09-05-v10`. Also drop `translate3d` /
+`will-change:transform` from `.tt-sticky-top` (ancestor transform
+containing-block landmine).
+
 
 ## 2026-07-24 — Full sweep: three silent bridge bugs behind a green board
 
