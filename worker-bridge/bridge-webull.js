@@ -155,7 +155,14 @@ export async function callWebullAction(env, user, action, args = {}) {
   if (act === "get_portfolio" || act === "get_balance") return getPortfolio(env, user);
   if (act === "get_equity_positions" || act === "get_positions") return getEquityPositions(env, user);
   if (act === "list_orders") {
-    return listOrders(env, user, { limit: args.limit || 50, path: args.path || null });
+    return listOrders(env, user, {
+      limit: args.limit || 50,
+      path: args.path || null,
+      start_time: args.start_time || null,
+      end_time: args.end_time || null,
+      last_create_time: args.last_create_time || args.lastCreateTime || null,
+      query: args.query || null,
+    });
   }
   if (act === "preview_order") {
     return reviewOrder(env, user, {

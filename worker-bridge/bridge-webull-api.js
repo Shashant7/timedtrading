@@ -649,11 +649,41 @@ export async function webullCancelOrder(env, user, orderId, accessToken) {
   });
 }
 
+/** Build GET /openapi/trade/order/history query (default window: last 7 days). */
+export function buildWebullOrderHistoryQuery(user, {
+  limit = 50,
+  start_time = null,
+  end_time = null,
+  last_create_time = null,
+  query: extraQuery = null,
+} = {}) {
+  const query = {
+    account_id: user.webull_account_id,
+    page_size: String(Math.min(100, Number(limit) || 50)),
+  };
+  if (start_time != null && start_time !== "") query.start_time = String(start_time);
+  if (end_time != null && end_time !== "") query.end_time = String(end_time);
+  if (last_create_time != null && last_create_time !== "") query.last_create_time = String(last_create_time);
+  if (extraQuery && typeof extraQuery === "object") {
+    for (const [k, v] of Object.entries(extraQuery)) {
+      if (v != null && v !== "" && !["account_id", "page_size"].includes(k)) query[k] = String(v);
+    }
+  }
+  return query;
+}
+
 /** List recent orders (default: last 7 days) — used for fill reconciliation.
  *  GET /openapi/trade/order/history with query params (max page_size 100).
  *  `path` override (admin diagnostics only) is restricted to read-only
  *  /openapi/trade/order* endpoints. */
-export async function webullListOrders(env, user, accessToken, { limit = 50, path = null } = {}) {
+export async function webullListOrders(env, user, accessToken, {
+  limit = 50,
+  path = null,
+  start_time = null,
+  end_time = null,
+  last_create_time = null,
+  query: extraQuery = null,
+} = {}) {
   const c = await credsFor(env, user);
   if (!c.ok) return c;
   const safePath = (path && /^\/openapi\/trade\/order/.test(String(path)))
@@ -662,10 +692,9 @@ export async function webullListOrders(env, user, accessToken, { limit = 50, pat
   return signedFetch(env, {
     path: safePath,
     method: "GET",
-    query: {
-      account_id: user.webull_account_id,
-      page_size: String(Math.min(100, Number(limit) || 50)),
-    },
+    query: buildWebullOrderHistoryQuery(user, {
+      limit, start_time, end_time, last_create_time, query: extraQuery,
+    }),
     accessToken,
     creds: c.creds,
   });
