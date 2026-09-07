@@ -2225,6 +2225,131 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
 }
 
 /**
+ * Stamp live feed price onto a timed:latest payload when the snapshot
+ * omitted `price` (common — /timed/all overlays timed:prices, but investor
+ * compute historically required td.price and skipped the name).
+ */
+export function applyFeedPriceToTickerData(td, pf) {
+  if (!td || typeof td !== "object") return td;
+  const p = Number(pf?.p);
+  if (!(p > 0)) return td;
+  const next = { ...td };
+  if (!(Number(next.price) > 0)) next.price = p;
+  if (!(Number(next._live_price) > 0)) next._live_price = p;
+  return next;
+}
+
+/**
+ * Full-compute must not replace timed:investor:scores with only the names
+ * that survived this hour. A thin run (missing latest.price, freshness
+ * quarantine) used to wipe Long Term detail for everyone else.
+ */
+export function mergeInvestorScoreMapPreservingSkipped(prevScores, freshResults, skippedSyms, opts = {}) {
+  const prev = prevScores && typeof prevScores === "object" ? prevScores : {};
+  const fresh = freshResults && typeof freshResults === "object" ? freshResults : {};
+  const out = { ...fresh };
+  const skipReasonBySym = opts.skipReasonBySym && typeof opts.skipReasonBySym === "object"
+    ? opts.skipReasonBySym
+    : {};
+  for (const raw of skippedSyms || []) {
+    const sym = String(raw || "").toUpperCase();
+    if (!sym || out[sym] != null || prev[sym] == null) continue;
+    if (typeof prev[sym] === "object") {
+      out[sym] = {
+        ...prev[sym],
+        _preserved_after_skip: true,
+        _skip_reason: skipReasonBySym[sym] || "skipped",
+      };
+    } else {
+      out[sym] = prev[sym];
+    }
+  }
+  return out;
+}
+
+/**
+ * Build a Long Term / investor detail row from timed:latest when the
+ * scores KV miss. Used by GET /timed/investor/ticker so the rail tab is
+ * not empty after a partial compute wiped the cache.
+ */
+export function buildInvestorTickerDetailFromLatest(latestTd, opts = {}) {
+  const ticker = String(opts.ticker || latestTd?.ticker || "").toUpperCase();
+  if (!ticker || !latestTd || !(Number(latestTd.price) > 0)) return null;
+
+  const rsRank = Number(opts.rsRank);
+  const seedRs = Number.isFinite(rsRank) ? rsRank : 50;
+  const marketHealth = Number(opts.marketHealth);
+  const health = Number.isFinite(marketHealth) ? marketHealth : 50;
+  const sectorRsRank = Number(opts.sectorRsRank);
+  const sectorRs = Number.isFinite(sectorRsRank) ? sectorRsRank : 50;
+  const cfg = opts.cfg || DEFAULT_INVESTOR_CONFIG;
+  const daCfg = opts.daCfg || null;
+  const existingPosition = opts.existingPosition || null;
+  const td = { ...latestTd, ticker };
+
+  const seed = {
+    ticker,
+    score: null,
+    stage: null,
+    position: existingPosition?.owned ? existingPosition : { owned: false },
+    rsRank: seedRs,
+    sector: opts.sector || null,
+  };
+
+  if (hasInvestorStructuralData(td)) {
+    const rev = revalidateInvestorTickerAtRead(seed, td, {
+      rsRank: seedRs,
+      marketHealth: health,
+      sectorRsRank: sectorRs,
+      existingPosition,
+      cfg,
+      daCfg,
+    });
+    if (rev.revalidated && rev.data) {
+      return {
+        ...rev.data,
+        ticker,
+        sector: opts.sector || rev.data.sector || null,
+        _ondemand: true,
+        _ondemand_at: Date.now(),
+      };
+    }
+  }
+
+  const { score, components, accumZone } = computeInvestorScore(td, {
+    rsRank: seedRs,
+    sectorRsRank: sectorRs,
+    marketHealth: health,
+    cfg,
+    daCfg,
+  });
+  const stage = classifyInvestorStage(td, score, existingPosition, {
+    rsRank: seedRs,
+    marketHealth: health,
+    accumZone,
+    cfg,
+    daCfg,
+  });
+  const thesis = generateThesis(td, seedRs, daCfg);
+  return {
+    ticker,
+    score,
+    components,
+    accumZone,
+    stage: stage.stage,
+    stageReason: stage.reason || "ondemand_partial_structure",
+    thesis: thesis.thesis,
+    thesisInvalidation: thesis.invalidation,
+    rsRank: seedRs,
+    sector: opts.sector || null,
+    position: seed.position,
+    _ondemand: true,
+    _ondemand_partial: true,
+    _ondemand_at: Date.now(),
+  };
+}
+
+/**
  * Resolve the kanban lane for an owned position. The D1 investor_stage column
  * is last written on lot/rebalance (often "accumulate" from entry) and goes
  * stale; timed:investor:scores is the live source used by positions API + UI.

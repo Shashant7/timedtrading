@@ -6,6 +6,28 @@
 
 ---
 
+## Long Term tab empty: investor scores KV wiped by thin compute [2026-09-07]
+
+**Symptom:** Long Term rail on BE showed only "No investor-mode detail
+available… Scores compute hourly." Short Term worked. Admin session.
+
+**Cause:** `GET /timed/investor/ticker` reads only `timed:investor:scores`.
+The last full hourly compute wrote market-health `total: 27` and replaced
+the entire scores map with those 27 rows. Compute skipped names whose
+`timed:latest` blob had no `price` (the UI still looked live because
+`/timed/all` overlays `timed:prices`). Focus computes merge; full computes
+did not. BE is in SECTOR_MAP and `/timed/tickers` but was not in the
+surviving 27.
+
+**Fix:** Overlay feed `p` before the no-price skip. Full compute merges
+prior score/stage/RS rows for skipped symbols. Cache-miss GET builds a
+row from `timed:latest` (`buildInvestorTickerDetailFromLatest`) and writes
+it back. Rail empty-state copy no longer implies the name was never scored.
+
+**Do not:** treat a full compute's `investorResults` as the whole universe
+when skip lists are non-empty. Do not 404 the Long Term tab when latest
++ price feed can still score the name.
+
 ## Broker Connections: SHORT labeled BUY; options missing from holdings [2026-09-03]
 
 **Symptom:** NKE TT Cloud Pivot SHORT (29.67 sh @ $38.28) showed green

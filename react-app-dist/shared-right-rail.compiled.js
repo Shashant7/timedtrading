@@ -2512,15 +2512,15 @@
           fontSize: "var(--ds-fs-body)",
           color: "var(--ds-text-muted)"
         }
-      }, "Fetching investor detail for ", sym, "…")), err && !detail && !loading && h(Panel, {
-        title: "Investor View"
+      }, "Fetching investor detail for ", sym, "…")), err && !detail && !loading && !Number.isFinite(fallbackScore) && h(Panel, {
+        title: "Long Term"
       }, h("div", {
         style: {
           fontSize: "var(--ds-fs-body)",
           color: "var(--ds-text-muted)",
           lineHeight: 1.5
         }
-      }, "No investor-mode detail available for ", sym, " yet. Scores compute hourly during market hours.")));
+      }, "Long Term score for ", sym, " is being rebuilt from the latest snapshot. Open this tab again in a moment.")));
     }
     function OptionsTabPanel({
       tickerSymbol,
@@ -20388,4 +20388,4 @@
   };
 })();
 
-// cache-bust:1788639477826:635900832
+// cache-bust:1788812870099:126980240

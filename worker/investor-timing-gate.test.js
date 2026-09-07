@@ -3,6 +3,9 @@ import {
   applyInvestorTimingGate,
   classifyInvestorStage,
   revalidateInvestorTickerAtRead,
+  applyFeedPriceToTickerData,
+  mergeInvestorScoreMapPreservingSkipped,
+  buildInvestorTickerDetailFromLatest,
   normalizeInvestorRsFields,
   backfillInvestorRelativeStrength,
   hasInvestorStructuralData,
@@ -216,5 +219,90 @@ describe("classifyInvestorStage + timing overlay", () => {
     });
     expect(stage.stage).toBe("accumulate");
     expect(stage.reason).toMatch(/compounder_dip_override_exhaustion:growth_strong/);
+  });
+});
+
+describe("applyFeedPriceToTickerData", () => {
+  it("fills missing snapshot price from timed:prices p", () => {
+    const out = applyFeedPriceToTickerData({ ticker: "BE", name: "Bloom" }, { p: 252.87 });
+    expect(out.price).toBe(252.87);
+    expect(out._live_price).toBe(252.87);
+  });
+
+  it("does not overwrite an existing snapshot price", () => {
+    const out = applyFeedPriceToTickerData({ ticker: "BE", price: 240 }, { p: 252.87 });
+    expect(out.price).toBe(240);
+    expect(out._live_price).toBe(252.87);
+  });
+});
+
+describe("mergeInvestorScoreMapPreservingSkipped", () => {
+  it("keeps prior Long Term rows for names skipped this hour", () => {
+    const prev = {
+      BE: { score: 58, stage: "watch" },
+      AAPL: { score: 61, stage: "watch" },
+      NVDA: { score: 75, stage: "core_hold" },
+    };
+    const fresh = { NVDA: { score: 76, stage: "core_hold" } };
+    const out = mergeInvestorScoreMapPreservingSkipped(prev, fresh, ["BE", "AAPL"], {
+      skipReasonBySym: { BE: "no_price", AAPL: "stale_candles" },
+    });
+    expect(out.NVDA.score).toBe(76);
+    expect(out.BE.score).toBe(58);
+    expect(out.BE._preserved_after_skip).toBe(true);
+    expect(out.BE._skip_reason).toBe("no_price");
+    expect(out.AAPL._skip_reason).toBe("stale_candles");
+  });
+
+  it("does not resurrect names that were not skipped (left the universe)", () => {
+    const prev = { OLD: { score: 40, stage: "watch" }, NVDA: { score: 70, stage: "watch" } };
+    const fresh = { NVDA: { score: 71, stage: "watch" } };
+    const out = mergeInvestorScoreMapPreservingSkipped(prev, fresh, []);
+    expect(out.OLD).toBeUndefined();
+    expect(out.NVDA.score).toBe(71);
+  });
+});
+
+describe("buildInvestorTickerDetailFromLatest", () => {
+  it("scores a cache-miss ticker from timed:latest so Long Term is not empty", () => {
+    const latestTd = {
+      ticker: "BE",
+      price: 252.87,
+      monthly_bundle: { supertrend_dir: -1, ema_structure: 0.4, rsi: 62, ema_depth: 6 },
+      tf_tech: {
+        W: { atr: { xs: 1 }, stDir: -1, ema: { depth: 6 } },
+        D: { atr: { xs: 1 }, stDir: -1 },
+      },
+      regime: { weekly: "uptrend" },
+    };
+    const row = buildInvestorTickerDetailFromLatest(latestTd, {
+      ticker: "BE",
+      marketHealth: 62,
+      rsRank: 55,
+      sector: "Industrials",
+      cfg: DEFAULT_INVESTOR_CONFIG,
+    });
+    expect(row).toBeTruthy();
+    expect(row.ticker).toBe("BE");
+    expect(Number.isFinite(row.score)).toBe(true);
+    expect(row.stage).toBeTruthy();
+    expect(row.components).toBeTruthy();
+    expect(row.sector).toBe("Industrials");
+    expect(row._ondemand).toBe(true);
+  });
+
+  it("still returns a row when weekly/monthly bundles are missing", () => {
+    const row = buildInvestorTickerDetailFromLatest(
+      { ticker: "BE", price: 252.87 },
+      { ticker: "BE", sector: "Industrials", cfg: DEFAULT_INVESTOR_CONFIG },
+    );
+    expect(row).toBeTruthy();
+    expect(row._ondemand_partial).toBe(true);
+    expect(Number.isFinite(row.score)).toBe(true);
+    expect(row.stage).toBeTruthy();
+  });
+
+  it("returns null without a usable price", () => {
+    expect(buildInvestorTickerDetailFromLatest({ ticker: "BE" }, { ticker: "BE" })).toBeNull();
   });
 });
