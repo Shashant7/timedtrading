@@ -955,7 +955,7 @@ import {
   getSessionType as _calGetSessionType,
   getETMinutes as _calGetETMinutes,
 } from "./market-calendar.js";
-import { expectedBuckets as _chainExpectedBuckets } from "./foundation/trading-calendar.js";
+import { expectedBuckets as _chainExpectedBuckets, sessionAwareStaleMs } from "./foundation/trading-calendar.js";
 // Phase C (2026-07-03 stabilization plan) — the snapshot chain: per-ticker
 // keyframes + journey features stamped on every scored payload.
 import * as Journey from "./journey.js";
@@ -106686,20 +106686,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // every ticker, surfacing as a "candle_freshness_60: BRK-B 65.5h"
           // operator alert that wasn't actually a data problem.
           //
-          // Fix: expand the threshold to 72h on Mondays (covers Fri 4 PM
-          // ET → Mon 9 AM ET = 65h, with 7h of buffer). Same for any day
-          // following a US holiday close (handled by isAfterMarketHoliday
-          // when available). Tuesday-Friday 9 AM checks keep the strict
-          // 24h threshold because the previous trading day's last bar
-          // would normally land within 17 hours.
-          const nyNowEt = (() => {
-            // Crude ET conversion — offset matches what _frEtH uses upstream.
-            const utc = new Date(nowMs);
-            const etHours = utc.getUTCHours() - 5; // DST handled by _frEtH gate
-            return { dow: utc.getUTCDay(), etH: etHours };
-          })();
-          const isMondayMorning = nyNowEt.dow === 1 && _frEtH === 9;
-          const STALE_60_HOURS = isMondayMorning ? 72 : 24;
+          // 2026-09-07 — the "72h on Monday mornings" special case became a
+          // calendar-derived horizon (sessionAwareStaleMs): at least 24h,
+          // stretched back to the open of the latest settled RTH session.
+          // Covers Monday 9 AM (Fri open → 71.5h), Monday 3 PM on a market
+          // holiday (Labor Day tripped the flat 24h rule fleet-wide) and the
+          // 9 AM after a holiday; ordinary Tue-Fri stay on the strict 24h.
+          const STALE_60_HOURS = sessionAwareStaleMs(nowMs) / 3600000;
           // Exclude tickers whose newest candle is >90 days old — those are
           // likely delisted/inactive symbols that can never be healed by
           // backfill and would permanently trip the alarm. Only consider
@@ -107030,10 +107023,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           //
           // This block catches the second case: every SECTOR_MAP ticker
           // gets its `timed:latest:${t}` checked for (a) existence,
-          // (b) data_source not == "candle_replay", and (c) ts <24h old.
-          // Stale or replay-tagged stubs are DELETED so the next live
-          // scoring cron starts from a clean slate (any score/price
-          // delta vs null trivially triggers a write).
+          // (b) data_source not == "candle_replay", and (c) ts inside the
+          // session-aware horizon (24h floor, stretched across weekends and
+          // holidays — see sessionAwareStaleMs). Stale or replay-tagged
+          // stubs are DELETED so the next live scoring cron starts from a
+          // clean slate (any score/price delta vs null trivially triggers a
+          // write).
+          //
+          // 2026-09-07 (Labor Day): the flat 24h rule judged every Friday
+          // stub stale at the 9 AM sweep and deleted all ~300 of them; with
+          // no session to rewrite them the hourly orphan snapshot reported
+          // 301 universe orphans and the health watchdog went red all day.
+          // (On ordinary Mondays the same wipe happened silently and 9:30
+          // scoring repopulated from `existing = null`.) Deleting is only
+          // safe when a session follows; the horizon guarantees that.
           //
           // Anything still bad after the heal attempt is recorded as a
           // tombstone under `sector_map_completeness` for operator
@@ -107059,7 +107062,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             ]);
             const _sectorTickers = Object.keys(SECTOR_MAP || {})
               .filter((t) => !_SECTOR_MAP_EXCLUDE.has(String(t).toUpperCase()));
-            const STALE_LATEST_MS = 24 * 60 * 60 * 1000;
+            const STALE_LATEST_MS = sessionAwareStaleMs(nowMs);
             const _stubProbes = await Promise.allSettled(
               _sectorTickers.map(async (t) => {
                 let stub = await kvGetJSON(env?.KV_TIMED, `timed:latest:${t}`);

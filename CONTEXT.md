@@ -854,6 +854,16 @@ playbook in `skills/security-auth-patterns.md`)**
 - **Universe onboard**: scored + profiled names with every scoring TF
   present are onboarded even when candle-history quality is <80 (SKHY /
   SPCX thin listings). Those are `thin_gaps`, not heal failures.
+- **Freshness horizons are calendar-derived (2026-09-07, Labor Day)**:
+  the 9 AM / 3 PM ET monitor deletes "stale" `timed:latest:*` stubs so
+  the next scoring tick rewrites them. A flat 24h rule wiped all ~300 on
+  a market holiday, no session followed, `universe_onboard.orphans` hit
+  301 and the watchdog stayed red. Use `sessionAwareStaleMs(nowMs)`
+  (`foundation/trading-calendar.js`: 24h floor stretched to the latest
+  settled RTH open; weekend + holiday aware) for any "older than N hours"
+  staleness rule on per-ticker artifacts; never a wall-clock constant.
+  Restore path if it happens again: `ticker_latest.payload_json` -> KV
+  bulk put, then `POST /timed/admin/onboard-gaps` to refresh the snapshot.
 - **Chain-smoke overlay**: do not trust a lone `_live_price` that
   diverges from settled `price` (zombie left by merge).
   `mergeFreshnessIntoLatest` must stamp `_live_price` with `p` (deploy

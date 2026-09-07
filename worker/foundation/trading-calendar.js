@@ -13,7 +13,7 @@
 //  require annual maintenance (flagged below) until a derivation/feed replaces
 //  them — the rebuild prefers an explicit, auditable table over silent guessing.
 //
-//  Nothing in the live worker imports this yet (additive scaffolding + tests).
+//  Consumed by worker/index.js (chain expected-bucket grid, freshness horizons).
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Full-day market closures (NYSE/Nasdaq). MAINTAIN ANNUALLY.
@@ -248,6 +248,36 @@ export function nextTradingSession(nowMs = Date.now()) {
     cur = addDays(cur, 1);
   }
   return null;
+}
+
+/**
+ * Open (UTC ms) of the most recent RTH session that has been underway for at
+ * least `settleMs` (default 4h): the last session the scoring / ingest crons
+ * have had a fair chance to write for. Skips weekends and holidays.
+ */
+export function latestSettledSessionOpenMs(nowMs = Date.now(), settleMs = 4 * 3600000) {
+  let cur = etDateStr(nowMs);
+  for (let i = 0; i < 25; i++) {
+    if (isTradingDay(cur)) {
+      const b = sessionBoundsUtc(cur);
+      if (b && nowMs - b.openMs >= settleMs) return b.openMs;
+    }
+    cur = addDays(cur, -1);
+  }
+  return null;
+}
+
+/**
+ * Session-aware staleness horizon (ms): how old a per-ticker artifact (a
+ * `timed:latest` stub, the newest 60m bar) may be before it counts as stale.
+ * At least `floorMs` (24h), stretched to reach back to the open of the latest
+ * settled session so a Friday write is not "stale" on a Monday morning or a
+ * market holiday (2026-09-07, Labor Day: the flat 24h rule wiped every stub
+ * and no session followed to rewrite them).
+ */
+export function sessionAwareStaleMs(nowMs = Date.now(), { floorMs = 24 * 3600000, settleMs } = {}) {
+  const open = latestSettledSessionOpenMs(nowMs, settleMs);
+  return open == null ? floorMs : Math.max(floorMs, nowMs - open);
 }
 
 /**
