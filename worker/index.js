@@ -1046,6 +1046,9 @@ import {
   resolveInvestorKanbanStageForAlert,
   resolveOwnedInvestorKanbanStage,
   revalidateInvestorTickerAtRead,
+  applyFeedPriceToTickerData,
+  mergeInvestorScoreMapPreservingSkipped,
+  buildInvestorTickerDetailFromLatest,
   normalizeInvestorRsFields,
   backfillInvestorRelativeStrength,
   resolvePrimaryInvalidationBreach,
@@ -92742,10 +92745,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // next compute once fresh.
           const _skippedStaleCandles = [];
 
+          // timed:latest often omits `price` — /timed/all overlays timed:prices.
+          // Without this, a thin hour skips most names and the full-map write
+          // used to wipe Long Term detail (GET /timed/investor/ticker 404).
+          const _priceFeedKv = await kvGetJSON(env.KV_TIMED, "timed:prices") || {};
+          const _priceFeedMap = _priceFeedKv.prices || _priceFeedKv || {};
+
           // Phase 1: Fetch all ticker data + compute RS
           for (const ticker of tickerSyms) {
-            const td = await kvGetJSON(env.KV_TIMED, `timed:latest:${ticker}`);
-            if (!td || !td.price) {
+            let td = await kvGetJSON(env.KV_TIMED, `timed:latest:${ticker}`);
+            const pf = _priceFeedMap[ticker];
+            if (td && pf) td = applyFeedPriceToTickerData(td, pf) || td;
+            if (!td || !(Number(td.price) > 0)) {
               _skippedNoPrice.push(ticker);
               continue;
             }
@@ -93595,20 +93606,41 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             _reduceStreakFinal = bumpInvestorReduceStreak(_reduceStreakFinal, tk, c?.stage);
           }
           await kvPutJSON(env.KV_TIMED, "timed:investor:reduce-streak", _reduceStreakFinal);
+          const _skipReasonBySym = {};
+          for (const s of _skippedNoPrice) _skipReasonBySym[String(s).toUpperCase()] = "no_price";
+          for (const s of _skippedStaleCandles) _skipReasonBySym[String(s).toUpperCase()] = "stale_candles";
+          const _skippedSyms = [..._skippedNoPrice, ..._skippedStaleCandles];
           const scoresToSave = _focusOnly
-            ? { ...(await kvGetJSON(env.KV_TIMED, "timed:investor:scores") || {}), ...investorResults }
-            : investorResults;
+            ? { ...(prevScores || {}), ...investorResults }
+            : mergeInvestorScoreMapPreservingSkipped(
+              prevScores,
+              investorResults,
+              _skippedSyms,
+              { skipReasonBySym: _skipReasonBySym },
+            );
+          const prevStages = await kvGetJSON(env.KV_TIMED, "timed:investor:stages") || {};
           const stagesToSave = _focusOnly
-            ? { ...(await kvGetJSON(env.KV_TIMED, "timed:investor:stages") || {}), ...allStages }
-            : allStages;
+            ? { ...prevStages, ...allStages }
+            : mergeInvestorScoreMapPreservingSkipped(
+              prevStages,
+              allStages,
+              _skippedSyms,
+              { skipReasonBySym: _skipReasonBySym },
+            );
           await kvPutJSON(env.KV_TIMED, "timed:investor:scores", scoresToSave);
           if (!_focusOnly) {
             await kvPutJSON(env.KV_TIMED, "timed:investor:market-health", marketHealth);
           }
           await kvPutJSON(env.KV_TIMED, "timed:investor:stages", stagesToSave);
+          const prevRsRanks = await kvGetJSON(env.KV_TIMED, "timed:investor:rs-ranks") || {};
           const rsRanksToSave = _focusOnly
-            ? { ...(await kvGetJSON(env.KV_TIMED, "timed:investor:rs-ranks") || {}), ...rsRanks }
-            : rsRanks;
+            ? { ...prevRsRanks, ...rsRanks }
+            : mergeInvestorScoreMapPreservingSkipped(
+              prevRsRanks,
+              rsRanks,
+              _skippedSyms,
+              { skipReasonBySym: _skipReasonBySym },
+            );
           await kvPutJSON(env.KV_TIMED, "timed:investor:rs-ranks", rsRanksToSave);
           const _computedAt = Date.now();
           await kvPutJSON(env.KV_TIMED, "timed:investor:computed-at", _computedAt);
@@ -97462,12 +97494,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         const ticker = (url.searchParams.get("ticker") || "").toUpperCase();
         if (!ticker) return sendJSON({ ok: false, error: "ticker required" }, 400, corsHeaders(env, req));
 
-        const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores");
+        const scores = await kvGetJSON(env.KV_TIMED, "timed:investor:scores") || {};
         const health = await kvGetJSON(env.KV_TIMED, "timed:investor:market-health");
-        const data = scores?.[ticker];
-        if (!data) {
-          return sendJSON({ ok: false, error: `No investor data for ${ticker}` }, 404, corsHeaders(env, req));
-        }
+        let data = scores?.[ticker] || null;
+
+        let latestTd = await kvGetJSON(env.KV_TIMED, `timed:latest:${ticker}`);
+        try {
+          if (latestTd && !(Number(latestTd.price) > 0)) {
+            const pricesKV = await kvGetJSON(env.KV_TIMED, "timed:prices") || {};
+            const pf = (pricesKV.prices || pricesKV)[ticker];
+            latestTd = applyFeedPriceToTickerData(latestTd, pf) || latestTd;
+          }
+        } catch (_) { /* feed overlay is best-effort */ }
 
         let outData = data;
         // Whether read-time revalidation produced a live stage. If it did, the
@@ -97476,8 +97514,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // than the KV cache the revalidation just corrected.
         let _stageRevalidated = false;
         try {
-          let latestTd = await kvGetJSON(env.KV_TIMED, `timed:latest:${ticker}`);
-          if (latestTd?.price) {
+          if (latestTd && Number(latestTd.price) > 0) {
             const wb = latestTd.weekly_bundle || {};
             const needsW200 = !(Number.isFinite(wb.ema200) && wb.ema200 > 0);
             const needsW21 = !(Number.isFinite(wb.ema21) && wb.ema21 > 0);
@@ -97536,6 +97573,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             }
             const _invCfgRead = loadInvestorConfig(env?._deepAuditConfig || {});
+            if (!data) {
+              const _rsRanks = await kvGetJSON(env.KV_TIMED, "timed:investor:rs-ranks") || {};
+              data = buildInvestorTickerDetailFromLatest(latestTd, {
+                ticker,
+                marketHealth: Number(health?.score) || 50,
+                rsRank: Number(_rsRanks[ticker]) || 50,
+                cfg: _invCfgRead,
+                daCfg: env?._deepAuditConfig || {},
+                sector: SECTOR_MAP[ticker] || latestTd._sector || "Unknown",
+              });
+              if (data) {
+                outData = data;
+                _stageRevalidated = true;
+                try {
+                  await kvPutJSON(env.KV_TIMED, "timed:investor:scores", { ...scores, [ticker]: data });
+                } catch (_) { /* cache fill is best-effort */ }
+              }
+            }
             const _existingPos = data?.position?.owned
               ? {
                 status: "OPEN",
@@ -97543,13 +97598,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 entry_price: Number(data.position.avg_entry) || null,
               }
               : null;
-            const _rev = revalidateInvestorTickerAtRead(data, latestTd, {
+            const _rev = data && !data._ondemand
+              ? revalidateInvestorTickerAtRead(data, latestTd, {
               rsRank: Number(data.rsRank) || 50,
               marketHealth: Number(health?.score) || 50,
               existingPosition: _existingPos,
               cfg: _invCfgRead,
               daCfg: env?._deepAuditConfig || {},
-            });
+            })
+              : { revalidated: false, data };
             if (_rev.revalidated) {
               outData = _rev.data;
               _stageRevalidated = true;
@@ -97557,6 +97614,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
         } catch (revErr) {
           console.warn("[INVESTOR_TICKER] read-time revalidation failed:", String(revErr?.message || revErr).slice(0, 150));
+        }
+
+        if (!outData) outData = data;
+        if (!outData) {
+          return sendJSON({ ok: false, error: `No investor data for ${ticker}` }, 404, corsHeaders(env, req));
         }
 
         // Authoritative position overlay from D1 — KV scores can lag after a close.
