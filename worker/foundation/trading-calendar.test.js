@@ -4,6 +4,7 @@ import {
   isTradingDay, isHoliday, isHalfDay, sessionBoundsUtc,
   etWallToUtcMs, etDateStr, expectedIntradayBuckets, tradingDaysInRange,
   expectedBuckets, addDays, tradingDateUtcMs, computeMarketSessionReference,
+  latestSettledSessionOpenMs, sessionAwareStaleMs,
 } from "./trading-calendar.js";
 
 describe("trading-calendar: trading days", () => {
@@ -77,5 +78,46 @@ describe("trading-calendar: session reference", () => {
     expect(ref.next_trading_day).toBe("2026-06-22");
     expect(ref.market_open).toBe(false);
     expect(ref.session_phase).toBe("closed");
+  });
+});
+
+describe("trading-calendar: session-aware staleness horizon", () => {
+  const H = 3600000;
+  const friOpen = etWallToUtcMs(2026, 9, 4, 9, 30);   // Fri 2026-09-04 (before Labor Day)
+  const monOpen = etWallToUtcMs(2026, 9, 14, 9, 30);  // ordinary Monday
+
+  it("Labor Day Monday 9 AM: latest settled session is Friday; a Friday stub is not stale", () => {
+    const laborDay9am = etWallToUtcMs(2026, 9, 7, 9, 0);
+    expect(latestSettledSessionOpenMs(laborDay9am)).toBe(friOpen);
+    expect(sessionAwareStaleMs(laborDay9am)).toBe(71.5 * H);
+    const friStubTs = etWallToUtcMs(2026, 9, 4, 15, 55);
+    expect(laborDay9am - friStubTs).toBeLessThan(sessionAwareStaleMs(laborDay9am));
+  });
+  it("Labor Day Monday 3 PM stays anchored to Friday (no session today)", () => {
+    const laborDay3pm = etWallToUtcMs(2026, 9, 7, 15, 0);
+    expect(latestSettledSessionOpenMs(laborDay3pm)).toBe(friOpen);
+    expect(sessionAwareStaleMs(laborDay3pm)).toBe(77.5 * H);
+  });
+  it("Tuesday after the holiday: 9 AM still Friday-anchored, 3 PM flips to today's session", () => {
+    const tue9am = etWallToUtcMs(2026, 9, 8, 9, 0);
+    expect(latestSettledSessionOpenMs(tue9am)).toBe(friOpen);
+    expect(sessionAwareStaleMs(tue9am)).toBe(95.5 * H);
+    const tue3pm = etWallToUtcMs(2026, 9, 8, 15, 0);
+    expect(latestSettledSessionOpenMs(tue3pm)).toBe(etWallToUtcMs(2026, 9, 8, 9, 30));
+    // Today's open is 5.5h back; the 24h floor wins, so a Friday stub IS stale.
+    expect(sessionAwareStaleMs(tue3pm)).toBe(24 * H);
+    expect(tue3pm - etWallToUtcMs(2026, 9, 4, 15, 55)).toBeGreaterThan(24 * H);
+  });
+  it("ordinary Monday 9 AM reaches back to Friday (matches the old 72h Monday rule)", () => {
+    const mon9am = etWallToUtcMs(2026, 9, 14, 9, 0);
+    expect(sessionAwareStaleMs(mon9am)).toBe(71.5 * H);
+  });
+  it("mid-week 9 AM and a session under the 4h settle window fall back to the floor", () => {
+    const tue9am = etWallToUtcMs(2026, 9, 15, 9, 0);
+    expect(latestSettledSessionOpenMs(tue9am)).toBe(monOpen);
+    expect(sessionAwareStaleMs(tue9am)).toBe(24 * H);
+    const tue10am = etWallToUtcMs(2026, 9, 15, 10, 0);
+    expect(latestSettledSessionOpenMs(tue10am)).toBe(monOpen); // today's open only 30m back
+    expect(sessionAwareStaleMs(tue10am)).toBe(24.5 * H);
   });
 });
