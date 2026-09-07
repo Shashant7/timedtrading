@@ -27,6 +27,14 @@
       scroll on iOS. Fix: mobile scroll-shell (`#tt-mobile-scroll`) so
       nav is in-flow at viewport bottom; bump SW to `tt-shell-v10`.
       Branch: `cursor/bottom-nav-fixed-ios-5225`.
+- [x] **Watchdog red on Labor Day: 301 universe orphans (2026-09-07).**
+      The 9 AM ET stub monitor's flat 24h rule deleted every
+      `timed:latest:*` and no session followed. Fixed with
+      `sessionAwareStaleMs()` (calendar-derived horizon for the stub
+      monitor and the 60m candle check); stubs re-seeded from D1
+      `ticker_latest`; monolith + tt-research + tt-engine deployed.
+      Branch: `cursor/holiday-aware-stub-monitor-dbdd`. Lesson in
+      `lessons.md` 2026-09-07.
 - [ ] **Execution discipline (2026-09-04/05).** Plan + ledger:
       [`2026-09-04-execution-discipline-plan.md`](2026-09-04-execution-discipline-plan.md).
       Landed: execution window + escalating peak floor (index trend), MFE
