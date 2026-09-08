@@ -29,6 +29,10 @@ export const CLOUD_PIVOT_WINDOWS = {
   midday: { startMin: 10 * 60 + 45, endMin: 13 * 60 + 30, label: "midday_curl" },
 };
 
+/** Last 20 min of RTH: bank a giveback while Webull still takes fractionals. */
+export const CLOUD_PIVOT_SESSION_LOCK_START_MIN = 15 * 60 + 40;
+export const CLOUD_PIVOT_SESSION_LOCK_SLACK_PCT = 0.4;
+
 const RTH_START_MIN = 9 * 60 + 30;
 const RTH_END_MIN = 16 * 60;
 /** First RTH 10m bar closes at 9:40 ET — crosses on the forming 9:30 bar are noise. */
@@ -876,6 +880,10 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
     positionAgeMin,
     trimmedPct,
     daCfg = {},
+    // Live caller sets this in the last 20 min of RTH so a giveback that
+    // is already at the keep floor (+0.4pp slack) banks half while Webull
+    // still accepts fractional shares (LULU 2026-09-08 missed 16:00).
+    sessionLock = false,
   } = ctx;
   const cfg = loadCloudPivotConfig(daCfg);
   if (!cfg.exitEnabled) return null;
@@ -919,31 +927,33 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
     const meta = {
       direction, pnlPct: pnl, mfePct: mfe, keep_floor_pct: keepFloorPct, keep_frac: keepFrac,
     };
+    const lockSlack = sessionLock ? CLOUD_PIVOT_SESSION_LOCK_SLACK_PCT : 0;
+    const hitKeepFloor = pnl <= keepFloorPct + lockSlack;
     if (trimmed >= 0.5) {
       // Runner floor: 25% of peak, and never red.
       const runnerFloorPct = Math.round(Math.max(0.15, mfe * 0.25) * 100) / 100;
-      if (pnl <= runnerFloorPct) {
+      if (pnl <= runnerFloorPct + lockSlack) {
         return {
           stage: "exit",
           reason: "tt_cloud_pivot_profit_lock",
           family: CLOUD_PIVOT_FAMILY,
-          metadata: { ...meta, runner_floor_pct: runnerFloorPct, runner: true },
+          metadata: { ...meta, runner_floor_pct: runnerFloorPct, runner: true, session_lock: sessionLock && pnl > runnerFloorPct },
         };
       }
-    } else if (pnl <= keepFloorPct) {
+    } else if (hitKeepFloor) {
       if (oneHLost) {
         return {
           stage: "exit",
           reason: "tt_cloud_pivot_profit_lock",
           family: CLOUD_PIVOT_FAMILY,
-          metadata: { ...meta, one_h_lost: true },
+          metadata: { ...meta, one_h_lost: true, session_lock: sessionLock && pnl > keepFloorPct },
         };
       }
       return {
         stage: "trim",
         reason: "tt_cloud_pivot_profit_lock_trim",
         family: CLOUD_PIVOT_FAMILY,
-        metadata: meta,
+        metadata: { ...meta, session_lock: sessionLock && pnl > keepFloorPct },
       };
     }
   }

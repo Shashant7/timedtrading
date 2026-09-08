@@ -100,6 +100,16 @@ describe("broker intents — classification", () => {
     expect(classifyBridgeOutcome({ ok: false, http_status: 400, response: { error: "bad qty" } })).toBe("terminal");
     expect(classifyBridgeOutcome({ ok: false, http_status: 200, response: {} })).toBe("terminal");
     expect(classifyBridgeOutcome({ ok: false, skip: "outside_rth", http_status: 200 })).toBe("deferred");
+    expect(classifyBridgeOutcome({
+      ok: false,
+      http_status: 200,
+      response: { reject_reason: "fractional_trim_deferred_to_rth" },
+    })).toBe("deferred");
+    expect(classifyBridgeOutcome({
+      ok: false,
+      http_status: 200,
+      response: { results: [{ result: { reject_reason: "fractional_trim_deferred_to_rth" } }] },
+    })).toBe("deferred");
   });
 
   it("Discord only on fill or close — not pending http_200 retries", () => {

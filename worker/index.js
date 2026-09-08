@@ -12642,6 +12642,8 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // TT Cloud Pivot family exit (anti-giveback 5/12) — before swing/ripster
     // force paths dominate short-hold paper entries.
     try {
+      const _cpNow = asOfTs != null ? new Date(asOfTs) : new Date();
+      const _cpWin = shareLaneExecutionWindow(_cpNow);
       const _cpDec = evaluateTtCloudPivotExit({
         tickerData,
         openPosition,
@@ -12656,6 +12658,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         positionAgeMin,
         trimmedPct: currentTrimPct,
         daCfg: tickerData?._env?._deepAuditConfig || {},
+        sessionLock: _cpWin.can_reduce && _cpWin.et_minutes >= 15 * 60 + 40,
       });
       if (openPosition?.__tradeRef && typeof openPosition.__tradeRef === "object") {
         if (openPosition.tt_cloud_pivot_pending_5_12 != null) {
@@ -12667,6 +12670,18 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         if (openPosition.tt_cloud_pivot_trail_px != null) {
           openPosition.__tradeRef.tt_cloud_pivot_trail_px = openPosition.tt_cloud_pivot_trail_px;
         }
+      }
+      // Profit-lock / magnet / 5/12 reduce is RTH-only. Webull will not
+      // take fractional equity after 16:00 ET. An AH paper fill + Discord
+      // "Taking Profit" left LULU on the broker (0.52 + 0.31 crumbs) while
+      // RBLX (whole shares) placed. Defer to the next RTH tick / intent drain.
+      if ((_cpDec?.stage === "trim" || _cpDec?.stage === "exit") && !_cpWin.can_reduce) {
+        tickerData.__defend_reason = `${_cpDec.reason}:wait_rth`;
+        tickerData.__exit_family = CLOUD_PIVOT_FAMILY;
+        if (_cpDec.metadata?.trail_px != null) {
+          tickerData.__suggested_sl = _cpDec.metadata.trail_px;
+        }
+        return "defend";
       }
       if (_cpDec?.stage === "exit" || _cpDec?.stage === "trim" || _cpDec?.stage === "defend") {
         // Ribbon-trail / pending 5-12 are defend-only (ratchet SL). Do not
