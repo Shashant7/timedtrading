@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   FSD_SECTOR_OUTLOOK_AUG_2026,
+  FSD_SECTOR_OUTLOOK_SEP_2026,
+  FSD_SECTOR_OUTLOOK_DEFAULT,
   parseFsdSectorOutlookTable,
   parseFsdEtfOutlookHtml,
   parseFsdEtfOutlookHtmlRows,
@@ -106,5 +108,26 @@ describe("fsd-sector-outlook", () => {
     const stale = assessSectorOutlookFreshness({ generated_at: Date.now() - (40 * 24 * 60 * 60 * 1000) });
     expect(fresh.stale).toBe(false);
     expect(stale.stale).toBe(true);
+  });
+
+  it("canonical September 2026 upgrades Energy + Tech; zeros Real Estate", () => {
+    expect(FSD_SECTOR_OUTLOOK_DEFAULT).toBe(FSD_SECTOR_OUTLOOK_SEP_2026);
+    const e = FSD_SECTOR_OUTLOOK_SEP_2026.sectors.Energy;
+    expect(e).toMatchObject({
+      fsi_weight_pct: 5.1, delta_pct: 2.1, lee: "overweight", newton: "overweight",
+    });
+    expect(FSD_SECTOR_OUTLOOK_SEP_2026.sectors["Information Technology"]).toMatchObject({
+      fsi_weight_pct: 34.8, delta_pct: 2.5, newton: "overweight",
+    });
+    expect(FSD_SECTOR_OUTLOOK_SEP_2026.sectors["Real Estate"].fsi_weight_pct).toBe(0);
+    expect(compositeRatingFromOutlook(e)).toBe("overweight");
+    expect(compositeRatingFromOutlook(FSD_SECTOR_OUTLOOK_SEP_2026.sectors["Information Technology"])).toBe("overweight");
+    expect(compositeRatingFromOutlook(FSD_SECTOR_OUTLOOK_SEP_2026.sectors["Real Estate"])).toBe("underweight");
+    expect(compositeRatingFromOutlook(FSD_SECTOR_OUTLOOK_SEP_2026.sectors.Industrials)).toBe("neutral");
+    const patch = buildSectorRatingsPatchFromOutlook(FSD_SECTOR_OUTLOOK_SEP_2026);
+    expect(patch.Energy.rating).toBe("overweight");
+    expect(patch["Information Technology"].rating).toBe("overweight");
+    expect(patch["Real Estate"].rating).toBe("underweight");
+    expect(FSD_SECTOR_OUTLOOK_SEP_2026.theme_sleeve).toEqual(["IGV", "XOP", "IBB", "ARKG", "IHE"]);
   });
 });

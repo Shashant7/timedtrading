@@ -294,12 +294,15 @@ const SECTOR_MAP = {
   'INFL': 'Thematic ETF',
   'LIT':  'Thematic ETF',
   // July 2026 sector-allocation theme sleeve (15% bucket)
-  'JETS': 'Thematic ETF',  // U.S. Global Jets — airlines / travel beta
-  'CIBR': 'Thematic ETF',  // First Trust Cybersecurity
-  'ARKG': 'Thematic ETF',  // ARK Genomic Revolution
+  'JETS': 'Thematic ETF',  // U.S. Global Jets — airlines / travel beta (dropped Sep-26)
+  'CIBR': 'Thematic ETF',  // First Trust Cybersecurity (dropped Sep-26)
+  'ARKG': 'Thematic ETF',  // ARK Genomic Revolution (kept Sep-26)
   'IHF':  'Thematic ETF',  // iShares U.S. Healthcare Providers (dropped Jul-26)
   'DRIV': 'Thematic ETF',  // Global X Autonomous & Electric Vehicles (dropped Jul-26)
   'IYT':  'Thematic ETF',  // iShares U.S. Transportation (dropped Jul-26)
+  // September 2026 sector-allocation theme sleeve (15% bucket)
+  'XOP':  'Thematic ETF',  // SPDR S&P Oil & Gas E&P — Energy sleeve
+  'IHE':  'Thematic ETF',  // iShares U.S. Pharmaceuticals
 
   // Commodity & Volatility ETFs (futures equivalents)
   'GLD': 'Commodity ETF',
@@ -314,22 +317,22 @@ const SECTOR_MAP = {
 
 };
 
-// Sector Ratings — synced to FSD ETF Outlook (Aug 2026). Runtime source of
+// Sector Ratings — synced to FSD Sector Allocation (Sep 2026). Runtime source of
 // truth is KV `timed:fsd:sector-allocation-outlook` + `timed:admin:sector_ratings`,
 // refreshed daily via FSD cron (authenticated etf-outlook scrape) and on monthly
 // Sector Allocation deck ingest. Static values here are cold-start fallback only.
 const SECTOR_RATINGS = {
-  'Industrials':              { rating: 'overweight',  boost: 5,  delta: 2.6  },
-  'Financials':               { rating: 'overweight',  boost: 5,  delta: 2.1  },
-  'Health Care':              { rating: 'overweight',  boost: 4,  delta: 2.0  },
-  'Information Technology':   { rating: 'neutral',     boost: 0,  delta: 0.4  },
+  'Industrials':              { rating: 'neutral',     boost: 0,  delta: 0.1  },
+  'Financials':               { rating: 'overweight',  boost: 0,  delta: 0.4  },
+  'Health Care':              { rating: 'overweight',  boost: 4,  delta: 1.8  },
+  'Information Technology':   { rating: 'overweight',  boost: 5,  delta: 2.5  },
   'Consumer Discretionary':   { rating: 'neutral',     boost: 0,  delta: 0.0  },
   'Basic Materials':          { rating: 'neutral',     boost: 0,  delta: 0.0  },
-  'Real Estate':              { rating: 'neutral',     boost: 0,  delta: 0.5  },
+  'Real Estate':              { rating: 'underweight', boost: -3, delta: -1.5 },
   'Utilities':                { rating: 'neutral',     boost: 0,  delta: 0.0  },
   'Communication Services':   { rating: 'underweight', boost: -3, delta: -1.9 },
-  'Energy':                   { rating: 'neutral',     boost: 0,  delta: -2.0 },
-  'Consumer Staples':         { rating: 'underweight', boost: -5, delta: -3.8 },
+  'Energy':                   { rating: 'overweight',  boost: 4,  delta: 2.1  },
+  'Consumer Staples':         { rating: 'underweight', boost: -5, delta: -3.6 },
   'Index ETF':                { rating: 'neutral',     boost: 0  },
   'Sector ETF':               { rating: 'neutral',     boost: 0  },
   'Thematic ETF':             { rating: 'neutral',     boost: 0  },
