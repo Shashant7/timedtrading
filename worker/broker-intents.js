@@ -75,23 +75,46 @@ export function isReducerOrder(order) {
  * Classify what forwardOrderToBridge returned.
  * @returns {"placed"|"deferred"|"transient"|"terminal"}
  */
+function firstBridgeRejectText(result) {
+  const response = result?.response && typeof result.response === "object"
+    ? result.response
+    : null;
+  const top = String(
+    result?.skip
+    || response?.skip
+    || response?.reject_reason
+    || response?.error
+    || response?.message
+    || result?.error
+    || "",
+  );
+  if (top) return top;
+  const rows = Array.isArray(response?.results) ? response.results : [];
+  for (const row of rows) {
+    const child = row?.result || row;
+    const text = String(child?.skip || child?.reject_reason || child?.error || child?.message || "");
+    if (text) return text;
+  }
+  return "";
+}
+
 export function classifyBridgeOutcome(result) {
   if (!result || typeof result !== "object") return "transient";
   if (result.ok === true) return "placed";
+  const reason = firstBridgeRejectText(result);
+  if (DEFERRED_SKIPS.has(reason) || DEFERRED_SKIPS.has(String(result.skip || result.response?.skip || ""))) {
+    return "deferred";
+  }
+  if (/fractional_trim_deferred|fractional_.*rth|equity_ah_too_late|outside_rth|ah_too_late/i.test(reason)) {
+    return "deferred";
+  }
   const skip = String(result.skip || result.response?.skip || "");
   if (skip) {
-    if (DEFERRED_SKIPS.has(skip)) return "deferred";
     if (TERMINAL_PATTERNS.some((re) => re.test(skip))) return "terminal";
     return "deferred";
   }
   const http = Number(result.http_status) || 0;
-  const reject = String(
-    result.response?.reject_reason
-    || result.response?.error
-    || result.response?.message
-    || result.error
-    || "",
-  );
+  const reject = reason;
   if (TERMINAL_PATTERNS.some((re) => re.test(reject))) return "terminal";
   if (http >= 500 || http === 429 || http === 0) return "transient";
   if (TRANSIENT_PATTERNS.some((re) => re.test(reject))) return "transient";
@@ -188,11 +211,7 @@ export async function ensureBrokerIntentSchema(env) {
 
 function outcomeReason(result) {
   return String(
-    result?.skip
-    || result?.response?.reject_reason
-    || result?.response?.error
-    || result?.response?.message
-    || result?.error
+    firstBridgeRejectText(result)
     || (result?.http_status ? `http_${result.http_status}` : "")
     || "",
   ).slice(0, 200);

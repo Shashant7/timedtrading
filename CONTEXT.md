@@ -241,6 +241,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   never retry. Notifications say "model fill" (paper truth). Discord only
   on fill/reject/exhaust/expire — not every pending `http_200` retry.
   A 2xx with `ok:false` and no skip/reject is terminal (stops the drain loop).
+  `reject_reason: fractional_trim_deferred_to_rth` (incl. fan-out children)
+  is **deferred**, not terminal — sell at the next RTH open.
+- Cloud Pivot profit-lock / magnet / 5/12 **reduce is RTH-only** (Webull
+  fractionals die at 16:00 ET). Last 20 min of RTH (`sessionLock`, 15:40)
+  banks a near-floor winner while fractionals still work. AH paper trim +
+  Discord "Taking Profit" is defend/`wait_rth` (LULU 2026-09-08: 0.52+0.31
+  crumbs; RBLX whole shares still place LIMIT+ALL+GTC until 19:00).
 - Shadow lanes have report cards: pull `/timed/admin/context/shadow-report`
   and slice before promoting. `daily_ema21_reclaim` on compounders is 39%
   positive (30d) -- it stays in shadow.
@@ -336,7 +343,9 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   (5:00 PM early-close). Official AH ends 8:00; overnight ATS is select names.
 - Live ST equity exit/trim + trader mirror stop at 19:00 ET. 16:00–19:00
   sends LIMIT + ALL + GTC (Webull rejects MARKET in ETH). Replay / crypto /
-  futures / investor GTC flatten unchanged.
+  futures / investor GTC flatten unchanged. Webull will not fill **fractional**
+  equity after 16:00 — only whole shares. Cash-scaled Cloud Pivot lots
+  (sub-1 share per account) must reduce in RTH or wait for the open.
 - Gate is inside `trimTradeToPct` / `closeTradeAtPrice`, not only the kanban
   block — fuse / phase / event-risk were still filling at 8:00 PM (NKE/H
   2026-08-27). Cloud Pivot ribbon-trail is defend-only (`__defend_reason`);

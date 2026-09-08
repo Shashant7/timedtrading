@@ -322,6 +322,23 @@ describe("tt_cloud_pivot", () => {
     expect(res?.metadata?.keep_floor_pct).toBe(3.11);
   });
 
+  it("session lock banks a near-floor winner in the last 20 min of RTH", () => {
+    const base = {
+      tickerData: payload(),
+      openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" },
+      direction: "LONG",
+      currentPrice: 100,
+      positionAgeMin: 20,
+      trimmedPct: 0,
+      mfePct: 5,
+    };
+    // keep floor is 3.0%; +3.2% is still above it unless sessionLock slack (0.4) is on.
+    expect(evaluateTtCloudPivotExit({ ...base, pnlPct: 3.2 })?.reason).not.toBe("tt_cloud_pivot_profit_lock_trim");
+    const locked = evaluateTtCloudPivotExit({ ...base, pnlPct: 3.2, sessionLock: true });
+    expect(locked?.reason).toBe("tt_cloud_pivot_profit_lock_trim");
+    expect(locked?.metadata?.session_lock).toBe(true);
+  });
+
   it("profit-lock fires without a 10m 5/12 print", () => {
     const res = evaluateTtCloudPivotExit({
       tickerData: { price: 100 },
