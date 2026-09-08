@@ -41,7 +41,7 @@ const STANCE_MAP = {
   UNDERWEIGHT: "underweight",
 };
 
-/** August 2026 ETF Outlook — operator-provided canonical table. */
+/** August 2026 ETF Outlook — kept for tests + drift comparison. */
 export const FSD_SECTOR_OUTLOOK_AUG_2026 = {
   source: "etf_outlook",
   as_of: "2026-08",
@@ -138,6 +138,108 @@ export const FSD_SECTOR_OUTLOOK_AUG_2026 = {
     },
   },
 };
+
+/** September 2026 Sector Allocation deck (9/8/2026). Cold-start fallback. */
+export const FSD_SECTOR_OUTLOOK_SEP_2026 = {
+  source: "sector_allocation",
+  as_of: "2026-09",
+  total_spx_weight_pct: 85,
+  total_fsi_weight_pct: 85,
+  theme_sleeve_pct: 15,
+  theme_sleeve: ["IGV", "XOP", "IBB", "ARKG", "IHE"],
+  sectors: {
+    "Health Care": {
+      etf: "XLV",
+      spx_weight_pct: 7.9,
+      fsi_weight_pct: 9.7,
+      delta_pct: 1.8,
+      lee: "neutral",
+      newton: "overweight",
+    },
+    "Consumer Discretionary": {
+      etf: "XLY",
+      spx_weight_pct: 7.6,
+      fsi_weight_pct: 7.6,
+      delta_pct: 0.0,
+      lee: "neutral",
+      newton: "neutral",
+    },
+    "Utilities": {
+      etf: "XLU",
+      spx_weight_pct: 1.7,
+      fsi_weight_pct: 1.7,
+      delta_pct: 0.0,
+      lee: "neutral",
+      newton: "neutral",
+    },
+    "Information Technology": {
+      etf: "XLK",
+      spx_weight_pct: 32.3,
+      fsi_weight_pct: 34.8,
+      delta_pct: 2.5,
+      lee: "overweight",
+      newton: "overweight",
+    },
+    "Financials": {
+      etf: "XLF",
+      spx_weight_pct: 10.5,
+      fsi_weight_pct: 10.9,
+      delta_pct: 0.4,
+      lee: "overweight",
+      newton: "overweight",
+    },
+    "Industrials": {
+      etf: "XLI",
+      spx_weight_pct: 7.0,
+      fsi_weight_pct: 7.1,
+      delta_pct: 0.1,
+      lee: "overweight",
+      newton: "neutral",
+    },
+    "Real Estate": {
+      etf: "XLRE",
+      spx_weight_pct: 1.5,
+      fsi_weight_pct: 0.0,
+      delta_pct: -1.5,
+      lee: "overweight",
+      newton: "neutral",
+    },
+    "Materials": {
+      etf: "XLB",
+      spx_weight_pct: 1.5,
+      fsi_weight_pct: 1.6,
+      delta_pct: 0.0,
+      lee: "overweight",
+      newton: "neutral",
+    },
+    "Energy": {
+      etf: "XLE",
+      spx_weight_pct: 3.0,
+      fsi_weight_pct: 5.1,
+      delta_pct: 2.1,
+      lee: "overweight",
+      newton: "overweight",
+    },
+    "Communication Services": {
+      etf: "XLC",
+      spx_weight_pct: 8.1,
+      fsi_weight_pct: 6.2,
+      delta_pct: -1.9,
+      lee: "overweight",
+      newton: "underweight",
+    },
+    "Consumer Staples": {
+      etf: "XLP",
+      spx_weight_pct: 3.8,
+      fsi_weight_pct: 0.2,
+      delta_pct: -3.6,
+      lee: "underweight",
+      newton: "underweight",
+    },
+  },
+};
+
+export const FSD_SECTOR_OUTLOOK_DEFAULT = FSD_SECTOR_OUTLOOK_SEP_2026;
 
 export function normalizeAnalystStance(raw) {
   const key = String(raw || "").trim().toUpperCase();
@@ -257,9 +359,9 @@ export function getAnalystSectorRating(outlook, sector, analyst = "newton") {
 
 export async function getFsdSectorOutlook(env) {
   const kv = env?.KV_TIMED || env?.KV;
-  if (!kv) return FSD_SECTOR_OUTLOOK_AUG_2026;
+  if (!kv) return FSD_SECTOR_OUTLOOK_DEFAULT;
   const stored = await kvGetJSON(kv, FSD_SECTOR_OUTLOOK_KV_KEY);
-  return stored?.sectors ? stored : FSD_SECTOR_OUTLOOK_AUG_2026;
+  return stored?.sectors ? stored : FSD_SECTOR_OUTLOOK_DEFAULT;
 }
 
 /** Persist outlook + merge analyst-aware ratings into timed:admin:sector_ratings. */
@@ -656,7 +758,7 @@ export async function syncFsdSectorOutlookFromFsd(env, { notify = true } = {}) {
   };
 }
 
-export async function syncFsdSectorOutlook(env, outlook = FSD_SECTOR_OUTLOOK_AUG_2026) {
+export async function syncFsdSectorOutlook(env, outlook = FSD_SECTOR_OUTLOOK_DEFAULT) {
   const kv = env?.KV_TIMED || env?.KV;
   const payload = {
     ...outlook,

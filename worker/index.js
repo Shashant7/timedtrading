@@ -87341,11 +87341,11 @@ export default {
           const {
             parseFsdSectorOutlookTable,
             syncFsdSectorOutlook,
-            FSD_SECTOR_OUTLOOK_AUG_2026,
+            FSD_SECTOR_OUTLOOK_DEFAULT,
           } = await import("./cro/fsd-sector-outlook.js");
           const outlook = body?.outlook
             || (body?.table ? parseFsdSectorOutlookTable(body.table) : null)
-            || FSD_SECTOR_OUTLOOK_AUG_2026;
+            || FSD_SECTOR_OUTLOOK_DEFAULT;
           const r = await syncFsdSectorOutlook(env, outlook);
           return sendJSON(r, 200, corsHeaders(env, req));
         } catch (e) {
