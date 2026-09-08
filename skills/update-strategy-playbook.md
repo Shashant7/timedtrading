@@ -350,6 +350,13 @@ signal you added must appear in the listing.
   worker binding. Both deploys must succeed.
 - **Skipping `node scripts/embed-dashboard.js` before the deploy.**
   Wrangler will fail with `Could not resolve "./dashboard-html.js"`.
+- **Sector Allocation monthly decks are structural tables, not LLM prose.**
+  `extractPdfTextHeuristic` on a 40-page allocation PDF often returns ~2k
+  chars (title slide). Encode the page-2 weight table + per-sector Lee/Newton
+  sentences into `strategy-context.js` and `FSD_SECTOR_OUTLOOK_*` yourself,
+  then `PUT /timed/admin/cro/sector-outlook` with the JSON table. A thin
+  CRO extract may auto-apply a wrong title ("Financials upgraded") — check
+  that `cro-apply` did not wipe `TACTICAL_SIGNALS` before walking away.
 
 ---
 

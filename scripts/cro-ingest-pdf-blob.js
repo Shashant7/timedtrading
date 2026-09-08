@@ -37,7 +37,7 @@ async function postJson(base, route, body, apiKey) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Timed-Key": apiKey,
+      "X-API-Key": apiKey,
     },
     body: JSON.stringify(body),
   });
