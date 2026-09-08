@@ -53352,13 +53352,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 70.5615
+        "sql_duration_ms": 59.7304
       },
-      "duration": 70.5615,
+      "duration": 59.7304,
       "changes": 0,
-      "last_row_id": 14535,
+      "last_row_id": 83782885,
       "changed_db": false,
-      "size_after": 4335157248,
+      "size_after": 4337577984,
       "rows_read": 5927,
       "rows_written": 0,
       "total_attempts": 1
