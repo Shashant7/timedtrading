@@ -78,7 +78,7 @@ export function isReducerOrder(order) {
 export function classifyBridgeOutcome(result) {
   if (!result || typeof result !== "object") return "transient";
   if (result.ok === true) return "placed";
-  const skip = String(result.skip || "");
+  const skip = String(result.skip || result.response?.skip || "");
   if (skip) {
     if (DEFERRED_SKIPS.has(skip)) return "deferred";
     if (TERMINAL_PATTERNS.some((re) => re.test(skip))) return "terminal";
@@ -96,7 +96,19 @@ export function classifyBridgeOutcome(result) {
   if (http >= 500 || http === 429 || http === 0) return "transient";
   if (TRANSIENT_PATTERNS.some((re) => re.test(reject))) return "transient";
   if (http >= 400) return "terminal";
+  // 2xx + ok:false with no skip/reject (reason stored as http_200) will not
+  // heal on retry. */5 drain was re-firing and Discord-spamming (BG EXIT).
+  if (http >= 200 && http < 300) return "terminal";
   return "transient";
+}
+
+/** Discord only when an intent filled or left the queue — not every pending retry. */
+export function shouldNotifyBrokerIntentDrain(out = {}) {
+  const filled = Number(out.filled) || 0;
+  const rejected = Number(out.rejected) || 0;
+  const exhausted = Number(out.exhausted) || 0;
+  const expired = Number(out.expired) || 0;
+  return filled + rejected + exhausted + expired > 0;
 }
 
 export function intentIdFor(order) {

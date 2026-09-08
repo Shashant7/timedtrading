@@ -7,6 +7,7 @@ import {
   nextIntentState,
   recordBrokerIntent,
   drainBrokerIntents,
+  shouldNotifyBrokerIntentDrain,
   INTENT_MAX_ATTEMPTS,
 } from "./broker-intents.js";
 
@@ -97,6 +98,20 @@ describe("broker intents — classification", () => {
     expect(classifyBridgeOutcome({ ok: false, http_status: 200, response: { reject_reason: "no_manifest_for_trade" } })).toBe("terminal");
     expect(classifyBridgeOutcome({ ok: false, http_status: 200, response: { reject_reason: "naked_short_deferred" } })).toBe("terminal");
     expect(classifyBridgeOutcome({ ok: false, http_status: 400, response: { error: "bad qty" } })).toBe("terminal");
+    expect(classifyBridgeOutcome({ ok: false, http_status: 200, response: {} })).toBe("terminal");
+    expect(classifyBridgeOutcome({ ok: false, skip: "outside_rth", http_status: 200 })).toBe("deferred");
+  });
+
+  it("Discord only on fill or close — not pending http_200 retries", () => {
+    expect(shouldNotifyBrokerIntentDrain({
+      attempted: 1, filled: 0, rejected: 0, exhausted: 0, expired: 0,
+    })).toBe(false);
+    expect(shouldNotifyBrokerIntentDrain({
+      attempted: 1, filled: 0, rejected: 1, exhausted: 0, expired: 0,
+    })).toBe(true);
+    expect(shouldNotifyBrokerIntentDrain({
+      attempted: 1, filled: 1, rejected: 0, exhausted: 0, expired: 0,
+    })).toBe(true);
   });
 
   it("window: whole shares until 19:00 ET, sub-share needs RTH", () => {
@@ -172,6 +187,20 @@ describe("broker intents — record + drain (UDOW W36 replay)", () => {
     await recordBrokerIntent(env, { ...exitOrder, side: "buy" }, { ok: false, skip: "entry_deferred_to_rth" }, 1);
     await recordBrokerIntent(env, { ...exitOrder, vehicle: "option_day_trade" }, { ok: false, error: "x" }, 1);
     expect(env.DB._rows.size).toBe(0);
+  });
+
+  it("bare http_200 without a place/skip closes the intent instead of looping", async () => {
+    const env = { DB: fakeDb() };
+    await recordBrokerIntent(env, exitOrder, { ok: false, skip: "equity_ah_too_late_for_broker" }, RTH.getTime() - 1000);
+    const out = await drainBrokerIntents(env, {
+      forward: async () => ({ ok: false, http_status: 200, response: {} }),
+      now: RTH.getTime(),
+    });
+    expect(out.attempted).toBe(1);
+    expect(out.rejected).toBe(1);
+    expect(out.filled).toBe(0);
+    expect(env.DB._rows.get(intentIdFor(exitOrder)).status).toBe("rejected");
+    expect(shouldNotifyBrokerIntentDrain(out)).toBe(true);
   });
 
   it("stale intents expire instead of firing days later", async () => {

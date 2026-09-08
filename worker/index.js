@@ -106195,7 +106195,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         && _calIsEquityBrokerFollowThroughStatic()) {
       ctx.waitUntil((async () => {
         try {
-          const { drainBrokerIntents } = await import("./broker-intents.js");
+          const { drainBrokerIntents, shouldNotifyBrokerIntentDrain } = await import("./broker-intents.js");
           const { forwardOrderToBridge: _fwd } = await import("./broker-bridge-client.js");
           const { forwardOptionsClose: _fwdOpt } = await import("./convexity-mirror.js");
           const out = await drainBrokerIntents(env, { forward: _fwd, forwardOptions: _fwdOpt });
@@ -106206,11 +106206,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               + ` deferred=${out.deferred} expired=${out.expired}`,
             );
           }
-          if (out.attempted > 0) {
+          if (out.attempted > 0 || out.expired > 0) {
             recordCronSuccess(env, "broker_intents_drain").catch(() => {});
-            const lines = (out.results || []).map((r) =>
-              `${r.ticker} ${String(r.side).toUpperCase()} qty=${r.qty ?? "?"} -> ${r.status}`
-              + (r.reason ? ` (${String(r.reason).slice(0, 60)})` : ""));
+          }
+          if (shouldNotifyBrokerIntentDrain(out)) {
+            const lines = (out.results || [])
+              .filter((r) => r.status && r.status !== "pending")
+              .map((r) =>
+                `${r.ticker} ${String(r.side).toUpperCase()} qty=${r.qty ?? "?"} -> ${r.status}`
+                + (r.reason ? ` (${String(r.reason).slice(0, 60)})` : ""));
             await notifyDiscord(env, {
               title: `SHORT TERM · broker intent drain (${out.filled} filled / ${out.rejected + out.exhausted} closed)`,
               description: lines.join("\n").slice(0, 1800),

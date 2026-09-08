@@ -238,7 +238,9 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 - Broker reducers are durable intents: non-placed trader SELL/TRIM/EXIT ->
   D1 `broker_intents`, drained `*/5` while the broker can act
   (`worker/broker-intents.js`; `GET /timed/admin/broker-intents`). Entries
-  never retry. Notifications say "model fill" (paper truth).
+  never retry. Notifications say "model fill" (paper truth). Discord only
+  on fill/reject/exhaust/expire — not every pending `http_200` retry.
+  A 2xx with `ok:false` and no skip/reject is terminal (stops the drain loop).
 - Shadow lanes have report cards: pull `/timed/admin/context/shadow-report`
   and slice before promoting. `daily_ema21_reclaim` on compounders is 39%
   positive (30d) -- it stays in shadow.
