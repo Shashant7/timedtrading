@@ -6,6 +6,22 @@
 
 ---
 
+## Broker intent drain Discord-spammed pending http_200 [2026-09-08]
+
+**Symptom:** `#trade` got `SHORT TERM · broker intent drain (0 filled / 0
+closed)` every 5 minutes for `BG EXIT qty=2.11 -> pending (http_200)`.
+
+**Cause:** Drain notifies whenever `attempted > 0`. A bridge 200 with
+`ok:false` and no skip/reject classified as transient, so the intent
+stayed pending and the next `*/5` retried + posted again.
+
+**Fix:** Discord only when filled/rejected/exhausted/expired. Classify
+bare 2xx `ok:false` (reason `http_200`) as terminal so the row closes
+instead of looping.
+
+**Do not:** page Discord on no-progress pending retries. Do not treat an
+empty 200 as retryable.
+
 ## Long Term tab empty: investor scores KV wiped by thin compute [2026-09-07]
 
 **Symptom:** Long Term rail on BE showed only "No investor-mode detail
