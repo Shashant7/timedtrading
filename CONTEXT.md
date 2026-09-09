@@ -1071,13 +1071,12 @@ playbook in `skills/security-auth-patterns.md`)**
 - **Current July iter-5 challenger is validated on equal scope**: Full recovered-baseline replay with current TT-core guards (`focused-iter5-full-baseline-current-guard--20260325-105601`) beat the recovered reference (`focused-iter5-validation-recovered-20260325--20260325-024751`) from 32 trades / 19W / 13L / +$634.63 to 20 trades / 18W / 2L / +$1,978.99. Biggest deltas: `FIX` -$99.90 → +$538.36, `RBLX` +$446.91 → +$466.97 with the bad `07-22` loser removed, `CELH` -$30.58 → +$24.39, `ETN` +$90.54 → +$364.20, `ULTA` +$155.28 → +$386.86, `CAT` +$72.38 → +$198.19.
 - **The surgical TT-core guard that removed the last `RBLX` loser**: In `worker/pipeline/tt-core-entry.js`, block `LONG` `tt_pullback` entries in `correction_transition` when both 10m `5-12` and `8-9` are already above the cloud with meaningful extension and move-phase is already exhausted. This preserved the `RBLX` `07-08` / `07-10` winners while removing the `07-22` loser, and the equal-scope replay confirmed the broader lane still improved materially.
 
-**Ranking / technical score (PR #1442 — not merged or deployed as of 2026-09-09)**
+**Ranking / technical score (PR #1442 — merged and deployed 2026-09-09)**
 - **Question:** whether each rank *ingredient* earns its points (producer,
   direction, missing-data, duplication) — not whether aggregate sort
-  improved. `SCORING_VERSION` becomes `2.1.5-2026-09-09` on merge;
+  improved. Live `SCORING_VERSION` is `2.1.5-2026-09-09`;
   traces use `driver_version=rank-drivers-v2` and
-  `CANDIDATE_RANK_VERSION=candidate-rank-v3`. Live workers stay on
-  `2.1.2-2026-08-29` until tt-engine + monolith both-envs deploy.
+  `CANDIDATE_RANK_VERSION=candidate-rank-v3`.
 - **Do not reintroduce:** missing completion/phase treated as early
   (+15 / +3); opposing HTF/LTF/state earning support points; duplicate
   EMA/dip/squeeze bonuses; EXTREME “zone change” +2; fixed sector prior;
