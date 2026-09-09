@@ -102,8 +102,8 @@ export function cloudPivotKeepFrac(mfePct) {
 
 /**
  * Conviction for a fired Cloud Pivot detection, 0..5. Both 34/50 clouds
- * aligned with the direction is the baseline "real" setup (2); a leader,
- * a catalyst or a magnet ahead add to it; a soft-opposed cloud subtracts.
+ * aligned with the direction is the baseline "real" setup (2); a leader
+ * or a magnet ahead add to it; a soft-opposed cloud subtracts.
  * Used by the paper-family entry budget to take the best few, not all.
  */
 export function cloudPivotConviction(det) {
@@ -117,7 +117,9 @@ export function cloudPivotConviction(det) {
   if (c1h === dir) score += 1;
   else if (c1h && c1h !== dir) score -= 1;
   if (det.leader_follow?.leader) score += 1;
-  if (det.session_plan?.catalyst) score += 1;
+  // A scheduled release / event-risk flag says volatility may change, not
+  // that the reaction favors this side. Keep session if/then planning, but
+  // do not let an unsigned catalyst label supply an admission point.
   if (det.cloud_magnet?.ahead === true) score += 0.5;
   return Math.max(0, Math.min(5, Math.round(score * 10) / 10));
 }

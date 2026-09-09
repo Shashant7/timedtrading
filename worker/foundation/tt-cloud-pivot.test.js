@@ -823,12 +823,19 @@ describe("cloud pivot conviction (entry budget ranking)", () => {
   it("both 34/50 clouds aligned is the baseline convicted setup (2)", () => {
     expect(cloudPivotConviction(det())).toBe(2);
   });
-  it("leader, catalyst and a magnet ahead add", () => {
+  it("leader and a magnet ahead add, but a generic catalyst does not", () => {
     expect(cloudPivotConviction(det({
       leader_follow: { leader: "NVDA", direction: "LONG" },
       session_plan: { catalyst: "cpi" },
       cloud_magnet: { ahead: true },
-    }))).toBe(4.5);
+    }))).toBe(3.5);
+  });
+  it.each(["earnings", "cpi", "event_risk"])("%s is not directional confirmation", catalyst => {
+    for (const direction of ["LONG", "SHORT"]) {
+      const weak = det({ direction, clouds: { c34_50_10: null, c34_50_1h: direction } });
+      expect(cloudPivotConviction(weak)).toBe(1);
+      expect(cloudPivotConviction({ ...weak, session_plan: { catalyst } })).toBe(1);
+    }
   });
   it("a soft-opposed cloud subtracts and drops below the floor", () => {
     expect(cloudPivotConviction(det({ clouds: { c34_50_10: "SHORT", c34_50_1h: "LONG" } }))).toBe(0);
