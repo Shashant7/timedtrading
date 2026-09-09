@@ -24,11 +24,12 @@ import {
 } from "./supertrend-hold.js";
 import { synthesizeNineHourBars, synthesizeRthSessionBars } from "./session-tfs.js";
 import { resolveFormingPair } from "./mtf-forming.js";
+import { computeTdBoostForSide } from "./td-sequential-boost.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
 // this version let us know exactly which logic produced them.
-export const SCORING_VERSION = "2.1.2-2026-08-29";
+export const SCORING_VERSION = "2.1.5-2026-09-09";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)
@@ -3563,12 +3564,32 @@ export function detectFlags(bundles) {
   if (b60?.sqOn) { flags.sq1h_on = true; }
   if (b60?.sqRelease) { flags.sq1h_release = true; flags.sq1h_release_ts = b60.sqRelease_ts; }
 
+  // Preserve legacy flags for other consumers; rank also needs signed evidence.
+  for (const [tf, b] of [["30m", b30], ["1h", b60], ["4h", b4H], ["10m", b10]]) {
+    if (b?.stFlip && (b.stFlipDir === 1 || b.stFlipDir === -1)) {
+      flags["st_flip_" + tf + "_dir"] = b.stFlipDir === 1 ? "LONG" : "SHORT";
+    }
+  }
+  for (const [tf, b] of [["1h", b60], ["30m", b30]]) {
+    if (!!b?.emaCross13_48_up !== !!b?.emaCross13_48_dn) {
+      flags["ema_cross_" + tf + "_13_48_dir"] = b.emaCross13_48_up ? "LONG" : "SHORT";
+    }
+  }
+  for (const [tf, b] of [["30", b30], ["1h", b60]]) {
+    if (b?.sqRelease && Number.isFinite(b.mom) && b.mom !== 0) {
+      flags["sq" + tf + "_release_dir"] = b.mom > 0 ? "LONG" : "SHORT";
+    }
+  }
+
   // Momentum elite: strong momentum across multiple TFs
   const strongMom = [b30, b10, b5].filter(b => {
     if (!b || !Number.isFinite(b.mom) || !Number.isFinite(b.momStd) || b.momStd <= 0) return false;
     return Math.abs(b.mom / b.momStd) > 1.0;
   });
   if (strongMom.length >= 2) flags.momentum_elite = true;
+  // Opposing strong frames are not a directional consensus.
+  if (strongMom.length >= 2 && strongMom.every(b => b.mom > 0)) flags.momentum_elite_dir = "LONG";
+  if (strongMom.length >= 2 && strongMom.every(b => b.mom < 0)) flags.momentum_elite_dir = "SHORT";
 
   // Phase zone change (simplified: check if any LTF is in EXTREME zone)
   if (b30?.phaseZone === "EXTREME" || b10?.phaseZone === "EXTREME") {
@@ -4957,7 +4978,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       atrPct: (Number.isFinite(b.atr14) && Number.isFinite(b.px) && b.px > 0)
         ? Math.round((b.atr14 / b.px) * 10000) / 100
         : undefined,
-      sq: { s: b.sqOn ? 1 : 0, r: b.sqRelease ? 1 : 0, c: b.compressed ? 1 : 0 },
+      sq: { s: b.sqOn ? 1 : 0, r: b.sqRelease ? 1 : 0, c: b.compressed ? 1 : 0,
+        dir: Number.isFinite(b.mom) && b.mom !== 0 ? (b.mom > 0 ? "LONG" : "SHORT") : null },
       rsi: {
         r5: Number.isFinite(b.rsi) ? Math.round(b.rsi * 10) / 10 : undefined,
         // V15 P0.2 — 5-bar slope (RSI points / bar)
@@ -5522,6 +5544,7 @@ export function computeTDSequential(candles, tf, opts = {}) {
     exit_long: false,
     exit_short: false,
     boost: 0,
+    boost_side: (opts.htfBull ?? true) ? "LONG" : "SHORT",
     bullish_prep_count: 0,
     bearish_prep_count: 0,
     bullish_leadup_count: 0,
@@ -5684,29 +5707,9 @@ export function computeTDSequential(candles, tf, opts = {}) {
   result.last_td13_bullish_bars_ago = lastTd13Bull >= 0 ? lastBar - lastTd13Bull : null;
   result.last_td13_bearish_bars_ago = lastTd13Bear >= 0 ? lastBar - lastTd13Bear : null;
 
-  // Boost calculation (mirrors Pine Script logic)
-  const htfBull = opts.htfBull != null ? opts.htfBull : true; // default to bull bias
-  if (htfBull) {
-    // For LONG bias: Bullish TD9/13 = boost, Bearish TD9/13 = penalty
-    result.boost = result.td9_bullish ? 5.0
-      : result.td13_bullish ? 8.0
-      : result.td9_bearish ? -5.0
-      : result.td13_bearish ? -8.0
-      : 0.0;
-    // Prep count approaching completion = additional boost
-    if (bullPrepCount >= 6 && bullPrepCount < PREP_LEN) result.boost += 2.0;
-    if (bullLeadupCount >= 6 && bullLeadupCount < LEADUP_LEN) result.boost += 3.0;
-  } else {
-    // For SHORT bias: Bearish TD9/13 = boost, Bullish TD9/13 = penalty
-    result.boost = result.td9_bearish ? 5.0
-      : result.td13_bearish ? 8.0
-      : result.td9_bullish ? -5.0
-      : result.td13_bullish ? -8.0
-      : 0.0;
-    if (bearPrepCount >= 6 && bearPrepCount < PREP_LEN) result.boost += 2.0;
-    if (bearLeadupCount >= 6 && bearLeadupCount < LEADUP_LEN) result.boost += 3.0;
-  }
-
+  // Preserve the existing producer-side boost; rank can recompute the same
+  // recipe for a candidate turning against that older HTF bias.
+  result.boost = computeTdBoostForSide(result, result.boost_side);
   return result;
 }
 
@@ -5783,6 +5786,7 @@ export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
   // Sum boosts across D/W/M timeframes, capped at ±15
   let totalBoost = (dR?.boost || 0) + (wR?.boost || 0) * 1.5 + (mR?.boost || 0) * 2.0;
   merged.boost = Math.max(-15, Math.min(15, Math.round(totalBoost * 10) / 10));
+  merged.boost_side = htfBull ? "LONG" : "SHORT";
 
   // Use highest-TF counts for display (prefer M > W > D)
   if (mR && (mR.bullish_prep_count > 0 || mR.bearish_prep_count > 0)) {

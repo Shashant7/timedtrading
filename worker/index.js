@@ -468,6 +468,11 @@ import {
 import { shareLaneExecutionWindow } from "./execution-window.js";
 import { playLabel } from "./foundation/play-catalog.js";
 import {
+  computeCandidateScore, stampCandidatePositions, processRankedCandidates,
+} from "./ranking/candidate-rank.js";
+import { createTechnicalRanker } from "./ranking/technical-rank.js";
+import { triggerRankSummary } from "./ranking/rank-drivers.js";
+import {
   stampContinuationThinSlice,
   continuationPaperSizeMult,
   buildContinuationOptionsFirstPlay,
@@ -5673,93 +5678,9 @@ function tfTechAlignmentSummary(tickerData) {
   };
 }
 
-/**
- * GOLD STANDARD SCORING: Data-driven trigger scoring based on historical analysis.
- * 
- * Winner Correlation Data (from GOLD_PATTERNS_ANALYSIS.md):
- * - LTF Pullback (setup state): 84.3% of winners
- * - State Transition: 36.6% of winners
- * - HTF Improving: 34.1% of winners
- * - Squeeze ON (coiling): 21.8% of winners
- * - Squeeze Release: 8.8% of winners (WAS OVERWEIGHTED!)
- * - EMA Cross: 6.3% of winners (WAS OVERWEIGHTED!)
- * 
- * REDUCED WEIGHTS to match data:
- * - Squeeze Release 30M: +6 → +2
- * - EMA Cross 1H: +6 → +2
- * - Buyable Dip 1H: +7 → +3
- */
+// Event weights remain hypotheses; winning-trade prevalence is not predictive lift.
 function triggerSummaryAndScore(tickerData) {
-  const side = sideFromStateOrScores(tickerData); // LONG | SHORT | null
-  const list = Array.isArray(tickerData?.triggers)
-    ? tickerData.triggers
-        .filter((t) => typeof t === "string" && t.trim())
-        .map((t) => t.trim())
-    : [];
-
-  const uniq = Array.from(new Set(list));
-  let score = 0;
-
-  const has = (s) => uniq.includes(s);
-  const matchSide = (bull, bear) => {
-    if (!side) return 0;
-    if (side === "LONG" && has(bull)) return 1;
-    if (side === "SHORT" && has(bear)) return 1;
-    if (side === "LONG" && has(bear)) return -1;
-    if (side === "SHORT" && has(bull)) return -1;
-    return 0;
-  };
-
-  // REDUCED WEIGHTS based on Gold Standard analysis
-  if (has("SQUEEZE_RELEASE_30M")) score += 2;  // Was +6, only 8.8% correlation
-  score += 2 * matchSide("EMA_CROSS_1H_13_48_BULL", "EMA_CROSS_1H_13_48_BEAR");  // Was +6, only 6.3% correlation
-  score += 1 * matchSide("EMA_CROSS_30M_13_48_BULL", "EMA_CROSS_30M_13_48_BEAR");  // Was +2
-  if (has("ST_FLIP_1H")) score += 1;
-  if (has("ST_FLIP_30M")) score += 1;
-  score += 3 * matchSide("BUYABLE_DIP_1H_13_48_LONG", "BUYABLE_DIP_1H_13_48_SHORT");  // Was +7
-
-  // LTF triggers (10m) — keep same weights (minor contributors)
-  if (has("SQUEEZE_RELEASE_10M")) score += 1;  // Was +3
-  if (has("SQUEEZE_RELEASE_5M")) score += 0.5; // Kept for historical triggers, 5m TF dropped
-  if (has("SQUEEZE_RELEASE_3M")) score += 0.5; // Was +1
-  if (has("SQUEEZE_RELEASE_1M")) score += 0.5; // Was +1
-  score += 1 * matchSide("EMA_CROSS_10M_13_48_BULL", "EMA_CROSS_10M_13_48_BEAR");  // Was +2
-  score += 0.5 * matchSide("EMA_CROSS_5M_13_48_BULL", "EMA_CROSS_5M_13_48_BEAR");
-  score += 0.5 * matchSide("EMA_CROSS_3M_13_48_BULL", "EMA_CROSS_3M_13_48_BEAR");
-  score += 0.5 * matchSide("EMA_CROSS_1M_13_48_BULL", "EMA_CROSS_1M_13_48_BEAR");
-  if (has("ST_FLIP_10M")) score += 0.5;
-  if (has("ST_FLIP_5M")) score += 0.5;
-  if (has("ST_FLIP_3M")) score += 0.5;
-  if (has("ST_FLIP_1M")) score += 0.5;
-
-  // Fallback for legacy payloads without triggers[] populated
-  const flags = tickerData?.flags || {};
-  if (uniq.length === 0) {
-    if (flags.sq30_release) score += 2;           // Was +4
-    if (flags.ema_cross_1h_13_48) score += 2;     // Was +5
-    if (flags.buyable_dip_1h_13_48) score += 3;   // Was +7
-    if (flags.sq10_release) score += 1;           // Was +3
-    if (flags.sq5_release) score += 1;            // Was +2
-    if (flags.sq3_release) score += 0.5;
-    if (flags.sq1_release) score += 0.5;
-    if (flags.ema_cross_10m_13_48) score += 1;
-    if (flags.ema_cross_5m_13_48) score += 0.5;
-    if (flags.ema_cross_3m_13_48) score += 0.5;
-    if (flags.ema_cross_1m_13_48) score += 0.5;
-    if (flags.st_flip_10m) score += 0.5;
-    if (flags.st_flip_5m) score += 0.5;
-    if (flags.st_flip_3m) score += 0.5;
-    if (flags.st_flip_1m) score += 0.5;
-  }
-
-  score = Math.max(-6, Math.min(12, score));  // Reduced cap from 18 to 12
-
-  return {
-    score,
-    side,
-    count: uniq.length,
-    top: uniq.slice(0, 5),
-  };
+  return triggerRankSummary(tickerData, sideFromStateOrScores(tickerData));
 }
 
 /**
@@ -14540,243 +14461,14 @@ function entryType(ticker) {
 // NOTE: This returns a SCORE (0-200+), not a RANK (position 1-135)
 // RANK is determined by sorting all tickers by this score
 function computeDynamicScore(ticker) {
-  const baseScore = Number(ticker.rank) || 50; // Base score from worker (0-100)
-  const htf = Number(ticker.htf_score) || 0;
-  const ltf = Number(ticker.ltf_score) || 0;
-  const comp = completionForSize(ticker);
-  const phase = Number(ticker.phase_pct) || 0;
-  const rr = Number(ticker.rr) || 0;
-  const flags = ticker.flags || {};
-  const state = String(ticker.state || "");
-  const holdIntent = String(
-    ticker.hold_intent || ticker.horizon_bucket || "",
-  ).toUpperCase();
-
-  const sqRel = !!flags.sq30_release;
-  const sqOn = !!flags.sq30_on;
-  const phaseZoneChange = !!flags.phase_zone_change;
-  const aligned =
-    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-  const ent = entryType(ticker);
-  const inCorridor = ent.corridor;
-
-  let dynamicScore = baseScore;
-
-  // Data completeness penalty: prefer fully-instrumented names.
-  const completeness =
-    ticker?.data_completeness || computeDataCompleteness(ticker);
-  if (completeness && typeof completeness === "object") {
-    if (completeness.score < 70) dynamicScore -= 6;
-    else if (completeness.score < 85) dynamicScore -= 3;
-  }
-
-  // Per-TF technical structure: reward aligned multi-timeframe stacks.
-  const tfAlign = ticker?.tf_summary || tfTechAlignmentSummary(ticker);
-  if (
-    tfAlign &&
-    typeof tfAlign === "object" &&
-    Number.isFinite(tfAlign.score)
-  ) {
-    dynamicScore += tfAlign.score;
-    if (tfAlign.squeeze_on && !sqRel && inCorridor) dynamicScore += 1;
-    if (tfAlign.squeeze_release && inCorridor) dynamicScore += 2;
-  }
-
-  // Explicit triggers[] “why now” boost (bounded).
-  const trig = ticker?.trigger_summary || triggerSummaryAndScore(ticker);
-  if (trig && typeof trig === "object" && Number.isFinite(trig.score)) {
-    dynamicScore += trig.score;
-  }
-
-  // Move status: deprioritize invalidated/completed moves
-  const ms = ticker?.move_status || computeMoveStatus(ticker);
-  if (ms && typeof ms === "object") {
-    if (ms.status === "INVALIDATED") dynamicScore -= 30;
-    else if (ms.status === "COMPLETED") dynamicScore -= 20;
-  }
-
-  // Corridor bonus (high priority - active setups)
-  if (inCorridor) {
-    dynamicScore += 12; // Strong bonus for being in corridor
-
-    // Extra bonus if aligned AND in corridor (perfect setup)
-    if (aligned) {
-      dynamicScore += 8;
-    }
-  }
-
-  // Squeeze release in corridor = very strong signal
-  if (sqRel && inCorridor) {
-    dynamicScore += 10;
-  }
-
-  // Squeeze on in corridor = building pressure
-  if (sqOn && inCorridor && !sqRel) {
-    dynamicScore += 5;
-  }
-
-  // RR bonus (scaled - better RR = higher score)
-  if (rr >= 2.0) {
-    dynamicScore += 8; // Excellent RR
-  } else if (rr >= 1.5) {
-    dynamicScore += 5; // Good RR
-  } else if (rr >= 1.0) {
-    dynamicScore += 2; // Acceptable RR
-  }
-
-  // Phase bonus (early phase = better opportunity)
-  if (phase < 0.3) {
-    dynamicScore += 6; // Very early
-  } else if (phase < 0.5) {
-    dynamicScore += 3; // Early
-  } else if (phase > 0.7) {
-    dynamicScore -= 5; // Late phase penalty
-  }
-
-  // Completion bonus (low completion = more room to run)
-  if (comp < 0.3) {
-    dynamicScore += 5; // Early in move
-  } else if (comp > 0.8) {
-    dynamicScore -= 8; // Near completion penalty
-  }
-
-  // Phase 2: Hold-intent scoring (small nudge; only when HTF strength supports it)
-  // Goal: favor longer-duration setups when HTF strength is high, without overpowering other gates.
-  const htfAbs = Math.abs(htf);
-  if (holdIntent === "POSITION" && htfAbs >= 15) {
-    dynamicScore += 2;
-  } else if (holdIntent === "SWING" && htfAbs >= 10) {
-    dynamicScore += 1;
-  }
-
-  // Score strength bonus (strong HTF/LTF scores)
-  const htfStrength = Math.min(8, Math.abs(htf) * 0.15);
-  const ltfStrength = Math.min(6, Math.abs(ltf) * 0.12);
-  dynamicScore += htfStrength + ltfStrength;
-
-  // Phase zone change bonus
-  if (phaseZoneChange) {
-    dynamicScore += 4;
-  }
-
-  // 2026-06-10 — CRO theme-tilt overlay (worker/theme-tilt.js). Bounded
-  // ±6, DIRECTION-AWARE: a hot theme helps a LONG-side candidate and
-  // hurts a SHORT-side candidate on the same ticker (side = sign of
-  // htf_score). The map is preloaded by the scoring cron preamble and
-  // the /timed/all handler (_activeThemeTiltMap below); when the gate
-  // (model_config cro_theme_rank_boost_enabled) is OFF the tilt is
-  // still attached as _theme_tilt_shadow so the effect stays
-  // measurable, but the score is untouched.
-  try {
-    const sym = String(ticker.ticker || "").toUpperCase();
-    const tiltEntry = sym ? _activeThemeTiltMap?.by_ticker?.[sym] : null;
-    if (tiltEntry) {
-      const side = htf > 0 ? 1 : htf < 0 ? -1 : 0;
-      const applied = Math.round(tiltEntry.tilt * side * 10) / 10;
-      if (_activeThemeTiltMap.enabled) {
-        dynamicScore += applied;
-        ticker._theme_tilt = applied;
-      } else {
-        ticker._theme_tilt_shadow = applied;
-      }
-      ticker._theme_tilt_theme = tiltEntry.theme;
-    }
-  } catch (_) { /* tilt must never break scoring */ }
-
-  // B6 (2026-06-11) — Fair Value & Quality tilt (worker/fair-value.js).
-  // Bounded ±5, DIRECTION-AWARE like the theme tilt: a quality business
-  // trading below fair value is a tailwind for LONG-side candidates and a
-  // headwind for SHORT-side ones. The signed magnitude (+favors-LONG) was
-  // computed at scoring time onto _fair_value.tilt; gate
-  // fair_value_rank_boost_enabled controls whether it moves the score or
-  // attaches as shadow only. Never an admission gate.
-  try {
-    const fv = ticker._fair_value;
-    const fvTilt = Number(fv?.tilt);
-    if (fv && Number.isFinite(fvTilt) && fvTilt !== 0) {
-      const side = htf > 0 ? 1 : htf < 0 ? -1 : 0;
-      const appliedFv = Math.round(fvTilt * side * 10) / 10;
-      if (appliedFv !== 0) {
-        if (fv.tilt_enabled) {
-          dynamicScore += appliedFv;
-          ticker._fv_tilt = appliedFv;
-        } else {
-          ticker._fv_tilt_shadow = appliedFv;
-        }
-      }
-    }
-  } catch (_) { /* tilt must never break scoring */ }
-
-  // Harmonic Wave rank tilt (worker/harmonic-modifiers.js). Bounded ±4
-  // (calibration-weighted on payload), direction-aware like theme tilt.
-  try {
-    const hc = ticker.harmonic_cycle;
-    const hTilt = Number(hc?.rank_tilt);
-    if (hc && Number.isFinite(hTilt) && hTilt !== 0) {
-      const side = htf > 0 ? 1 : htf < 0 ? -1 : 0;
-      const applied = Math.round(hTilt * side * 10) / 10;
-      if (hc.tilt_enabled !== false) {
-        dynamicScore += applied;
-        ticker._harmonic_tilt = applied;
-      } else {
-        ticker._harmonic_tilt_shadow = applied;
-      }
-    }
-  } catch (_) { /* tilt must never break scoring */ }
-
-  // 2026-06-11 — Officer rank overlay (CTO probabilistic levels + CRO note
-  // sector nudge). Bounded ±5 total, direction-aware like theme tilt.
-  try {
-    const symOff = String(ticker.ticker || "").toUpperCase();
-    if (symOff && _activeOfficerRankMap) {
-      // Sector hint from the payload skips a per-ticker strategy lookup.
-      const _offSector = ticker.sector || ticker._ticker_profile?.sector || null;
-      const entry = _lookupOfficerTilt(_activeOfficerRankMap, symOff, htf, _offSector);
-      if (entry) {
-        const gates = _activeOfficerRankMap.gates || {};
-        const applied = entry.tilt || 0;
-        if ((gates.cto !== false || gates.cro !== false) && applied !== 0) {
-          dynamicScore += applied;
-          ticker._officer_tilt = applied;
-          if (entry.cto) ticker._cto_tilt = entry.cto;
-          if (entry.cro) ticker._cro_note_tilt = entry.cro;
-        } else if (applied !== 0) {
-          ticker._officer_tilt_shadow = applied;
-        }
-        if (entry.cto_upside || entry.cto_downside) {
-          ticker._cto_levels = {
-            top_upside: entry.cto_upside,
-            top_downside: entry.cto_downside,
-          };
-        }
-      }
-    }
-  } catch (_) { /* officer tilt must never break scoring */ }
-
-  // 2026-07-09 — Macro wire rank tilt (DeItaone LLM-classified pulse).
-  // Bounded ±4, direction-aware like theme tilt.
-  try {
-    const symMw = String(ticker.ticker || "").toUpperCase();
-    if (symMw && _activeMacroRiskTiltMap) {
-      const entry = _lookupMacroRiskTilt(_activeMacroRiskTiltMap, symMw, htf);
-      if (entry) {
-        const applied = entry.tilt || 0;
-        if (_activeMacroRiskTiltMap.enabled && applied !== 0) {
-          dynamicScore += applied;
-          ticker._macro_wire_tilt = applied;
-          ticker._macro_wire_risk_tone = entry.risk_tone;
-        } else if (applied !== 0) {
-          ticker._macro_wire_tilt_shadow = applied;
-        }
-      }
-    }
-  } catch (_) { /* macro wire tilt must never break scoring */ }
-
-  // NO CAP - let scores go above 100 to help tickers separate from one another
-  // Minimum is 0, but no maximum cap
-  dynamicScore = Math.max(0, dynamicScore);
-
-  return Math.round(dynamicScore * 100) / 100; // Round to 2 decimals for precision
+  return computeCandidateScore(ticker, {
+    resolveSide: sideFromStateOrScores,
+    themeMap: _activeThemeTiltMap,
+    officerMap: _activeOfficerRankMap,
+    macroMap: _activeMacroRiskTiltMap,
+    lookupOfficerTilt: _lookupOfficerTilt,
+    lookupMacroRiskTilt: _lookupMacroRiskTilt,
+  });
 }
 
 // Compute RR at trigger price (for alert evaluation)
@@ -28051,6 +27743,8 @@ async function processTradeSimulation(
                   if (tickerData?.__rank_trace) {
                     Object.assign(base, tickerData.__rank_trace);
                   }
+                  if (tickerData?.__candidate_order) base.candidate_order = tickerData.__candidate_order;
+                  if (tickerData?._ranking) base.ranking = tickerData._ranking;
                   // Focus tier — if not already captured, force it now
                   if (!tickerData?.__focus_conviction_breakdown) {
                     try {
@@ -32308,821 +32002,13 @@ function buildReplayTargetSnapshot(result, extra = {}) {
   };
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// PHASE-I (2026-04-22) — computeRankV2
-//
-// EMPIRICAL CALIBRATION FROM v10b + v7 (see tasks/rank-calibration-findings-2026-04-22.md)
-//
-// PROBLEM: The original computeRank formula has near-zero correlation with
-// trade outcomes across v6b/v7/v9:
-//   Pearson(rank, pnl_pct) = -0.185 (v9) | +0.099 (v7) | -0.105 (v6b)
-// And on v7's 229 trades, rank 70-79 had 60.7% WR vs rank 95-100's 56.6% WR —
-// stricter rank filtering does NOT improve quality.
-//
-// DATA SHOWS the real discriminators are:
-//   POSITIVE lift (keep/boost):
-//     +10  setup_grade=Confirmed           (60.9% vs 48.1% Prime WR)
-//     +8   RSI bull divergence             (+9.5% WR lift)
-//     +6   regime_class=TRENDING           (+6.4% WR lift)
-//     +4   supertrend_30 aligned           (+3.6% WR lift)
-//
-//   NEGATIVE lift (penalize):
-//     -20  ATR_week displacement aligned   (16.7% WR — "late-move" signal)
-//     -10  ATR_day displacement aligned    (30.8% WR)
-//     -10  regime_class=TRANSITIONAL       (40% WR)
-//     -8   phase_1H > 70 (over-extended)   (16.7% WR)
-//     -8   phase_1H_zone HIGH              (37.5% WR)
-//     -6   LTF_30m bias aligned (inverted!) (44.1% WR — over-alignment = late)
-//
-//   DROPPED (no discrimination or always true):
-//     state alignment bonuses (+12/+4 — 100% of trades have them)
-//     momentum_elite (+15 — sample too small)
-//     generic squeeze bonuses
-//     sector bias (too broad)
-//     Ripster cloud alignment bonuses (embedded in state upstream)
-//
-// RR IS PREDICTIVE:
-//   Pearson(rr, pnl_pct) = +0.195 on v7 (229 trades)
-//   RR >= 7 gives 77.8% WR. RR 3-5 is the sweet spot.
-//   RR < 2 is catastrophic.
-//
-// Toggled via deep_audit_rank_formula="v2" (default "v1" = original).
-// Both formulas output 0-100 so downstream gates (min_rank_floor) work
-// with either.
-// ═══════════════════════════════════════════════════════════════════════
-function computeRankV2(d) {
-  const ticker = String(d?.ticker || d?.sym || "").toUpperCase();
-  const side = sideFromStateOrScores(d);
-
-  const rankTrace = shouldTraceRankBreakdown(d);
-  const rankTraceParts = [];
-  // V2 base starts at 30 (same as V1) so the baseline trend-following bonuses
-  // below can lift scores into the 60-90 range for proper setups. The v10b
-  // calibration sample was already a PRE-FILTERED set (all trades passed V1),
-  // so "everyone has aligned_state" was only true inside that sample.
-  // At true scoring time (all 215 tickers across all bars), most tickers
-  // have NO state at all. We need to properly reward the basic building blocks
-  // that distinguish "this ticker is in a trend" from "nothing is happening".
-  let score = 30;
-
-  const addTrace = (label, delta, extra = null) => {
-    if (rankTrace) {
-      rankTraceParts.push({
-        label, delta,
-        score_after: score,
-        ...(extra && typeof extra === "object" ? extra : {}),
-      });
-    }
-  };
-  addTrace("v2_base", 30);
-
-  // ── BASELINE TREND-FOLLOWING SIGNALS (kept from V1) ─────
-  // These separate "ticker is in a setup" from "nothing happening".
-  // Without these, V2 can't distinguish good tickers from noise.
-  const state = String(d.state || "");
-  const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-  const setup = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
-  if (aligned) {
-    score += 12;
-    addTrace("v2_aligned_state", 12);
-  } else if (setup) {
-    score += 6;
-    addTrace("v2_setup_state", 6);
-  }
-
-  // HTF strength
-  const htf = Number(d.htf_score);
-  if (Number.isFinite(htf)) {
-    const htfAbs = Math.abs(htf);
-    if (htfAbs >= 25) {
-      score += 10;
-      addTrace("v2_htf_strong", 10, { htf });
-    } else if (htfAbs >= 15) {
-      score += 6;
-      addTrace("v2_htf_med", 6, { htf });
-    } else if (htfAbs >= 5) {
-      score += 3;
-      addTrace("v2_htf_weak", 3, { htf });
-    }
-  }
-
-  // LTF strength
-  const ltf = Number(d.ltf_score);
-  if (Number.isFinite(ltf)) {
-    const ltfAbs = Math.abs(ltf);
-    if (ltfAbs >= 20) {
-      score += 8;
-      addTrace("v2_ltf_strong", 8, { ltf });
-    } else if (ltfAbs >= 10) {
-      score += 5;
-      addTrace("v2_ltf_med", 5, { ltf });
-    }
-  }
-
-  // Data completeness penalty — essential (bad data → bad signals)
-  const completeness = d?.data_completeness || computeDataCompleteness(d);
-  if (completeness && typeof completeness === "object") {
-    if (completeness.score < 70) {
-      score -= 10;
-      addTrace("v2_data_incomplete", -10, { completenessScore: completeness.score });
-    } else if (completeness.score < 85) {
-      score -= 5;
-      addTrace("v2_data_incomplete", -5, { completenessScore: completeness.score });
-    }
-  }
-
-  // Move status
-  const ms = d?.move_status || computeMoveStatus(d);
-  if (ms && typeof ms === "object") {
-    if (ms.status === "INVALIDATED") {
-      score -= 25;
-      addTrace("v2_move_invalidated", -25);
-    } else if (ms.status === "COMPLETED") {
-      score -= 15;
-      addTrace("v2_move_completed", -15);
-    }
-  }
-
-  // ── EMPIRICALLY-DERIVED DISCRIMINATORS (from v10b calibration) ─────
-
-  // setup_grade (NOTE: this field is typically set AFTER rank computation in
-  // the current pipeline, so it will usually be null at scoring time. Keeping
-  // the check for forward compatibility — once setup_grade is exposed pre-rank
-  // this will activate. Currently contributes 0 for most ticks.)
-  const setupGrade = String(d?.setup_grade || d?.__setup_grade || "").toLowerCase();
-  if (setupGrade === "confirmed") {
-    score += 8;
-    addTrace("v2_grade_confirmed", 8);
-  } else if (setupGrade === "prime") {
-    score += 2;
-    addTrace("v2_grade_prime", 2);
-  }
-
-  // RSI bull/bear divergence aligned with direction
-  const rsiDiv = d?.rsi_divergence || d?.rsi?.divergence || null;
-  if (rsiDiv && typeof rsiDiv === "object") {
-    // Support two shapes: single-TF ({type, strength}) OR multi-TF ({M:{bull,bear}, ...})
-    let bullActive = false, bearActive = false;
-    if (rsiDiv.type) {
-      if (rsiDiv.type === "bullish") bullActive = true;
-      if (rsiDiv.type === "bearish") bearActive = true;
-    } else {
-      for (const tf of Object.keys(rsiDiv)) {
-        const v = rsiDiv[tf];
-        if (v && typeof v === "object") {
-          if (v.bull && v.bull.active) bullActive = true;
-          if (v.bear && v.bear.active) bearActive = true;
-        }
-      }
-    }
-    if (side === "LONG" && bullActive) {
-      score += 8;
-      addTrace("v2_rsi_bull_div", 8);
-    } else if (side === "SHORT" && bearActive) {
-      score += 5; // smaller boost (bear div only +2.1% lift vs bull's +9.5%)
-      addTrace("v2_rsi_bear_div", 5);
-    }
-  }
-
-  // regime_class=TRENDING: +6, TRANSITIONAL: -4, CHOPPY: -8
-  // Softer penalties than the initial calibration suggested — TRANSITIONAL
-  // is common during live scoring (many bars during the trading day land here
-  // even on ultimately-successful trades), so we only apply a mild penalty.
-  // The -10 from the v10b calibration reflected a POST-ENTRY snapshot which
-  // isn't quite the same thing as the live scoring moment.
-  const regimeClass = String(
-    d?.execution_profile_json?.regime_class
-    || d?.regime?.class
-    || d?.regime_class
-    || ""
-  ).toUpperCase();
-  if (regimeClass === "TRENDING") {
-    score += 6;
-    addTrace("v2_trending_regime", 6);
-  } else if (regimeClass === "TRANSITIONAL") {
-    score -= 4;
-    addTrace("v2_transitional_regime", -4);
-  } else if (regimeClass === "CHOPPY") {
-    score -= 8;
-    addTrace("v2_choppy_regime", -8);
-  }
-
-  // Supertrend_30 aligned with direction: +4
-  const st30 = Number(d?.supertrend?.[30]?.d ?? d?.tf_tech?.["30"]?.supertrend ?? d?.tf_tech?.m30?.supertrend);
-  if (Number.isFinite(st30)) {
-    const aligned = (side === "LONG" && st30 > 0) || (side === "SHORT" && st30 < 0);
-    if (aligned) {
-      score += 4;
-      addTrace("v2_st30_aligned", 4);
-    }
-  }
-
-  // RR contribution — graduated based on v7 empirical data (229 trades):
-  //   rr >= 7:   77.8% WR  -> +12 (strong edge signal)
-  //   rr >= 5:   ~65% WR   -> +8
-  //   rr >= 3:   57.0% WR  -> +5
-  //   rr >= 2:   47.1% WR  -> +0 (neutral — slight underperform of base)
-  //   rr >= 1.5: 60.0% WR  -> +0 (tiny sample, hold neutral)
-  //   rr <  1.5:  0% WR    -> -10 (clear danger)
-  const rr = d.rr != null ? Number(d.rr) : computeRR(d);
-  if (Number.isFinite(rr)) {
-    let rrDelta = 0;
-    if (rr >= 7) rrDelta = 12;
-    else if (rr >= 5) rrDelta = 8;
-    else if (rr >= 3) rrDelta = 5;
-    else if (rr >= 1.5) rrDelta = 0;
-    else rrDelta = -10;
-    score += rrDelta;
-    addTrace("v2_rr", rrDelta, { rr });
-  }
-
-  // ── NEGATIVE signals ────────────────────────────────
-  // ATR displacement "already moved in our direction" = mean-reversion risk
-  // Calibration (v10b 101 closed): ATR_week aligned displacement = 16.7% WR,
-  // ATR_day aligned = 30.8% WR. Signals a late-stage move likely to fade.
-  const atrDisp = d?.atr_disp || {};
-  const atrDay = atrDisp?.day || {};
-  const atrWeek = atrDisp?.week || {};
-  const signDir = side === "LONG" ? 1 : -1;
-  const atrWeekAlignedD = Number(atrWeek?.d ?? 0) * signDir;
-  const atrDayAlignedD = Number(atrDay?.d ?? 0) * signDir;
-  if (atrWeekAlignedD >= 0.3) {
-    score -= 20;
-    addTrace("v2_atr_week_extended", -20, { atrD: atrWeek?.d });
-  } else if (atrDayAlignedD >= 0.3) {
-    score -= 10;
-    addTrace("v2_atr_day_extended", -10, { atrD: atrDay?.d });
-  }
-
-  // Phase 1H / D over-extended
-  const satyPhase = d?.saty_phase || {};
-  const phase1H = Number(satyPhase?.["1H"]?.v);
-  const phaseD = Number(satyPhase?.D?.v);
-  if (Number.isFinite(phase1H) && phase1H > 70) {
-    score -= 8;
-    addTrace("v2_phase_1H_high", -8, { phase1H });
-  }
-  if (Number.isFinite(phaseD) && phaseD > 70) {
-    score -= 8;
-    addTrace("v2_phase_D_high", -8, { phaseD });
-  }
-
-  // Phase zone HIGH on 1H
-  const phase1HZ = String(satyPhase?.["1H"]?.z || "").toUpperCase();
-  if (phase1HZ === "HIGH") {
-    score -= 6;
-    addTrace("v2_phase_1H_zone_HIGH", -6);
-  }
-
-  // LTF over-alignment (paradoxical — v10b showed aligned LTF_30m underperformed)
-  // Use 30m bias from tf_summary if present
-  const tf30Bias = Number(
-    d?.signal_snapshot_json?.tf?.["30m"]?.bias
-    || d?.tf?.m30?.bias
-    || d?.tf_tech?.m30?.bias
-    || 0
-  );
-  if (Number.isFinite(tf30Bias)) {
-    const sign = side === "LONG" ? 1 : -1;
-    if (tf30Bias * sign > 0.5) {
-      score -= 4;
-      addTrace("v2_ltf_overaligned", -4, { tf30Bias });
-    }
-  }
-
-  // SHORT penalty when SPY is not clearly in downtrend
-  if (side === "SHORT") {
-    const spyDaily = d?._env?._marketRegime?.spy_daily_structure || d?._spyData?.daily_structure || {};
-    const spyBelowE21 = spyDaily?.close_below_e21 === true;
-    const spyE21SlopeNeg = Number(spyDaily?.e21_slope_5bar_pct ?? 0) < 0;
-    const spyBearRegime = Number(spyDaily?.ema_regime_daily ?? 0) <= -1;
-    const bearSignals = [spyBelowE21, spyE21SlopeNeg, spyBearRegime].filter(Boolean).length;
-    if (bearSignals < 2) {
-      score -= 8;
-      addTrace("v2_short_no_spy_downtrend", -8, { bearSignals });
-    }
-  }
-
-  score = Math.max(0, Math.min(100, score));
-  const finalScore = Math.round(score);
-
-  if (rankTrace && d && typeof d === "object") {
-    d.__rank_trace = {
-      ticker, ts: Number(d?.ts ?? d?.ingest_ts ?? 0),
-      formula: "v2",
-      finalScore,
-      rawScore: score,
-      rr, side,
-      setupGrade,
-      regimeClass,
-      phase1H, phaseD, phase1HZ,
-      st30, tf30Bias,
-      parts: rankTraceParts,
-    };
-    try {
-      console.log(`[V2-TRACE] ${ticker} ts=${Number(d?.ts ?? d?.ingest_ts ?? 0)} final=${finalScore} parts=${JSON.stringify(rankTraceParts)}`);
-    } catch {}
-  }
-
-  return finalScore;
-}
-
-// ── Freshness Doctrine (2026-06-11) — quarantined payloads never rank. ──
-// A payload whose Data Age Contract says live-STALE (see worker/freshness.js)
-// is capped to a floor so it can never surface in Today/Prime/FocusRail or
-// pass rank-gated entry paths, regardless of what its (stale) indicators say.
-// Replay blocks are diagnostic-only (enforced: false) and never capped.
-const FRESHNESS_RANK_CAP = 10;
-function _applyFreshnessRankCap(d, rank) {
-  try {
-    if (isQuarantinedByFreshness(d)) {
-      if (d && typeof d === "object") d._rank_freshness_capped = true;
-      return Math.min(Number(rank) || 0, FRESHNESS_RANK_CAP);
-    }
-  } catch (_) { /* never break ranking */ }
-  return rank;
-}
-
-function computeRank(d) {
-  // PHASE-I 2026-04-22: route to v2 when configured via DA key.
-  // Default remains v1 so we don't break existing pinned-config backtests.
-  const daCfg = d?._env?._deepAuditConfig || null;
-  const formula = String(daCfg?.deep_audit_rank_formula || "v1").toLowerCase();
-  if (formula === "v2") return _applyFreshnessRankCap(d, computeRankV2(d));
-
-  const aw = _activeAdaptiveRankWeights;
-  const htf = Number(d.htf_score);
-  const ltf = Number(d.ltf_score);
-  const comp = completionForSize(d);
-  const phase = Number(d.phase_pct);
-  const rr = d.rr != null ? Number(d.rr) : computeRR(d);
-  const executionProfileName = String(
-    d?.execution_profile?.active_profile
-    || d?.execution_profile_name
-    || d?.executionProfileName
-    || d?.execution_profile?.name
-    || ""
-  ).trim().toLowerCase();
-  const regimeCombined = String(
-    d?.regime?.combined
-    || d?.regime_combined
-    || ""
-  ).trim().toUpperCase();
-  const weakLateBull = regimeCombined === "LATE_BULL";
-  const weakEarlyBear = regimeCombined === "EARLY_BEAR";
-  const choppySelective = executionProfileName === "choppy_selective";
-  const weakChoppySelective = choppySelective && regimeCombined !== "STRONG_BULL";
-  const weakRankContext = weakChoppySelective || weakLateBull || weakEarlyBear;
-  const rankTrace = shouldTraceRankBreakdown(d);
-  const rankTraceParts = [];
-  const addRankTrace = (label, delta, extra = null) => {
-    if (!rankTrace) return;
-    rankTraceParts.push({
-      label,
-      delta: Number.isFinite(Number(delta)) ? Number(delta) : delta,
-      score_after: Number.isFinite(score) ? Number(score) : score,
-      ...(extra && typeof extra === "object" ? extra : {}),
-    });
-  };
-
-  const flags = d.flags || {};
-  const sqRel = !!flags.sq30_release;
-  const sqOn = !!flags.sq30_on;
-  const phaseZoneChange = !!flags.phase_zone_change;
-  const momentumElite = !!flags.momentum_elite;
-  const emaCross1H1348 = !!flags.ema_cross_1h_13_48;
-  const buyableDip1H1348 = !!flags.buyable_dip_1h_13_48;
-
-  const state = String(d.state || "");
-  const aligned =
-    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-  const setup =
-    state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
-
-  let score = 30;
-  addRankTrace("base", 30);
-
-  // Data completeness: slightly down-rank incomplete payloads so “Today/Prime” stays sane.
-  const completeness = d?.data_completeness || computeDataCompleteness(d);
-  if (completeness && typeof completeness === "object") {
-    if (completeness.score < 70) {
-      score -= 10;
-      addRankTrace("data_completeness", -10, { completenessScore: completeness.score });
-    } else if (completeness.score < 85) {
-      score -= 5;
-      addRankTrace("data_completeness", -5, { completenessScore: completeness.score });
-    } else if (completeness.score < 95) {
-      score -= 2;
-      addRankTrace("data_completeness", -2, { completenessScore: completeness.score });
-    } else {
-      addRankTrace("data_completeness", 0, { completenessScore: completeness.score });
-    }
-  }
-
-  // Per-TF technical structure alignment (bonus/penalty).
-  const tfAlign = d?.tf_summary || tfTechAlignmentSummary(d);
-  if (
-    tfAlign &&
-    typeof tfAlign === "object" &&
-    Number.isFinite(tfAlign.score)
-  ) {
-    score += tfAlign.score;
-    addRankTrace("tf_summary", tfAlign.score, { tfSummaryScore: tfAlign.score });
-  }
-
-  // Explicit triggers[] “why now” boost.
-  const trig = d?.trigger_summary || triggerSummaryAndScore(d);
-  if (trig && typeof trig === "object" && Number.isFinite(trig.score)) {
-    score += trig.score;
-    addRankTrace("trigger_summary", trig.score, { triggerSummaryScore: trig.score, triggerReasons: trig.reasons || null });
-  }
-
-  // Move status: invalidate/completed moves should fall out of “best setups”
-  const ms = d?.move_status || computeMoveStatus(d);
-  if (ms && typeof ms === "object") {
-    if (ms.status === "INVALIDATED") {
-      score -= 25;
-      addRankTrace("move_status", -25, { moveStatus: ms.status });
-    } else if (ms.status === "COMPLETED") {
-      score -= 15;
-      addRankTrace("move_status", -15, { moveStatus: ms.status });
-    } else {
-      addRankTrace("move_status", 0, { moveStatus: ms.status });
-    }
-  }
-
-  // State bonuses (reduced)
-  if (aligned) {
-    score += 12; // Reduced from 15
-    addRankTrace("aligned_state", 12);
-  }
-  if (setup) {
-    score += 4; // Reduced from 5
-    addRankTrace("setup_state", 4);
-  }
-
-  // HTF/LTF contributions — thresholds adaptive
-  const htfStrong = aw?.htf_strong_threshold ?? 25;
-  if (Number.isFinite(htf)) {
-    const htfAbs = Math.abs(htf);
-    if (htfAbs >= htfStrong) {
-      const delta = Math.min(10, htfAbs * 0.4);
-      score += delta;
-      addRankTrace("htf_strength", delta, { htf });
-    } else if (htfAbs >= 15) {
-      const delta = Math.min(7, htfAbs * 0.35);
-      score += delta;
-      addRankTrace("htf_strength", delta, { htf });
-    } else {
-      const delta = Math.min(4, htfAbs * 0.25);
-      score += delta;
-      addRankTrace("htf_strength", delta, { htf });
-    }
-  }
-
-  const ltfStrong = aw?.ltf_strong_threshold ?? 20;
-  if (Number.isFinite(ltf)) {
-    const ltfAbs = Math.abs(ltf);
-    if (ltfAbs >= ltfStrong) {
-      const delta = Math.min(10, ltfAbs * 0.3);
-      score += delta;
-      addRankTrace("ltf_strength", delta, { ltf });
-    } else if (ltfAbs >= 12) {
-      const delta = Math.min(6, ltfAbs * 0.25);
-      score += delta;
-      addRankTrace("ltf_strength", delta, { ltf });
-    } else {
-      const delta = Math.min(3, ltfAbs * 0.2);
-      score += delta;
-      addRankTrace("ltf_strength", delta, { ltf });
-    }
-  }
-
-  // Completion bonus — adaptive when available
-  if (Number.isFinite(comp)) {
-    const earlyBonus = aw?.completion_early_bonus ?? 15;
-    const midBonus = aw?.completion_mid_bonus ?? 10;
-    if (comp <= 0.2) {
-      const delta = weakRankContext ? Math.min(9, earlyBonus) : earlyBonus;
-      score += delta;
-      addRankTrace("completion_bonus", delta, { completion: comp });
-    } else if (comp <= 0.4) {
-      const delta = weakRankContext ? Math.min(6, midBonus) : midBonus;
-      score += delta;
-      addRankTrace("completion_bonus", delta, { completion: comp });
-    } else if (comp <= 0.6) {
-      score += 5;
-      addRankTrace("completion_bonus", 5, { completion: comp });
-    }
-  }
-
-  // Phase penalty — adaptive threshold
-  if (Number.isFinite(phase)) {
-    const penaltyStart = aw?.phase_penalty_start ?? 0.5;
-    const penaltyMult = aw?.phase_penalty_mult ?? 30;
-    if (phase > penaltyStart) {
-      const delta = Math.max(0, (phase - penaltyStart) * penaltyMult);
-      score -= delta;
-      addRankTrace("phase_penalty", -delta, { phase });
-    }
-    if (phase <= 0.3) {
-      score += 3;
-      addRankTrace("phase_early_bonus", 3, { phase });
-    }
-  }
-
-  // Squeeze bonuses — DATA-DRIVEN adjustment (Phase 1 analysis: squeeze_releases
-  // have -33.7% lift toward DOWN moves, the #1 predictive bearish feature).
-  // Squeeze Release (Bull context): 70.2% DOWN, EV -10.6
-  // Squeeze Release (Bear context): 65.5% DOWN, EV -14.4
-  // In-squeeze (sq30_on) is more predictive of a pending move than release.
-  if (sqRel) {
-    if (setup) {
-      const delta = aw?.squeeze_release_setup_bonus ?? 6;
-      score += delta;
-      addRankTrace("squeeze_release", delta);
-    } else if (aligned) {
-      const delta = aw?.squeeze_release_aligned_bonus ?? 2;
-      score += delta;
-      addRankTrace("squeeze_release", delta);
-    } else {
-      score -= 2;
-      addRankTrace("squeeze_release", -2);
-    }
-  } else if (sqOn) {
-    const delta = aw?.squeeze_setup_bonus ?? 5;
-    score += delta;
-    addRankTrace("squeeze_on", delta);
-  }
-
-  if (phaseZoneChange) {
-    score += 2;
-    addRankTrace("phase_zone_change", 2);
-  }
-
-  if (Number.isFinite(rr)) {
-    if (weakRankContext) {
-      if (rr >= 2.0) {
-        score += 4;
-        addRankTrace("rr_bonus", 4, { rr, weakRankContext });
-      } else if (rr >= 1.5) {
-        score += 3;
-        addRankTrace("rr_bonus", 3, { rr, weakRankContext });
-      } else if (rr >= 1.2) {
-        score += 2;
-        addRankTrace("rr_bonus", 2, { rr, weakRankContext });
-      }
-    } else {
-      if (rr >= 2.0) {
-        score += 10;
-        addRankTrace("rr_bonus", 10, { rr, weakRankContext });
-      } else if (rr >= 1.5) {
-        score += 7;
-        addRankTrace("rr_bonus", 7, { rr, weakRankContext });
-      } else if (rr >= 1.2) {
-        score += 4;
-        addRankTrace("rr_bonus", 4, { rr, weakRankContext });
-      }
-    }
-  }
-
-  if (momentumElite) {
-    const eliteBonus = aw?.momentum_elite_bonus ?? 15;
-    const delta = weakRankContext ? Math.min(6, eliteBonus) : eliteBonus;
-    score += delta;
-    addRankTrace("momentum_elite", delta, { weakRankContext });
-  }
-
-  const emaCrossBonus = aw?.ema_cross_bonus ?? 5;
-  if (emaCross1H1348) {
-    score += emaCrossBonus;
-    addRankTrace("ema_cross_1h_13_48", emaCrossBonus);
-  }
-  if (buyableDip1H1348) {
-    score += 7;
-    addRankTrace("buyable_dip_1h_13_48", 7);
-  }
-
-  // Sep-Dec forensic audit showed elite-rank inflation clustered in
-  // `choppy_selective`, `LATE_BULL`, and `EARLY_BEAR`, especially on
-  // momentum/pullback names that never achieved early excursion.
-  if (weakChoppySelective) {
-    score -= 8;
-    addRankTrace("weak_choppy_selective", -8, { regimeCombined, executionProfileName });
-  }
-  if (weakLateBull) {
-    score -= 8;
-    addRankTrace("weak_late_bull", -8, { regimeCombined });
-  }
-  if (weakEarlyBear) {
-    score -= 10;
-    addRankTrace("weak_early_bear", -10, { regimeCombined });
-  }
-
-  // HTF/LTF divergence penalty — DATA-DRIVEN (Phase 1 analysis: htf_ltf_diverging
-  // has -28.2% lift toward DOWN moves, the #3 predictive bearish feature).
-  // When HTF and LTF disagree on direction, setups are unreliable.
-  const htfBull = htf > 5;
-  const htfBear = htf < -5;
-  const ltfBull = ltf > 5;
-  const ltfBear = ltf < -5;
-  if ((htfBull && ltfBear) || (htfBear && ltfBull)) {
-    score -= 5; // HTF/LTF divergence: setup reliability drops significantly
-    addRankTrace("htf_ltf_divergence", -5, { htf, ltf });
-  }
-
-  // Sector bias adjustment — DATA-DRIVEN (Phase 1 analysis: massive sector skew).
-  // Basic Materials 86.4% UP, Precious Metals 83.3% UP, Energy 100% UP
-  // Financials 13.6% UP (86.4% bearish), Crypto 43.9% UP
-  const ticker = String(d?.ticker || "").toUpperCase();
-  const sector = SECTOR_MAP[ticker] || "";
-  if (sector === "Basic Materials" || sector === "Precious Metals" || sector === "Energy") {
-    score += 3; // Strong historical bullish bias
-    addRankTrace("sector_bias", 3, { sector });
-  } else if (sector === "Financials") {
-    score -= 4; // Strong historical bearish bias (only 13.6% UP)
-    addRankTrace("sector_bias", -4, { sector });
-  } else if (sector === "Crypto") {
-    score -= 2; // Moderate bearish bias (43.9% UP)
-    addRankTrace("sector_bias", -2, { sector });
-  }
-
-  // RSI Divergence boost/penalty
-  const rsi = d.rsi;
-  if (rsi && rsi.divergence) {
-    const divType = String(rsi.divergence.type || "none");
-    const divStrength = Number(rsi.divergence.strength || 0);
-    if (divType === "bullish") {
-      const delta = 3 + Math.min(2, divStrength * 0.1);
-      score += delta; // Boost for bullish divergence
-      addRankTrace("rsi_divergence", delta, { divType, divStrength });
-    } else if (divType === "bearish") {
-      const delta = 3 - Math.min(2, divStrength * 0.1);
-      score -= delta; // Penalty for bearish divergence
-      addRankTrace("rsi_divergence", -delta, { divType, divStrength });
-    }
-  }
-
-  // TD Sequential boost/penalty — only relevant on Daily/Weekly/Monthly timeframes.
-  // Ignore TD Sequential from 4H and below (intraday noise).
-  const tdSeq = d.td_sequential || {};
-  const tdTf = String(tdSeq.timeframe || tdSeq.tf || d.tf || "D").toUpperCase();
-  const tdIsHigherTF = ["D", "W", "M", "1D", "1W", "1M", "DAILY", "WEEKLY", "MONTHLY"].includes(tdTf);
-  const tdSeqBoost = tdIsHigherTF ? (Number(tdSeq.boost) || 0) : 0;
-  if (Number.isFinite(tdSeqBoost) && tdSeqBoost !== 0) {
-    score += tdSeqBoost;
-    addRankTrace("td_sequential", tdSeqBoost, { tdTf });
-  }
-
-  // Breakout detection rank boost: lift tickers showing breakout signals
-  // from their typical low rank (avg 5.8) into the 20-30 range so entry
-  // paths can consider them before traditional triggers fire.
-  const bo = d?.breakout;
-  if (bo && bo.type) {
-    const boostMap = { daily_level: 20, atr_breakout: 15, ema_stack: 12 };
-    const delta = boostMap[bo.type] || 10;
-    score += delta;
-    addRankTrace("breakout", delta, { breakoutType: bo.type });
-  }
-
-  // ── Opening Range Breakout (ORB) rank adjustment ──
-  // Confirmed ORB breakouts with multi-window consensus get a boost.
-  // Failed breakouts (reclaims) get a penalty to avoid fakeouts.
-  const orb = d?.orb;
-  if (orb && orb.primary?.resolved) {
-    const p = orb.primary;
-    const side = sideFromStateOrScores(d);
-
-    if (p.breakout === "LONG" && side === "LONG" && orb.orbBias >= 1) {
-      const delta = 10 + (orb.longBreakouts >= 3 ? 5 : 0);
-      score += delta;
-      addRankTrace("orb_breakout", delta, { orbBias: orb.orbBias, side });
-    } else if (p.breakout === "SHORT" && side === "SHORT" && orb.orbBias <= -1) {
-      const delta = 10 + (orb.shortBreakouts >= 3 ? 5 : 0);
-      score += delta;
-      addRankTrace("orb_breakout", delta, { orbBias: orb.orbBias, side });
-    } else if (p.reclaim) {
-      score -= 5; // Fakeout: broke out then came back — penalize
-      addRankTrace("orb_reclaim", -5, { side });
-    }
-
-    // Day bias alignment: today's ORM vs yesterday's ORM confirms trend
-    if (p.dayBias === 1 && side === "LONG") {
-      score += 3;
-      addRankTrace("orb_day_bias", 3, { dayBias: p.dayBias, side });
-    } else if (p.dayBias === -1 && side === "SHORT") {
-      score += 3;
-      addRankTrace("orb_day_bias", 3, { dayBias: p.dayBias, side });
-    } else if (p.dayBias !== 0 && p.dayBias !== (side === "LONG" ? 1 : -1)) {
-      score -= 2;
-      addRankTrace("orb_day_bias", -2, { dayBias: p.dayBias, side });
-    }
-  }
-
-  // 2026-05-26 — Adaptive Scoring Layer 1: regime weight multiplier
-  // (docs/2026-05-26-adaptive-scoring-spec.md). Default-off via
-  // `model_config.gates.adaptive_scoring_v1`. When enabled AND the HMM
-  // has decoded the latent regime with confidence >= 0.6:
-  //
-  //   - state agrees with the trade direction → small boost (×1.05)
-  //   - state opposes the trade direction     → small penalty (×0.93)
-  //   - CHOP regime                            → small dampener (×0.96)
-  //
-  // Multiplier bounded so the absolute swing is small (max ~7%); the
-  // gate exists so an operator can turn it off in one config update if
-  // anything regresses. Trace stamp lets admission_cohort_log see what
-  // happened and why.
-  let _adaptiveV1Applied = null;
-  try {
-    const _adaptGates = (d?._env?._deepAuditConfig?.gates && typeof d._env._deepAuditConfig.gates === "object")
-      ? d._env._deepAuditConfig.gates : {};
-    if (_adaptGates.adaptive_scoring_v1 === true) {
-      const _lr = d?.latent_regime;
-      const _lrState = String(_lr?.state || "").toUpperCase();
-      const _lrPost = _lr?.posterior && typeof _lr.posterior === "object"
-        ? Math.max(...Object.values(_lr.posterior).map((v) => Number(v) || 0))
-        : 0;
-      if (_lrPost >= 0.6 && _lrState) {
-        const _isAlignedBull = state === "HTF_BULL_LTF_BULL" || state === "HTF_BULL_LTF_PULLBACK";
-        const _isAlignedBear = state === "HTF_BEAR_LTF_BEAR" || state === "HTF_BEAR_LTF_PULLBACK";
-        let mult = 1.0;
-        let reason = "neutral";
-        if (_lrState === "BULL_TREND" && _isAlignedBull) { mult = 1.05; reason = "bull_aligned"; }
-        else if (_lrState === "BEAR_TREND" && _isAlignedBear) { mult = 1.05; reason = "bear_aligned"; }
-        else if (_lrState === "BULL_TREND" && _isAlignedBear) { mult = 0.93; reason = "bear_vs_bull_macro"; }
-        else if (_lrState === "BEAR_TREND" && _isAlignedBull) { mult = 0.93; reason = "bull_vs_bear_macro"; }
-        else if (_lrState === "CHOP") { mult = 0.96; reason = "chop_dampener"; }
-        if (mult !== 1.0) {
-          const before = score;
-          score = score * mult;
-          _adaptiveV1Applied = {
-            latent_state: _lrState,
-            posterior: Number(_lrPost.toFixed(3)),
-            ticker_state: state,
-            multiplier: mult,
-            reason,
-            score_before: Number(before.toFixed(2)),
-            score_after: Number(score.toFixed(2)),
-            delta: Number((score - before).toFixed(2)),
-          };
-          addRankTrace("adaptive_v1", _adaptiveV1Applied.delta, _adaptiveV1Applied);
-        }
-      }
-    }
-  } catch (_) { /* never throw from a scoring multiplier */ }
-  // Stamp on tickerData so admission_cohort_log can read it
-  if (d && typeof d === "object" && _adaptiveV1Applied) d.__adaptive_v1 = _adaptiveV1Applied;
-
-  score = Math.max(0, Math.min(100, score));
-  if (rankTrace && d && typeof d === "object") {
-    d.__rank_trace = {
-      ticker: String(d?.ticker || d?.sym || "").toUpperCase(),
-      ts: Number(d?.ts ?? d?.ingest_ts ?? 0),
-      state,
-      finalScore: Math.round(score),
-      rawScore: score,
-      adaptive_v1: _adaptiveV1Applied,
-      htf,
-      ltf,
-      completion: comp,
-      phase,
-      rr,
-      moveStatus: ms?.status || null,
-      triggerSummaryScore: trig?.score ?? null,
-      tfSummaryScore: tfAlign?.score ?? null,
-      completenessScore: completeness?.score ?? null,
-      regimeCombined,
-      executionProfileName,
-      parts: rankTraceParts,
-    };
-  }
-  if (rankTrace) {
-    try {
-      console.log(`[RANK-TRACE] ${JSON.stringify({
-        ticker: String(d?.ticker || d?.sym || "").toUpperCase(),
-        ts: Number(d?.ts ?? d?.ingest_ts ?? 0),
-        state,
-        finalScore: Math.round(score),
-        rawScore: score,
-        htf,
-        ltf,
-        completion: comp,
-        phase,
-        rr,
-        moveStatus: ms?.status || null,
-        triggerSummaryScore: trig?.score ?? null,
-        tfSummaryScore: tfAlign?.score ?? null,
-        completenessScore: completeness?.score ?? null,
-        regimeCombined,
-        executionProfileName,
-        parts: rankTraceParts,
-      })}`);
-    } catch (err) {
-      console.log(`[RANK-TRACE] serialization_failed ${err?.message || String(err)}`);
-    }
-  }
-  return _applyFreshnessRankCap(d, Math.round(score));
-}
+// Keep the worker and component-level tests on one technical rank implementation.
+const { computeRank } = createTechnicalRanker({
+  sideFromStateOrScores, computeRR, computeDataCompleteness, tfTechAlignmentSummary,
+  computeMoveStatus, shouldTraceRankBreakdown,
+  getAdaptiveRankWeights: () => _activeAdaptiveRankWeights,
+  sectorMap: SECTOR_MAP, logTrace: (...args) => console.log(...args),
+});
 
 // ─────────────────────────────────────────────────────────────
 // Live Thesis features (seq + deltas) computed from trail
@@ -56513,6 +55399,7 @@ export default {
                   }
                 }
               } catch (_) { /* best-effort */ }
+              if (!_isSlim) stampCandidatePositions(_filteredMicro, computeDynamicScore);
               const _redactedMicro = redactTickerMapForTier(_filteredMicro, _reqTier);
               return sendJSON(
                 { ok: true, data: _redactedMicro, count: Object.keys(_redactedMicro).length, source: "micro_cache", built_at: _micro.built_at, freshness_ts: Date.now() },
@@ -57008,6 +55895,7 @@ export default {
             // Preserve the true leading timeframe in payloads.
             // Rewriting 10m to 15m distorts replay/autopsy analysis.
 
+            if (!_isSlim) stampCandidatePositions(data, computeDynamicScore);
             const _snapFreshTs = Date.now();
             if (_isSlim) {
               const slimData = {};
@@ -57698,27 +56586,8 @@ export default {
             // ignore
           }
 
-          // Compute rank positions and add score/position (canonical) alongside rank/rank_position
-          const ranked = Object.entries(data)
-            .map(([ticker, value]) => {
-              const sc = Number(value?.dynamicScore ?? value?.rank);
-              const safeScore = Number.isFinite(sc)
-                ? sc
-                : (value && computeDynamicScore(value)) || Number(value?.rank) || 0;
-              return { ticker, score: safeScore };
-            })
-            .sort((a, b) => b.score - a.score);
-          const rankTotal = ranked.length;
-          ranked.forEach((item, idx) => {
-            const entry = data[item.ticker];
-            if (!entry) return;
-            const pos = idx + 1;
-            entry.rank_position = pos;
-            entry.position = pos;
-            entry.rank_total = rankTotal;
-            entry.rank_score = item.score;
-            entry.score = Number(entry?.rank ?? item.score);
-          });
+          // Same priority contract as KV/lightweight responses and live entries.
+          stampCandidatePositions(data, computeDynamicScore);
 
           const socialAdditions = (await kvGetJSON(KV, "timed:social:additions")) || [];
 
@@ -109901,9 +108770,6 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // Without this, qualifiesForEnter blocks entries after 7 days (trigger_stale).
             result.trigger_ts = now;
 
-            result.rank = computeRank(result);
-            result.score = result.rank;
-
             // 2026-07-07 (scoring-chain-read follow-up) — POST-SCORING RECONCILE.
             // If _freshness marks TFs as "missing" (ts=0) but D1 actually holds
             // candles for that ticker×tf, patch the block instead of quarantining.
@@ -110201,6 +109067,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 }
               }
             } catch { /* overnight injection non-critical */ }
+
+            // Rank only after freshness reconciliation and current runtime
+            // config/overnight inputs are attached. The formula and its trace
+            // must describe the same snapshot that admission will evaluate.
+            result.rank = computeRank(result);
+            result.score = result.rank;
 
             // ── Consecutive Confirmation Logic ──
             // Entry signals require 2 consecutive scoring cycles confirming alignment
@@ -110612,18 +109484,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
 
             // ── Delta instrumentation (Phase 7) ──
+            result.dynamicScore = computeDynamicScore(result);
+            const _rankChanged = result.rank !== existing?.rank ||
+              result.dynamicScore !== existing?.dynamicScore ||
+              JSON.stringify(result._technical_rank) !== JSON.stringify(existing?._technical_rank);
             const _htfDelta = Math.abs((Number(result?.htf_score) || 0) - (Number(existing?.htf_score) || 0));
             const _ltfDelta = Math.abs((Number(result?.ltf_score) || 0) - (Number(existing?.ltf_score) || 0));
             const _stageFlip = (result?.kanban_stage || "") !== (existing?.kanban_stage || "");
             const _oldPx = Number(existing?.price);
             const _newPx = Number(result?.price);
             const _pxDelta = (_oldPx > 0 && _newPx > 0) ? Math.abs(_newPx - _oldPx) / _oldPx : 0;
-            if (_htfDelta >= 0.5 || _ltfDelta >= 0.5) deltaScoreChanged++;
+            if (_rankChanged || _htfDelta >= 0.5 || _ltfDelta >= 0.5) deltaScoreChanged++;
             if (_stageFlip) deltaStageChanged++;
             if (_pxDelta >= 0.001) deltaPriceChanged++;
-            if (_htfDelta < 0.5 && _ltfDelta < 0.5 && !_stageFlip && _pxDelta < 0.001) deltaNoChange++;
+            if (!_rankChanged && _htfDelta < 0.5 && _ltfDelta < 0.5 && !_stageFlip && _pxDelta < 0.001) deltaNoChange++;
 
-            if (hasPayloadChangedMeaningfully(existing, result)) {
+            if (_rankChanged || hasPayloadChangedMeaningfully(existing, result)) {
               await kvPutJSON(KV, `timed:latest:${ticker}`, result);
               scored++;
               // D1 ticker_latest is batch-synced after snapshot build (see below).
@@ -111872,6 +110748,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           "defend", "trim", "exit",
           "just_entered", "hold",
         ]);
+        const executionCandidates = [];
         for (const sym of executionTickers) {
           if (!sym) continue;
           if (processedTickers.has(sym)) continue;
@@ -111884,14 +110761,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _kanbanSkippedNonActionable++;
               continue;
             }
-            await processTradeSimulation(KV, sym, latestData, null, env, {
-              cachedAllTrades: _cachedAllTradesForTick || undefined,
-            });
-            _kanbanProcessed++;
+            executionCandidates.push({ ticker: sym, payload: latestData });
           } catch (e) {
-            console.error(`[KANBAN CRON] Error processing ${sym}:`, e);
+            console.error(`[KANBAN CRON] Error loading ${sym}:`, e);
           }
         }
+        _kanbanProcessed = await processRankedCandidates(executionCandidates, {
+          scoreCandidate: computeDynamicScore,
+          processCandidate: ({ ticker: sym, payload: latestData }) =>
+            processTradeSimulation(KV, sym, latestData, null, env, {
+              cachedAllTrades: _cachedAllTradesForTick || undefined,
+            }),
+          onError: (e, { ticker: sym }) => console.error(`[KANBAN CRON] Error processing ${sym}:`, e),
+        });
         console.log(`[KANBAN CRON] Processed ${_kanbanProcessed} actionable, skipped ${_kanbanSkippedNonActionable} non-actionable, of ${executionTickers.length} total`);
       } catch (e) {
         console.error("[KANBAN CRON] top-level error:", e);

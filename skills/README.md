@@ -53,6 +53,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | **Paper experiment timing / best session for MFE vs MAE / family clock scan / core vs experiment book autopsy** | [program-timing.md](program-timing.md) |
 | **Core play catalog / Gap Reversal Long vs tt_gap_reversal_long / pause bleeders** | [play-catalog.md](play-catalog.md) |
 | **Self-learning loops / why WR is bad while flags are ON / learning_proposals queue / CIO desk** | [learning-loops.md](learning-loops.md) |
+| **Audit or change rank formula / driver weights / false bonuses / rank traces** | [rank-driver-audit.md](rank-driver-audit.md) |
 
 ## When to ADD a new skill
 
