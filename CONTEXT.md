@@ -9,6 +9,10 @@ Single reference for agents. Read this first to avoid context overload.
 
 ## Workflow
 
+- **Historical calibration corpus (2026-09-09):** use the complete ledger,
+  Discovery Moves and multi-timeframe candles first; a report's export cap or
+  a small fixture sample is not the available history. No arbitrary new 30-day
+  wait before retrospective testing. Plan: `tasks/2026-09-09-historical-calibration.md`.
 - **Ranking work (2026-09-09, PR #1442):** validate each input's semantics,
   direction, duplicate contributions and missing-data behavior. Aggregate
   rank correlation or sorting fixes do not establish that its ingredients

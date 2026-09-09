@@ -1,0 +1,392 @@
+{
+  "date": "2026-09-09",
+  "source_origin": "https://timed-trading-ingest.shashant.workers.dev",
+  "source_verification": [
+    "react-app/_worker.js: WORKER_ORIGIN",
+    "scripts/discover-moves.js: API_BASE",
+    "worker/wrangler.toml: production worker name"
+  ],
+  "sources": [
+    {
+      "file": "ledger-current.json",
+      "sha256": "8decf0ab974941e8fc724cc8e524559239686f7c6f935bdc38e2df2a381c9563",
+      "rows": 778
+    },
+    {
+      "file": "discovery-current.json",
+      "sha256": "971eebfe2669f043a3ac8617a91f4846db4c42b7e4ec0feced9809d0b29f1297",
+      "rows": 500
+    },
+    {
+      "file": "backtest-enriched.json",
+      "sha256": "b81d2c81ce9594d1dd8bb40c9d68c3730da2b54b6563c2ada43e7bb5fddd4fba",
+      "rows": 362
+    },
+    {
+      "file": "missed-enriched.json",
+      "sha256": "4e0d383dbcd214f9d186409c1e1b5022f43e254d1f614b552baa58c232a48e47",
+      "rows": 211
+    }
+  ],
+  "ledger": {
+    "rows": 778,
+    "has_more": false,
+    "unique_tickers": 187,
+    "rank_present": 739
+  },
+  "discovery": {
+    "generated": "2026-09-08T22:07:49.117Z",
+    "summary": {
+      "total_moves": 590,
+      "unique_tickers": 191,
+      "tickers_scanned": 200,
+      "candles_scanned": 19177,
+      "trades_scanned": 100,
+      "full_capture": 0,
+      "partial_capture": 32,
+      "missed": 547,
+      "missed_in_universe": 543,
+      "missed_out_of_universe": 4,
+      "churned": 11,
+      "capture_rate": 5.4,
+      "missed_rate": 92.7,
+      "churn_rate": 1.9,
+      "total_missed_upside_from_churn": 98.79
+    },
+    "exported_rows": 500,
+    "diagnosed": 150,
+    "diagnosis_breakdown": {
+      "low_rank": 14,
+      "low_htf": 76,
+      "wrong_state": 4,
+      "late_stage": 0,
+      "qualification_gap": 52,
+      "no_signals": 0,
+      "no_trail_data": 4,
+      "should_have_entered": 0
+    }
+  },
+  "candles": {
+    "export_complete": false,
+    "unique_rows": 46830,
+    "ticker_timeframes": 33,
+    "unique_tickers": 11,
+    "coverage": [
+      {
+        "ticker": "AA",
+        "tf": "60",
+        "rows": 1797,
+        "first_ts": 1773408600000,
+        "last_ts": 1788895800000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AA",
+        "tf": "D",
+        "rows": 1042,
+        "first_ts": 1679270400000,
+        "last_ts": 1788912000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AAOI",
+        "tf": "60",
+        "rows": 3627,
+        "first_ts": 1725892200000,
+        "last_ts": 1788895800000,
+        "zero_volume": 1,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AAOI",
+        "tf": "D",
+        "rows": 763,
+        "first_ts": 1693180800000,
+        "last_ts": 1788912000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AAPL",
+        "tf": "15",
+        "rows": 3000,
+        "first_ts": 1782925200000,
+        "last_ts": 1788911100000,
+        "zero_volume": 867,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AAPL",
+        "tf": "240",
+        "rows": 1191,
+        "first_ts": 1757404800000,
+        "last_ts": 1788897600000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AAPL",
+        "tf": "30",
+        "rows": 1939,
+        "first_ts": 1781164800000,
+        "last_ts": 1788910200000,
+        "zero_volume": 401,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AAPL",
+        "tf": "60",
+        "rows": 1546,
+        "first_ts": 1773408600000,
+        "last_ts": 1788895800000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AAPL",
+        "tf": "D",
+        "rows": 1348,
+        "first_ts": 1641168000000,
+        "last_ts": 1788912000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AAPL",
+        "tf": "W",
+        "rows": 343,
+        "first_ts": 1581310800000,
+        "last_ts": 1788739200000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "ABNB",
+        "tf": "60",
+        "rows": 1347,
+        "first_ts": 1773408600000,
+        "last_ts": 1788895800000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "ABNB",
+        "tf": "D",
+        "rows": 812,
+        "first_ts": 1687219200000,
+        "last_ts": 1788912000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "ABT",
+        "tf": "60",
+        "rows": 1448,
+        "first_ts": 1773408600000,
+        "last_ts": 1788895800000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "ABT",
+        "tf": "D",
+        "rows": 1295,
+        "first_ts": 1641168000000,
+        "last_ts": 1788912000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "ACN",
+        "tf": "60",
+        "rows": 1486,
+        "first_ts": 1773408600000,
+        "last_ts": 1788895800000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "ACN",
+        "tf": "D",
+        "rows": 992,
+        "first_ts": 1679270400000,
+        "last_ts": 1788912000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AEHR",
+        "tf": "60",
+        "rows": 1522,
+        "first_ts": 1773408600000,
+        "last_ts": 1788895800000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AEHR",
+        "tf": "D",
+        "rows": 1294,
+        "first_ts": 1641168000000,
+        "last_ts": 1788912000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AGQ",
+        "tf": "60",
+        "rows": 1382,
+        "first_ts": 1773408600000,
+        "last_ts": 1788895800000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AGQ",
+        "tf": "D",
+        "rows": 1293,
+        "first_ts": 1641168000000,
+        "last_ts": 1788912000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "AGYS",
+        "tf": "D",
+        "rows": 1297,
+        "first_ts": 1641168000000,
+        "last_ts": 1788912000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TEAM",
+        "tf": "15",
+        "rows": 2652,
+        "first_ts": 1781164800000,
+        "last_ts": 1788896700000,
+        "zero_volume": 1135,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TEAM",
+        "tf": "240",
+        "rows": 582,
+        "first_ts": 1757424600000,
+        "last_ts": 1788883200000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TEAM",
+        "tf": "30",
+        "rows": 1503,
+        "first_ts": 1781164800000,
+        "last_ts": 1788895800000,
+        "zero_volume": 609,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TEAM",
+        "tf": "60",
+        "rows": 1177,
+        "first_ts": 1773408600000,
+        "last_ts": 1788894000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TEAM",
+        "tf": "D",
+        "rows": 810,
+        "first_ts": 1687478400000,
+        "last_ts": 1788912000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TEAM",
+        "tf": "W",
+        "rows": 323,
+        "first_ts": 1593388800000,
+        "last_ts": 1788134400000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TSLA",
+        "tf": "15",
+        "rows": 3000,
+        "first_ts": 1782765900000,
+        "last_ts": 1788911100000,
+        "zero_volume": 580,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TSLA",
+        "tf": "240",
+        "rows": 1082,
+        "first_ts": 1757404800000,
+        "last_ts": 1788897600000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TSLA",
+        "tf": "30",
+        "rows": 1919,
+        "first_ts": 1781164800000,
+        "last_ts": 1788910200000,
+        "zero_volume": 186,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TSLA",
+        "tf": "60",
+        "rows": 1380,
+        "first_ts": 1773408600000,
+        "last_ts": 1788901200000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TSLA",
+        "tf": "D",
+        "rows": 1295,
+        "first_ts": 1641168000000,
+        "last_ts": 1788912000000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      },
+      {
+        "ticker": "TSLA",
+        "tf": "W",
+        "rows": 343,
+        "first_ts": 1581310800000,
+        "last_ts": 1788739200000,
+        "zero_volume": 0,
+        "invalid_ohlc": 0
+      }
+    ]
+  },
+  "access": {
+    "admin_key_configured": false,
+    "generic_secret_input_tool_available": false,
+    "bulk_download_auto_review": "Rejected: private ticker universe sent to unverified external worker. Repository destination verification was supplied; rejection persisted. Do not retry until explicit user authorization.",
+    "browser_admin_login": "Google sign-in was rejected by automatic review for lacking explicit sign-in authorization; not attempted again."
+  },
+  "calibration": {
+    "model_fitted": false,
+    "live_weights_changed": false,
+    "fixture_experiment": "Shelved, not fitted. Primary corpus is actual ledger/Discovery/candles.",
+    "pnl_uplift_established": false
+  },
+  "verification": {
+    "trail_first_passage_regressions": 5,
+    "admin_export_credential_boundary_tests": 6,
+    "repository_tests_passed": 3631,
+    "repository_test_files_passed": 329
+  }
+}

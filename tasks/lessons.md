@@ -6,6 +6,19 @@
 
 ---
 
+## Historical calibration starts with the existing Discovery corpus [2026-09-09]
+
+**Correction:** The user has over 600 trades/backtests, Discovery Moves and
+rich candle history across timeframes. Beginning with ten indicator-fixture
+tickers narrowed the work prematurely.
+
+**Rule:** Inventory and join the complete existing trade/mover/candle sources
+first. Distinguish API/report caps and this session's access from underlying
+data availability. Evaluate pre-entry drivers against wins, losses, missed
+movers and failed lookalikes. Historical validation can start immediately;
+do not substitute an arbitrary new 30-day observation requirement. Fixtures
+are useful for causal indicator checks, not proof of live rank improvement.
+
 ## Setup admission must observe its own evidence [2026-09-09]
 
 **Symptom:** Setups could admit on missing volume, a wick ATH, a generic
