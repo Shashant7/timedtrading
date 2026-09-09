@@ -2,9 +2,10 @@
 // tests and offline driver audits execute this same implementation.
 import { stampTechnicalRank, capRankByFreshness } from "./candidate-rank.js";
 import { finiteRankInput, rankCompletion, rankFlag, rankDirection, rsiRankDelta,
-  breakoutRankDelta, triggerRankSummary, supertrendRankDirection } from "./rank-drivers.js";
+  breakoutRankDelta, triggerRankSummary, supertrendRankDirection, rankStateContext,
+  rankStrengthRole, normalizeRankWeights, tdSequentialRankContribution } from "./rank-drivers.js";
 
-export const RANK_DRIVER_VERSION = "rank-drivers-v1";
+export const RANK_DRIVER_VERSION = "rank-drivers-v2";
 
 export function createTechnicalRanker({
   sideFromStateOrScores, computeRR, computeDataCompleteness, tfTechAlignmentSummary,
@@ -13,6 +14,7 @@ export function createTechnicalRanker({
 }) {
   const triggerSummaryAndScore = d => triggerRankSummary(d, sideFromStateOrScores(d));
 function computeRankV2(d) {
+  delete d.__adaptive_v1;
   const ticker = String(d?.ticker || d?.sym || "").toUpperCase();
   const side = sideFromStateOrScores(d);
 
@@ -43,8 +45,7 @@ function computeRankV2(d) {
   // These separate "ticker is in a setup" from "nothing happening".
   // Without these, V2 can't distinguish good tickers from noise.
   const state = String(d.state || "");
-  const aligned = state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-  const setup = state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+  const { aligned, setup } = rankStateContext(state, side);
   if (aligned) {
     score += 12;
     addTrace("v2_aligned_state", 12);
@@ -53,34 +54,41 @@ function computeRankV2(d) {
     addTrace("v2_setup_state", 6);
   }
 
-  // HTF strength
+  // Opposing HTF strength cannot establish support for this candidate.
   const htf = finiteRankInput(d.htf_score);
-  if (Number.isFinite(htf)) {
+  const htfRole = rankStrengthRole(htf, side);
+  if (htfRole === "aligned_strength") {
     const htfAbs = Math.abs(htf);
     if (htfAbs >= 25) {
       score += 10;
-      addTrace("v2_htf_strong", 10, { htf });
+      addTrace("v2_htf_strong", 10, { htf, role: htfRole });
     } else if (htfAbs >= 15) {
       score += 6;
-      addTrace("v2_htf_med", 6, { htf });
+      addTrace("v2_htf_med", 6, { htf, role: htfRole });
     } else if (htfAbs >= 5) {
       score += 3;
-      addTrace("v2_htf_weak", 3, { htf });
+      addTrace("v2_htf_weak", 3, { htf, role: htfRole });
     }
   }
 
-  // LTF strength
+  if (htfRole !== "aligned_strength") addTrace("v2_htf_strength", 0, { htf, role: htfRole });
+
+  // Retain intentional pullback-depth weighting only for a compatible setup.
   const ltf = finiteRankInput(d.ltf_score);
-  if (Number.isFinite(ltf)) {
+  const ltfRole = rankStrengthRole(ltf, side, setup);
+  if (ltfRole === "aligned_strength" || ltfRole === "pullback_depth") {
     const ltfAbs = Math.abs(ltf);
     if (ltfAbs >= 20) {
       score += 8;
-      addTrace("v2_ltf_strong", 8, { ltf });
+      addTrace("v2_ltf_strong", 8, { ltf, role: ltfRole });
     } else if (ltfAbs >= 10) {
       score += 5;
-      addTrace("v2_ltf_med", 5, { ltf });
+      addTrace("v2_ltf_med", 5, { ltf, role: ltfRole });
     }
   }
+
+  if (ltfRole === "opposed_strength" || ltfRole === "unknown_or_neutral") addTrace("v2_ltf_strength", 0, { ltf, role: ltfRole });
+  if (!aligned && !setup && state) addTrace("v2_state_context", 0, { state, side, reason: "state_does_not_describe_candidate" });
 
   // Data completeness penalty — essential (bad data → bad signals)
   const completeness = d?.data_completeness || computeDataCompleteness(d);
@@ -293,13 +301,14 @@ function _applyFreshnessRankCap(d, rank) {
 }
 
 function computeRank(d) {
+  delete d.__adaptive_v1; // Clear prior attribution before a disabled or unavailable multiplier.
   // PHASE-I 2026-04-22: route to v2 when configured via DA key.
   // Default remains v1 so we don't break existing pinned-config backtests.
   const daCfg = d?._env?._deepAuditConfig || null;
   const formula = String(daCfg?.deep_audit_rank_formula || "v1").toLowerCase();
   if (formula === "v2") return _applyFreshnessRankCap(d, computeRankV2(d));
 
-  const aw = getAdaptiveRankWeights();
+  const aw = normalizeRankWeights(getAdaptiveRankWeights());
   const htf = finiteRankInput(d.htf_score);
   const ltf = finiteRankInput(d.ltf_score);
   const side = sideFromStateOrScores(d);
@@ -344,10 +353,7 @@ function computeRank(d) {
   const momentumElite = rankFlag(flags.momentum_elite);
 
   const state = String(d.state || "");
-  const aligned =
-    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-  const setup =
-    state === "HTF_BULL_LTF_PULLBACK" || state === "HTF_BEAR_LTF_PULLBACK";
+  const { aligned, setup } = rankStateContext(state, side);
 
   let score = 30;
   addRankTrace("base", 30);
@@ -415,40 +421,47 @@ function computeRank(d) {
 
   // HTF/LTF contributions — thresholds adaptive
   const htfStrong = aw?.htf_strong_threshold ?? 25;
-  if (Number.isFinite(htf)) {
+  const htfRole = rankStrengthRole(htf, side);
+  if (htfRole === "aligned_strength") {
     const htfAbs = Math.abs(htf);
     if (htfAbs >= htfStrong) {
       const delta = Math.min(10, htfAbs * 0.4);
       score += delta;
-      addRankTrace("htf_strength", delta, { htf });
+      addRankTrace("htf_strength", delta, { htf, role: htfRole });
     } else if (htfAbs >= 15) {
       const delta = Math.min(7, htfAbs * 0.35);
       score += delta;
-      addRankTrace("htf_strength", delta, { htf });
+      addRankTrace("htf_strength", delta, { htf, role: htfRole });
     } else {
       const delta = Math.min(4, htfAbs * 0.25);
       score += delta;
-      addRankTrace("htf_strength", delta, { htf });
+      addRankTrace("htf_strength", delta, { htf, role: htfRole });
     }
   }
 
+  if (htfRole !== "aligned_strength") addRankTrace("htf_strength", 0, { htf, role: htfRole });
+
   const ltfStrong = aw?.ltf_strong_threshold ?? 20;
-  if (Number.isFinite(ltf)) {
+  const ltfRole = rankStrengthRole(ltf, side, setup);
+  if (ltfRole === "aligned_strength" || ltfRole === "pullback_depth") {
     const ltfAbs = Math.abs(ltf);
     if (ltfAbs >= ltfStrong) {
       const delta = Math.min(10, ltfAbs * 0.3);
       score += delta;
-      addRankTrace("ltf_strength", delta, { ltf });
+      addRankTrace("ltf_strength", delta, { ltf, role: ltfRole });
     } else if (ltfAbs >= 12) {
       const delta = Math.min(6, ltfAbs * 0.25);
       score += delta;
-      addRankTrace("ltf_strength", delta, { ltf });
+      addRankTrace("ltf_strength", delta, { ltf, role: ltfRole });
     } else {
       const delta = Math.min(3, ltfAbs * 0.2);
       score += delta;
-      addRankTrace("ltf_strength", delta, { ltf });
+      addRankTrace("ltf_strength", delta, { ltf, role: ltfRole });
     }
   }
+
+  if (ltfRole === "opposed_strength" || ltfRole === "unknown_or_neutral") addRankTrace("ltf_strength", 0, { ltf, role: ltfRole });
+  if (!aligned && !setup && state) addRankTrace("state_context", 0, { state, side, reason: "state_does_not_describe_candidate" });
 
   // Completion bonus — adaptive when available
   if (Number.isFinite(comp)) {
@@ -578,15 +591,12 @@ function computeRank(d) {
       divStrength: finiteRankInput(divergence.strength), side, active: divergence.active ?? null });
   }
 
-  // TD Sequential boost/penalty — only relevant on Daily/Weekly/Monthly timeframes.
-  // Ignore TD Sequential from 4H and below (intraday noise).
-  const tdSeq = d.td_sequential || {};
-  const tdTf = String(tdSeq.timeframe || tdSeq.tf || "").toUpperCase();
-  const tdIsHigherTF = ["D", "W", "M", "1D", "1W", "1M", "DAILY", "WEEKLY", "MONTHLY"].includes(tdTf);
-  const tdSeqBoost = tdIsHigherTF ? (finiteRankInput(tdSeq.boost) ?? 0) : 0;
-  if (Number.isFinite(tdSeqBoost) && tdSeqBoost !== 0) {
-    score += tdSeqBoost;
-    addRankTrace("td_sequential", tdSeqBoost, { tdTf });
+  // TD boost was produced for HTF bias, which can oppose a forming candidate.
+  // Recompute the same D/W/M recipe for the current side from component evidence.
+  if (d.td_sequential) {
+    const tdContribution = tdSequentialRankContribution(d.td_sequential, side);
+    score += tdContribution.delta;
+    addRankTrace("td_sequential", tdContribution.delta, { ...tdContribution, side });
   }
 
   // Breakout detection rank boost: lift tickers showing breakout signals
@@ -654,12 +664,12 @@ function computeRank(d) {
     if (_adaptGates.adaptive_scoring_v1 === true) {
       const _lr = d?.latent_regime;
       const _lrState = String(_lr?.state || "").toUpperCase();
-      const _lrPost = _lr?.posterior && typeof _lr.posterior === "object"
-        ? Math.max(...Object.values(_lr.posterior).map((v) => Number(v) || 0))
-        : 0;
-      if (_lrPost >= 0.6 && _lrState) {
-        const _isAlignedBull = state === "HTF_BULL_LTF_BULL" || state === "HTF_BULL_LTF_PULLBACK";
-        const _isAlignedBear = state === "HTF_BEAR_LTF_BEAR" || state === "HTF_BEAR_LTF_PULLBACK";
+      // The producer uses the Viterbi path for state and a separate marginal
+      // posterior map. Confidence in another state cannot qualify this one.
+      const _lrPost = finiteRankInput(_lr?.posterior?.[_lrState]) ?? 0;
+      if (_lrPost >= 0.6 && _lrPost <= 1 && _lrState && side) {
+        const _isAlignedBull = side === "LONG";
+        const _isAlignedBear = side === "SHORT";
         let mult = 1.0;
         let reason = "neutral";
         if (_lrState === "BULL_TREND" && _isAlignedBull) { mult = 1.05; reason = "bull_aligned"; }
@@ -674,11 +684,12 @@ function computeRank(d) {
             latent_state: _lrState,
             posterior: Number(_lrPost.toFixed(3)),
             ticker_state: state,
+            candidate_side: side,
             multiplier: mult,
             reason,
             score_before: Number(before.toFixed(2)),
             score_after: Number(score.toFixed(2)),
-            delta: Number((score - before).toFixed(2)),
+            delta: score - before,
           };
           addRankTrace("adaptive_v1", _adaptiveV1Applied.delta, _adaptiveV1Applied);
         }
@@ -698,6 +709,7 @@ function computeRank(d) {
       finalScore,
       rawScore,
       adaptive_v1: _adaptiveV1Applied,
+      adaptive_weights: aw,
       htf,
       ltf,
       completion: comp,

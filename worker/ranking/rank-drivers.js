@@ -1,5 +1,6 @@
 // Interpret rank evidence conservatively: absent is unknown, and an event
 // earns directional points only when its direction is actually supplied.
+import { computeTdBoostForSide } from "../td-sequential-boost.js";
 export const finiteRankInput = value =>
   (typeof value === "number" || (typeof value === "string" && value.trim() !== "")) &&
   Number.isFinite(Number(value)) ? Number(value) : null;
@@ -8,6 +9,59 @@ export function rankDirection(value) {
   if (["LONG", "BULL", "bullish", 1].includes(value)) return "LONG";
   if (["SHORT", "BEAR", "bearish", -1].includes(value)) return "SHORT";
   return null;
+}
+
+export function rankStateContext(state, side) {
+  const aligned = side === "LONG" ? state === "HTF_BULL_LTF_BULL"
+    : side === "SHORT" ? state === "HTF_BEAR_LTF_BEAR" : false;
+  const setup = side === "LONG" ? state === "HTF_BULL_LTF_PULLBACK"
+    : side === "SHORT" ? state === "HTF_BEAR_LTF_PULLBACK" : false;
+  return { aligned, setup };
+}
+
+export function rankStrengthRole(value, side, allowPullback = false) {
+  const n = finiteRankInput(value);
+  if (n === null || n === 0 || !side) return "unknown_or_neutral";
+  if ((n > 0 ? "LONG" : "SHORT") === side) return "aligned_strength";
+  return allowPullback ? "pullback_depth" : "opposed_strength";
+}
+
+export function normalizeRankWeights(weights) {
+  if (!weights || typeof weights !== "object" || Array.isArray(weights)) return null;
+  return Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, finiteRankInput(value)])
+    .filter(([, value]) => value !== null));
+}
+
+const TD_FLAGS = ["td9_bullish", "td9_bearish", "td13_bullish", "td13_bearish"];
+const TD_COUNTS = ["bullish_prep_count", "bearish_prep_count", "bullish_leadup_count", "bearish_leadup_count"];
+const highTdTf = tf => ["D", "W", "M", "1D", "1W", "1M", "DAILY", "WEEKLY", "MONTHLY"].includes(String(tf || "").toUpperCase());
+function tdEvidence(row) {
+  if (!row || !TD_FLAGS.every(key => typeof row[key] === "boolean") ||
+    !TD_COUNTS.every(key => finiteRankInput(row[key]) !== null && Number.isInteger(Number(row[key])) && Number(row[key]) >= 0)) return null;
+  return row;
+}
+export function tdSequentialRankContribution(td, side) {
+  if (!side) return { delta: 0, reason: "unknown_candidate_side" };
+  if (td?.per_tf && typeof td.per_tf === "object") {
+    const parts = [];
+    for (const [tf, weight] of [["D", 1], ["W", 1.5], ["M", 2]]) {
+      const row = tdEvidence(td.per_tf[tf]);
+      if (row) parts.push({ tf, weight, delta: computeTdBoostForSide(row, side) * weight });
+    }
+    const raw = parts.reduce((sum, part) => sum + part.delta, 0);
+    return { delta: Math.max(-15, Math.min(15, Math.round(raw * 10) / 10)),
+      reason: parts.length ? "recomputed_for_candidate" : "missing_higher_tf_evidence", parts };
+  }
+  const tf = td?.timeframe || td?.tf;
+  if (!highTdTf(tf)) return { delta: 0, reason: "unknown_or_intraday_timeframe" };
+  const row = tdEvidence(td);
+  if (row) return { delta: computeTdBoostForSide(row, side), reason: "recomputed_for_candidate", tf };
+  // Legacy aggregate-only data is usable only when its producer side is explicit.
+  const boost = finiteRankInput(td?.boost);
+  if (boost !== null && rankDirection(td?.boost_side) === side) {
+    return { delta: Math.max(-15, Math.min(15, boost)), reason: "matching_producer_side", tf };
+  }
+  return { delta: 0, reason: "missing_or_opposed_producer_side", tf };
 }
 
 // Keep sizing's completion fallback separate: unknown progress is not an

@@ -20,6 +20,7 @@ const WATCH_GLOBS = [
   "worker/ranking/candidate-rank.js",
   "worker/ranking/technical-rank.js",
   "worker/ranking/rank-drivers.js",
+  "worker/td-sequential-boost.js",
   "worker/replay-runtime-setup.js",
 ];
 

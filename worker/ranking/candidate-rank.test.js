@@ -86,6 +86,24 @@ describe("canonical candidate score", () => {
       macroMap: { enabled: true }, lookupMacroRiskTilt: () => { throw new Error("unavailable"); },
     })).toBe(77);
   });
+
+  it("attributes each overlay once and reconciles the final score through caps and rounding", () => {
+    const p = candidate("XYZ", 91.125, {
+      _fair_value: { tilt: 3, tilt_enabled: true },
+      harmonic_cycle: { rank_tilt: 2, tilt_enabled: false },
+    }).payload;
+    const options = { themeMap: { enabled: true, by_ticker: { XYZ: { tilt: 4 } } },
+      officerMap: {}, lookupOfficerTilt: () => ({ tilt: 1, cto: 2, cro: -1 }) };
+    const final = computeCandidateScore(p, options);
+    const parts = p._ranking.parts;
+    expect(parts.find(p => p.label === "harmonic")).toMatchObject({ delta: 0, shadow_delta: 2, status: "shadow" });
+    expect(parts.find(p => p.label === "officer").delta).toBe(1);
+    expect(parts.reduce((s, p) => s + p.delta, 0)).toBeCloseTo(final, 10);
+    p._freshness = { enforced: true, grade: "STALE" };
+    expect(computeCandidateScore(p, options)).toBe(10);
+    expect(p._ranking.parts.find(p => p.label === "score_cap").delta).toBe(-8);
+    expect(p._ranking.parts.reduce((s, p) => s + p.delta, 0)).toBeCloseTo(10, 10);
+  });
 });
 
 describe("one candidate order", () => {

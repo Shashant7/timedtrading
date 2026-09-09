@@ -24,11 +24,12 @@ import {
 } from "./supertrend-hold.js";
 import { synthesizeNineHourBars, synthesizeRthSessionBars } from "./session-tfs.js";
 import { resolveFormingPair } from "./mtf-forming.js";
+import { computeTdBoostForSide } from "./td-sequential-boost.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
 // this version let us know exactly which logic produced them.
-export const SCORING_VERSION = "2.1.4-2026-09-09";
+export const SCORING_VERSION = "2.1.5-2026-09-09";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)
@@ -5543,6 +5544,7 @@ export function computeTDSequential(candles, tf, opts = {}) {
     exit_long: false,
     exit_short: false,
     boost: 0,
+    boost_side: (opts.htfBull ?? true) ? "LONG" : "SHORT",
     bullish_prep_count: 0,
     bearish_prep_count: 0,
     bullish_leadup_count: 0,
@@ -5705,29 +5707,9 @@ export function computeTDSequential(candles, tf, opts = {}) {
   result.last_td13_bullish_bars_ago = lastTd13Bull >= 0 ? lastBar - lastTd13Bull : null;
   result.last_td13_bearish_bars_ago = lastTd13Bear >= 0 ? lastBar - lastTd13Bear : null;
 
-  // Boost calculation (mirrors Pine Script logic)
-  const htfBull = opts.htfBull != null ? opts.htfBull : true; // default to bull bias
-  if (htfBull) {
-    // For LONG bias: Bullish TD9/13 = boost, Bearish TD9/13 = penalty
-    result.boost = result.td9_bullish ? 5.0
-      : result.td13_bullish ? 8.0
-      : result.td9_bearish ? -5.0
-      : result.td13_bearish ? -8.0
-      : 0.0;
-    // Prep count approaching completion = additional boost
-    if (bullPrepCount >= 6 && bullPrepCount < PREP_LEN) result.boost += 2.0;
-    if (bullLeadupCount >= 6 && bullLeadupCount < LEADUP_LEN) result.boost += 3.0;
-  } else {
-    // For SHORT bias: Bearish TD9/13 = boost, Bullish TD9/13 = penalty
-    result.boost = result.td9_bearish ? 5.0
-      : result.td13_bearish ? 8.0
-      : result.td9_bullish ? -5.0
-      : result.td13_bullish ? -8.0
-      : 0.0;
-    if (bearPrepCount >= 6 && bearPrepCount < PREP_LEN) result.boost += 2.0;
-    if (bearLeadupCount >= 6 && bearLeadupCount < LEADUP_LEN) result.boost += 3.0;
-  }
-
+  // Preserve the existing producer-side boost; rank can recompute the same
+  // recipe for a candidate turning against that older HTF bias.
+  result.boost = computeTdBoostForSide(result, result.boost_side);
   return result;
 }
 
@@ -5804,6 +5786,7 @@ export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
   // Sum boosts across D/W/M timeframes, capped at ±15
   let totalBoost = (dR?.boost || 0) + (wR?.boost || 0) * 1.5 + (mR?.boost || 0) * 2.0;
   merged.boost = Math.max(-15, Math.min(15, Math.round(totalBoost * 10) / 10));
+  merged.boost_side = htfBull ? "LONG" : "SHORT";
 
   // Use highest-TF counts for display (prefer M > W > D)
   if (mR && (mR.bullish_prep_count > 0 || mR.bearish_prep_count > 0)) {

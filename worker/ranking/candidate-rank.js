@@ -3,7 +3,7 @@
 // score, not a probability; retaining pre-cap precision separates rank=100s.
 import { isQuarantinedByFreshness } from "../freshness.js";
 
-export const CANDIDATE_RANK_VERSION = "candidate-rank-v2";
+export const CANDIDATE_RANK_VERSION = "candidate-rank-v3";
 export const FRESHNESS_RANK_CAP = 10;
 const MANAGEMENT_STAGES = new Set(["defend", "trim", "exit", "just_entered", "hold"]);
 const finite = v => (typeof v === "number" || (typeof v === "string" && v.trim() !== "")) &&
@@ -42,14 +42,25 @@ export function candidateBaseScore(payload = {}) {
 
 export function finalizeCandidateScore(payload, score, baseScore) {
   const final = candidateBaseScore(payload) === 0 ? 0 : capRankByFreshness(payload, score);
+  const rounded = round(final);
+  const parts = [{ label: "technical_base", delta: baseScore }];
+  for (const [label, field] of [["theme", "_theme_tilt"], ["fair_value", "_fv_tilt"],
+    ["harmonic", "_harmonic_tilt"], ["officer", "_officer_tilt"], ["macro", "_macro_wire_tilt"]]) {
+    const active = finite(payload[field]), shadow = finite(payload[field + "_shadow"]);
+    parts.push({ label, delta: active ?? 0, shadow_delta: shadow,
+      status: active !== null ? "applied" : shadow !== null ? "shadow" : "not_applied" });
+  }
+  parts.push({ label: "score_cap", delta: final - score });
+  parts.push({ label: "rounding", delta: rounded - final });
   payload._ranking = {
     version: CANDIDATE_RANK_VERSION,
     base_score: baseScore,
     overlay_delta: round((finite(score) ?? 0) - baseScore),
-    final_score: round(final),
+    final_score: rounded,
     quarantined: isQuarantinedByFreshness(payload),
+    parts,
   };
-  return round(final);
+  return rounded;
 }
 
 export function computeCandidateScore(ticker, {
@@ -73,8 +84,8 @@ export function computeCandidateScore(ticker, {
 
   // 2026-06-10 — CRO theme-tilt overlay (worker/theme-tilt.js). Bounded
   // ±6, DIRECTION-AWARE: a hot theme helps a LONG-side candidate and
-  // hurts a SHORT-side candidate on the same ticker (side = sign of
-  // htf_score). The map is preloaded by the scoring cron preamble and
+  // hurts a SHORT-side candidate on the same ticker. The side is shared
+  // with technical rank. The map is preloaded by the scoring cron preamble and
   // the /timed/all handler (themeMap below); when the gate
   // (model_config cro_theme_rank_boost_enabled) is OFF the tilt is
   // still attached as _theme_tilt_shadow so the effect stays

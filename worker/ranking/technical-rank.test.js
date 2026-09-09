@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createTechnicalRanker, RANK_DRIVER_VERSION } from "./technical-rank.js";
-import { rankCompletion, triggerRankSummary, supertrendRankDirection } from "./rank-drivers.js";
-import { detectFlags } from "../indicators.js";
+import { rankCompletion, triggerRankSummary, supertrendRankDirection, tdSequentialRankContribution } from "./rank-drivers.js";
+import { detectFlags, computeTDSequential, computeTDSequentialMultiTF } from "../indicators.js";
 import { inferSide } from "../pipeline/trade-context.js";
 import { computeCandidateScore } from "./candidate-rank.js";
 
@@ -137,7 +137,8 @@ describe("technical rank input semantics", () => {
       for (const ticker of ["OIL", "BANK", "COIN"]) expect(delta({ ticker }, side)).toBe(0);
       expect(delta({ td_sequential: { boost: 8 } }, side)).toBe(0);
       expect(delta({ td_sequential: { boost: 8, tf: "30" } }, side)).toBe(0);
-      expect(delta({ td_sequential: { boost: 8, tf: "D" } }, side)).toBe(8);
+      expect(delta({ td_sequential: { boost: 8, tf: "D" } }, side)).toBe(0);
+      expect(delta({ td_sequential: { boost: 8, tf: "D", boost_side: side } }, side)).toBe(8);
     }
   });
 
@@ -201,5 +202,113 @@ describe("direction agreement across technical rank and overlays", () => {
     score(d);
     expect(d.__rank_trace.side).toBe("LONG");
     expect(computeCandidateScore(d, { resolveSide })).toBe(d._technical_rank.raw_score + 4);
+  });
+
+  it("does not award either formula points for stronger opposing HTF evidence", () => {
+    for (const formula of ["v1", "v2"]) for (const side of ["LONG", "SHORT"]) {
+      for (const magnitude of [5, 15, 25, 40]) {
+        const d = payload(side, { htf_score: magnitude * (side === "LONG" ? -1 : 1),
+          _env: { _deepAuditConfig: { deep_audit_rank_formula: formula } } });
+        score(d);
+        const parts = d.__rank_trace.parts.filter(p => p.label.includes("htf_") && !p.label.includes("divergence"));
+        expect(parts.reduce((s, p) => s + p.delta, 0)).toBe(0);
+        expect(parts.some(p => p.role === "opposed_strength")).toBe(true);
+      }
+    }
+  });
+
+  it("requires the scored state to describe the actual candidate side", () => {
+    for (const formula of ["v1", "v2"]) {
+      const d = payload("SHORT", { swing_consensus: { direction: "LONG" },
+        _env: { _deepAuditConfig: { deep_audit_rank_formula: formula } } });
+      score(d);
+      expect(d.__rank_trace.side).toBe("LONG");
+      expect(d.__rank_trace.parts.some(p => p.label.endsWith("aligned_state"))).toBe(false);
+      expect(d.__rank_trace.parts.find(p => p.label.endsWith("state_context")).delta).toBe(0);
+    }
+  });
+
+  it("labels intentional pullback depth and suppresses unrelated opposing LTF strength", () => {
+    for (const formula of ["v1", "v2"]) {
+      const env = { _deepAuditConfig: { deep_audit_rank_formula: formula } };
+      const pullback = payload("LONG", { state: "HTF_BULL_LTF_PULLBACK", htf_score: 25, ltf_score: -20, _env: env });
+      const opposed = payload("LONG", { htf_score: 25, ltf_score: -20, _env: env });
+      score(pullback); score(opposed);
+      const p = pullback.__rank_trace.parts.filter(p => p.role === "pullback_depth");
+      expect(p).toHaveLength(1);
+      expect(p[0].delta).toBe(formula === "v2" ? 8 : 6);
+      expect(opposed.__rank_trace.parts.filter(p => p.role === "opposed_strength").every(p => p.delta === 0)).toBe(true);
+    }
+  });
+
+  it("uses candidate side for the HMM multiplier and clears obsolete attribution", () => {
+    const d = payload("SHORT", { state: "HTF_BEAR_LTF_PULLBACK", htf_score: -20, ltf_score: 15,
+      latent_regime: { state: "BEAR_TREND", posterior: { BEAR_TREND: 0.8, BULL_TREND: 0.2 } },
+      _env: { _deepAuditConfig: { gates: { adaptive_scoring_v1: true } } } });
+    score(d);
+    expect(d.__rank_trace.side).toBe("LONG");
+    expect(d.__adaptive_v1).toMatchObject({ multiplier: 0.93, candidate_side: "LONG", reason: "bull_vs_bear_macro" });
+    expect(d.__rank_trace.parts.reduce((sum, p) => sum + p.delta, 0)).toBeCloseTo(d._technical_rank.raw_score, 10);
+    d._env._deepAuditConfig.gates.adaptive_scoring_v1 = false;
+    score(d);
+    expect(d.__adaptive_v1).toBeUndefined();
+    expect(d.__rank_trace.adaptive_v1).toBeNull();
+  });
+
+  it("parses adaptive numeric strings arithmetically and rejects nonnumeric overrides", () => {
+    expect(delta({ completion: 0.1 }, "LONG", ranker({ getAdaptiveRankWeights: () => ({ completion_early_bonus: "11" }) }))).toBe(11);
+    for (const invalid of [false, "", "bad", Infinity]) {
+      expect(delta({ completion: 0.1 }, "LONG", ranker({ getAdaptiveRankWeights: () => ({ completion_early_bonus: invalid }) }))).toBe(15);
+    }
+    expect(delta({ completion: 0.1 }, "LONG", ranker({ getAdaptiveRankWeights: () => ({ completion_early_bonus: 0 }) }))).toBe(0);
+  });
+
+  it("requires confidence in the decoded HMM state rather than confidence in another state", () => {
+    const d = payload("LONG", {
+      latent_regime: { state: "BULL_TREND", posterior: { BULL_TREND: 0.2, BEAR_TREND: 0.8 } },
+      _env: { _deepAuditConfig: { gates: { adaptive_scoring_v1: true } } },
+    });
+    expect(score(d)).toBe(score(payload("LONG")));
+    expect(d.__rank_trace.adaptive_v1).toBeNull();
+  });
+});
+
+describe("TD producer basis and ranking", () => {
+  const bars = closes => closes.map((c, i) => ({ ts: i * 86400000, o: c, c, h: c + 2, l: c - 2, v: 1000 }));
+  const bullSetup = bars([20, 20, 20, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11]);
+
+  it("preserves the producer's boost while recomputing it for an opposing candidate", () => {
+    const td = computeTDSequential(bullSetup, "D", { htfBull: true });
+    expect(td).toMatchObject({ td9_bullish: true, boost: 5, boost_side: "LONG" });
+    expect(delta({ td_sequential: td }, "LONG")).toBe(5);
+    expect(delta({ td_sequential: td }, "SHORT")).toBe(-5);
+    expect(td.boost).toBe(5); // rank must not change the shared indicator payload
+  });
+
+  it("recomputes approach bonuses instead of naively negating a producer's score", () => {
+    // Keep enough warmup bars for the producer while ending at prep count 7.
+    const candles = bars([20, 20, 20, ...bullSetup.slice(0, -2).map(b => b.c)]);
+    const td = computeTDSequential(candles, "D", { htfBull: true });
+    expect(td.bullish_prep_count).toBe(7);
+    expect(td.boost).toBe(2);
+    expect(delta({ td_sequential: td }, "SHORT")).toBe(0);
+  });
+
+  it("matches the real multi-TF producer in the candidate direction across varied candle sequences", () => {
+    for (const slope of [-1, 1]) for (const count of [14, 19, 35, 60]) {
+      const candles = bars(Array.from({ length: count }, (_, i) => 100 + slope * i + Math.sin(i * 0.7) * 3));
+      const byTf = { D: candles, W: candles.slice(0, -1), M: candles.slice(0, -2), "30": candles };
+      const fromBull = computeTDSequentialMultiTF(byTf, true);
+      const fromBear = computeTDSequentialMultiTF(byTf, false);
+      expect(tdSequentialRankContribution(fromBull, "LONG").delta).toBe(fromBull.boost);
+      expect(tdSequentialRankContribution(fromBull, "SHORT").delta).toBe(fromBear.boost);
+      expect(tdSequentialRankContribution(fromBear, "LONG").delta).toBe(fromBull.boost);
+    }
+  });
+
+  it("does not award an aggregate-only or malformed TD boost without compatible evidence", () => {
+    expect(delta({ td_sequential: { tf: "D", boost: 12, boost_side: "SHORT" } }, "LONG")).toBe(0);
+    expect(delta({ td_sequential: { tf: "D", boost: 12, per_tf: { D: { td9_bullish: "false" } } } })).toBe(0);
+    expect(delta({ td_sequential: { tf: "30", boost: 12, boost_side: "LONG" } })).toBe(0);
   });
 });
