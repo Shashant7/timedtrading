@@ -6779,7 +6779,6 @@ wire into `worker/index.js`. Reproduce: `scripts/evaluate-outcome-rank.mjs`.
 **Read traces:** `rankTraceJson` → technical `parts[].{label,delta,reason,role}`;
 candidate `_ranking.parts[]` for overlay/cap reconciliation.
 
-**Deploy:** PR #1442 is ranking-only and was not live as of the 2026-09-09
-review. After merge, deploy tt-engine + monolith both envs
-(`skills/deploy.md` + `skills/worker-topology.md`) and rescore so new
-`*_dir` flag metadata exists. Do not edit `tasks/todo.md` from this PR.
+**Deploy:** PR #1442 merged and shipped 2026-09-09 (monolith both envs +
+tt-engine). Rescore so new `*_dir` flag metadata exists. Do not edit
+`tasks/todo.md` from ranking PRs.

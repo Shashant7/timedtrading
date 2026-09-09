@@ -5,10 +5,9 @@
 each ingredient deserves its points. Correct sorting and aggregate rank
 correlation do not answer that question.
 
-Status: implemented on branch `codex/ranking-outcome-calibration-20260909`
-(rebased onto main `88d3398`); **not merged or deployed** to production
-workers. Live `SCORING_VERSION` remains `2.1.2-2026-08-29` until tt-engine
-+ monolith both-envs deploy after merge.
+Status: **merged** ([#1442](https://github.com/Shashant7/timedtrading/pull/1442),
+`363a26e`) and **deployed** 2026-09-09 to monolith both envs + tt-engine
+(CI also shipped research). Live `SCORING_VERSION` is `2.1.5-2026-09-09`.
 Repository default is v1; `deep_audit_rank_formula="v2"` selects the alternate
 formula. The production switch and adaptive weights are not visible in the
 public exports, so this report does not assume which override is live.

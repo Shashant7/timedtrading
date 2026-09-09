@@ -141,7 +141,7 @@ driver-semantics pass. Final published verification on this branch:
 **3,586 tests / 326 files** (`npm test -- --maxWorkers=2`). Worker bundle,
 syntax, and the scoring-version guard pass. The bundler reports the
 pre-existing duplicate `KWEB` key in `sector-mapping.js`; that file is
-unchanged. **Not merged or deployed.**
+unchanged. **Merged and deployed 2026-09-09** (PR #1442).
 
 The corrected order can change which entries receive scarce capacity. The
 cron also now honors `deep_audit_rank_formula` from current config, so confirm
