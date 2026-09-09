@@ -9,6 +9,10 @@ Single reference for agents. Read this first to avoid context overload.
 
 ## Workflow
 
+- **Ranking work (2026-09-09):** validate each input's semantics, direction,
+  duplicate contributions and conditional outcome evidence. Aggregate rank
+  correlation or sorting fixes do not establish that its ingredients deserve points.
+
 - **Plan first**: Non-trivial (3+ steps) → write to `tasks/todo.md` before coding
 - **Stop on sideways**: If stuck, re-plan; don't push through
 - **Verify before done**: Prove it works; "Would a staff engineer approve?"

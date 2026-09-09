@@ -1,5 +1,10 @@
 # Ranking improvement — 2026-09-09
 
+**Current follow-up:** [Rank driver evaluation](2026-09-09-rank-driver-evaluation.md)
+evaluates the ingredients of the formula and records the subsequent false-bonus
+corrections in PR #1442. The ordering/calibration work below did not establish
+that those ingredients deserved their points.
+
 Scope: ranking only. Preserve entry-policy thresholds, exits, sizing, broker
 execution and unrelated lanes. This task supersedes the earlier broad roadmap
 for this branch.

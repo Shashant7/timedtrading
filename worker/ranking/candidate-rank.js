@@ -3,7 +3,7 @@
 // score, not a probability; retaining pre-cap precision separates rank=100s.
 import { isQuarantinedByFreshness } from "../freshness.js";
 
-export const CANDIDATE_RANK_VERSION = "candidate-rank-v1";
+export const CANDIDATE_RANK_VERSION = "candidate-rank-v2";
 export const FRESHNESS_RANK_CAP = 10;
 const MANAGEMENT_STAGES = new Set(["defend", "trim", "exit", "just_entered", "hold"]);
 const finite = v => (typeof v === "number" || (typeof v === "string" && v.trim() !== "")) &&
@@ -55,6 +55,7 @@ export function finalizeCandidateScore(payload, score, baseScore) {
 export function computeCandidateScore(ticker, {
   themeMap = null, officerMap = null, macroMap = null,
   lookupOfficerTilt = () => null, lookupMacroRiskTilt = () => null,
+  resolveSide = d => d?.__rank_trace?.side || (Number(d.htf_score) > 0 ? "LONG" : Number(d.htf_score) < 0 ? "SHORT" : null),
 } = {}) {
   // A rescore must not retain an active/shadow tilt from an earlier snapshot.
   for (const field of ["_theme_tilt", "_theme_tilt_shadow", "_theme_tilt_theme",
@@ -62,7 +63,10 @@ export function computeCandidateScore(ticker, {
     "_officer_tilt", "_officer_tilt_shadow", "_cto_tilt", "_cro_note_tilt",
     "_macro_wire_tilt", "_macro_wire_tilt_shadow", "_macro_wire_risk_tone"]) delete ticker[field];
   const baseScore = candidateBaseScore(ticker);
-  const htf = Number(ticker.htf_score) || 0;
+  const candidateSide = resolveSide(ticker);
+  // Lookups consume only the sign. Use the same side that earned technical
+  // rank, including forming-pair turns against the older HTF state.
+  const htf = candidateSide === "LONG" ? 1 : candidateSide === "SHORT" ? -1 : 0;
   // computeRank already accounts for technical alignment, triggers, R:R,
   // phase, completion and move status. Apply only independent overlays here.
   let dynamicScore = baseScore;

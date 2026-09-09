@@ -6751,3 +6751,13 @@ close-auction window stays live through 16:14.
 - **Symptom:** Cloud Pivot "Taking Profit" Discord for RBLX at 4:05 PM ET reached Webull; LULU at 5:09 PM ET did not. Model booked 50% at $103.25.
 - **Cause:** Broker lots were cash-scaled crumbs (Roth 0.51988, partner 0.30795). Webull rejects every fractional share after the cash close. The mothership floored model 1.564 → qty 1, then `reduce_pct=0.5` rebuilt 0.26 / 0.15 per account and both children returned `fractional_trim_deferred_to_rth`. RBLX had a whole share on at least one sleeve, so LIMIT+ALL+GTC filled.
 - **Rule:** Whole-share ST reducers can follow through until 19:00 ET. Fractional reducers are RTH-only. Cloud Pivot profit-lock / magnet / 5/12 reduce must not paper-fill after 16:00 (`wait_rth`). Last 20 min of RTH (`sessionLock` at 15:40, +0.4pp slack) banks a near-floor winner while fractionals still work. `classifyBridgeOutcome` treats `fractional_trim_deferred_to_rth` (including fan-out child rejects) as deferred so the open drain can sell. Discord "Filled" is model truth — check `bridge:client:recent` + `broker_intents` before assuming Webull took it.
+# 2026-09-09 — Rank ingredients must earn their points
+
+The user corrected a ranking task that focused on final-score correlation and
+candidate ordering. The intended question is whether each contributing signal
+is informative and correctly rewarded. Audit its producer, direction, missing
+data behavior and duplication before changing weights. Compare signal-present
+and signal-absent outcomes within relevant setup/side/time cohorts; prevalence
+among winners alone is not predictive lift. Keep demonstrable implementation
+defects separate from unvalidated alpha hypotheses. See
+`tasks/2026-09-09-rank-driver-evaluation.md`.

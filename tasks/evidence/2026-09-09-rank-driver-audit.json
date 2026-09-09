@@ -1,0 +1,2142 @@
+{
+  "collected_at": "2026-09-09",
+  "historical_source": "data/trade-analysis/phase-h-v10b-1776787446/final-snapshot/trades-live-premortem.json",
+  "historical": {
+    "schema": "rank-driver-audit-v1",
+    "source_canonical_json_sha256": "4b7386b0caf464b7dd62080875bc59c527d0ed2b59acad1f5d98049e14f8cd68",
+    "rows": 116,
+    "closed_with_return": 101,
+    "snapshot_coverage": 101,
+    "trace_coverage": 0,
+    "driver_version_coverage": 0,
+    "limits": [
+      "Exploratory selected-trade comparisons; no causal or portfolio-PnL claim.",
+      "Snapshot presence does not prove the signal was available before scoring; verify source lineage and timestamp.",
+      "No candidate-universe rejects, controlled exits, unseen holdout or correction for multiple comparisons.",
+      "Matched cells require both signal states within the same side, setup and entry month; sparse cells remain unestimated."
+    ],
+    "features": {
+      "completion_early": {
+        "observed": 0,
+        "missing": 101,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "phase_early": {
+        "observed": 0,
+        "missing": 101,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "htf_strong_absolute": {
+        "observed": 0,
+        "missing": 101,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "ltf_strong_absolute": {
+        "observed": 0,
+        "missing": 101,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "rr_at_least_2": {
+        "observed": 0,
+        "missing": 101,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "momentum_elite_flag": {
+        "observed": 0,
+        "missing": 101,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "phase_extreme_flag": {
+        "observed": 0,
+        "missing": 101,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "squeeze_release_flag": {
+        "observed": 0,
+        "missing": 101,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "squeeze_on_flag": {
+        "observed": 0,
+        "missing": 101,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "ema_cross_1h_flag": {
+        "observed": 0,
+        "missing": 101,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "buyable_dip_1h_flag": {
+        "observed": 0,
+        "missing": 101,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "rsi_aligned_unopposed": {
+        "observed": 91,
+        "missing": 10,
+        "present": {
+          "n": 7,
+          "win_rate": 0.8571,
+          "loss_rate": 0.1429,
+          "mean_return_pct": 1.8134,
+          "median_return_pct": 1.8998,
+          "profit_factor_dollars": 4.1036,
+          "dollar_coverage": 7
+        },
+        "absent": {
+          "n": 84,
+          "win_rate": 0.4524,
+          "loss_rate": 0.4643,
+          "mean_return_pct": -0.0567,
+          "median_return_pct": 0,
+          "profit_factor_dollars": 1.0152,
+          "dollar_coverage": 84
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 7,
+              "win_rate": 0.8571,
+              "loss_rate": 0.1429,
+              "mean_return_pct": 1.8134,
+              "median_return_pct": 1.8998,
+              "profit_factor_dollars": 4.1036,
+              "dollar_coverage": 7
+            },
+            "absent": {
+              "n": 77,
+              "win_rate": 0.4675,
+              "loss_rate": 0.4545,
+              "mean_return_pct": 0.0376,
+              "median_return_pct": 0,
+              "profit_factor_dollars": 1.139,
+              "dollar_coverage": 77
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 7,
+              "win_rate": 0.2857,
+              "loss_rate": 0.5714,
+              "mean_return_pct": -1.094,
+              "median_return_pct": -0.5125,
+              "profit_factor_dollars": 0.2667,
+              "dollar_coverage": 7
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 1,
+          "mean_return_difference_pct": 1.734,
+          "comparisons": [
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-07",
+              "present": {
+                "n": 4,
+                "win_rate": 1,
+                "loss_rate": 0,
+                "mean_return_pct": 1.8688,
+                "median_return_pct": 2.1372,
+                "profit_factor_dollars": null,
+                "dollar_coverage": 4
+              },
+              "absent": {
+                "n": 30,
+                "win_rate": 0.4667,
+                "loss_rate": 0.5333,
+                "mean_return_pct": 0.1348,
+                "median_return_pct": -0.0677,
+                "profit_factor_dollars": 1.3016,
+                "dollar_coverage": 30
+              }
+            }
+          ]
+        }
+      },
+      "st30_aligned_pine": {
+        "observed": 101,
+        "missing": 0,
+        "present": {
+          "n": 16,
+          "win_rate": 0.3125,
+          "loss_rate": 0.625,
+          "mean_return_pct": -1.2998,
+          "median_return_pct": -0.2718,
+          "profit_factor_dollars": 0.1645,
+          "dollar_coverage": 16
+        },
+        "absent": {
+          "n": 85,
+          "win_rate": 0.5412,
+          "loss_rate": 0.3882,
+          "mean_return_pct": 0.4784,
+          "median_return_pct": 0.2044,
+          "profit_factor_dollars": 1.9123,
+          "dollar_coverage": 85
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 15,
+              "win_rate": 0.3333,
+              "loss_rate": 0.6,
+              "mean_return_pct": -0.9313,
+              "median_return_pct": -0.2605,
+              "profit_factor_dollars": 0.2132,
+              "dollar_coverage": 15
+            },
+            "absent": {
+              "n": 76,
+              "win_rate": 0.5526,
+              "loss_rate": 0.3816,
+              "mean_return_pct": 0.5768,
+              "median_return_pct": 0.2094,
+              "profit_factor_dollars": 2.2,
+              "dollar_coverage": 76
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 1,
+              "win_rate": 0,
+              "loss_rate": 1,
+              "mean_return_pct": -6.8278,
+              "median_return_pct": -6.8278,
+              "profit_factor_dollars": 0,
+              "dollar_coverage": 1
+            },
+            "absent": {
+              "n": 9,
+              "win_rate": 0.4444,
+              "loss_rate": 0.4444,
+              "mean_return_pct": -0.3529,
+              "median_return_pct": 0,
+              "profit_factor_dollars": 0.6236,
+              "dollar_coverage": 9
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 2,
+          "mean_return_difference_pct": -0.662,
+          "comparisons": [
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-08",
+              "present": {
+                "n": 3,
+                "win_rate": 0.3333,
+                "loss_rate": 0.3333,
+                "mean_return_pct": 0.0509,
+                "median_return_pct": 0,
+                "profit_factor_dollars": 2.9656,
+                "dollar_coverage": 3
+              },
+              "absent": {
+                "n": 12,
+                "win_rate": 0.6667,
+                "loss_rate": 0.1667,
+                "mean_return_pct": 1.511,
+                "median_return_pct": 0.8384,
+                "profit_factor_dollars": 17.2519,
+                "dollar_coverage": 12
+              }
+            },
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-07",
+              "present": {
+                "n": 6,
+                "win_rate": 0.6667,
+                "loss_rate": 0.3333,
+                "mean_return_pct": 0.0367,
+                "median_return_pct": 0.136,
+                "profit_factor_dollars": 1.0642,
+                "dollar_coverage": 6
+              },
+              "absent": {
+                "n": 30,
+                "win_rate": 0.4667,
+                "loss_rate": 0.5333,
+                "mean_return_pct": 0.2996,
+                "median_return_pct": -0.0677,
+                "profit_factor_dollars": 1.5459,
+                "dollar_coverage": 30
+              }
+            }
+          ]
+        }
+      },
+      "phase_1h_extended_aligned": {
+        "observed": 101,
+        "missing": 0,
+        "present": {
+          "n": 6,
+          "win_rate": 0.1667,
+          "loss_rate": 0.8333,
+          "mean_return_pct": -1.8933,
+          "median_return_pct": -1.8424,
+          "profit_factor_dollars": 0.0795,
+          "dollar_coverage": 6
+        },
+        "absent": {
+          "n": 95,
+          "win_rate": 0.5263,
+          "loss_rate": 0.4,
+          "mean_return_pct": 0.3287,
+          "median_return_pct": 0.1523,
+          "profit_factor_dollars": 1.5907,
+          "dollar_coverage": 95
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 6,
+              "win_rate": 0.1667,
+              "loss_rate": 0.8333,
+              "mean_return_pct": -1.8933,
+              "median_return_pct": -1.8424,
+              "profit_factor_dollars": 0.0795,
+              "dollar_coverage": 6
+            },
+            "absent": {
+              "n": 85,
+              "win_rate": 0.5412,
+              "loss_rate": 0.3882,
+              "mean_return_pct": 0.485,
+              "median_return_pct": 0.1639,
+              "profit_factor_dollars": 1.967,
+              "dollar_coverage": 85
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 10,
+              "win_rate": 0.4,
+              "loss_rate": 0.5,
+              "mean_return_pct": -1.0004,
+              "median_return_pct": -0.2563,
+              "profit_factor_dollars": 0.3856,
+              "dollar_coverage": 10
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "phase_d_extended_aligned": {
+        "observed": 101,
+        "missing": 0,
+        "present": {
+          "n": 2,
+          "win_rate": 0.5,
+          "loss_rate": 0.5,
+          "mean_return_pct": -1.3795,
+          "median_return_pct": -1.3795,
+          "profit_factor_dollars": 0.098,
+          "dollar_coverage": 2
+        },
+        "absent": {
+          "n": 99,
+          "win_rate": 0.5051,
+          "loss_rate": 0.4242,
+          "mean_return_pct": 0.2285,
+          "median_return_pct": 0.1197,
+          "profit_factor_dollars": 1.398,
+          "dollar_coverage": 99
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 2,
+              "win_rate": 0.5,
+              "loss_rate": 0.5,
+              "mean_return_pct": -1.3795,
+              "median_return_pct": -1.3795,
+              "profit_factor_dollars": 0.098,
+              "dollar_coverage": 2
+            },
+            "absent": {
+              "n": 89,
+              "win_rate": 0.5169,
+              "loss_rate": 0.4157,
+              "mean_return_pct": 0.3666,
+              "median_return_pct": 0.1222,
+              "profit_factor_dollars": 1.6634,
+              "dollar_coverage": 89
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 10,
+              "win_rate": 0.4,
+              "loss_rate": 0.5,
+              "mean_return_pct": -1.0004,
+              "median_return_pct": -0.2563,
+              "profit_factor_dollars": 0.3856,
+              "dollar_coverage": 10
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "atr_week_extended_aligned": {
+        "observed": 101,
+        "missing": 0,
+        "present": {
+          "n": 24,
+          "win_rate": 0.1667,
+          "loss_rate": 0.7917,
+          "mean_return_pct": -1.2805,
+          "median_return_pct": -1.3602,
+          "profit_factor_dollars": 0.1986,
+          "dollar_coverage": 24
+        },
+        "absent": {
+          "n": 77,
+          "win_rate": 0.6104,
+          "loss_rate": 0.3117,
+          "mean_return_pct": 0.6571,
+          "median_return_pct": 0.2816,
+          "profit_factor_dollars": 2.4242,
+          "dollar_coverage": 77
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 22,
+              "win_rate": 0.1818,
+              "loss_rate": 0.7727,
+              "mean_return_pct": -1.0312,
+              "median_return_pct": -0.9955,
+              "profit_factor_dollars": 0.2456,
+              "dollar_coverage": 22
+            },
+            "absent": {
+              "n": 69,
+              "win_rate": 0.6232,
+              "loss_rate": 0.3043,
+              "mean_return_pct": 0.7616,
+              "median_return_pct": 0.2822,
+              "profit_factor_dollars": 2.8578,
+              "dollar_coverage": 69
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 2,
+              "win_rate": 0,
+              "loss_rate": 1,
+              "mean_return_pct": -4.0235,
+              "median_return_pct": -4.0235,
+              "profit_factor_dollars": 0,
+              "dollar_coverage": 2
+            },
+            "absent": {
+              "n": 8,
+              "win_rate": 0.5,
+              "loss_rate": 0.375,
+              "mean_return_pct": -0.2446,
+              "median_return_pct": 0.1382,
+              "profit_factor_dollars": 0.7319,
+              "dollar_coverage": 8
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 2,
+          "mean_return_difference_pct": -3.0144,
+          "comparisons": [
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-09",
+              "present": {
+                "n": 7,
+                "win_rate": 0.2857,
+                "loss_rate": 0.7143,
+                "mean_return_pct": -1.3752,
+                "median_return_pct": -0.4896,
+                "profit_factor_dollars": 0.0952,
+                "dollar_coverage": 7
+              },
+              "absent": {
+                "n": 9,
+                "win_rate": 0.6667,
+                "loss_rate": 0.1111,
+                "mean_return_pct": 2.563,
+                "median_return_pct": 0.9491,
+                "profit_factor_dollars": 68.0346,
+                "dollar_coverage": 9
+              }
+            },
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-07",
+              "present": {
+                "n": 5,
+                "win_rate": 0,
+                "loss_rate": 1,
+                "mean_return_pct": -1.2264,
+                "median_return_pct": -1.8653,
+                "profit_factor_dollars": 0,
+                "dollar_coverage": 5
+              },
+              "absent": {
+                "n": 31,
+                "win_rate": 0.5806,
+                "loss_rate": 0.4194,
+                "mean_return_pct": 0.4948,
+                "median_return_pct": 0.2144,
+                "profit_factor_dollars": 1.9849,
+                "dollar_coverage": 31
+              }
+            }
+          ]
+        }
+      },
+      "atr_day_extended_aligned": {
+        "observed": 101,
+        "missing": 0,
+        "present": {
+          "n": 13,
+          "win_rate": 0.3077,
+          "loss_rate": 0.6154,
+          "mean_return_pct": -0.5005,
+          "median_return_pct": -1.5627,
+          "profit_factor_dollars": 0.757,
+          "dollar_coverage": 13
+        },
+        "absent": {
+          "n": 88,
+          "win_rate": 0.5341,
+          "loss_rate": 0.3977,
+          "mean_return_pct": 0.2997,
+          "median_return_pct": 0.1581,
+          "profit_factor_dollars": 1.5735,
+          "dollar_coverage": 88
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 13,
+              "win_rate": 0.3077,
+              "loss_rate": 0.6154,
+              "mean_return_pct": -0.5005,
+              "median_return_pct": -1.5627,
+              "profit_factor_dollars": 0.757,
+              "dollar_coverage": 13
+            },
+            "absent": {
+              "n": 78,
+              "win_rate": 0.5513,
+              "loss_rate": 0.3846,
+              "mean_return_pct": 0.4663,
+              "median_return_pct": 0.1787,
+              "profit_factor_dollars": 2.0333,
+              "dollar_coverage": 78
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 10,
+              "win_rate": 0.4,
+              "loss_rate": 0.5,
+              "mean_return_pct": -1.0004,
+              "median_return_pct": -0.2563,
+              "profit_factor_dollars": 0.3856,
+              "dollar_coverage": 10
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 1,
+          "mean_return_difference_pct": -2.2352,
+          "comparisons": [
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-10",
+              "present": {
+                "n": 5,
+                "win_rate": 0.2,
+                "loss_rate": 0.8,
+                "mean_return_pct": -1.4121,
+                "median_return_pct": -1.5627,
+                "profit_factor_dollars": 0.2535,
+                "dollar_coverage": 5
+              },
+              "absent": {
+                "n": 5,
+                "win_rate": 0.8,
+                "loss_rate": 0,
+                "mean_return_pct": 0.8231,
+                "median_return_pct": 0.3374,
+                "profit_factor_dollars": null,
+                "dollar_coverage": 5
+              }
+            }
+          ]
+        }
+      },
+      "regime_trending": {
+        "observed": 101,
+        "missing": 0,
+        "present": {
+          "n": 65,
+          "win_rate": 0.5692,
+          "loss_rate": 0.4,
+          "mean_return_pct": 0.3774,
+          "median_return_pct": 0.2144,
+          "profit_factor_dollars": 1.6246,
+          "dollar_coverage": 65
+        },
+        "absent": {
+          "n": 36,
+          "win_rate": 0.3889,
+          "loss_rate": 0.4722,
+          "mean_return_pct": -0.1297,
+          "median_return_pct": 0,
+          "profit_factor_dollars": 0.9014,
+          "dollar_coverage": 36
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 58,
+              "win_rate": 0.569,
+              "loss_rate": 0.3966,
+              "mean_return_pct": 0.4689,
+              "median_return_pct": 0.2094,
+              "profit_factor_dollars": 1.8585,
+              "dollar_coverage": 58
+            },
+            "absent": {
+              "n": 33,
+              "win_rate": 0.4242,
+              "loss_rate": 0.4545,
+              "mean_return_pct": 0.081,
+              "median_return_pct": 0,
+              "profit_factor_dollars": 1.1312,
+              "dollar_coverage": 33
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 7,
+              "win_rate": 0.5714,
+              "loss_rate": 0.4286,
+              "mean_return_pct": -0.3805,
+              "median_return_pct": 0.2765,
+              "profit_factor_dollars": 0.6539,
+              "dollar_coverage": 7
+            },
+            "absent": {
+              "n": 3,
+              "win_rate": 0,
+              "loss_rate": 0.6667,
+              "mean_return_pct": -2.4468,
+              "median_return_pct": -0.5125,
+              "profit_factor_dollars": 0,
+              "dollar_coverage": 3
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 4,
+          "mean_return_difference_pct": 0.6101,
+          "comparisons": [
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-10",
+              "present": {
+                "n": 6,
+                "win_rate": 0.5,
+                "loss_rate": 0.5,
+                "mean_return_pct": -0.8107,
+                "median_return_pct": -0.4265,
+                "profit_factor_dollars": 0.3728,
+                "dollar_coverage": 6
+              },
+              "absent": {
+                "n": 4,
+                "win_rate": 0.5,
+                "loss_rate": 0.25,
+                "mean_return_pct": 0.4798,
+                "median_return_pct": 0.4728,
+                "profit_factor_dollars": 2.2312,
+                "dollar_coverage": 4
+              }
+            },
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-09",
+              "present": {
+                "n": 10,
+                "win_rate": 0.5,
+                "loss_rate": 0.5,
+                "mean_return_pct": 0.5708,
+                "median_return_pct": 0.09,
+                "profit_factor_dollars": 2.6128,
+                "dollar_coverage": 10
+              },
+              "absent": {
+                "n": 6,
+                "win_rate": 0.5,
+                "loss_rate": 0.1667,
+                "mean_return_pct": 1.2887,
+                "median_return_pct": 0.2629,
+                "profit_factor_dollars": 2.864,
+                "dollar_coverage": 6
+              }
+            },
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-08",
+              "present": {
+                "n": 9,
+                "win_rate": 0.7778,
+                "loss_rate": 0,
+                "mean_return_pct": 1.6289,
+                "median_return_pct": 0.7382,
+                "profit_factor_dollars": null,
+                "dollar_coverage": 9
+              },
+              "absent": {
+                "n": 6,
+                "win_rate": 0.3333,
+                "loss_rate": 0.5,
+                "mean_return_pct": 0.6042,
+                "median_return_pct": -0.0139,
+                "profit_factor_dollars": 3.0758,
+                "dollar_coverage": 6
+              }
+            },
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-07",
+              "present": {
+                "n": 29,
+                "win_rate": 0.5862,
+                "loss_rate": 0.4138,
+                "mean_return_pct": 0.7378,
+                "median_return_pct": 0.2144,
+                "profit_factor_dollars": 2.78,
+                "dollar_coverage": 29
+              },
+              "absent": {
+                "n": 7,
+                "win_rate": 0.1429,
+                "loss_rate": 0.8571,
+                "mean_return_pct": -1.7414,
+                "median_return_pct": -0.3856,
+                "profit_factor_dollars": 0.1643,
+                "dollar_coverage": 7
+              }
+            }
+          ]
+        }
+      },
+      "ltf30_bias_aligned": {
+        "observed": 101,
+        "missing": 0,
+        "present": {
+          "n": 57,
+          "win_rate": 0.4035,
+          "loss_rate": 0.5263,
+          "mean_return_pct": -0.4344,
+          "median_return_pct": -0.0462,
+          "profit_factor_dollars": 0.5572,
+          "dollar_coverage": 57
+        },
+        "absent": {
+          "n": 44,
+          "win_rate": 0.6364,
+          "loss_rate": 0.2955,
+          "mean_return_pct": 1.0142,
+          "median_return_pct": 0.4914,
+          "profit_factor_dollars": 2.9959,
+          "dollar_coverage": 44
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 56,
+              "win_rate": 0.4107,
+              "loss_rate": 0.5179,
+              "mean_return_pct": -0.3202,
+              "median_return_pct": -0.037,
+              "profit_factor_dollars": 0.6267,
+              "dollar_coverage": 56
+            },
+            "absent": {
+              "n": 35,
+              "win_rate": 0.6857,
+              "loss_rate": 0.2571,
+              "mean_return_pct": 1.3657,
+              "median_return_pct": 0.7382,
+              "profit_factor_dollars": 4.4692,
+              "dollar_coverage": 35
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 1,
+              "win_rate": 0,
+              "loss_rate": 1,
+              "mean_return_pct": -6.8278,
+              "median_return_pct": -6.8278,
+              "profit_factor_dollars": 0,
+              "dollar_coverage": 1
+            },
+            "absent": {
+              "n": 9,
+              "win_rate": 0.4444,
+              "loss_rate": 0.4444,
+              "mean_return_pct": -0.3529,
+              "median_return_pct": 0,
+              "profit_factor_dollars": 0.6236,
+              "dollar_coverage": 9
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 4,
+          "mean_return_difference_pct": -1.7073,
+          "comparisons": [
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-10",
+              "present": {
+                "n": 5,
+                "win_rate": 0.2,
+                "loss_rate": 0.6,
+                "mean_return_pct": -0.9923,
+                "median_return_pct": -1.1495,
+                "profit_factor_dollars": 0.0457,
+                "dollar_coverage": 5
+              },
+              "absent": {
+                "n": 5,
+                "win_rate": 0.8,
+                "loss_rate": 0.2,
+                "mean_return_pct": 0.4033,
+                "median_return_pct": 0.9456,
+                "profit_factor_dollars": 1.5751,
+                "dollar_coverage": 5
+              }
+            },
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-09",
+              "present": {
+                "n": 10,
+                "win_rate": 0.3,
+                "loss_rate": 0.6,
+                "mean_return_pct": -0.6744,
+                "median_return_pct": -0.2802,
+                "profit_factor_dollars": 0.3371,
+                "dollar_coverage": 10
+              },
+              "absent": {
+                "n": 6,
+                "win_rate": 0.8333,
+                "loss_rate": 0,
+                "mean_return_pct": 3.364,
+                "median_return_pct": 1.7285,
+                "profit_factor_dollars": null,
+                "dollar_coverage": 6
+              }
+            },
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-08",
+              "present": {
+                "n": 8,
+                "win_rate": 0.625,
+                "loss_rate": 0.125,
+                "mean_return_pct": 1.0015,
+                "median_return_pct": 0.6081,
+                "profit_factor_dollars": 276.1695,
+                "dollar_coverage": 8
+              },
+              "absent": {
+                "n": 7,
+                "win_rate": 0.5714,
+                "loss_rate": 0.2857,
+                "mean_return_pct": 1.4676,
+                "median_return_pct": 0.1935,
+                "profit_factor_dollars": 10.9822,
+                "dollar_coverage": 7
+              }
+            },
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-07",
+              "present": {
+                "n": 25,
+                "win_rate": 0.44,
+                "loss_rate": 0.56,
+                "mean_return_pct": -0.162,
+                "median_return_pct": -0.0891,
+                "profit_factor_dollars": 0.8901,
+                "dollar_coverage": 25
+              },
+              "absent": {
+                "n": 11,
+                "win_rate": 0.6364,
+                "loss_rate": 0.3636,
+                "mean_return_pct": 1.2052,
+                "median_return_pct": 1.8998,
+                "profit_factor_dollars": 3.6517,
+                "dollar_coverage": 11
+              }
+            }
+          ]
+        }
+      },
+      "grade_confirmed_post_rank": {
+        "observed": 101,
+        "missing": 0,
+        "present": {
+          "n": 23,
+          "win_rate": 0.6087,
+          "loss_rate": 0.3913,
+          "mean_return_pct": 0.2598,
+          "median_return_pct": 0.1935,
+          "profit_factor_dollars": 2.2055,
+          "dollar_coverage": 23
+        },
+        "absent": {
+          "n": 78,
+          "win_rate": 0.4744,
+          "loss_rate": 0.4359,
+          "mean_return_pct": 0.1781,
+          "median_return_pct": 0,
+          "profit_factor_dollars": 1.2443,
+          "dollar_coverage": 78
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 22,
+              "win_rate": 0.6364,
+              "loss_rate": 0.3636,
+              "mean_return_pct": 0.3324,
+              "median_return_pct": 0.1989,
+              "profit_factor_dollars": 2.7841,
+              "dollar_coverage": 22
+            },
+            "absent": {
+              "n": 69,
+              "win_rate": 0.4783,
+              "loss_rate": 0.4348,
+              "mean_return_pct": 0.3269,
+              "median_return_pct": 0,
+              "profit_factor_dollars": 1.4441,
+              "dollar_coverage": 69
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 1,
+              "win_rate": 0,
+              "loss_rate": 1,
+              "mean_return_pct": -1.3383,
+              "median_return_pct": -1.3383,
+              "profit_factor_dollars": 0,
+              "dollar_coverage": 1
+            },
+            "absent": {
+              "n": 9,
+              "win_rate": 0.4444,
+              "loss_rate": 0.4444,
+              "mean_return_pct": -0.9628,
+              "median_return_pct": 0,
+              "profit_factor_dollars": 0.4284,
+              "dollar_coverage": 9
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 3,
+          "mean_return_difference_pct": 0.4648,
+          "comparisons": [
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-10",
+              "present": {
+                "n": 3,
+                "win_rate": 1,
+                "loss_rate": 0,
+                "mean_return_pct": 0.5265,
+                "median_return_pct": 0.3374,
+                "profit_factor_dollars": null,
+                "dollar_coverage": 3
+              },
+              "absent": {
+                "n": 7,
+                "win_rate": 0.2857,
+                "loss_rate": 0.5714,
+                "mean_return_pct": -0.6464,
+                "median_return_pct": -1.1495,
+                "profit_factor_dollars": 0.4909,
+                "dollar_coverage": 7
+              }
+            },
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-08",
+              "present": {
+                "n": 4,
+                "win_rate": 0.75,
+                "loss_rate": 0.25,
+                "mean_return_pct": 0.9971,
+                "median_return_pct": 0.9717,
+                "profit_factor_dollars": 37.8571,
+                "dollar_coverage": 4
+              },
+              "absent": {
+                "n": 11,
+                "win_rate": 0.5455,
+                "loss_rate": 0.1818,
+                "mean_return_pct": 1.2997,
+                "median_return_pct": 0.2776,
+                "profit_factor_dollars": 13.9833,
+                "dollar_coverage": 11
+              }
+            },
+            {
+              "stratum": "LONG|TT Tt Pullback|2025-07",
+              "present": {
+                "n": 8,
+                "win_rate": 0.375,
+                "loss_rate": 0.625,
+                "mean_return_pct": 0.7091,
+                "median_return_pct": -0.1185,
+                "profit_factor_dollars": 4.6406,
+                "dollar_coverage": 8
+              },
+              "absent": {
+                "n": 28,
+                "win_rate": 0.5357,
+                "loss_rate": 0.4643,
+                "mean_return_pct": 0.1262,
+                "median_return_pct": 0.136,
+                "profit_factor_dollars": 1.2058,
+                "dollar_coverage": 28
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "current_source": "GET /timed/trades?source=d1",
+  "current": {
+    "schema": "rank-driver-audit-v1",
+    "source_canonical_json_sha256": "1e1bd21aacfa498e45e1537848d2d927aacbe6a3363b8c5702dd16087a28ce8c",
+    "rows": 86,
+    "closed_with_return": 65,
+    "snapshot_coverage": 0,
+    "trace_coverage": 0,
+    "driver_version_coverage": 0,
+    "limits": [
+      "Exploratory selected-trade comparisons; no causal or portfolio-PnL claim.",
+      "Snapshot presence does not prove the signal was available before scoring; verify source lineage and timestamp.",
+      "No candidate-universe rejects, controlled exits, unseen holdout or correction for multiple comparisons.",
+      "Matched cells require both signal states within the same side, setup and entry month; sparse cells remain unestimated."
+    ],
+    "features": {
+      "completion_early": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "phase_early": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "htf_strong_absolute": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "ltf_strong_absolute": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "rr_at_least_2": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "momentum_elite_flag": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "phase_extreme_flag": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "squeeze_release_flag": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "squeeze_on_flag": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "ema_cross_1h_flag": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "buyable_dip_1h_flag": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "rsi_aligned_unopposed": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "st30_aligned_pine": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "phase_1h_extended_aligned": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "phase_d_extended_aligned": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "atr_week_extended_aligned": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "atr_day_extended_aligned": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "regime_trending": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "ltf30_bias_aligned": {
+        "observed": 0,
+        "missing": 65,
+        "present": {
+          "n": 0
+        },
+        "absent": {
+          "n": 0
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 0
+            },
+            "absent": {
+              "n": 0
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 0,
+          "mean_return_difference_pct": null,
+          "comparisons": []
+        }
+      },
+      "grade_confirmed_post_rank": {
+        "observed": 65,
+        "missing": 0,
+        "present": {
+          "n": 21,
+          "win_rate": 0.3333,
+          "loss_rate": 0.619,
+          "mean_return_pct": -0.7384,
+          "median_return_pct": -1.0246,
+          "profit_factor_dollars": 0.3973,
+          "dollar_coverage": 21
+        },
+        "absent": {
+          "n": 44,
+          "win_rate": 0.3409,
+          "loss_rate": 0.6364,
+          "mean_return_pct": -0.6132,
+          "median_return_pct": -0.6687,
+          "profit_factor_dollars": 0.4204,
+          "dollar_coverage": 44
+        },
+        "by_side": {
+          "LONG": {
+            "present": {
+              "n": 16,
+              "win_rate": 0.1875,
+              "loss_rate": 0.75,
+              "mean_return_pct": -1.5364,
+              "median_return_pct": -2.0635,
+              "profit_factor_dollars": 0.1436,
+              "dollar_coverage": 16
+            },
+            "absent": {
+              "n": 36,
+              "win_rate": 0.3056,
+              "loss_rate": 0.6667,
+              "mean_return_pct": -0.6171,
+              "median_return_pct": -0.6687,
+              "profit_factor_dollars": 0.4231,
+              "dollar_coverage": 36
+            }
+          },
+          "SHORT": {
+            "present": {
+              "n": 5,
+              "win_rate": 0.8,
+              "loss_rate": 0.2,
+              "mean_return_pct": 1.8153,
+              "median_return_pct": 2.7235,
+              "profit_factor_dollars": 3.8285,
+              "dollar_coverage": 5
+            },
+            "absent": {
+              "n": 8,
+              "win_rate": 0.5,
+              "loss_rate": 0.5,
+              "mean_return_pct": -0.5957,
+              "median_return_pct": -0.0955,
+              "profit_factor_dollars": 0.3382,
+              "dollar_coverage": 8
+            }
+          }
+        },
+        "matched_side_setup_month": {
+          "min_per_arm": 3,
+          "strata": 2,
+          "mean_return_difference_pct": 0.1552,
+          "comparisons": [
+            {
+              "stratum": "LONG|TT Cloud Pivot|2026-08",
+              "present": {
+                "n": 8,
+                "win_rate": 0.125,
+                "loss_rate": 0.875,
+                "mean_return_pct": -1.7176,
+                "median_return_pct": -2.2201,
+                "profit_factor_dollars": 0.1649,
+                "dollar_coverage": 8
+              },
+              "absent": {
+                "n": 6,
+                "win_rate": 0.3333,
+                "loss_rate": 0.6667,
+                "mean_return_pct": -1.1275,
+                "median_return_pct": -1.1104,
+                "profit_factor_dollars": 0.0344,
+                "dollar_coverage": 6
+              }
+            },
+            {
+              "stratum": "SHORT|TT Cloud Pivot|2026-08",
+              "present": {
+                "n": 5,
+                "win_rate": 0.8,
+                "loss_rate": 0.2,
+                "mean_return_pct": 1.8153,
+                "median_return_pct": 2.7235,
+                "profit_factor_dollars": 3.8285,
+                "dollar_coverage": 5
+              },
+              "absent": {
+                "n": 5,
+                "win_rate": 0.8,
+                "loss_rate": 0.2,
+                "mean_return_pct": 0.7657,
+                "median_return_pct": 0.8726,
+                "profit_factor_dollars": 1.9913,
+                "dollar_coverage": 5
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

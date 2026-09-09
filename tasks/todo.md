@@ -21,6 +21,11 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Rank driver evaluation (2026-09-09, PR #1442; implemented and tested, awaiting review).** Evaluate the inputs
+      that earn rank points; correct missing-data, direction and duplicate-event
+      bonuses. Evidence table and validation:
+      [`2026-09-09-rank-driver-evaluation.md`](2026-09-09-rank-driver-evaluation.md).
+      Scope is ranking only; keep uncertain weights explicit pending entry-time evidence.
 - [ ] **Bottom nav scrolls mid-page on mobile (2026-09-05).** Screenshot:
       nav floats ~2/3 down Today (content above + below). v8/v9 CSS
       `bottom:0` + post-scroll settle leaves the bar detached during

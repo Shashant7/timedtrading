@@ -18,6 +18,8 @@ const WATCH_GLOBS = [
   "worker/calibration-guards.js",
   "worker/model.js",
   "worker/ranking/candidate-rank.js",
+  "worker/ranking/technical-rank.js",
+  "worker/ranking/rank-drivers.js",
   "worker/replay-runtime-setup.js",
 ];
 
