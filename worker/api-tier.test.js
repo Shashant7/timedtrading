@@ -71,6 +71,17 @@ describe("redactTickerSnapshot — tier-aware price vs model gating", () => {
     expect(out._redacted).toBe(true);
   });
 
+  it("keeps raw ranking evidence behind the same access gate as scores", () => {
+    const ranked = { ticker: "QQQ", rank_score: 124,
+      _technical_rank: { raw_score: 124, gate_score: 100 },
+      _ranking: { final_score: 124 }, __candidate_order: { score: 124, position: 1 },
+      __rank_trace: { rawScore: 124 } };
+    for (const tier of ["anon", "free"]) {
+      expect(redactTickerSnapshot(ranked, tier)).toEqual({ ticker: "QQQ", _redacted: true });
+    }
+    expect(redactTickerSnapshot(ranked, "pro")).toBe(ranked);
+  });
+
   it("strips EXT overlay aliases that used to leak past the live-price set", () => {
     const out = redactTickerSnapshot({
       ticker: "QQQ",

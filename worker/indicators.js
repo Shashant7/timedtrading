@@ -28,7 +28,7 @@ import { resolveFormingPair } from "./mtf-forming.js";
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
 // this version let us know exactly which logic produced them.
-export const SCORING_VERSION = "2.1.2-2026-08-29";
+export const SCORING_VERSION = "2.1.3-2026-09-09";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)

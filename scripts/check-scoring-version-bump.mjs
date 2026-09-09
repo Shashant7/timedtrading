@@ -17,6 +17,7 @@ const WATCH_GLOBS = [
   "worker/bleeder-guard.js",
   "worker/calibration-guards.js",
   "worker/model.js",
+  "worker/ranking/candidate-rank.js",
   "worker/replay-runtime-setup.js",
 ];
 

@@ -468,6 +468,10 @@ import {
 import { shareLaneExecutionWindow } from "./execution-window.js";
 import { playLabel } from "./foundation/play-catalog.js";
 import {
+  computeCandidateScore, stampTechnicalRank,
+  capRankByFreshness, stampCandidatePositions, processRankedCandidates,
+} from "./ranking/candidate-rank.js";
+import {
   stampContinuationThinSlice,
   continuationPaperSizeMult,
   buildContinuationOptionsFirstPlay,
@@ -14540,243 +14544,13 @@ function entryType(ticker) {
 // NOTE: This returns a SCORE (0-200+), not a RANK (position 1-135)
 // RANK is determined by sorting all tickers by this score
 function computeDynamicScore(ticker) {
-  const baseScore = Number(ticker.rank) || 50; // Base score from worker (0-100)
-  const htf = Number(ticker.htf_score) || 0;
-  const ltf = Number(ticker.ltf_score) || 0;
-  const comp = completionForSize(ticker);
-  const phase = Number(ticker.phase_pct) || 0;
-  const rr = Number(ticker.rr) || 0;
-  const flags = ticker.flags || {};
-  const state = String(ticker.state || "");
-  const holdIntent = String(
-    ticker.hold_intent || ticker.horizon_bucket || "",
-  ).toUpperCase();
-
-  const sqRel = !!flags.sq30_release;
-  const sqOn = !!flags.sq30_on;
-  const phaseZoneChange = !!flags.phase_zone_change;
-  const aligned =
-    state === "HTF_BULL_LTF_BULL" || state === "HTF_BEAR_LTF_BEAR";
-  const ent = entryType(ticker);
-  const inCorridor = ent.corridor;
-
-  let dynamicScore = baseScore;
-
-  // Data completeness penalty: prefer fully-instrumented names.
-  const completeness =
-    ticker?.data_completeness || computeDataCompleteness(ticker);
-  if (completeness && typeof completeness === "object") {
-    if (completeness.score < 70) dynamicScore -= 6;
-    else if (completeness.score < 85) dynamicScore -= 3;
-  }
-
-  // Per-TF technical structure: reward aligned multi-timeframe stacks.
-  const tfAlign = ticker?.tf_summary || tfTechAlignmentSummary(ticker);
-  if (
-    tfAlign &&
-    typeof tfAlign === "object" &&
-    Number.isFinite(tfAlign.score)
-  ) {
-    dynamicScore += tfAlign.score;
-    if (tfAlign.squeeze_on && !sqRel && inCorridor) dynamicScore += 1;
-    if (tfAlign.squeeze_release && inCorridor) dynamicScore += 2;
-  }
-
-  // Explicit triggers[] “why now” boost (bounded).
-  const trig = ticker?.trigger_summary || triggerSummaryAndScore(ticker);
-  if (trig && typeof trig === "object" && Number.isFinite(trig.score)) {
-    dynamicScore += trig.score;
-  }
-
-  // Move status: deprioritize invalidated/completed moves
-  const ms = ticker?.move_status || computeMoveStatus(ticker);
-  if (ms && typeof ms === "object") {
-    if (ms.status === "INVALIDATED") dynamicScore -= 30;
-    else if (ms.status === "COMPLETED") dynamicScore -= 20;
-  }
-
-  // Corridor bonus (high priority - active setups)
-  if (inCorridor) {
-    dynamicScore += 12; // Strong bonus for being in corridor
-
-    // Extra bonus if aligned AND in corridor (perfect setup)
-    if (aligned) {
-      dynamicScore += 8;
-    }
-  }
-
-  // Squeeze release in corridor = very strong signal
-  if (sqRel && inCorridor) {
-    dynamicScore += 10;
-  }
-
-  // Squeeze on in corridor = building pressure
-  if (sqOn && inCorridor && !sqRel) {
-    dynamicScore += 5;
-  }
-
-  // RR bonus (scaled - better RR = higher score)
-  if (rr >= 2.0) {
-    dynamicScore += 8; // Excellent RR
-  } else if (rr >= 1.5) {
-    dynamicScore += 5; // Good RR
-  } else if (rr >= 1.0) {
-    dynamicScore += 2; // Acceptable RR
-  }
-
-  // Phase bonus (early phase = better opportunity)
-  if (phase < 0.3) {
-    dynamicScore += 6; // Very early
-  } else if (phase < 0.5) {
-    dynamicScore += 3; // Early
-  } else if (phase > 0.7) {
-    dynamicScore -= 5; // Late phase penalty
-  }
-
-  // Completion bonus (low completion = more room to run)
-  if (comp < 0.3) {
-    dynamicScore += 5; // Early in move
-  } else if (comp > 0.8) {
-    dynamicScore -= 8; // Near completion penalty
-  }
-
-  // Phase 2: Hold-intent scoring (small nudge; only when HTF strength supports it)
-  // Goal: favor longer-duration setups when HTF strength is high, without overpowering other gates.
-  const htfAbs = Math.abs(htf);
-  if (holdIntent === "POSITION" && htfAbs >= 15) {
-    dynamicScore += 2;
-  } else if (holdIntent === "SWING" && htfAbs >= 10) {
-    dynamicScore += 1;
-  }
-
-  // Score strength bonus (strong HTF/LTF scores)
-  const htfStrength = Math.min(8, Math.abs(htf) * 0.15);
-  const ltfStrength = Math.min(6, Math.abs(ltf) * 0.12);
-  dynamicScore += htfStrength + ltfStrength;
-
-  // Phase zone change bonus
-  if (phaseZoneChange) {
-    dynamicScore += 4;
-  }
-
-  // 2026-06-10 — CRO theme-tilt overlay (worker/theme-tilt.js). Bounded
-  // ±6, DIRECTION-AWARE: a hot theme helps a LONG-side candidate and
-  // hurts a SHORT-side candidate on the same ticker (side = sign of
-  // htf_score). The map is preloaded by the scoring cron preamble and
-  // the /timed/all handler (_activeThemeTiltMap below); when the gate
-  // (model_config cro_theme_rank_boost_enabled) is OFF the tilt is
-  // still attached as _theme_tilt_shadow so the effect stays
-  // measurable, but the score is untouched.
-  try {
-    const sym = String(ticker.ticker || "").toUpperCase();
-    const tiltEntry = sym ? _activeThemeTiltMap?.by_ticker?.[sym] : null;
-    if (tiltEntry) {
-      const side = htf > 0 ? 1 : htf < 0 ? -1 : 0;
-      const applied = Math.round(tiltEntry.tilt * side * 10) / 10;
-      if (_activeThemeTiltMap.enabled) {
-        dynamicScore += applied;
-        ticker._theme_tilt = applied;
-      } else {
-        ticker._theme_tilt_shadow = applied;
-      }
-      ticker._theme_tilt_theme = tiltEntry.theme;
-    }
-  } catch (_) { /* tilt must never break scoring */ }
-
-  // B6 (2026-06-11) — Fair Value & Quality tilt (worker/fair-value.js).
-  // Bounded ±5, DIRECTION-AWARE like the theme tilt: a quality business
-  // trading below fair value is a tailwind for LONG-side candidates and a
-  // headwind for SHORT-side ones. The signed magnitude (+favors-LONG) was
-  // computed at scoring time onto _fair_value.tilt; gate
-  // fair_value_rank_boost_enabled controls whether it moves the score or
-  // attaches as shadow only. Never an admission gate.
-  try {
-    const fv = ticker._fair_value;
-    const fvTilt = Number(fv?.tilt);
-    if (fv && Number.isFinite(fvTilt) && fvTilt !== 0) {
-      const side = htf > 0 ? 1 : htf < 0 ? -1 : 0;
-      const appliedFv = Math.round(fvTilt * side * 10) / 10;
-      if (appliedFv !== 0) {
-        if (fv.tilt_enabled) {
-          dynamicScore += appliedFv;
-          ticker._fv_tilt = appliedFv;
-        } else {
-          ticker._fv_tilt_shadow = appliedFv;
-        }
-      }
-    }
-  } catch (_) { /* tilt must never break scoring */ }
-
-  // Harmonic Wave rank tilt (worker/harmonic-modifiers.js). Bounded ±4
-  // (calibration-weighted on payload), direction-aware like theme tilt.
-  try {
-    const hc = ticker.harmonic_cycle;
-    const hTilt = Number(hc?.rank_tilt);
-    if (hc && Number.isFinite(hTilt) && hTilt !== 0) {
-      const side = htf > 0 ? 1 : htf < 0 ? -1 : 0;
-      const applied = Math.round(hTilt * side * 10) / 10;
-      if (hc.tilt_enabled !== false) {
-        dynamicScore += applied;
-        ticker._harmonic_tilt = applied;
-      } else {
-        ticker._harmonic_tilt_shadow = applied;
-      }
-    }
-  } catch (_) { /* tilt must never break scoring */ }
-
-  // 2026-06-11 — Officer rank overlay (CTO probabilistic levels + CRO note
-  // sector nudge). Bounded ±5 total, direction-aware like theme tilt.
-  try {
-    const symOff = String(ticker.ticker || "").toUpperCase();
-    if (symOff && _activeOfficerRankMap) {
-      // Sector hint from the payload skips a per-ticker strategy lookup.
-      const _offSector = ticker.sector || ticker._ticker_profile?.sector || null;
-      const entry = _lookupOfficerTilt(_activeOfficerRankMap, symOff, htf, _offSector);
-      if (entry) {
-        const gates = _activeOfficerRankMap.gates || {};
-        const applied = entry.tilt || 0;
-        if ((gates.cto !== false || gates.cro !== false) && applied !== 0) {
-          dynamicScore += applied;
-          ticker._officer_tilt = applied;
-          if (entry.cto) ticker._cto_tilt = entry.cto;
-          if (entry.cro) ticker._cro_note_tilt = entry.cro;
-        } else if (applied !== 0) {
-          ticker._officer_tilt_shadow = applied;
-        }
-        if (entry.cto_upside || entry.cto_downside) {
-          ticker._cto_levels = {
-            top_upside: entry.cto_upside,
-            top_downside: entry.cto_downside,
-          };
-        }
-      }
-    }
-  } catch (_) { /* officer tilt must never break scoring */ }
-
-  // 2026-07-09 — Macro wire rank tilt (DeItaone LLM-classified pulse).
-  // Bounded ±4, direction-aware like theme tilt.
-  try {
-    const symMw = String(ticker.ticker || "").toUpperCase();
-    if (symMw && _activeMacroRiskTiltMap) {
-      const entry = _lookupMacroRiskTilt(_activeMacroRiskTiltMap, symMw, htf);
-      if (entry) {
-        const applied = entry.tilt || 0;
-        if (_activeMacroRiskTiltMap.enabled && applied !== 0) {
-          dynamicScore += applied;
-          ticker._macro_wire_tilt = applied;
-          ticker._macro_wire_risk_tone = entry.risk_tone;
-        } else if (applied !== 0) {
-          ticker._macro_wire_tilt_shadow = applied;
-        }
-      }
-    }
-  } catch (_) { /* macro wire tilt must never break scoring */ }
-
-  // NO CAP - let scores go above 100 to help tickers separate from one another
-  // Minimum is 0, but no maximum cap
-  dynamicScore = Math.max(0, dynamicScore);
-
-  return Math.round(dynamicScore * 100) / 100; // Round to 2 decimals for precision
+  return computeCandidateScore(ticker, {
+    themeMap: _activeThemeTiltMap,
+    officerMap: _activeOfficerRankMap,
+    macroMap: _activeMacroRiskTiltMap,
+    lookupOfficerTilt: _lookupOfficerTilt,
+    lookupMacroRiskTilt: _lookupMacroRiskTilt,
+  });
 }
 
 // Compute RR at trigger price (for alert evaluation)
@@ -28051,6 +27825,8 @@ async function processTradeSimulation(
                   if (tickerData?.__rank_trace) {
                     Object.assign(base, tickerData.__rank_trace);
                   }
+                  if (tickerData?.__candidate_order) base.candidate_order = tickerData.__candidate_order;
+                  if (tickerData?._ranking) base.ranking = tickerData._ranking;
                   // Focus tier — if not already captured, force it now
                   if (!tickerData?.__focus_conviction_breakdown) {
                     try {
@@ -32603,15 +32379,15 @@ function computeRankV2(d) {
     }
   }
 
-  score = Math.max(0, Math.min(100, score));
-  const finalScore = Math.round(score);
+  const rawScore = score;
+  const finalScore = stampTechnicalRank(d, rawScore, "v2");
 
   if (rankTrace && d && typeof d === "object") {
     d.__rank_trace = {
       ticker, ts: Number(d?.ts ?? d?.ingest_ts ?? 0),
       formula: "v2",
       finalScore,
-      rawScore: score,
+      rawScore,
       rr, side,
       setupGrade,
       regimeClass,
@@ -32632,15 +32408,8 @@ function computeRankV2(d) {
 // is capped to a floor so it can never surface in Today/Prime/FocusRail or
 // pass rank-gated entry paths, regardless of what its (stale) indicators say.
 // Replay blocks are diagnostic-only (enforced: false) and never capped.
-const FRESHNESS_RANK_CAP = 10;
 function _applyFreshnessRankCap(d, rank) {
-  try {
-    if (isQuarantinedByFreshness(d)) {
-      if (d && typeof d === "object") d._rank_freshness_capped = true;
-      return Math.min(Number(rank) || 0, FRESHNESS_RANK_CAP);
-    }
-  } catch (_) { /* never break ranking */ }
-  return rank;
+  return capRankByFreshness(d, rank);
 }
 
 function computeRank(d) {
@@ -33073,14 +32842,15 @@ function computeRank(d) {
   // Stamp on tickerData so admission_cohort_log can read it
   if (d && typeof d === "object" && _adaptiveV1Applied) d.__adaptive_v1 = _adaptiveV1Applied;
 
-  score = Math.max(0, Math.min(100, score));
+  const rawScore = score;
+  const finalScore = stampTechnicalRank(d, rawScore, "v1");
   if (rankTrace && d && typeof d === "object") {
     d.__rank_trace = {
       ticker: String(d?.ticker || d?.sym || "").toUpperCase(),
       ts: Number(d?.ts ?? d?.ingest_ts ?? 0),
       state,
-      finalScore: Math.round(score),
-      rawScore: score,
+      finalScore,
+      rawScore,
       adaptive_v1: _adaptiveV1Applied,
       htf,
       ltf,
@@ -33102,8 +32872,8 @@ function computeRank(d) {
         ticker: String(d?.ticker || d?.sym || "").toUpperCase(),
         ts: Number(d?.ts ?? d?.ingest_ts ?? 0),
         state,
-        finalScore: Math.round(score),
-        rawScore: score,
+        finalScore,
+        rawScore,
         htf,
         ltf,
         completion: comp,
@@ -33121,7 +32891,7 @@ function computeRank(d) {
       console.log(`[RANK-TRACE] serialization_failed ${err?.message || String(err)}`);
     }
   }
-  return _applyFreshnessRankCap(d, Math.round(score));
+  return finalScore;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -56513,6 +56283,7 @@ export default {
                   }
                 }
               } catch (_) { /* best-effort */ }
+              if (!_isSlim) stampCandidatePositions(_filteredMicro, computeDynamicScore);
               const _redactedMicro = redactTickerMapForTier(_filteredMicro, _reqTier);
               return sendJSON(
                 { ok: true, data: _redactedMicro, count: Object.keys(_redactedMicro).length, source: "micro_cache", built_at: _micro.built_at, freshness_ts: Date.now() },
@@ -57008,6 +56779,7 @@ export default {
             // Preserve the true leading timeframe in payloads.
             // Rewriting 10m to 15m distorts replay/autopsy analysis.
 
+            if (!_isSlim) stampCandidatePositions(data, computeDynamicScore);
             const _snapFreshTs = Date.now();
             if (_isSlim) {
               const slimData = {};
@@ -57698,27 +57470,8 @@ export default {
             // ignore
           }
 
-          // Compute rank positions and add score/position (canonical) alongside rank/rank_position
-          const ranked = Object.entries(data)
-            .map(([ticker, value]) => {
-              const sc = Number(value?.dynamicScore ?? value?.rank);
-              const safeScore = Number.isFinite(sc)
-                ? sc
-                : (value && computeDynamicScore(value)) || Number(value?.rank) || 0;
-              return { ticker, score: safeScore };
-            })
-            .sort((a, b) => b.score - a.score);
-          const rankTotal = ranked.length;
-          ranked.forEach((item, idx) => {
-            const entry = data[item.ticker];
-            if (!entry) return;
-            const pos = idx + 1;
-            entry.rank_position = pos;
-            entry.position = pos;
-            entry.rank_total = rankTotal;
-            entry.rank_score = item.score;
-            entry.score = Number(entry?.rank ?? item.score);
-          });
+          // Same priority contract as KV/lightweight responses and live entries.
+          stampCandidatePositions(data, computeDynamicScore);
 
           const socialAdditions = (await kvGetJSON(KV, "timed:social:additions")) || [];
 
@@ -109901,9 +109654,6 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // Without this, qualifiesForEnter blocks entries after 7 days (trigger_stale).
             result.trigger_ts = now;
 
-            result.rank = computeRank(result);
-            result.score = result.rank;
-
             // 2026-07-07 (scoring-chain-read follow-up) — POST-SCORING RECONCILE.
             // If _freshness marks TFs as "missing" (ts=0) but D1 actually holds
             // candles for that ticker×tf, patch the block instead of quarantining.
@@ -110201,6 +109951,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 }
               }
             } catch { /* overnight injection non-critical */ }
+
+            // Rank only after freshness reconciliation and current runtime
+            // config/overnight inputs are attached. The formula and its trace
+            // must describe the same snapshot that admission will evaluate.
+            result.rank = computeRank(result);
+            result.score = result.rank;
 
             // ── Consecutive Confirmation Logic ──
             // Entry signals require 2 consecutive scoring cycles confirming alignment
@@ -110612,18 +110368,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
 
             // ── Delta instrumentation (Phase 7) ──
+            result.dynamicScore = computeDynamicScore(result);
+            const _rankChanged = result.rank !== existing?.rank ||
+              result.dynamicScore !== existing?.dynamicScore ||
+              JSON.stringify(result._technical_rank) !== JSON.stringify(existing?._technical_rank);
             const _htfDelta = Math.abs((Number(result?.htf_score) || 0) - (Number(existing?.htf_score) || 0));
             const _ltfDelta = Math.abs((Number(result?.ltf_score) || 0) - (Number(existing?.ltf_score) || 0));
             const _stageFlip = (result?.kanban_stage || "") !== (existing?.kanban_stage || "");
             const _oldPx = Number(existing?.price);
             const _newPx = Number(result?.price);
             const _pxDelta = (_oldPx > 0 && _newPx > 0) ? Math.abs(_newPx - _oldPx) / _oldPx : 0;
-            if (_htfDelta >= 0.5 || _ltfDelta >= 0.5) deltaScoreChanged++;
+            if (_rankChanged || _htfDelta >= 0.5 || _ltfDelta >= 0.5) deltaScoreChanged++;
             if (_stageFlip) deltaStageChanged++;
             if (_pxDelta >= 0.001) deltaPriceChanged++;
-            if (_htfDelta < 0.5 && _ltfDelta < 0.5 && !_stageFlip && _pxDelta < 0.001) deltaNoChange++;
+            if (!_rankChanged && _htfDelta < 0.5 && _ltfDelta < 0.5 && !_stageFlip && _pxDelta < 0.001) deltaNoChange++;
 
-            if (hasPayloadChangedMeaningfully(existing, result)) {
+            if (_rankChanged || hasPayloadChangedMeaningfully(existing, result)) {
               await kvPutJSON(KV, `timed:latest:${ticker}`, result);
               scored++;
               // D1 ticker_latest is batch-synced after snapshot build (see below).
@@ -111872,6 +111632,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           "defend", "trim", "exit",
           "just_entered", "hold",
         ]);
+        const executionCandidates = [];
         for (const sym of executionTickers) {
           if (!sym) continue;
           if (processedTickers.has(sym)) continue;
@@ -111884,14 +111645,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _kanbanSkippedNonActionable++;
               continue;
             }
-            await processTradeSimulation(KV, sym, latestData, null, env, {
-              cachedAllTrades: _cachedAllTradesForTick || undefined,
-            });
-            _kanbanProcessed++;
+            executionCandidates.push({ ticker: sym, payload: latestData });
           } catch (e) {
-            console.error(`[KANBAN CRON] Error processing ${sym}:`, e);
+            console.error(`[KANBAN CRON] Error loading ${sym}:`, e);
           }
         }
+        _kanbanProcessed = await processRankedCandidates(executionCandidates, {
+          scoreCandidate: computeDynamicScore,
+          processCandidate: ({ ticker: sym, payload: latestData }) =>
+            processTradeSimulation(KV, sym, latestData, null, env, {
+              cachedAllTrades: _cachedAllTradesForTick || undefined,
+            }),
+          onError: (e, { ticker: sym }) => console.error(`[KANBAN CRON] Error processing ${sym}:`, e),
+        });
         console.log(`[KANBAN CRON] Processed ${_kanbanProcessed} actionable, skipped ${_kanbanSkippedNonActionable} non-actionable, of ${executionTickers.length} total`);
       } catch (e) {
         console.error("[KANBAN CRON] top-level error:", e);
