@@ -1074,7 +1074,8 @@ playbook in `skills/security-auth-patterns.md`)**
 **Ranking / technical score (PR #1442 — merged and deployed 2026-09-09)**
 - **Question:** whether each rank *ingredient* earns its points (producer,
   direction, missing-data, duplication) — not whether aggregate sort
-  improved. Live `SCORING_VERSION` is `2.1.5-2026-09-09`;
+  improved. Live `SCORING_VERSION` is `2.1.6-2026-09-09`
+  (setup-admission contract from PR #1444 on top of rank 2.1.5);
   traces use `driver_version=rank-drivers-v2` and
   `CANDIDATE_RANK_VERSION=candidate-rank-v3`.
 - **Do not reintroduce:** missing completion/phase treated as early
@@ -1096,6 +1097,17 @@ playbook in `skills/security-auth-patterns.md`)**
 - **Playbook:** `skills/rank-driver-audit.md`. Evidence:
   `tasks/2026-09-09-rank-driver-evaluation.md` and
   `tasks/evidence/2026-09-09-rank-driver-audit.json` (`trace_coverage: 0`).
+
+**Setup admission (PR #1444 — merged and deployed 2026-09-09)**
+- Executed path owns identity (paper Cloud Pivot / `momentum_score` do not
+  collapse into core names). ATH/ATL needs a held break + preceding-session
+  follow-through. Setup volume floors use observed values only. Momentum
+  bar-position needs a real bar. Gap anti-knife uses prior-session decline.
+  Cloud Pivot does not get +1 for an unsigned catalyst.
+- Old payloads without `ath52w.prev_*` fail ATH until a 2.1.6 rescore.
+  Do not lower floors to recover volume. Playbook: `skills/setup-audit/SKILL.md`.
+- S08–S13 (overlap, touch contracts, sequence, mean-reversion proxies,
+  entry-time evidence) are documented, not coded.
 
 **Breakout Entry Paths**
 - Three detectors in `indicators.js`: `detectDailyLevelBreak`, `detectATRBreakout`, `detectEMAStackBreakout`

@@ -6,6 +6,20 @@
 
 ---
 
+## Setup admission must observe its own evidence [2026-09-09]
+
+**Symptom:** Setups could admit on missing volume, a wick ATH, a generic
+catalyst label, or a paper Cloud Pivot counted as core `tt_cloud_pivot`.
+
+**Fix:** PR #1444 (`2.1.6-2026-09-09`). Path owns identity. ATH holds
+beyond the prior high/low with preceding-session follow-through.
+Volume floors use observed values. Gap knife uses prior-session
+decline. Unsigned catalyst is not +1 conviction.
+
+**Do not:** lower floors to recover entries after deploy. Rescore so
+`ath52w.prev_*` exists. S08–S13 stay research until entry-time traces
+exist.
+
 ## Learning desk Discord is ops, not a trade signal [2026-09-09]
 
 **Symptom:** `#trade-signals` got hourly "Learning desk" embeds:
