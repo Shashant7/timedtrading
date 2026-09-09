@@ -5,7 +5,10 @@
 each ingredient deserves its points. Correct sorting and aggregate rank
 correlation do not answer that question.
 
-Status: implemented and tested on main `88d3398`; not merged or deployed.
+Status: implemented on branch `codex/ranking-outcome-calibration-20260909`
+(rebased onto main `88d3398`); **not merged or deployed** to production
+workers. Live `SCORING_VERSION` remains `2.1.2-2026-08-29` until tt-engine
++ monolith both-envs deploy after merge.
 Repository default is v1; `deep_audit_rank_formula="v2"` selects the alternate
 formula. The production switch and adaptive weights are not visible in the
 public exports, so this report does not assume which override is live.
@@ -251,3 +254,14 @@ The existing bundle warning about duplicate `KWEB` is unchanged. No trading
 service writes, deployment, merge, sizing change or exit change was performed.
 The deliverable improves score validity and auditability; current PnL uplift
 has not been demonstrated.
+
+## Ordering contract (intentional, not a missing restore)
+
+`computeDynamicScore` is now `computeCandidateScore`: technical base +
+independent overlays (theme / FV / harmonic / officer / macro), then
+freshness. It does **not** re-apply corridor (+12/+8), squeeze-in-corridor
+(+10/+5), hold-intent (+2/+1), phase-zone-change (+4), or a second copy of
+TF/trigger/RR/phase/completion. Those second-layer bonuses double-counted
+`computeRank`. The kanban cron processes management in original order, then
+entries by this score. Confirm that contract before “restoring” corridor
+points to recover Today/rail sort.

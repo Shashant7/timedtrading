@@ -136,15 +136,12 @@ npx esbuild worker/index.js --bundle --format=esm --outfile=/dev/null
 
 ## Verification and release boundary
 
-Rebased onto `52c36027c30bd9d78c4cf475324de599e6bbdfa7` (main, PR #1441).
-Ranking regression coverage includes 15 new candidate/calibration tests and
-one access-control test. Worker bundle, worker/API/bridge/Pages syntax checks,
-and the scoring-version guard pass. The bundler reports the pre-existing
-duplicate `KWEB` key in `sector-mapping.js`; that file is unchanged.
-
-Final local gate: **3,555 tests passed across 325 files**, using
-`npm test -- --maxWorkers=2`. The published implementation tree matches the
-tested local Git tree `fe6b6ad8af44b67cb9061973ce68762b62f34eeb`.
+Rebased onto main `88d3398` (2026-09-09). Later follow-up commits add the
+driver-semantics pass. Final published verification on this branch:
+**3,586 tests / 326 files** (`npm test -- --maxWorkers=2`). Worker bundle,
+syntax, and the scoring-version guard pass. The bundler reports the
+pre-existing duplicate `KWEB` key in `sector-mapping.js`; that file is
+unchanged. **Not merged or deployed.**
 
 The corrected order can change which entries receive scarce capacity. The
 cron also now honors `deep_audit_rank_formula` from current config, so confirm

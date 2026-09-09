@@ -9,10 +9,10 @@ Single reference for agents. Read this first to avoid context overload.
 
 ## Workflow
 
-- **Ranking work (2026-09-09):** validate each input's semantics, direction,
-  duplicate contributions and conditional outcome evidence. Aggregate rank
-  correlation or sorting fixes do not establish that its ingredients deserve points.
-
+- **Ranking work (2026-09-09, PR #1442):** validate each input's semantics,
+  direction, duplicate contributions and missing-data behavior. Aggregate
+  rank correlation or sorting fixes do not establish that its ingredients
+  deserve points. Playbook: `skills/rank-driver-audit.md`.
 - **Plan first**: Non-trivial (3+ steps) → write to `tasks/todo.md` before coding
 - **Stop on sideways**: If stuck, re-plan; don't push through
 - **Verify before done**: Prove it works; "Would a staff engineer approve?"
@@ -1071,11 +1071,38 @@ playbook in `skills/security-auth-patterns.md`)**
 - **Current July iter-5 challenger is validated on equal scope**: Full recovered-baseline replay with current TT-core guards (`focused-iter5-full-baseline-current-guard--20260325-105601`) beat the recovered reference (`focused-iter5-validation-recovered-20260325--20260325-024751`) from 32 trades / 19W / 13L / +$634.63 to 20 trades / 18W / 2L / +$1,978.99. Biggest deltas: `FIX` -$99.90 → +$538.36, `RBLX` +$446.91 → +$466.97 with the bad `07-22` loser removed, `CELH` -$30.58 → +$24.39, `ETN` +$90.54 → +$364.20, `ULTA` +$155.28 → +$386.86, `CAT` +$72.38 → +$198.19.
 - **The surgical TT-core guard that removed the last `RBLX` loser**: In `worker/pipeline/tt-core-entry.js`, block `LONG` `tt_pullback` entries in `correction_transition` when both 10m `5-12` and `8-9` are already above the cloud with meaningful extension and move-phase is already exhausted. This preserved the `RBLX` `07-08` / `07-10` winners while removing the `07-22` loser, and the equal-scope replay confirmed the broader lane still improved materially.
 
+**Ranking / technical score (PR #1442 — not merged or deployed as of 2026-09-09)**
+- **Question:** whether each rank *ingredient* earns its points (producer,
+  direction, missing-data, duplication) — not whether aggregate sort
+  improved. `SCORING_VERSION` becomes `2.1.5-2026-09-09` on merge;
+  traces use `driver_version=rank-drivers-v2` and
+  `CANDIDATE_RANK_VERSION=candidate-rank-v3`. Live workers stay on
+  `2.1.2-2026-08-29` until tt-engine + monolith both-envs deploy.
+- **Do not reintroduce:** missing completion/phase treated as early
+  (+15 / +3); opposing HTF/LTF/state earning support points; duplicate
+  EMA/dip/squeeze bonuses; EXTREME “zone change” +2; fixed sector prior;
+  TD/HMM keyed to HTF instead of candidate side; numeric-string adaptive
+  weights concatenating into rank; v2 grade or reversed SuperTrend bonus.
+- **One ordering score:** `computeDynamicScore` is technical base +
+  independent overlays only. Legacy second-layer corridor (+12/+8),
+  squeeze-in-corridor (+10/+5), hold-intent (+2/+1), and phase-zone-change
+  (+4) bonuses are retired — they double-counted `computeRank`. Kanban
+  cron now processes entries in that score order (management first).
+- **Traces:** score-time `__rank_trace.parts[]` (technical) +
+  `_ranking.parts[]` (overlays/caps) persist as `rankTraceJson` on entry.
+  Pro/VIP/Admin only (`redactTickerMapForTier`).
+- **Outcome rank is offline:** `worker/ranking/outcome-rank.js` +
+  `scripts/evaluate-outcome-rank.mjs` have **no** runtime import. Failed
+  chronological holdout; do not wire into `index.js`.
+- **Playbook:** `skills/rank-driver-audit.md`. Evidence:
+  `tasks/2026-09-09-rank-driver-evaluation.md` and
+  `tasks/evidence/2026-09-09-rank-driver-audit.json` (`trace_coverage: 0`).
+
 **Breakout Entry Paths**
 - Three detectors in `indicators.js`: `detectDailyLevelBreak`, `detectATRBreakout`, `detectEMAStackBreakout`
 - Wired via `detectBreakout()` → `tickerData.breakout` in `assembleTickerData`
 - Entry path `breakout_{type}_{long/short}` in `qualifiesForEnter` — bypasses rank/completion gates
-- Rank boost in `computeRank`: +20 daily_level, +15 atr_breakout, +12 ema_stack
+- Rank boost in `computeRank` (`worker/ranking/technical-rank.js`): +20 daily_level / +15 ATR / +12 EMA stack **only when type and `breakout.dir` match the candidate side** (PR #1442; weights still unvalidated)
 - Config: `deep_audit_breakout_{daily_level|atr_breakout|ema_stack}_enabled`, `_min_rr`, `_min_entry_quality`
 
 **Ticker Learning System**
@@ -1186,7 +1213,9 @@ Full report: `data/cross-run-analysis-report.md`. 12 backtests, **2,301 closed t
 - **Trimmed = the edge**: 1,328 trades, 85.8% WR, **+$208,617**. Untrimmed: 973 trades, 17.8% WR, -$104,024. Net: +$104,593.
 - **max_loss is #1 destroyer**: 311 trades, 0.6% WR, **-$52,009**. Half of all untrimmed drag. Prevent at entry.
 - **Crown jewel exits**: PHASE_LEAVE (100% WR, +$33K), SOFT_FUSE_RSI (94.3% WR, +$29K), TD_EXHAUSTION (93% WR, +$9K).
-- **All rank buckets profitable** (80+ best at 59.6% WR, +$37K). Earlier small-sample finding corrected.
+- **All rank buckets profitable** (80+ best at 59.6% WR, +$37K). Historical
+  ledger autopsy under **pre-#1442** semantics — not validation of
+  per-ingredient lift. See `tasks/2026-09-09-rank-driver-evaluation.md`.
 - **October only losing month** — trim losses doubled. Regime transition protection needed.
 - **Blacklist**: AMZN, META, RKLB, RDDT, NVDA (combined -$17K). **Franchise**: PH, AVGO, APP, LITE, AU, CAT, RGLD (combined +$42K).
 
