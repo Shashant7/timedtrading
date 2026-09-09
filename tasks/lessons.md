@@ -6,6 +6,25 @@
 
 ---
 
+## Learning desk Discord is ops, not a trade signal [2026-09-09]
+
+**Symptom:** `#trade-signals` got hourly "Learning desk" embeds:
+`ESCALATE cio #68 deep_audit_setup_demotion_TT Support Bounce_long
+(demotion_mixed_windows)` with no next action. Same two escalates
+re-posted at 8/9/10 PM. D1 overload and CTO recycled-discovery rejects
+looked like live signals.
+
+**Cause:** `formatLearningDeskDiscord` dumped raw keys/reasons.
+`notifyDiscord` defaulted to `lane=trade`. Hourly cron re-posted
+whatever was still pending.
+
+**Fix:** Human next-action copy; `lane=system`; skip unchanged
+fingerprints (`timed:learning-desk:last-discord-fp`). D1 apply failures
+are infra, not escalates. Routine rejects are omitted.
+
+**Do not:** put desk triage on `#trade-signals`. Do not re-page the
+same mixed-window escalate every hour.
+
 ## Broker intent drain Discord-spammed pending http_200 [2026-09-08]
 
 **Symptom:** `#trade` got `SHORT TERM · broker intent drain (0 filled / 0

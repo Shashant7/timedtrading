@@ -818,6 +818,10 @@ playbook in `skills/security-auth-patterns.md`)**
   (`POST /timed/admin/learning/proposals/decide`). Don't add new bespoke
   apply paths. The hourly learning desk (CIO/CRO/CTO) decides
   high-confidence rows; only mixed/low-confidence items stay pending.
+  Learning desk Discord is ops (`lane=system` → `#system-alerts`), not a
+  `#trade-signals` post: human next-action copy, skip unchanged hourly
+  escalates. If `DISCORD_SYSTEM_WEBHOOK_URL` is unset on tt-research the
+  notify falls back to the trade webhook — set the system secret.
   Nightly `processProposals` still marks `already_in_effect` when live
   `model_config` already matches — do not treat a long pending queue as
   "learning is off."   Governor heal is plumbing only (no nightly
@@ -1164,6 +1168,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - Bot role must be ABOVE assigned roles in hierarchy for `PUT /roles` to work (403 otherwise)
 - `discordAddMemberAndRole` failure is caught non-blocking — user gets welcome email even if guild add fails
 - Admin fix: `POST /timed/admin/discord/fix-role` with `{"discord_id":"..."}` to diagnose and force-assign role
+- Learning desk posts to `lane=system` (`#system-alerts`) with operator next-action copy. Not a trade signal. Unchanged hourly escalates are skipped.
 
 **Code Hygiene**
 - After `git merge` / `git pull`: run `grep -r '<<<<<<<' react-app/ worker/` before committing

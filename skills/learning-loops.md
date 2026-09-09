@@ -96,6 +96,14 @@ stay pending.
 
 KV report: `timed:learning-desk:latest`.
 Admin: `GET /timed/admin/learning/desk`, `POST /timed/admin/learning/desk/run`.
+Discord: `lane=system` (`#system-alerts`), title **Learning desk — operator
+review**. Human setup names + next action (approve = pause, reject = keep
+live). Routine noise (`recycled_discovery_note`, `already_in_effect`) is
+omitted. Unchanged escalate sets are fingerprinted in
+`timed:learning-desk:last-discord-fp` and not re-posted hourly. D1 apply
+failures are infra retries, not trade escalates. If
+`DISCORD_SYSTEM_WEBHOOK_URL` is unset on tt-research, notify falls back
+to `#trade-signals` — set the system secret.
 
 ## Operator queue
 
