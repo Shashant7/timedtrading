@@ -124,67 +124,7 @@ function detectEntry(point) {
  * Measure forward outcome from an entry point.
  * Walks forward through trail points, tracking MFE (max favorable), MAE (max adverse).
  */
-function measureOutcome(trail, entryIdx, direction, holdBars) {
-  const entry = trail[entryIdx];
-  const entryPrice = entry.price;
-  const endIdx = Math.min(trail.length - 1, entryIdx + holdBars);
-
-  let mfe = 0;       // Max Favorable Excursion (best unrealized gain)
-  let mae = 0;       // Max Adverse Excursion (worst unrealized drawdown)
-  let mfeTs = entry.ts;
-  let maeTs = entry.ts;
-  let exitPrice = entryPrice;
-  let exitTs = entry.ts;
-
-  for (let i = entryIdx + 1; i <= endIdx; i++) {
-    const p = trail[i];
-    if (!Number.isFinite(p.price) || p.price <= 0) continue;
-
-    const pnlPct = direction === "LONG"
-      ? (p.price - entryPrice) / entryPrice
-      : (entryPrice - p.price) / entryPrice;
-
-    if (pnlPct > mfe) { mfe = pnlPct; mfeTs = p.ts; }
-    if (pnlPct < mae) { mae = pnlPct; maeTs = p.ts; }
-
-    exitPrice = p.price;
-    exitTs = p.ts;
-  }
-
-  const finalPnlPct = direction === "LONG"
-    ? (exitPrice - entryPrice) / entryPrice
-    : (entryPrice - exitPrice) / entryPrice;
-
-  // Simulate TP/SL hits using ATR-based levels
-  // TP1 = 0.618% of move, TP2 = 1.0%, XP = 1.618%
-  // SL = -1.5% adverse
-  const hitTP1 = mfe >= 0.00618; // 0.618% gain
-  const hitTP2 = mfe >= 0.01;    // 1.0% gain
-  const hitXP  = mfe >= 0.01618; // 1.618% gain
-  const hitSL  = mae <= -0.015;  // 1.5% adverse
-
-  // Win/loss classification
-  // Win: hit TP1 before SL (approximate)
-  const isWin = hitTP1 && (!hitSL || mfeTs <= maeTs);
-  const isLoss = hitSL && (!hitTP1 || maeTs < mfeTs);
-
-  return {
-    entryPrice,
-    exitPrice,
-    entryTs: entry.ts,
-    exitTs,
-    finalPnlPct,
-    mfe,
-    mae,
-    hitTP1,
-    hitTP2,
-    hitXP,
-    hitSL,
-    isWin,
-    isLoss,
-    holdMinutes: (exitTs - entry.ts) / 60000,
-  };
-}
+const { measureOutcome } = require("./lib/trail-outcome.cjs");
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
