@@ -1248,7 +1248,7 @@ import {
 } from "./learning-proposals.js";
 import {
   runLearningDeskCron as _runLearningDeskCron,
-  formatLearningDeskDiscord as _formatLearningDeskDiscord,
+  maybeNotifyLearningDeskDiscord as _maybeNotifyLearningDeskDiscord,
   LEARNING_DESK_KV as _LEARNING_DESK_KV,
 } from "./learning-desk-review.js";
 import {
@@ -105319,14 +105319,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           try {
             const desk = await _runLearningDeskCron(env);
             console.log(`[LEARNING_DESK hourly] scanned=${desk.scanned ?? 0} decided=${(desk.decided || []).length} escalated=${(desk.escalated || []).length} restored=${(desk.restored || []).length}`);
-            const body = _formatLearningDeskDiscord(desk);
-            if (body) {
-              notifyDiscord(env, {
-                title: "Learning desk",
-                description: body,
-                color: (desk.escalated || []).length ? 0xf59e0b : 0x14b8a6,
-              }).catch(() => {});
-            }
+            // Ops lane (#system-alerts), not #trade-signals. Skips unchanged escalates.
+            await _maybeNotifyLearningDeskDiscord(env, desk, notifyDiscord);
             recordCronSuccess(env, "learning_desk").catch(() => {});
           } catch (e) {
             console.error("[LEARNING_DESK hourly] threw:", String(e?.message || e).slice(0, 200));
@@ -107535,14 +107529,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             daCfg: env._deepAuditConfig,
           });
           console.log(`[LEARNING_DESK nightly] scanned=${desk.scanned ?? 0} decided=${(desk.decided || []).length} escalated=${(desk.escalated || []).length} restored=${(desk.restored || []).length}`);
-          const deskBody = _formatLearningDeskDiscord(desk);
-          if (deskBody) {
-            notifyDiscord(env, {
-              title: "Learning desk",
-              description: deskBody,
-              color: (desk.escalated || []).length ? 0xf59e0b : 0x14b8a6,
-            }).catch(() => {});
-          }
+          await _maybeNotifyLearningDeskDiscord(env, desk, notifyDiscord);
           recordCronSuccess(env, "learning_desk").catch(() => {});
         } catch (e) {
           console.error("[LEARNING_DESK nightly] threw:", String(e?.message || e).slice(0, 200));

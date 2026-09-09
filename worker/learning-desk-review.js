@@ -28,7 +28,24 @@ import {
 import { computeWindowStats, setupGroupKey } from "./edge-scorecard.js";
 
 export const LEARNING_DESK_KV = "timed:learning-desk:latest";
+export const LEARNING_DESK_DISCORD_FP_KV = "timed:learning-desk:last-discord-fp";
 const WORKHORSE_IDS = new Set(["tt_gap_reversal_long", "tt_gap_reversal_short"]);
+
+const ROUTINE_DESK_REASONS = new Set([
+  "recycled_discovery_note",
+  "already_in_effect",
+  "stale_discovery_increment",
+  "mangled_demotion_key",
+]);
+
+const KNOB_LABELS = {
+  deep_audit_investor_accumulate_strong_score_min: "Investor accumulate score floor",
+  deep_audit_trail_atr_mult: "Trailing-stop ATR multiple",
+  deep_audit_weekly_governor_block_widen: "Weekly governor block-widen",
+};
+
+const DECIDE_NEXT =
+  "Next: Mission Control learning queue, or POST /timed/admin/learning/proposals/decide (approve = pause this setup, reject = keep it live).";
 
 export function parseDemotionKey(configKey) {
   const raw = String(configKey || "");
@@ -550,21 +567,208 @@ export async function runLearningDeskCron(env, opts = {}) {
   });
 }
 
-export function formatLearningDeskDiscord(desk) {
-  const lines = [];
-  for (const d of desk?.decided || []) {
-    lines.push(`${String(d.desk || "desk").toUpperCase()} ${d.action} #${d.id ?? "—"} \`${d.config_key}\` (${d.reason})`);
+export function isLearningDeskApplyFailed(reason) {
+  return String(reason || "").startsWith("desk_apply_failed:");
+}
+
+export function isLearningDeskRoutineReason(reason) {
+  return ROUTINE_DESK_REASONS.has(String(reason || ""));
+}
+
+export function learningDeskSubjectLabel(row) {
+  const parsed = parseDemotionKey(row?.config_key);
+  if (parsed) {
+    const play = parsed.play_id
+      ? resolvePlay(parsed.play_id, parsed.direction)
+      : resolvePlay(parsed.display, parsed.direction);
+    const name = play?.label
+      || String(parsed.display || "").replace(/^TT\s+/i, "").trim()
+      || "Unknown setup";
+    return `${name} (${parsed.direction})`;
   }
+  const key = String(row?.config_key || "");
+  if (KNOB_LABELS[key]) return KNOB_LABELS[key];
+  const stripped = key.replace(/^deep_audit_/, "").replace(/_/g, " ").trim();
+  return stripped || "Unknown knob";
+}
+
+function escalateWhy(reason) {
+  const r = String(reason || "");
+  if (r === "demotion_mixed_windows") {
+    return "The desk will not auto-pause. 30-day and 90-day windows disagree — not a clean recovery and not a clean fail.";
+  }
+  if (r === "no_desk_rule") {
+    return "No automatic desk rule matches this knob.";
+  }
+  if (r === "discovery_needs_operator") {
+    return "Discovery suggested a knob change the desk will not auto-apply.";
+  }
+  if (r === "wow_unknown") {
+    return "Week-over-week governor state is unknown, so block-widen stays with the operator.";
+  }
+  return `The desk will not auto-decide (${r}).`;
+}
+
+function decidedLine(d) {
+  const label = learningDeskSubjectLabel(d);
+  const desk = String(d.desk || "desk").toUpperCase();
+  const key = `${d.action}:${d.reason}`;
+  if (key === "restore:setup_recovered_30d") {
+    return `${desk} restored ${label} — 30-day window is +EV. Demotion lifted; the setup can trade again.`;
+  }
+  if (key === "restore:calibration_family") {
+    return `${desk} restored ${label} — calibration family was bluntly blocked. Demotion lifted.`;
+  }
+  if (key === "restore:workhorse_protected") {
+    return `${desk} restored ${label} — workhorse stays live.`;
+  }
+  if (key === "reject:calibration_family") {
+    return `${desk} rejected a ${label} pause — calibration family stays live.`;
+  }
+  if (key === "reject:workhorse_protected") {
+    return `${desk} rejected a ${label} pause — workhorse stays live.`;
+  }
+  if (key === "approve:wow_regressing_block_widen") {
+    return `${desk} approved weekly block-widen (WoW regressing).`;
+  }
+  if (key === "reject:wow_not_regressing") {
+    return `${desk} rejected weekly block-widen (WoW not regressing).`;
+  }
+  if (key === "ack:still_severe_keep_blocked") {
+    return `${desk} kept the ${label} pause — still a mature bleeder.`;
+  }
+  if (d.action === "restore") return `${desk} restored ${label} (${d.reason}).`;
+  if (d.action === "approve") return `${desk} applied ${label} (${d.reason}).`;
+  if (d.action === "reject") return `${desk} rejected ${label} (${d.reason}).`;
+  if (d.action === "ack") return `${desk} acknowledged ${label} (${d.reason}).`;
+  return `${desk} ${d.action} ${label} (${d.reason}).`;
+}
+
+function applyFailedLine(e) {
+  const label = learningDeskSubjectLabel(e);
+  const raw = String(e.reason || "");
+  const infra = /D1/i.test(raw) ? "D1 overloaded or queued too long" : "transient apply error";
+  return `#${e.id ?? "—"} ${label} — apply did not persist (${infra}). Not a market decision. Desk retries next hour.`;
+}
+
+function extraRestoredRows(desk) {
   const decidedRestore = new Set(
     (desk?.decided || []).filter((d) => d.action === "restore").map((d) => d.config_key),
   );
-  for (const r of desk?.restored || []) {
-    if (decidedRestore.has(r.config_key)) continue;
-    lines.push(`CIO restore \`${r.config_key}\` ${r.play_id || ""}`.trim());
+  return (desk?.restored || []).filter((r) => !decidedRestore.has(r.config_key));
+}
+
+export function learningDeskDiscordFingerprint(desk) {
+  const decided = (desk?.decided || [])
+    .filter((d) => !isLearningDeskRoutineReason(d.reason))
+    .map((d) => `d:${d.action}:${d.id ?? ""}:${d.reason || ""}`)
+    .sort();
+  const restored = extraRestoredRows(desk)
+    .map((r) => `r:${r.config_key || ""}`)
+    .sort();
+  const escalated = (desk?.escalated || [])
+    .map((e) => `e:${e.id ?? ""}:${e.reason || ""}`)
+    .sort();
+  return [...decided, ...restored, ...escalated].join("|") || "empty";
+}
+
+export function learningDeskDiscordColor(desk) {
+  const realEscalate = (desk?.escalated || []).some((e) => !isLearningDeskApplyFailed(e.reason));
+  if (realEscalate) return 0xf59e0b;
+  const applyFailed = (desk?.escalated || []).some((e) => isLearningDeskApplyFailed(e.reason));
+  if (applyFailed) return 0x64748b;
+  return 0x14b8a6;
+}
+
+export function shouldPostLearningDeskDiscord(desk, lastFingerprint) {
+  const body = formatLearningDeskDiscord(desk);
+  const fingerprint = learningDeskDiscordFingerprint(desk);
+  if (!body) return { post: false, reason: "empty", body: "", fingerprint };
+  if (lastFingerprint && fingerprint === lastFingerprint) {
+    return { post: false, reason: "unchanged", body, fingerprint };
   }
-  for (const e of desk?.escalated || []) {
-    lines.push(`ESCALATE ${e.desk} #${e.id ?? "—"} \`${e.config_key}\` (${e.reason})`);
+  return { post: true, reason: "new", body, fingerprint };
+}
+
+/**
+ * Ops-lane Discord for desk triage. Not a live trade signal.
+ * Skips empty bodies and unchanged hourly escalate sets.
+ */
+export async function maybeNotifyLearningDeskDiscord(env, desk, notifyDiscord) {
+  const KV = env?.KV_TIMED || env?.KV;
+  let last = null;
+  if (KV?.get) {
+    try { last = await KV.get(LEARNING_DESK_DISCORD_FP_KV); } catch { last = null; }
   }
+  const plan = shouldPostLearningDeskDiscord(desk, last);
+  if (!plan.post) {
+    console.log(`[LEARNING_DESK discord] skip reason=${plan.reason}`);
+    return { posted: false, ...plan };
+  }
+  if (typeof notifyDiscord !== "function") {
+    return { posted: false, reason: "no_notify", ...plan };
+  }
+  try {
+    await notifyDiscord(env, {
+      title: "Learning desk — operator review",
+      description: plan.body,
+      color: learningDeskDiscordColor(desk),
+    }, "system");
+  } catch (e) {
+    console.warn("[LEARNING_DESK discord] notify failed:", String(e?.message || e).slice(0, 160));
+    return { posted: false, reason: "notify_failed", ...plan };
+  }
+  if (KV?.put) {
+    try {
+      await KV.put(LEARNING_DESK_DISCORD_FP_KV, plan.fingerprint, { expirationTtl: 7 * 24 * 3600 });
+    } catch { /* */ }
+  }
+  return { posted: true, ...plan };
+}
+
+export function formatLearningDeskDiscord(desk) {
+  const decided = (desk?.decided || []).filter((d) => !isLearningDeskRoutineReason(d.reason));
+  const extraRestored = extraRestoredRows(desk);
+  const applyFailed = (desk?.escalated || []).filter((e) => isLearningDeskApplyFailed(e.reason));
+  const needsDecision = (desk?.escalated || []).filter((e) => !isLearningDeskApplyFailed(e.reason));
+
+  if (!decided.length && !extraRestored.length && !applyFailed.length && !needsDecision.length) {
+    return "";
+  }
+
+  const lines = ["Not a live trade signal. Desk triage of learning proposals."];
+
+  if (needsDecision.length) {
+    lines.push("", "Needs a decision");
+    const groups = new Map();
+    for (const e of needsDecision) {
+      const k = `${e.config_key || ""}||${e.reason || ""}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(e);
+    }
+    for (const rows of groups.values()) {
+      const first = rows[0];
+      const ids = rows.map((r) => `#${r.id ?? "—"}`).join(", ");
+      const deskName = String(first.desk || "desk").toUpperCase();
+      lines.push(`${learningDeskSubjectLabel(first)} ${ids} — ${deskName}`);
+      lines.push(escalateWhy(first.reason));
+      lines.push(DECIDE_NEXT);
+    }
+  }
+
+  if (applyFailed.length) {
+    lines.push("", "Apply did not persist");
+    for (const e of applyFailed) lines.push(applyFailedLine(e));
+  }
+
+  if (decided.length || extraRestored.length) {
+    lines.push("", "Desk already acted");
+    for (const d of decided) lines.push(decidedLine(d));
+    for (const r of extraRestored) {
+      lines.push(`CIO restored ${learningDeskSubjectLabel(r)} — demotion lifted.`);
+    }
+  }
+
   return lines.join("\n").slice(0, 1900);
 }
 

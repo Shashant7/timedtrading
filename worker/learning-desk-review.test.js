@@ -5,6 +5,10 @@ import {
   planRecoveredRestores,
   planCalibrationRestores,
   formatLearningDeskDiscord,
+  learningDeskSubjectLabel,
+  learningDeskDiscordFingerprint,
+  shouldPostLearningDeskDiscord,
+  maybeNotifyLearningDeskDiscord,
 } from "./learning-desk-review.js";
 
 const NOW = Date.UTC(2026, 7, 27, 22, 0, 0);
@@ -158,15 +162,136 @@ describe("planRecoveredRestores", () => {
 });
 
 describe("formatLearningDeskDiscord", () => {
-  it("lists decided and leftover restores, not empty queues", () => {
+  const supportKey = "deep_audit_setup_demotion_TT Support Bounce_long";
+
+  it("returns empty when the queue is empty or only routine noise", () => {
     expect(formatLearningDeskDiscord({ decided: [], escalated: [], restored: [] })).toBe("");
+    expect(formatLearningDeskDiscord({
+      decided: [{
+        desk: "cto",
+        action: "reject",
+        id: 71,
+        config_key: "deep_audit_trail_atr_mult",
+        reason: "recycled_discovery_note",
+      }],
+      escalated: [],
+      restored: [],
+    })).toBe("");
+  });
+
+  it("names Support Bounce and tells the operator how to decide mixed windows", () => {
     const text = formatLearningDeskDiscord({
-      decided: [{ desk: "cio", action: "restore", id: 18, config_key: "deep_audit_setup_demotion_TT Support Bounce_long", reason: "setup_recovered_30d" }],
-      restored: [{ config_key: "deep_audit_setup_demotion_TT Support Bounce_long", play_id: "tt_n_test_support" }],
-      escalated: [{ desk: "cio", id: 99, config_key: "other", reason: "demotion_mixed_windows" }],
+      decided: [{
+        desk: "cio",
+        action: "restore",
+        id: 18,
+        config_key: supportKey,
+        reason: "setup_recovered_30d",
+      }],
+      restored: [{ config_key: supportKey, play_id: "tt_n_test_support" }],
+      escalated: [{
+        desk: "cio",
+        id: 68,
+        config_key: supportKey,
+        reason: "demotion_mixed_windows",
+      }, {
+        desk: "cio",
+        id: 70,
+        config_key: supportKey,
+        reason: "demotion_mixed_windows",
+      }],
     });
-    expect(text).toContain("CIO restore #18");
-    expect(text).toContain("ESCALATE cio #99");
-    expect(text.match(/Support Bounce/g)?.length).toBe(1);
+    expect(text).toContain("Not a live trade signal");
+    expect(text).toContain("Needs a decision");
+    expect(text).toContain("Support Bounce (long) #68, #70");
+    expect(text).toContain("approve = pause this setup");
+    expect(text).toContain("reject = keep it live");
+    expect(text).toContain("Desk already acted");
+    expect(text).toContain("CIO restored Support Bounce (long)");
+    expect(text).not.toContain("ESCALATE");
+    expect(text).not.toContain("deep_audit_setup_demotion_TT");
+    // Restore + leftover restore share one setup name in the acted section.
+    expect((text.match(/CIO restored Support Bounce/g) || []).length).toBe(1);
+  });
+
+  it("labels D1 apply failures as infra, not a trade escalate", () => {
+    const text = formatLearningDeskDiscord({
+      decided: [],
+      restored: [],
+      escalated: [{
+        desk: "coo",
+        id: 71,
+        action: "escalate",
+        config_key: "deep_audit_investor_accumulate_strong_score_min",
+        reason: "desk_apply_failed:D1_ERROR: D1 DB is overloaded. Requests queued for too long.",
+      }],
+    });
+    expect(text).toContain("Apply did not persist");
+    expect(text).toContain("Investor accumulate score floor");
+    expect(text).toContain("Not a market decision");
+    expect(text).not.toContain("ESCALATE");
+    expect(text).not.toContain("Needs a decision");
+  });
+
+  it("humanizes demotion keys", () => {
+    expect(learningDeskSubjectLabel({
+      config_key: supportKey,
+    })).toBe("Support Bounce (long)");
+  });
+});
+
+describe("learning desk Discord fingerprint", () => {
+  const desk = {
+    decided: [],
+    restored: [],
+    escalated: [{
+      desk: "cio",
+      id: 68,
+      config_key: "deep_audit_setup_demotion_TT Support Bounce_long",
+      reason: "demotion_mixed_windows",
+    }],
+  };
+
+  it("skips a second post of the same escalate set", () => {
+    const first = shouldPostLearningDeskDiscord(desk, null);
+    expect(first.post).toBe(true);
+    expect(first.body).toContain("Needs a decision");
+    const again = shouldPostLearningDeskDiscord(desk, first.fingerprint);
+    expect(again.post).toBe(false);
+    expect(again.reason).toBe("unchanged");
+    expect(learningDeskDiscordFingerprint(desk)).toBe(first.fingerprint);
+  });
+});
+
+describe("maybeNotifyLearningDeskDiscord", () => {
+  it("posts to the system lane once, then skips the same escalate set", async () => {
+    const calls = [];
+    const notify = async (_env, embed, lane) => { calls.push({ embed, lane }); };
+    const kv = new Map();
+    const env = {
+      KV: {
+        get: async (k) => kv.get(k) ?? null,
+        put: async (k, v) => { kv.set(k, v); },
+      },
+    };
+    const desk = {
+      decided: [],
+      restored: [],
+      escalated: [{
+        desk: "cio",
+        id: 68,
+        config_key: "deep_audit_setup_demotion_TT Support Bounce_long",
+        reason: "demotion_mixed_windows",
+      }],
+    };
+    const first = await maybeNotifyLearningDeskDiscord(env, desk, notify);
+    expect(first.posted).toBe(true);
+    expect(calls[0].lane).toBe("system");
+    expect(calls[0].embed.title).toBe("Learning desk — operator review");
+    expect(calls[0].embed.description).toContain("Needs a decision");
+    const second = await maybeNotifyLearningDeskDiscord(env, desk, notify);
+    expect(second.posted).toBe(false);
+    expect(second.reason).toBe("unchanged");
+    expect(calls).toHaveLength(1);
   });
 });
