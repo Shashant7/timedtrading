@@ -22,7 +22,8 @@ The user requested continuation after the first review. GitHub CI on
       within a compatible declared pullback setup; distinguish it in traces.
 - [x] Expose individual overlay contributions and cap adjustments at entry.
 - [x] Verify actual producer parity, directional perturbations and trace sums.
-- [ ] Publish this follow-up in PR #1442 without fitting new weights.
+- [x] Publish this follow-up in PR #1442 without fitting new weights
+      (`8de43a6`; published tree matches the verified local tree).
 
 This is a semantic correction pass. Current entry component data remains
 unavailable; no additional outcome claim is implied.
