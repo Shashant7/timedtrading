@@ -28,7 +28,7 @@ for this branch.
 - [x] Implement canonical candidate ranking and the offline chronological evaluator.
 - [x] Compare on the current closed ledger and document limits.
 - [x] Verify ranking, access controls, syntax and worker bundle.
-- [ ] Publish one ranking-only PR.
+- [x] Publish one ranking-only PR: [#1442](https://github.com/Shashant7/timedtrading/pull/1442).
 
 ## Initial findings
 
@@ -136,6 +136,10 @@ Ranking regression coverage includes 15 new candidate/calibration tests and
 one access-control test. Worker bundle, worker/API/bridge/Pages syntax checks,
 and the scoring-version guard pass. The bundler reports the pre-existing
 duplicate `KWEB` key in `sector-mapping.js`; that file is unchanged.
+
+Final local gate: **3,555 tests passed across 325 files**, using
+`npm test -- --maxWorkers=2`. The published implementation tree matches the
+tested local Git tree `fe6b6ad8af44b67cb9061973ce68762b62f34eeb`.
 
 The corrected order can change which entries receive scarce capacity. The
 cron also now honors `deep_audit_rank_formula` from current config, so confirm
