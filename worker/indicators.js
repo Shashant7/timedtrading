@@ -29,7 +29,7 @@ import { computeTdBoostForSide } from "./td-sequential-boost.js";
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
 // this version let us know exactly which logic produced them.
-export const SCORING_VERSION = "2.1.5-2026-09-09";
+export const SCORING_VERSION = "2.1.6-2026-09-09";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)
@@ -1729,6 +1729,12 @@ export function computeTfBundle(bars, anchors = null) {
   const breakdownBelowPrevLow = Number.isFinite(prevLow) && barLow < prevLow;
 
   const ath52w = {
+    // Entry checks need actual levels and completed preceding closes, not
+    // an intraday high/low excursion or an unavailable ctx.bundles object.
+    prev_high: Number.isFinite(prevHigh) ? prevHigh : null,
+    prev_low: Number.isFinite(prevLow) ? prevLow : null,
+    prev_close: Number.isFinite(pxPrev) ? pxPrev : null,
+    prev_prev_close: last >= 2 && Number.isFinite(closes[last - 2]) ? closes[last - 2] : null,
     high_252: Number.isFinite(high252) ? Math.round(high252 * 10000) / 10000 : null,
     low_252: Number.isFinite(low252) ? Math.round(low252 * 10000) / 10000 : null,
     pct_below_high_252: pctBelowHigh252 != null ? Math.round(pctBelowHigh252 * 100) / 100 : null,
@@ -1898,7 +1904,18 @@ export function computeTfBundle(bars, anchors = null) {
         && todayClose < todayOpen
         && (todayOpen - todayClose) / todayOpen > 0.005;
 
+      // Preceding completed sessions only. Today's partial reclaim must not
+      // erase the decline that the gap-entry falling-knife guard asks about.
+      const priorDecline = { consecutive_down: 0, drop_pct_by_days: {} };
+      for (let i = last - 1; i > 0; i--) {
+        const cur = closes[i], prev = closes[i - 1];
+        if (!(Number.isFinite(cur) && Number.isFinite(prev) && cur > 0 && prev > 0 && cur < prev)) break;
+        priorDecline.consecutive_down++;
+        priorDecline.drop_pct_by_days[priorDecline.consecutive_down] = ((prevCloseG - prev) / prev) * 100;
+      }
+
       gapReversal = {
+        prior_decline: priorDecline,
         gap_pct: Math.round(gapPct * 100) / 100,
         is_gap_down: isGapDown,
         is_gap_up: isGapUp,
@@ -2031,6 +2048,7 @@ export function computeTfBundle(bars, anchors = null) {
 
   return {
     px, pxPrev, barHigh, barLow, lastTs,
+    latest: { ts: lastTs, h: bars[last]?.h ?? null, l: bars[last]?.l ?? null, c: px },
     e3, e5, e8, e9, e12, e13, e20, e21, e34, e48, e50, e55, e72, e89, e180, e200, e233,
     eFast, eSlow,
     e21_slope_5bar_pct, e48_slope_10bar_pct,
@@ -4949,6 +4967,9 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     const priceAboveEma21 = Number.isFinite(b.px) && Number.isFinite(b.e21) ? b.px >= b.e21 : null;
 
     tfTech[tfLabel] = {
+      // Entry bar-position guards consume the actual bar, not a quote
+      // fallback or an absent latest/currentBar field.
+      latest: b.latest || null,
       ema: {
         stack: b.emaStack,
         depth: b.emaDepth || 0,

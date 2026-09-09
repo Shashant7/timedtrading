@@ -42,6 +42,19 @@ describe("play catalog", () => {
     expect(playLabel("tt_n_test_support")).toBe("Support Bounce");
   });
 
+  it("preserves stamped paper and unknown paths despite a core display label", () => {
+    expect(canonicalPlayId("tt_cloud_pivot_long", "TT Cloud Pivot", "LONG"))
+      .toBe("tt_cloud_pivot_long");
+    expect(canonicalPlayId("tt_cloud_pivot_short", "Cloud Pivot", "SHORT"))
+      .toBe("tt_cloud_pivot_short");
+    expect(canonicalPlayId("future_reclaim", "HTF Reclaim", "LONG"))
+      .toBe("future_reclaim");
+    expect(canonicalPlayId("tt_pullback", "Cloud Pivot", "LONG")).toBe("tt_pullback");
+    for (const missing of [null, "", " (unstamped) ", "(null)", "(none)", "(NONE)"]) {
+      expect(canonicalPlayId(missing, "Cloud Pivot", "LONG")).toBe("tt_cloud_pivot");
+    }
+  });
+
   it("swaps ATH/ATL when direction disagrees with the stored name", () => {
     expect(resolvePlay("Atl Breakdown", "LONG").id).toBe("tt_ath_breakout");
     expect(resolvePlay("tt_ath_breakout", "SHORT").id).toBe("tt_atl_breakdown");

@@ -26,8 +26,10 @@ export function checkPlayAdmission({ entryPath, setupName, direction } = {}) {
   const path = String(entryPath || "").trim();
   const name = String(setupName || "").trim();
 
-  const play = resolvePlay(path, direction) || resolvePlay(name, direction);
   const playId = canonicalPlayId(path, name, direction);
+  // Apply status to the same identity used by outcome cohorts. A paper
+  // sibling must not inherit a core play's restriction through display copy.
+  const play = resolvePlay(playId, direction);
 
   if (play) {
     if (play.status === PLAY_STATUS.PAUSED) {

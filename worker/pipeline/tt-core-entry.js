@@ -4,6 +4,7 @@
 // adds ticker-profile-aware quality filters, and mean reversion path.
 
 import { signalFreshness } from "../indicators.js";
+import { beginSetupEvaluation, observedSetupVolume, meetsSetupVolume, breakoutEvidence, setupBarPosition, priorDeclineBlocksGap } from "./setup-evidence.js";
 import { getEasternParts } from "../market-calendar.js";
 import { computePdzSizeMult } from "./sizing.js";
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "../focus-tier.js";
@@ -268,6 +269,8 @@ function continuationProofActive({
 export function evaluateEntry(ctx) {
   const { side, tf, scores, flags, config, raw, pdz, regime, movePhase, gap, cvg, entrySupport } = ctx;
   const d = raw;
+  const setupEvaluation = beginSetupEvaluation(d, ctx);
+  const setupVolume = setupEvaluation?.volume || observedSetupVolume(d);
   const traceCase = resolveTraceCase(ctx);
   const gapContext = gap || d?.overnight_gap || null;
   const cvgContext = cvg || d?.intraday_cvg || null;
@@ -425,10 +428,15 @@ export function evaluateEntry(ctx) {
     });
   };
   const rejectEntry = (reason, metadata = {}) => {
+    if (setupEvaluation) {
+      setupEvaluation.result = "rejected";
+      setupEvaluation.reason = reason;
+    }
     traceDecision("reject", { reason, metadata });
     return reject(reason, metadata);
   };
   const qualifyEntry = (path, confidence, reason, sizing, metadata) => {
+    if (setupEvaluation) setupEvaluation.attempted_path = path;
     // PHASE 4.1 SHORT Option A: when the path explicitly encodes its side
     // (suffix `_short` or `_long`), trust that for downstream admission /
     // logging rather than the top-level inferred `side`. This makes the
@@ -732,6 +740,11 @@ export function evaluateEntry(ctx) {
       } catch (_admErr) {
         // Admission failure must NOT block legit entries. Default to allow.
       }
+    }
+    if (setupEvaluation) {
+      setupEvaluation.selected_path = path;
+      setupEvaluation.result = "qualified";
+      setupEvaluation.reason = reason;
     }
     traceDecision("qualify", { path, confidence, reason, metadata });
     return qualify(path, confidence, reason, sizing, metadata);
@@ -1778,8 +1791,7 @@ export function evaluateEntry(ctx) {
     const _minRvol = Number(daCfg.deep_audit_tt_momentum_min_rvol);
     const _minBarPos = Number(daCfg.deep_audit_tt_momentum_bar_position_min);
     if (Number.isFinite(_minRvol) && _minRvol > 0) {
-      const _rvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
-      if (_rvol > 0 && _rvol < _minRvol) {
+      if (!meetsSetupVolume(setupVolume, _minRvol)) {
         momentumTrigger = false;
       }
     }
@@ -1788,11 +1800,11 @@ export function evaluateEntry(ctx) {
       // LONG entries: want close in upper (60%+) of bar (strong buying)
       // SHORT entries: want close in lower (40%- for LONG side) of bar
       const bar = m10?.latest || m10?.currentBar || null;
-      const high = Number(bar?.h ?? bar?.high);
-      const low = Number(bar?.l ?? bar?.low);
-      const close = Number(bar?.c ?? bar?.close ?? d?.price);
-      if (Number.isFinite(high) && Number.isFinite(low) && Number.isFinite(close) && high > low) {
-        const pos = (close - low) / (high - low);
+      const pos = setupBarPosition(bar);
+      if (setupEvaluation) setupEvaluation.momentum_bar_position = { value: pos, floor: _minBarPos };
+      if (pos == null || _minBarPos > 1) {
+        momentumTrigger = false;
+      } else {
         if (side === "LONG" && pos < _minBarPos) momentumTrigger = false;
         if (side === "SHORT" && pos > (1 - _minBarPos)) momentumTrigger = false;
       }
@@ -1809,6 +1821,9 @@ export function evaluateEntry(ctx) {
   if (laggingH1BreakoutLong && !momentumTrigger && !pullbackTrigger && !reclaimTrigger) {
     reclaimTrigger = true;
   }
+  if (setupEvaluation) setupEvaluation.cloud_triggers = {
+    momentum: momentumTrigger, pullback: pullbackTrigger, reclaim: reclaimTrigger,
+  };
 
   // ──────────────────────────────────────────────────────────────────────
   // V16 SETUP #4 (2026-04-28) — ATH/52w BREAKOUT TRIGGER (Ripster Setup #4)
@@ -1859,6 +1874,7 @@ export function evaluateEntry(ctx) {
   const _momentumEarlyQualify = String(
     daCfg.deep_audit_momentum_breakout_early_qualify_enabled ?? "true",
   ) === "true";
+  if (setupEvaluation) setupEvaluation.structural_evaluation.ath = _athBreakoutEnabled ? "evaluated" : "disabled";
   if (_athBreakoutEnabled) {
     const _athDs = d?.daily_structure || {};
     const _ath = _athDs?.ath52w;
@@ -1870,7 +1886,7 @@ export function evaluateEntry(ctx) {
       const _athTightBaseMax = Number(daCfg.deep_audit_ath_breakout_tight_base_max_pct ?? 5.0);
       const _athMinRvolStock = Number(daCfg.deep_audit_ath_breakout_min_rvol ?? 1.0);
       const _athMinRvolEtf = Number(daCfg.deep_audit_ath_breakout_min_rvol_etf ?? 1.5);
-      const _rvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+      const _rvol = setupVolume.value;
       const _stateUpper = String(d?.state || "").toUpperCase();
 
       // V16 Setup #4 refinement: ETF cohort needs HIGHER rvol because
@@ -1881,25 +1897,13 @@ export function evaluateEntry(ctx) {
       );
       const _athMinRvol = _isEtfCohort ? _athMinRvolEtf : _athMinRvolStock;
 
-      // V16 Setup #4 refinement: require FOLLOW-THROUGH on the previous
-      // bar — today's bar must close above prior-day high AND yesterday
-      // (or 2 bars ago) was already trending up. This filters single-bar
-      // wick breakouts that immediately reverse (Oct 8/9/15/20/21/23
-      // false breakouts pattern in the smoke).
-      // Approximated by checking that prior bar's close > prior-prior
-      // close (sustained move into the breakout). This is a soft filter
-      // — if data is unavailable, we don't block.
+      // Hold above/below the prior level NOW, plus directional progress in
+      // the preceding completed session when follow-through is required.
+      // A missing bundle must not silently disable the configured check.
       const _athRequireFollowThrough = String(
         daCfg.deep_audit_ath_breakout_require_follow_through ?? "true"
       ) === "true";
-      const _bD = ctx?.bundles?.D || ctx?.daily || null;
-      const _ftPrevClose = Number(_bD?.pxPrev);
-      const _ftPx = Number(_bD?.px);
-      const _ftBars = ctx?.bundles?.D ? null : null; // not directly accessible here
-      const _hasFollowThrough = !_athRequireFollowThrough
-        || !Number.isFinite(_ftPrevClose)
-        || !Number.isFinite(_ftPx)
-        || _ftPx > _ftPrevClose; // current price > prior close = continued strength
+      const _breakoutEvidence = breakoutEvidence(_ath, ctx.price, side, _athRequireFollowThrough);
 
       if (side === "LONG") {
         const _stateAllowsLong =
@@ -1916,20 +1920,20 @@ export function evaluateEntry(ctx) {
           && _ath.tight_base_5d_pct != null
           && _ath.tight_base_5d_pct < _athTightBaseMax
           && _stateAllowsLong
-          && (_rvol === 0 || _rvol >= _athMinRvol)
-          && _hasFollowThrough;
+          && meetsSetupVolume(setupVolume, _athMinRvol)
+          && _breakoutEvidence.eligible;
         if (_conditionsLong) {
           athBreakoutTrigger = true;
         } else if (
           _momentumEarlyQualify
           && String(daCfg.deep_audit_ath_breakout_relax_tight_base_for_momentum ?? "true") === "true"
           && d?.flags?.momentum_elite === true
-          && (_rvol === 0 || _rvol >= Math.max(1.5, _athMinRvol))
+          && meetsSetupVolume(setupVolume, Math.max(1.5, _athMinRvol))
           && _stateAllowsLong
           && _ath.pct_below_high_252 != null
           && _ath.pct_below_high_252 < Number(daCfg.deep_audit_momentum_breakout_near_high_pct ?? 8.0)
           && _ath.breakout_above_prev_high === true
-          && _hasFollowThrough
+          && _breakoutEvidence.eligible
         ) {
           // Mega-move forensics (ARM/AMD/SOXL): tight-base filter blocked
           // valid momentum-elite ATH continuations. Allow when volume confirms.
@@ -1943,12 +1947,6 @@ export function evaluateEntry(ctx) {
           || _stateUpper === "HTF_BEAR_LTF_BEAR"
           || _stateUpper === "TRANSITIONAL_BEAR"
           || _stateUpper === "EARLY_BEAR";
-        // For SHORT: follow-through means current price < prior close
-        // (sustained downside).
-        const _hasFollowThroughShort = !_athRequireFollowThrough
-          || !Number.isFinite(_ftPrevClose)
-          || !Number.isFinite(_ftPx)
-          || _ftPx < _ftPrevClose;
         const _conditionsShort =
           _ath.pct_above_low_252 != null
           && _ath.pct_above_low_252 < _athNearMax
@@ -1956,8 +1954,8 @@ export function evaluateEntry(ctx) {
           && _ath.tight_base_5d_pct != null
           && _ath.tight_base_5d_pct < _athTightBaseMax
           && _stateAllowsShort
-          && (_rvol === 0 || _rvol >= _athMinRvol)
-          && _hasFollowThroughShort;
+          && meetsSetupVolume(setupVolume, _athMinRvol)
+          && _breakoutEvidence.eligible;
         if (_conditionsShort) {
           athBreakoutTrigger = true;
         }
@@ -1984,7 +1982,9 @@ export function evaluateEntry(ctx) {
         rvol: _rvol,
         is_etf_cohort: _isEtfCohort,
         rvol_min: _athMinRvol,
-        follow_through: _hasFollowThrough,
+        follow_through: _breakoutEvidence.preceding_session_aligned,
+        breakout_evidence: _breakoutEvidence,
+        volume_evidence: setupVolume,
       };
     }
   }
@@ -2010,19 +2010,20 @@ export function evaluateEntry(ctx) {
   //   deep_audit_range_reversal_min_rvol = 1.0
   //   deep_audit_range_reversal_min_touches = 2
   const _rangeRevEnabled = String(daCfg.deep_audit_range_reversal_enabled ?? "true") === "true";
+  if (setupEvaluation) setupEvaluation.structural_evaluation.range = !_rangeRevEnabled ? "disabled" : athBreakoutTrigger ? "preempted" : "evaluated";
   if (_rangeRevEnabled && !athBreakoutTrigger) {
     const _rrDs = d?.daily_structure || {};
     const _rb = _rrDs?.range_box;
     if (_rb && _rb.is_valid_range) {
       const _rrMinRvol = Number(daCfg.deep_audit_range_reversal_min_rvol ?? 1.0);
       const _rrMinTouches = Number(daCfg.deep_audit_range_reversal_min_touches ?? 2);
-      const _rrRvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+      const _rrRvol = setupVolume.value;
 
       if (side === "LONG") {
         const _rrConditionsLong =
           _rb.long_setup_active === true
           && _rb.low_touches >= _rrMinTouches
-          && (_rrRvol === 0 || _rrRvol >= _rrMinRvol);
+          && meetsSetupVolume(setupVolume, _rrMinRvol);
         if (_rrConditionsLong) {
           rangeReversalTrigger = true;
         }
@@ -2030,7 +2031,7 @@ export function evaluateEntry(ctx) {
         const _rrConditionsShort =
           _rb.short_setup_active === true
           && _rb.high_touches >= _rrMinTouches
-          && (_rrRvol === 0 || _rrRvol >= _rrMinRvol);
+          && meetsSetupVolume(setupVolume, _rrMinRvol);
         if (_rrConditionsShort) {
           rangeReversalTrigger = true;
         }
@@ -2050,6 +2051,8 @@ export function evaluateEntry(ctx) {
         long_setup_active: _rb.long_setup_active,
         short_setup_active: _rb.short_setup_active,
         rvol: _rrRvol,
+        volume_evidence: setupVolume,
+        rvol_min: _rrMinRvol,
       };
     }
   }
@@ -2064,12 +2067,13 @@ export function evaluateEntry(ctx) {
   // Volume confirms (rvol >= 1.2 default — institutional flow).
   // ──────────────────────────────────────────────────────────────────────
   const _gapRevEnabled = String(daCfg.deep_audit_gap_reversal_enabled ?? "true") === "true";
+  if (setupEvaluation) setupEvaluation.structural_evaluation.gap = !_gapRevEnabled ? "disabled" : (athBreakoutTrigger || rangeReversalTrigger) ? "preempted" : "evaluated";
   if (_gapRevEnabled && !athBreakoutTrigger && !rangeReversalTrigger) {
     const _grDs = d?.daily_structure || {};
     const _gr = _grDs?.gap_reversal;
     if (_gr) {
       const _grMinRvol = Number(daCfg.deep_audit_gap_reversal_min_rvol ?? 1.2);
-      const _grRvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+      const _grRvol = setupVolume.value;
       const _grMinGap = Number(daCfg.deep_audit_gap_reversal_min_gap_pct ?? 1.5);
 
       // P0.7.183 (2026-05-15) — Anti-falling-knife filter.
@@ -2090,7 +2094,16 @@ export function evaluateEntry(ctx) {
       const _grKnifeMinDays = Number(daCfg.deep_audit_gap_reversal_knife_min_consecutive_down) || 3;
       const _grKnifeMaxDrop = Number(daCfg.deep_audit_gap_reversal_knife_max_drop_pct) || -5.0;
       if (_grKnifeEnabled && side === "LONG") {
-        try {
+        if (_gr.prior_decline) {
+          _grBlockedFallingKnife = priorDeclineBlocksGap(_gr.prior_decline, _grKnifeMinDays, _grKnifeMaxDrop);
+          if (_grBlockedFallingKnife) d.__gap_reversal_knife_block = {
+            consecutiveDown: _gr.prior_decline.consecutive_down,
+            cumDropPct: _gr.prior_decline.drop_pct_by_days[_grKnifeMinDays],
+            threshold: _grKnifeMaxDrop,
+            minConsecutive: _grKnifeMinDays,
+            source: "preceding_completed_sessions",
+          };
+        } else try {
           // Use rawBars D from the bundle (last N+1 daily closes)
           const _dailyBars = Array.isArray(d?.rawBars?.D) ? d.rawBars.D : (Array.isArray(d?.bundles?.D?.bars) ? d.bundles.D.bars : []);
           const _recent = _dailyBars.slice(-(_grKnifeMinDays + 2)); // need N+2 to compute N consecutive closes
@@ -2122,11 +2135,11 @@ export function evaluateEntry(ctx) {
 
       if (side === "LONG" && _gr.long_setup_active && !_grBlockedFallingKnife
           && Math.abs(_gr.gap_pct) >= _grMinGap
-          && (_grRvol === 0 || _grRvol >= _grMinRvol)) {
+          && meetsSetupVolume(setupVolume, _grMinRvol)) {
         gapReversalTrigger = true;
       } else if (side === "SHORT" && _gr.short_setup_active
           && Math.abs(_gr.gap_pct) >= _grMinGap
-          && (_grRvol === 0 || _grRvol >= _grMinRvol)) {
+          && meetsSetupVolume(setupVolume, _grMinRvol)) {
         gapReversalTrigger = true;
       }
 
@@ -2169,7 +2182,7 @@ export function evaluateEntry(ctx) {
           && _gr.short_setup_active === true
           && _gr.long_setup_active !== true
           && Math.abs(_gr.gap_pct) >= _grMinGap
-          && (_grRvol === 0 || _grRvol >= _grMinRvol)) {
+          && meetsSetupVolume(setupVolume, _grMinRvol)) {
         gapReversalTrigger = true;
         _gapRevShortFlipped = true;
         // Local mutate of `side` is unsafe (it's a destructured const) —
@@ -2191,6 +2204,10 @@ export function evaluateEntry(ctx) {
         faded: _gr.faded_from_up,
         partial_fade: _gr.partial_fade_up,
         rvol: _grRvol,
+        falling_knife_blocked: _grBlockedFallingKnife,
+        prior_decline: _gr.prior_decline || null,
+        volume_evidence: setupVolume,
+        rvol_min: _grMinRvol,
       };
     }
   }
@@ -2208,13 +2225,14 @@ export function evaluateEntry(ctx) {
   // before the bounce.
   // ──────────────────────────────────────────────────────────────────────
   const _nTestEnabled = String(daCfg.deep_audit_n_test_support_enabled ?? "true") === "true";
+  if (setupEvaluation) setupEvaluation.structural_evaluation.n_test = !_nTestEnabled ? "disabled" : (athBreakoutTrigger || rangeReversalTrigger || gapReversalTrigger) ? "preempted" : "evaluated";
   if (_nTestEnabled && !athBreakoutTrigger && !rangeReversalTrigger && !gapReversalTrigger) {
     const _ntDs = d?.daily_structure || {};
     const _nts = _ntDs?.n_test_support;
     if (_nts) {
       const _ntMinTouches = Number(daCfg.deep_audit_n_test_min_touches ?? 3);
       const _ntMinRvol = Number(daCfg.deep_audit_n_test_min_rvol ?? 1.0);
-      const _ntRvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
+      const _ntRvol = setupVolume.value;
 
       // ── Sequence confirmation (2026-08-16) ───────────────────────────
       // Touching a level is a LOCATION, not a signal. This trigger fired on
@@ -2259,13 +2277,13 @@ export function evaluateEntry(ctx) {
       if (side === "LONG" && _nts.support
           && _nts.support.long_setup_active
           && _nts.support.n_touches >= _ntMinTouches
-          && (_ntRvol === 0 || _ntRvol >= _ntMinRvol)
+          && meetsSetupVolume(setupVolume, _ntMinRvol)
           && _ntConfirmOk) {
         nTestSupportTrigger = true;
       } else if (side === "SHORT" && _nts.resistance
           && _nts.resistance.short_setup_active
           && _nts.resistance.n_touches >= _ntMinTouches
-          && (_ntRvol === 0 || _ntRvol >= _ntMinRvol)
+          && meetsSetupVolume(setupVolume, _ntMinRvol)
           && _ntConfirmOk) {
         nTestSupportTrigger = true;
       }
@@ -2285,6 +2303,8 @@ export function evaluateEntry(ctx) {
         support: _nts.support,
         resistance: _nts.resistance,
         rvol: _ntRvol,
+        volume_evidence: setupVolume,
+        rvol_min: _ntMinRvol,
       };
     }
   }

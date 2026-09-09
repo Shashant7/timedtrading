@@ -43,6 +43,16 @@ describe("setupGroupKey", () => {
 });
 
 describe("groupTradesBySetup", () => {
+  it("does not let paper siblings contaminate the core outcome cohort", () => {
+    const grouped = groupTradesBySetup([
+      { entry_path: "tt_cloud_pivot", setup_name: "TT Cloud Pivot", direction: "LONG", ...W(50) },
+      { entry_path: "tt_cloud_pivot_long", setup_name: "TT Cloud Pivot", direction: "LONG", ...L(10) },
+    ], 1);
+    expect(grouped).toHaveLength(2);
+    expect(grouped.find(s => s.setup === "tt_cloud_pivot").stats.pnl_usd).toBe(50);
+    expect(grouped.find(s => s.setup === "tt_cloud_pivot_long").stats.pnl_usd).toBe(-10);
+  });
+
   it("groups 30d vs 90d independently", () => {
     const rows = [
       { setup_name: "TT Support Bounce", direction: "LONG", status: "WIN", pnl: 50, pnl_pct: 1 },

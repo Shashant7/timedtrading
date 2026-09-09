@@ -13762,16 +13762,14 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     // 5 Ripster setup families were eligible at this entry. This is
     // the data foundation for context-aware setup selection.
     //
-    // Each diag is stamped by the trigger evaluation block in
-    // tt-core-entry.js even when its trigger doesn't fire — so we
-    // know not just which path was selected but ALSO which alternatives
-    // were available. Combined with regime/state/structure data on
-    // tickerData, this lets us post-hoc analyze: "in regime X with
-    // structure Y, when setups A and B were both eligible, did we
-    // pick the better one?"
+    // Trigger blocks short-circuit. A missing diag can mean not reached or
+    // preempted, not failed eligibility. The evaluation trace distinguishes
+    // those cases and records independent raw shapes; neither raw matches
+    // nor initial cloud triggers prove that every alternative was admissible.
     const _setupSnapshot = {
       // Selected path
       selected_path: entry.path,
+      evaluation: tickerData?.__setup_evaluation || null,
       selected_reason: entry.reason,
       selected_confidence: entry.confidence,
       // Per-setup eligibility diagnostics (from tt-core-entry triggers)
@@ -27801,6 +27799,7 @@ async function processTradeSimulation(
                   base.setup_snapshot = {
                     // 1. Selection + setup eligibility
                     selected_path: entryPath,
+                    evaluation: tickerData?.__setup_evaluation || null,
                     ath_breakout: tickerData?.__ath_breakout_diag || null,
                     range_reversal: tickerData?.__range_reversal_diag || null,
                     gap_reversal: tickerData?.__gap_reversal_diag || null,
@@ -56746,7 +56745,7 @@ export default {
           // the debugging tools actually look.
           const _D1_STRIP = [
             "_env", "atr_levels", "_tickerProfile", "tf_candles", "_marketInternals", "market_internals", "ichimoku_map", "execution_profile", "fuel", "st_support", "liq_4h",
-            "__rank_trace", "__rank_trace_json", "__entry_setup_snapshot", "__focus_conviction_breakdown", "__adaptive_lineage", "__phase_c_loop_events",
+            "__rank_trace", "__rank_trace_json", "__entry_setup_snapshot", "__setup_evaluation", "__focus_conviction_breakdown", "__adaptive_lineage", "__phase_c_loop_events",
           ];
           for (const _tObj of Object.values(data)) {
             for (const _sf of _D1_STRIP) delete _tObj[_sf];

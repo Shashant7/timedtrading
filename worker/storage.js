@@ -200,6 +200,7 @@ const D1_MINIMAL_KEYS = [
   "expected_return_pct", "risk_pct", "scoring_version",
   "leading_ltf", "lead_intraday_tf",
   "entry_decision", "entry_ref", "entry_change_pct", "entry_quality",
+  "__setup_evaluation",
   "tp_target_price", "tp_max_price", "tp_target_pct", "tp_max_pct",
   "tp_trim", "tp_exit", "tp_runner", "tp_likely",
   "rr_now_likely", "rr_entry_likely", "sl_dynamic",

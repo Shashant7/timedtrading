@@ -120,6 +120,10 @@ export function buildSequenceTrailSnapshot(payload = {}) {
     saty_phase_pct: payload.saty_phase_pct ?? payload.phase_pct ?? null,
     state: payload.state ?? null,
     kanban_stage: payload.kanban_stage ?? null,
+    // Bounded per-evaluation trace keeps rejected/preempted observations
+    // available when the existing trail writer is enabled. It is NOT a
+    // sequence or paper admission verdict; its own timestamp/scope apply.
+    setup_evaluation: payload.__setup_evaluation || null,
     htf_score: payload.htf_score ?? null,
     ltf_score: payload.ltf_score ?? null,
     pdz_zone_D: payload.pdz_zone_D ?? null,
