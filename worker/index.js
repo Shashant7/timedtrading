@@ -107529,6 +107529,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             daCfg: env._deepAuditConfig,
           });
           console.log(`[LEARNING_DESK nightly] scanned=${desk.scanned ?? 0} decided=${(desk.decided || []).length} escalated=${(desk.escalated || []).length} restored=${(desk.restored || []).length}`);
+          // Ops lane (#system-alerts), not #trade-signals. Skips unchanged escalates.
           await _maybeNotifyLearningDeskDiscord(env, desk, notifyDiscord);
           recordCronSuccess(env, "learning_desk").catch(() => {});
         } catch (e) {
