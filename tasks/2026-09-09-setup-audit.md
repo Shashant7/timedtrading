@@ -9,9 +9,9 @@ samples, change priority, or tune new numeric thresholds on old selected trades.
 
 Audited base: 14c7c2e on main, following merged ranking PR #1442. Rebased for
 publication onto 84e0619; the intervening commit changes only Pine Seeds data.
-Separate feature PR.
-No deployment, production replay, model-config write, broker action, sizing
-change or exit-policy change was performed. Existing configured volume and
+**Merged** ([#1444](https://github.com/Shashant7/timedtrading/pull/1444),
+`400e021`) and **deployed** 2026-09-09 to monolith both envs + tt-engine.
+Live `SCORING_VERSION` is `2.1.6-2026-09-09`. Existing configured volume and
 momentum requirements now enforce their stated requirements; this can change the
 admitted trade set. Existing learning-proposals remains the policy-application bus.
 
