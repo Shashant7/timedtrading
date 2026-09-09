@@ -301,13 +301,17 @@ export function canAutoDemotePlay(raw, direction = null) {
   return { ok: true, reason: "mature_bleeder" };
 }
 
-/** Prefer stamped path, then setup_name — both resolve to the same id. */
+/**
+ * An executed path owns identity, including paths outside the core catalog.
+ * Only unstamped history may fall back to a display label. In particular,
+ * tt_cloud_pivot_long (paper sibling) is not tt_cloud_pivot (core), even when
+ * both tickets carry the display label "TT Cloud Pivot".
+ */
 export function canonicalPlayId(entryPath, setupName, direction = null) {
   const path = String(entryPath || "").trim();
-  const unstamped = !path || path === "(unstamped)" || path === "(null)";
-  const fromPath = unstamped ? null : resolvePlay(path, direction);
-  const fromSetup = resolvePlay(setupName, direction);
-  return (fromPath || fromSetup)?.id || (unstamped ? null : path) || null;
+  const unstamped = !path || /^(?:\((?:unstamped|null|none)\))$/i.test(path);
+  if (!unstamped) return resolvePlay(path, direction)?.id || path;
+  return resolvePlay(setupName, direction)?.id || null;
 }
 
 export function demotionLabelForPath(path) {

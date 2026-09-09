@@ -79,6 +79,16 @@ describe("checkPlayAdmission — allowed outcomes are observable", () => {
     expect(r.play_id).toBe("ema_regime_confirmed_long");
     expect(r.identity_missing).toBe(false);
   });
+
+  it("does not assign a core restriction to a distinctly stamped paper sibling", () => {
+    const r = checkPlayAdmission({
+      entryPath: "tt_cloud_pivot_long", setupName: "TT Cloud Pivot", direction: "LONG",
+    });
+    expect(r.play_id).toBe("tt_cloud_pivot_long");
+    expect(r.reason).toBe("play_not_in_catalog");
+    expect(r.restricted).toBe(false);
+    expect(checkPlayAdmission({ entryPath: "tt_cloud_pivot", direction: "LONG" }).restricted).toBe(true);
+  });
 });
 
 describe("checkPlayAdmission — direction pairing", () => {
