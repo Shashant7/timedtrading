@@ -197,6 +197,7 @@ describe("paper family standalone entry", () => {
     expect(src).toContain("stampPaperFamilyOnTrade");
     expect(src).toContain("qty: Number(trade.shares)");
     expect(src).toContain("forwardOrderToBridge");
+    expect(src).toContain("entry_window:late_day_paper_family");
   });
 
   it("lets Cloud Pivot exits attach to the standalone path, not a core path", () => {

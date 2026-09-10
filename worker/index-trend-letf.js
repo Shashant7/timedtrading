@@ -71,6 +71,38 @@ export function shouldActivateIndexTrendLetf({
   return { activate: false, reason: "no_trend_signal", horizon };
 }
 
+/** Swing-floor stop distance: at least 1.5%, or 2.5× ATR when that is wider. */
+export function indexTrendSwingStopPct(atrPct = 0.012) {
+  return Math.max(0.015, (Number(atrPct) || 0.012) * 2.5);
+}
+
+/**
+ * Resolve the underlying stop for an index-trend book.
+ * Day-trade / OR `sl` values tighter than the swing floor are rejected
+ * (TQQQ W36: QQQ 711.8 → sl 710.26 = 0.22% instead of ~1.5%).
+ * A wider-than-floor `sl` is kept.
+ */
+export function resolveIndexTrendStopUnderlying({
+  direction,
+  price,
+  atrPct = 0.012,
+  sl,
+} = {}) {
+  const px = Number(price);
+  const dir = direction === "SHORT" ? "SHORT" : "LONG";
+  if (!(px > 0)) return null;
+  const stopPct = indexTrendSwingStopPct(atrPct);
+  const floor = dir === "LONG" ? px * (1 - stopPct) : px * (1 + stopPct);
+  const candidate = Number(sl);
+  if (!(Number.isFinite(candidate) && candidate > 0)) {
+    return Math.round(floor * 100) / 100;
+  }
+  const tighter = dir === "LONG"
+    ? candidate > floor + 1e-9
+    : candidate < floor - 1e-9;
+  return Math.round((tighter ? floor : candidate) * 100) / 100;
+}
+
 /** Management doctrine — wider than day-trade options; ride, trim, DCA. */
 export function buildIndexTrendManagement({
   direction,
@@ -83,10 +115,13 @@ export function buildIndexTrendManagement({
   const px = Number(price);
   const atr = Number(atrPct) || 0.012;
   const dir = direction === "SHORT" ? "SHORT" : "LONG";
-  const stopPct = Math.max(0.015, atr * 2.5);
-  const stopUnderlying = Number.isFinite(sl) && sl > 0
-    ? sl
-    : (dir === "LONG" ? px * (1 - stopPct) : px * (1 + stopPct));
+  const stopPct = indexTrendSwingStopPct(atr);
+  const stopUnderlying = resolveIndexTrendStopUnderlying({
+    direction: dir,
+    price: px,
+    atrPct: atr,
+    sl,
+  });
   const targetUnderlying = Number.isFinite(tp1) && tp1 > 0
     ? tp1
     : (dir === "LONG" ? px * (1 + stopPct * 2) : px * (1 - stopPct * 2));
@@ -114,7 +149,7 @@ export function buildIndexTrendManagement({
       ? `FSD month-end target (${deadlineLabel}) is guidance — hold until invalidation or target`
       : "Invalidation or ST flip",
     target_deadline_ms: deadlineMs,
-    doctrine_version: "index-trend-letf-1",
+    doctrine_version: "index-trend-letf-2",
   };
 }
 

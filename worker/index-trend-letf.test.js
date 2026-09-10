@@ -3,6 +3,7 @@ import {
   buildIndexTrendLetfPlay,
   buildIndexTrendManagement,
   buildIndexTrendSection,
+  resolveIndexTrendStopUnderlying,
   shouldActivateIndexTrendLetf,
 } from "./index-trend-letf.js";
 
@@ -77,5 +78,33 @@ describe("index-trend-letf", () => {
     });
     expect(mgmt.stop_underlying).toBeLessThan(500);
     expect(mgmt.trim_ladder[0].at_r).toBe(1);
+  });
+
+  it("rejects a day-trade sl tighter than the 1.5% swing floor (TQQQ W36)", () => {
+    const stop = resolveIndexTrendStopUnderlying({
+      direction: "LONG",
+      price: 711.8,
+      atrPct: 0.012,
+      sl: 710.26,
+    });
+    expect(stop).toBeCloseTo(711.8 * (1 - 0.03), 1);
+    expect(stop).toBeLessThan(710.26);
+    const mgmt = buildIndexTrendManagement({
+      direction: "LONG",
+      price: 711.8,
+      atrPct: 0.012,
+      sl: 710.26,
+    });
+    expect(mgmt.stop_underlying).toBe(stop);
+  });
+
+  it("keeps a wider-than-floor sl", () => {
+    const stop = resolveIndexTrendStopUnderlying({
+      direction: "LONG",
+      price: 711.8,
+      atrPct: 0.012,
+      sl: 690,
+    });
+    expect(stop).toBe(690);
   });
 });

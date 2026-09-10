@@ -6,12 +6,12 @@ import { pickPreferredLetfTicker } from "./letf-vehicles.js";
 import { INDEX_TREND_TICKERS } from "./index-trend-letf.js";
 import { loadDayTradeBook } from "./option-day-trade-alerts.js";
 import { loadIndexTrendBook } from "./index-trend-alerts.js";
+import { indexTrendBookIsLive } from "./index-trend-paper.js";
 import { HARD_STOP_PCT } from "./option-day-trade-plan.js";
 import { readMarks, pickFreshMarkMid, buildOccSymbol } from "./options-marks.js";
 
 function bookIsLive(book) {
-  const status = String(book?.status || "");
-  return status === "open" || status === "trimmed";
+  return indexTrendBookIsLive(book);
 }
 
 function num(v) {

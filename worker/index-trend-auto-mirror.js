@@ -10,8 +10,13 @@ import {
   releaseDailyCounter,
   releaseVehicleCounter,
 } from "./options-auto-mirror.js";
-import { defaultIndexTrendPaperShares } from "./index-trend-paper.js";
+import { defaultIndexTrendPaperShares, indexTrendBookIsLive, isPrematureIndexTrendInvalidation } from "./index-trend-paper.js";
 import { isNyRegularMarketOpenStatic } from "./market-calendar.js";
+import {
+  readIndexTrendActions,
+  loadIndexTrendBook,
+  maybeReviveIndexTrendBook,
+} from "./index-trend-alerts.js";
 
 const VEHICLE_KEY = "index_trend_letf";
 const MIRROR_TTL = 21 * 86400;
@@ -20,6 +25,10 @@ const MIRROR_LOG_KEY = INDEX_TREND_MIRROR_LOG_KEY;
 const MIRROR_LOG_MAX = 120;
 
 export const INDEX_TREND_REJECT_COOLDOWN_MS = 15 * 60 * 1000;
+const HEAL_LOCK_KEY = "timed:idx-trend-heal-lock";
+const HEAL_LOCK_MS = 45 * 1000;
+const EXIT_CATCHUP_LOOKBACK_MS = 14 * 86400 * 1000;
+const TERMINAL_EXIT_REJECT = /no_broker_position|already_flat|nothing_to_sell|position_zero|qty_zero/i;
 
 /** Bridge place that actually filled or claimed (not a false-ok 200). */
 export function indexTrendFiredLooksPlaced(fired) {
@@ -39,6 +48,144 @@ export async function indexTrendNeedsEntryCatchUp(env, signalId, now = Date.now(
     return false;
   }
   return true;
+}
+
+/**
+ * Paper STOP/EXIT can persist + Discord, then the isolate dies before
+ * /bridge/order (TQQQ 2026-09-10, UDOW W36 after 19:00 ET). The live
+ * options/all loop then sees a closed book and never re-fires.
+ * True when the broker sleeve is still open.
+ */
+export function indexTrendMirrorNeedsExitCatchUp(mirror, now = Date.now()) {
+  if (!mirror?.entry_fired || mirror.exit_fired) return false;
+  const rem = Number(mirror.shares_remaining);
+  if (!Number.isFinite(rem) || rem <= 0) return false;
+  const reject = String(mirror.last_reject || "");
+  if (TERMINAL_EXIT_REJECT.test(reject)) return false;
+  const rejectTs = Number(mirror.last_reject_ts) || 0;
+  if (rejectTs && (Number(now) || Date.now()) - rejectTs < INDEX_TREND_REJECT_COOLDOWN_MS) {
+    return false;
+  }
+  return true;
+}
+
+export async function indexTrendNeedsExitCatchUp(env, signalId, now = Date.now()) {
+  const existing = await loadMirror(env, signalId);
+  return indexTrendMirrorNeedsExitCatchUp(existing, now);
+}
+
+async function claimHealLock(env, now) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return true;
+  try {
+    const raw = await KV.get(HEAL_LOCK_KEY);
+    const prev = raw ? JSON.parse(raw) : null;
+    if (prev?.until && Number(prev.until) > now) return false;
+    await KV.put(HEAL_LOCK_KEY, JSON.stringify({ until: now + HEAL_LOCK_MS }), { expirationTtl: 120 });
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+/** True when a close no longer needs broker follow-through (placed or already flat). */
+export function indexTrendCloseReadyToFinalize(result) {
+  if (!result) return false;
+  if (indexTrendCatchUpPlaced(result)) return true;
+  const reason = String(
+    result.reason || result.fired?.skip || result.fired?.response?.reject_reason || "",
+  );
+  return /mirror_position_already_flat|no_mirrored_entry|no_broker_position|already_flat|nothing_to_sell|position_zero|qty_zero/i.test(reason);
+}
+
+/**
+ * Scan recent paper STOP/EXIT rows and flatten any mirrored remainder
+ * the same-tick forward never placed.
+ * Premature day-trade invalidations on a runner (TQQQ W36) are revived
+ * and held — heal must not sell those leftovers.
+ */
+export async function healStrandedIndexTrendCloses(env, { now = Date.now(), limit = 8 } = {}) {
+  const out = {
+    scanned: 0,
+    attempted: 0,
+    filled: 0,
+    skipped: 0,
+    revived: 0,
+    locked: false,
+    results: [],
+  };
+  if (!(await claimHealLock(env, now))) {
+    out.locked = true;
+    return out;
+  }
+  const actions = await readIndexTrendActions(env, now - EXIT_CATCHUP_LOOKBACK_MS);
+  const seen = new Set();
+  for (const a of actions) {
+    const sid = String(a?.signal_id || "").trim();
+    const ev = String(a?.event || "").toUpperCase();
+    if (!sid || seen.has(sid)) continue;
+    if (ev !== "STOP" && ev !== "EXIT") continue;
+    seen.add(sid);
+    const loaded = await loadIndexTrendBook(env, {
+      signal_id: sid,
+      letf_ticker: a.letf_ticker,
+    });
+    if (isPrematureIndexTrendInvalidation(loaded?.book, { atrPct: 0.012 })) {
+      const revived = await maybeReviveIndexTrendBook(env, {
+        book: loaded.book,
+        bookKey: loaded.bookKey,
+        letfTicker: a.letf_ticker,
+        signalId: sid,
+        now,
+      });
+      if (revived) {
+        out.revived += 1;
+        out.results.push({
+          signal_id: sid,
+          ticker: String(a.letf_ticker || "").toUpperCase(),
+          placed: false,
+          revived: true,
+          qty: revived.shares_remaining ?? null,
+          reason: "premature_invalidation_widened",
+        });
+        continue;
+      }
+    }
+    // A revived / still-open runner must not be flatten-healed off a stale STOP tape.
+    if (loaded?.book && indexTrendBookIsLive(loaded.book) && loaded.book.status !== "pending_close") {
+      continue;
+    }
+    if (!(await indexTrendNeedsExitCatchUp(env, sid, now))) continue;
+    const mirror = await loadMirror(env, sid);
+    out.scanned += 1;
+    const result = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "EXIT",
+      catch_up: true,
+      signal_id: sid,
+      underlying: a.underlying || mirror?.underlying,
+      letf_ticker: a.letf_ticker || mirror?.letf_ticker,
+      letf_price: Number(a.letf_price) || Number(mirror?.last_letf_price) || 0,
+      book: {
+        status: "closed",
+        shares: Number(mirror?.shares) || 0,
+        shares_remaining: 0,
+      },
+      now,
+    });
+    out.attempted += 1;
+    const placed = indexTrendCatchUpPlaced(result);
+    if (placed) out.filled += 1;
+    else out.skipped += 1;
+    out.results.push({
+      signal_id: sid,
+      ticker: String(a.letf_ticker || mirror?.letf_ticker || "").toUpperCase(),
+      placed,
+      qty: result?.qty ?? null,
+      reason: result?.reason || result?.fired?.response?.reject_reason || result?.fired?.skip || null,
+    });
+    if (out.attempted >= limit) break;
+  }
+  return out;
 }
 
 /** True when a catch-up BUY actually forwarded (not skipped/rejected). */
@@ -325,9 +472,14 @@ async function runIndexTrendMirror(env, ctx = {}) {
   if (indexTrendFiredLooksPlaced(fired)) {
     const remaining = Math.max(0, (Number(mirror.shares_remaining) || 0) - qty);
     const patch = event === "TRIM"
-      ? { trim_fired: true, trim_qty: qty, shares_remaining: remaining }
-      : { exit_fired: true, exit_qty: qty, shares_remaining: remaining };
+      ? { trim_fired: true, trim_qty: qty, shares_remaining: remaining, last_reject: null, last_reject_ts: null }
+      : { exit_fired: true, exit_qty: qty, shares_remaining: remaining, last_reject: null, last_reject_ts: null };
     await saveMirror(env, signalId, patch);
+  } else {
+    await saveMirror(env, signalId, {
+      last_reject: fired?.response?.reject_reason || fired?.error || fired?.skip || "bridge_reject",
+      last_reject_ts: Number(ctx.now) || Date.now(),
+    });
   }
 
   return { skipped: false, fired, event, qty, vehicle: VEHICLE_KEY };

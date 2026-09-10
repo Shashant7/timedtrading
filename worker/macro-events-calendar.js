@@ -53,6 +53,10 @@ export const CURATED_UPCOMING_MACRO = [
   { date: "2026-07-16", time_et: "8:30 AM",  name: "Jun Retail Sales",              impact: "high",   kind: "consumer" },
   { date: "2026-07-29", time_et: "2:00 PM",  name: "Jul FOMC Rate Decision",        impact: "high",   kind: "fomc" },
   { date: "2026-07-31", time_et: "8:30 AM",  name: "Jun PCE Deflator",              impact: "high",   kind: "inflation" },
+  // ── Sep–Dec 2026 FOMC (published Fed calendar; decision day 2:00 PM ET) ──
+  { date: "2026-09-16", time_et: "2:00 PM",  name: "Sep FOMC Rate Decision + SEP",  impact: "high",   kind: "fomc" },
+  { date: "2026-10-28", time_et: "2:00 PM",  name: "Oct FOMC Rate Decision",        impact: "high",   kind: "fomc" },
+  { date: "2026-12-09", time_et: "2:00 PM",  name: "Dec FOMC Rate Decision + SEP",  impact: "high",   kind: "fomc" },
 ];
 
 function nyDateStr(d = new Date()) {

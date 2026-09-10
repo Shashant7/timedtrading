@@ -29,6 +29,9 @@ describe("index day-trade dispatch scope", () => {
     expect(block).toMatch(/await _itAutoMirror\(/);
     expect(block).toMatch(/indexTrendNeedsEntryCatchUp/);
     expect(block).toMatch(/indexTrendCatchUpPlaced/);
+    expect(block).toMatch(/indexTrendCloseReadyToFinalize/);
+    expect(block).toMatch(/_itFinalizeClose/);
+    expect(block).toMatch(/pending_close/);
     expect(block.indexOf("indexTrendNeedsEntryCatchUp")).toBeLessThan(block.indexOf("_itNotifyPaper"));
   });
 
@@ -53,5 +56,15 @@ describe("index day-trade dispatch scope", () => {
     expect(slice).toMatch(/it_only=1/);
     expect(slice).toMatch(/isWithinOperatingHours\(/);
     expect(slice).not.toMatch(/isNyRegularMarketOpen\(/);
+  });
+
+  it("heals stranded index-trend closes on the */5 intent drain and via admin POST", () => {
+    expect(src).toMatch(/healStrandedIndexTrendCloses/);
+    expect(src).toMatch(/POST \/timed\/admin\/index-trend\/heal-closes/);
+    const idx = src.indexOf("Durable broker intents drain");
+    expect(idx).toBeGreaterThan(-1);
+    const slice = src.slice(idx, idx + 2800);
+    expect(slice).toMatch(/healStrandedIndexTrendCloses/);
+    expect(slice).toMatch(/INDEX-TREND HEAL/);
   });
 });

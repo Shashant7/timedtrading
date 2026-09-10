@@ -5,6 +5,9 @@ import {
   classifyIndexTrendPaperEvent,
   computeUnderlyingR,
   defaultIndexTrendPaperShares,
+  isPrematureIndexTrendInvalidation,
+  rescalePeakForWiderStop,
+  revivePrematureIndexTrendStop,
 } from "./index-trend-paper.js";
 
 describe("index-trend-paper", () => {
@@ -96,6 +99,7 @@ describe("index-trend-paper", () => {
     expect(d.reason).toBe("underlying_invalidation");
     expect(d.nextBook?.needs_wait).toBe(true);
     expect(d.nextBook?.shares_remaining).toBe(0);
+    expect(d.close_qty).toBe(5);
   });
 
   it("does not flatten an open book solely because FSD month-end passed", () => {
@@ -215,6 +219,83 @@ describe("index-trend-paper", () => {
     expect(rem?.value).not.toBe("32");
     const summary = (emb.fields || []).find((f) => f.name === "Trade Summary");
     expect(summary?.value).toContain("Qty 32");
+  });
+
+  it("does not STOP a runner on the original entry stop (TQQQ 70→72→69)", () => {
+    const book = {
+      status: "trimmed",
+      direction: "LONG",
+      entry_underlying_price: 711.8,
+      entry_letf_price: 70.32,
+      stop_underlying: 710.26,
+      shares: 28,
+      shares_remaining: 21,
+      trims_fired: [1, 2],
+      peak_underlying_r: 5.88,
+    };
+    const d = classifyIndexTrendPaperEvent({
+      book,
+      letfPrice: 69.08,
+      underlyingPrice: 708.01,
+      management: { stop_underlying: 701.12, target_underlying: 733 },
+      direction: "LONG",
+      activate: true,
+      now: Date.UTC(2026, 8, 10, 14, 0, 0), // 10:00 ET
+    });
+    expect(d.event).not.toBe("STOP");
+    expect(d.nextBook?.status).not.toBe("closed");
+  });
+
+  it("revives a premature underlying_invalidation and rescales peak R", () => {
+    const closed = {
+      status: "closed",
+      reason: "underlying_invalidation",
+      direction: "LONG",
+      entry_underlying_price: 711.8,
+      stop_underlying: 710.26,
+      shares: 28,
+      shares_remaining: 0,
+      trims_fired: [1, 2],
+      peak_underlying_r: 5.88,
+      needs_wait: true,
+    };
+    expect(isPrematureIndexTrendInvalidation(closed, { atrPct: 0.012 })).toBe(true);
+    const revived = revivePrematureIndexTrendStop(closed, { atrPct: 0.012, sharesRemaining: 21 });
+    expect(revived.status).toBe("trimmed");
+    expect(revived.needs_wait).toBe(false);
+    expect(revived.shares_remaining).toBe(21);
+    expect(revived.stop_underlying).toBeLessThan(710.26);
+    expect(revived.peak_underlying_r).toBeLessThan(1.5);
+    expect(rescalePeakForWiderStop({
+      peakR: 5.88,
+      entryUnderlying: 711.8,
+      oldStop: 710.26,
+      newStop: 701.12,
+      direction: "LONG",
+    })).toBeLessThan(1.5);
+  });
+
+  it("retries a pending_close without re-BUYing", () => {
+    const book = {
+      status: "pending_close",
+      pending_event: "STOP",
+      event: "STOP",
+      reason: "underlying_invalidation",
+      shares: 16,
+      shares_remaining: 16,
+    };
+    const d = classifyIndexTrendPaperEvent({
+      book,
+      letfPrice: 69,
+      underlyingPrice: 708,
+      management: { stop_underlying: 701 },
+      direction: "LONG",
+      activate: true,
+      now: Date.UTC(2026, 8, 10, 15, 0, 0),
+    });
+    expect(d.event).toBe("STOP");
+    expect(d.pending_close).toBe(true);
+    expect(d.nextBook?.status).toBe("pending_close");
   });
 
   it("sizes default paper shares from budget", () => {
