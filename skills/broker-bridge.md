@@ -138,7 +138,11 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   critical. Full EXIT flattens uncounted live shares unless a sibling
 >   OPEN row or a classified `user_added` reserves them. Do not persist
 >   leftover as `user_added` (zeros `broker_remaining_qty`, blocks
->   `runTraderExitCatchup`).
+>   `runTraderExitCatchup`). Catch-up must pick the sleeve that still
+>   holds leftover qty (not the first `trade_id` match), include
+>   suppressed remaining, and plan when the mothership trade already
+>   has `exit_ts`. `markManifestModelClosed` closes every sleeve for
+>   that trade_id.
 >
 > Helpers: `writeLastActionAudit`, `markLastActionVerified`,
 > `markLastActionDrift`, `readLastActionAudit` in `worker-bridge/bridge-manifest.js`.
