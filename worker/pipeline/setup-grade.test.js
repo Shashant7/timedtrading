@@ -69,6 +69,39 @@ describe("setup-grade pillars fail closed", () => {
     expect(short.points).toBe(0);
   });
 
+  it("credits an armed Cloud Pivot / ST hold as structure when HTF is opposed", () => {
+    const pivot = gradeStructure({
+      state: "HTF_BEAR_LTF_BEAR",
+      _cloud_pivot_detect: { fires: true, direction: "LONG" },
+    }, "LONG");
+    expect(pivot).toMatchObject({ points: 2, detail: "armed_play" });
+    const hold = gradeStructure({
+      state: "HTF_BEAR_LTF_BEAR",
+      st_hold_setup: { best: { held: true, quality: "high", sideLabel: "LONG" } },
+    }, "LONG");
+    expect(hold.points).toBe(2);
+  });
+
+  it("credits theme membership + quality when today's theme tilt is flat", () => {
+    const g = gradeMacro({
+      ticker: "BE",
+      _fair_value: { quality_grade: "A" },
+      _compounder: { tier: "growth_elite", eligible: true },
+    }, "LONG");
+    expect(g).toMatchObject({ points: 2, detail: "theme_member_quality" });
+    expect(gradeMacro({ ticker: "BE", _fair_value: { quality_grade: "A" } }, "SHORT").status)
+      .toBe("missing");
+  });
+
+  it("re-signs unsigned fair-value tilt to the play side", () => {
+    const g = gradeValue({
+      _fv_tilt: -1,
+      _fair_value: { tilt: 1 },
+    }, "LONG");
+    expect(g).toMatchObject({ points: 2, source: "fair_value_unsigned" });
+    expect(gradeValue({ _fv_tilt: -1, _fair_value: { tilt: 1 } }, "SHORT").points).toBe(0);
+  });
+
   it("accepts daily stack without a named state, and named state without stack", () => {
     expect(gradeStructure({ daily_structure: { bull_stack: true } }, "LONG").points).toBe(2);
     expect(gradeStructure({ state: "HTF_BULL_LTF_PULLBACK" }, "LONG").points).toBe(2);

@@ -2,6 +2,7 @@
 // Technical rank remains a 0–100 admission input. Priority is an unbounded
 // score, not a probability; retaining pre-cap precision separates rank=100s.
 import { isQuarantinedByFreshness } from "../freshness.js";
+import { resolvePlaySide } from "./play-side.js";
 
 export const CANDIDATE_RANK_VERSION = "candidate-rank-v3";
 export const FRESHNESS_RANK_CAP = 10;
@@ -66,7 +67,9 @@ export function finalizeCandidateScore(payload, score, baseScore) {
 export function computeCandidateScore(ticker, {
   themeMap = null, officerMap = null, macroMap = null,
   lookupOfficerTilt = () => null, lookupMacroRiskTilt = () => null,
-  resolveSide = d => d?.__rank_trace?.side || (Number(d.htf_score) > 0 ? "LONG" : Number(d.htf_score) < 0 ? "SHORT" : null),
+  resolveSide = d => d?.__rank_trace?.side
+    || resolvePlaySide(d)
+    || (Number(d.htf_score) > 0 ? "LONG" : Number(d.htf_score) < 0 ? "SHORT" : null),
 } = {}) {
   // A rescore must not retain an active/shadow tilt from an earlier snapshot.
   for (const field of ["_theme_tilt", "_theme_tilt_shadow", "_theme_tilt_theme",

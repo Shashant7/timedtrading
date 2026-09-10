@@ -2,6 +2,8 @@
 // Ticker Grader's marketing shape (structure / tape / macro / value / desk) mapped
 // onto signals Timed already computes. No fitted weights, no Form 4, no exit trapdoor.
 import { observedSetupVolume, meetsSetupVolume, finiteSetupNumber } from "./setup-evidence.js";
+import { getThemesForTicker } from "../sector-mapping.js";
+import { playStructureAligned } from "../ranking/play-side.js";
 
 export const SETUP_GRADE_VERSION = "setup-grade-v1";
 export const SETUP_GRADE_MAX = 10;
@@ -100,6 +102,15 @@ export function gradeStructure(d = {}, side) {
       state: state || null,
     };
   }
+  if (playStructureAligned(d, validSide)) {
+    return {
+      id: "structure",
+      points: SETUP_GRADE_PILLAR_POINTS,
+      status: "aligned",
+      detail: "armed_play",
+      state: state || null,
+    };
+  }
   return { id: "structure", points: 0, status: "opposed", detail: String(state || "no_aligned_stack"), state: state || null };
 }
 
@@ -154,7 +165,7 @@ export function gradeTape(d = {}, side, rvolFloor = SETUP_GRADE_DEFAULT_RVOL) {
   };
 }
 
-export function gradeMacro(d = {}) {
+export function gradeMacro(d = {}, side = null) {
   const theme = signedTilt(d, "_theme_tilt");
   const wire = signedTilt(d, "_macro_wire_tilt");
   if ((theme.value != null && theme.value > 0) || (wire.value != null && wire.value > 0)) {
@@ -166,14 +177,48 @@ export function gradeMacro(d = {}) {
       wire: wire.value,
     };
   }
+  // Theme membership + quality is a desk fact even when today's theme
+  // breadth is flat (tilt map skips observed=0). LONG only.
+  const themes = getThemesForTicker(d.ticker || d.sym) || [];
+  const grade = String(d?._fair_value?.quality_grade || "").toUpperCase();
+  const elite = d?._compounder?.eligible === true || String(d?._compounder?.tier || "") === "growth_elite";
+  if (side === "LONG" && themes.length > 0 && (grade === "A" || grade === "B" || elite)) {
+    return {
+      id: "macro",
+      points: SETUP_GRADE_PILLAR_POINTS,
+      status: "aligned",
+      detail: "theme_member_quality",
+      themes,
+      quality: grade || null,
+    };
+  }
   if (theme.value == null && wire.value == null) {
     return { id: "macro", points: 0, status: "missing" };
   }
   return { id: "macro", points: 0, status: "opposed_or_flat", theme: theme.value, wire: wire.value };
 }
 
-export function gradeValue(d = {}) {
-  return pillarFromTilt("value", signedTilt(d, "_fv_tilt"));
+export function gradeValue(d = {}, side = null) {
+  const applied = signedTilt(d, "_fv_tilt");
+  if (applied.value != null && applied.value > 0) {
+    return pillarFromTilt("value", applied);
+  }
+  // Scoring stores _fv_tilt = unsigned_tilt × HTF side. A Cloud Pivot
+  // LONG on HTF_BEAR looks like a value headwind. Re-sign the raw tilt.
+  const raw = finiteSetupNumber(d?._fair_value?.tilt);
+  if (raw != null && raw !== 0 && (side === "LONG" || side === "SHORT")) {
+    const signed = side === "LONG" ? raw : -raw;
+    if (signed > 0) {
+      return {
+        id: "value",
+        points: SETUP_GRADE_PILLAR_POINTS,
+        status: "aligned",
+        source: "fair_value_unsigned",
+        value: signed,
+      };
+    }
+  }
+  return pillarFromTilt("value", applied);
 }
 
 export function gradeOfficer(d = {}, side) {
@@ -216,8 +261,8 @@ export function evaluateSetupGrade(d = {}, { side, rvolFloor } = {}) {
   const parts = [
     gradeStructure(d, validSide),
     gradeTape(d, validSide, rvolFloor ?? SETUP_GRADE_DEFAULT_RVOL),
-    gradeMacro(d),
-    gradeValue(d),
+    gradeMacro(d, validSide),
+    gradeValue(d, validSide),
     gradeOfficer(d, validSide),
   ];
   const score = parts.reduce((sum, part) => sum + part.points, 0);
