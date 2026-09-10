@@ -9,26 +9,36 @@
 ## Index-trend STOP Discord'd; Roth still held TQQQ [2026-09-10]
 
 **Symptom:** 10:00 ET paper STOP on `it:QQQ:TQQQ:LONG:2026-W36`
-(`underlying_invalidation`). Discord + `timed:idx-trend-actions` wrote.
+(`underlying_invalidation`). Path was TQQQ 70 → 72 → 69 (up $2, then
+stopped when down $1). Discord + `timed:idx-trend-actions` wrote.
 Day-actions showed TQQQ `not_mirrored` qty=0. Mirror KV still had
-`entry_fired` + `shares_remaining: 21`. No today's row in
-`timed:idx-trend-mirror-log`. UDOW W36 same hole (`shares_remaining: 20`
-after the Sep 4 19:01 ET EXIT died as `equity_ah_too_late_for_broker`).
+`entry_fired` + `shares_remaining: 21`. Research: SPY/SPX near support,
+upside drift into Sep 16 FOMC — the book should have been held.
 
-**Cause:** `/timed/options/all` notifies (persist + Discord + action
-tape) then awaits the bridge. The isolate dies after the paper close.
-The next tick sees `status: closed` / `needs_wait` and never re-fires.
-Action qty was `nextBook.shares_remaining` (always 0 after STOP). There
-is still no durable ENTRY retry; this hole is the close.
+**Cause (two stacked bugs):**
+1. `buildIndexTrendManagement` accepted QQQ's day-trade / OR `sl`
+   (711.8 → 710.26 = 0.22%). Doctrine is `max(1.5%, ATR×2.5)`. That
+   tiny R made a $2 TQQQ pop look like +5.88R and a $1 dip look like
+   hard invalidation. `classifyIndexTrendPaperEvent` honored the
+   original stop even after +1R/+2R trims.
+2. `/timed/options/all` persisted `closed` + Discord, then awaited
+   `/bridge/order`. Isolate death left Roth long. Next tick saw
+   `needs_wait` and never re-fired.
 
-**Fix:** `healStrandedIndexTrendCloses` on the monolith `*/5` intent
-drain + `POST /timed/admin/index-trend/heal-closes`. Sells
-`mirror.shares_remaining` when paper already STOPped/EXITed.
-`close_qty` on classify; action tape records the flatten size.
+**Fix:** Reject `sl` tighter than the swing floor
+(`resolveIndexTrendStopUnderlying`). After +1R / any trim, ignore the
+original stop (trail/giveback only) and rescale peak R when the stop
+widens so giveback does not fire on a stale 5.88R. Revive premature
+`underlying_invalidation` runners (`revivePrematureIndexTrendStop`)
+instead of heal-selling. Persist `pending_close` and Discord only after
+the bridge places (`finalizeIndexTrendPaperClose`). Heal on `*/5` still
+flattens *real* leftover closes (UDOW W36 `trail_giveback`); it skips
+revived/live books. Curated calendar now includes Sep 16 / Oct 28 /
+Dec 9 2026 FOMC.
 
-**Do not:** treat a closed paper book as "nothing left to sell". Do not
-backfill leftover ENTRIES (UDOW/TQQQ/TJX 09-03 rule). Do not heal on
-the heavy options/all path (already times out).
+**Do not:** POST heal-closes to flatten TQQQ W36. Do not lower the
+setup-grade floor to recover volume. Do not unpause Support Bounce.
+Do not backfill leftover ENTRIES (UDOW/TQQQ/TJX 09-03 rule).
 
 ## A core-only grade is not improvement when the book is paper [2026-09-10]
 

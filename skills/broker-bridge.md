@@ -78,10 +78,12 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   carry child order IDs/rejects. Never send equity to a Futures
 >   sub-account. Do not backfill leftover books. Index-trend same-tick
 >   heal is only for a book younger than 15 minutes. A paper STOP/EXIT
->   that Discord'd while `/bridge/order` never ran is healed on monolith
->   `*/5` (`healStrandedIndexTrendCloses`) or
->   `POST /timed/admin/index-trend/heal-closes` — sell
->   `mirror.shares_remaining`, do not treat action qty=0 as flat.
+>   persists `pending_close` and Discords only after `/bridge/order`
+>   places (`finalizeIndexTrendPaperClose`). Heal on monolith `*/5`
+>   (`healStrandedIndexTrendCloses`) or
+>   `POST /timed/admin/index-trend/heal-closes` sells leftover qty for
+>   *real* closes. Do not heal-sell a premature runner invalidation
+>   (TQQQ W36). Do not treat action qty=0 as flat.
 >   Partner accounts must not manually exit a name that never filled
 >   (`no_manifest_for_trade`).
 > - Catch-up trims MUST send `reduce_pct = lot.shares / (remaining +
