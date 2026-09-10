@@ -11,7 +11,7 @@ import {
   isPrematureIndexTrendInvalidation,
   revivePrematureIndexTrendStop,
 } from "./index-trend-paper.js";
-import { paperEventToNotifType, wirePaperLaneNotify } from "./paper-lane-notify.js";
+import { paperEventToNotifType, wirePaperLaneNotify, mergeBookAlertScores } from "./paper-lane-notify.js";
 
 const BOOK_TTL = 21 * 86400;
 const DEFAULT_PROFILE = "speculator";
@@ -142,6 +142,7 @@ async function broadcastIndexTrendEvent(env, {
     error: String(err?.message || err).slice(0, 160),
   }));
 
+  const scoreBook = book || priorBook;
   await wirePaperLaneNotify(env, {
     engine: "index_trend_letf",
     event: decision.event,
@@ -154,8 +155,15 @@ async function broadcastIndexTrendEvent(env, {
     signal_id: persistSignalId,
     ts: payload.now || Date.now(),
     embed,
-    book: book || priorBook,
+    book: scoreBook,
     management: payload.management || book?.management || priorBook?.management,
+    rank: payload.rank,
+    rr: payload.rr,
+    conviction_score: payload.conviction_score,
+    conviction_tier: payload.conviction_tier,
+    signal_quality_lines: payload.signal_quality_lines,
+    tickerData: payload.tickerData,
+    play: payload.play,
   }).catch(() => {});
 
   return { embed, discord };
@@ -349,12 +357,20 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     const mgmtSnap = payload.management && typeof payload.management === "object"
       ? { ...payload.management }
       : decision.nextBook.management || null;
-    let stampedBook = {
+    let stampedBook = mergeBookAlertScores({
       ...decision.nextBook,
       letf_ticker: String(payload.letf_ticker || decision.nextBook.letf_ticker || "").toUpperCase() || null,
       underlying: String(payload.underlying || payload.ticker || decision.nextBook.underlying || "").toUpperCase() || null,
       management: mgmtSnap,
-    };
+    }, {
+      rank: payload.rank,
+      rr: payload.rr,
+      conviction_score: payload.conviction_score,
+      conviction_tier: payload.conviction_tier,
+      tickerData: payload.tickerData,
+      play: payload.play,
+      book,
+    });
     if (isClose && !alreadyPending) {
       stampedBook = asPendingCloseBook({ ...decision, nextBook: stampedBook }, book, now);
     }

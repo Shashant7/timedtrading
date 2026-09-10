@@ -6,6 +6,26 @@
 
 ---
 
+## Exit emails must keep Signal Quality [2026-09-10]
+
+**Symptom:** Short Term Position Closed for TQQQ Index Swings showed
+Trade Summary, Setup, and Why We Exited, but no rank / conviction.
+
+**Cause:** `sendTradeAlertEmail` rendered Signal Quality only on
+`TRADE_ENTRY`. Paper-lane alerts (`buildPaperLaneEmailAlert`) never
+passed rank or conviction. Live ST exits passed rank/R:R but the
+template still dropped them.
+
+**Fix:** Render Signal Quality on entry, trim, and exit when scores
+exist. Paper-lane resolves scores from the book (stamped at BUY), then
+tickerData / `timed:latest`. Book merge is fill-only so a later
+invalidation tape does not overwrite the entry stamp.
+
+**Do not:** Gate scores to entries. Recompute rank from raw
+`rank_score` (>100) as `/100`.
+
+---
+
 ## Stale OPEN leftover sleeve hid ULTA after the model closed [2026-09-10]
 
 **Symptom:** After #1451 merged, ULTA was still open. Model book was
