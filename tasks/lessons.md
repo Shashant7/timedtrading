@@ -6,6 +6,22 @@
 
 ---
 
+## Setup grade is a live admission floor, not another 30-day study [2026-09-09]
+
+**Symptom:** Rank honesty (#1442) and setup evidence (#1444) did not
+change what gets traded. PR #1446 prepared first-passage research
+export. Waiting for a fitted holdout would leave the book taking
+one-or-two-pillar entries.
+
+**Fix:** Fail-closed 0–10 grade from observed pillars already on the
+payload (structure / tape / macro / value / officer). New core entries
+need ≥6. Default ON. No Form 4, no exit trapdoor, no new apply bus.
+
+**Do not:** treat PR #1446 as the live policy. Do not enable
+`conviction_fusion` (confirm-stack holdout was negative). Do not
+lower the floor to recover volume. Index/paper-family paths stay on
+their own admission.
+
 ## Historical calibration starts with the existing Discovery corpus [2026-09-09]
 
 **Correction:** The user has over 600 trades/backtests, Discovery Moves and

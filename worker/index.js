@@ -1226,6 +1226,7 @@ import {
 import { evaluateEntry, registerEntryEngine, hasEngine } from "./pipeline/entry-engine.js";
 import { registerExitEngine, hasExitEngine } from "./pipeline/exit-engine.js";
 import { evaluateEntry as ttCoreEvaluateEntry } from "./pipeline/tt-core-entry.js";
+import { admitSetupGrade } from "./pipeline/setup-grade.js";
 import { evaluateEntry as ripsterEvaluateEntry } from "./pipeline/ripster-entry.js";
 import { evaluateEntry as legacyEvaluateEntry } from "./pipeline/legacy-entry.js";
 import { enrichEntry } from "./pipeline/enrichment.js";
@@ -7415,6 +7416,23 @@ function qualifiesForEnter(d, asOfTs = null) {
         }
       }
     } catch { /* defensive — fall through to legacy flow */ }
+  }
+
+  {
+    const _setupGrade = admitSetupGrade(d, {
+      side: inferSide(d),
+      path: null,
+      daCfg: _focusDaCfg,
+    });
+    if (!_setupGrade.allow) {
+      return {
+        qualifies: false,
+        reason: _setupGrade.reason,
+        path: null,
+        confidence: 0,
+        meta: { setup_grade: d.__setup_grade },
+      };
+    }
   }
 
   const state = String(d?.state || "");
@@ -13770,6 +13788,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       // Selected path
       selected_path: entry.path,
       evaluation: tickerData?.__setup_evaluation || null,
+      setup_grade: tickerData?.__setup_grade || null,
       selected_reason: entry.reason,
       selected_confidence: entry.confidence,
       // Per-setup eligibility diagnostics (from tt-core-entry triggers)
@@ -27800,6 +27819,7 @@ async function processTradeSimulation(
                     // 1. Selection + setup eligibility
                     selected_path: entryPath,
                     evaluation: tickerData?.__setup_evaluation || null,
+                    setup_grade: tickerData?.__setup_grade || null,
                     ath_breakout: tickerData?.__ath_breakout_diag || null,
                     range_reversal: tickerData?.__range_reversal_diag || null,
                     gap_reversal: tickerData?.__gap_reversal_diag || null,

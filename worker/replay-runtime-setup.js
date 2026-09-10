@@ -443,6 +443,9 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_max_daily_entries",
   // V15 P0.7.59 (2026-05-04) — Setup admission + exit doctrine flags
   "deep_audit_setup_admission_enabled",
+  "deep_audit_setup_grade_enabled",
+  "deep_audit_setup_grade_floor",
+  "deep_audit_setup_grade_rvol",
   "deep_audit_exit_doctrine_enabled",
   // 2026-08-15 — July ST autopsy gate pack (P2/P3/P5/P8/P11).
   // See worker/july-autopsy-gates.js + tasks/2026-08-15-july-st-autopsy-feedback.md.

@@ -5,6 +5,7 @@
 
 import { signalFreshness } from "../indicators.js";
 import { beginSetupEvaluation, observedSetupVolume, meetsSetupVolume, breakoutEvidence, setupBarPosition, priorDeclineBlocksGap } from "./setup-evidence.js";
+import { admitSetupGrade } from "./setup-grade.js";
 import { getEasternParts } from "../market-calendar.js";
 import { computePdzSizeMult } from "./sizing.js";
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "../focus-tier.js";
@@ -462,6 +463,16 @@ export function evaluateEntry(ctx) {
         path,
         direction: effectiveDir,
       });
+    }
+    {
+      const _setupGrade = admitSetupGrade(d, {
+        side: effectiveDir,
+        path,
+        daCfg,
+      });
+      if (!_setupGrade.allow) {
+        return rejectEntry(_setupGrade.reason, { setup_grade: _setupGrade });
+      }
     }
     // V15 P0.7.66 (2026-05-05) — Tier 1D: Block Speculative grade for ETFs.
     // ETF audit Path A: Speculative-grade ETF entries (e.g. ALB Mar-02 rank 58

@@ -29,7 +29,7 @@ import { computeTdBoostForSide } from "./td-sequential-boost.js";
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
 // this version let us know exactly which logic produced them.
-export const SCORING_VERSION = "2.1.6-2026-09-09";
+export const SCORING_VERSION = "2.1.7-2026-09-09";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)

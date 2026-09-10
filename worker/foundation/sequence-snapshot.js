@@ -124,6 +124,7 @@ export function buildSequenceTrailSnapshot(payload = {}) {
     // available when the existing trail writer is enabled. It is NOT a
     // sequence or paper admission verdict; its own timestamp/scope apply.
     setup_evaluation: payload.__setup_evaluation || null,
+    setup_grade: payload.__setup_grade || null,
     htf_score: payload.htf_score ?? null,
     ltf_score: payload.ltf_score ?? null,
     pdz_zone_D: payload.pdz_zone_D ?? null,

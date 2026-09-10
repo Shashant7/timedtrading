@@ -18,6 +18,10 @@ function payload() {
     tf_tech: { "10": tf, "15": tf, "30": tf, "1H": tf, "4H": tf, D: tf, W: tf },
     _env: { _entryEngine: "tt_core", _deepAuditConfig: { deep_audit_forming_pair_entry: "false" } },
     rvol_map: { "30": { vr: 2 } },
+    _theme_tilt: 1,
+    _fv_tilt: 1,
+    _officer_tilt: 1,
+    _sector_rating: "overweight",
     daily_structure: { ath52w: {
       sample_size: 252, pct_below_high_252: 0, breakout_above_prev_high: true,
       tight_base_5d_pct: 2, prev_high: 101, prev_low: 98, prev_close: 100, prev_prev_close: 99,
@@ -121,6 +125,7 @@ describe("setup evaluation trace", () => {
   it("is wired into both existing persisted entry snapshots", () => {
     const src = readFileSync(new URL("../index.js", import.meta.url), "utf8");
     expect(src.match(/evaluation: tickerData\?\.__setup_evaluation \|\| null/g)).toHaveLength(2);
+    expect(src).toContain("setup_grade: tickerData?.__setup_grade");
     expect(src).toContain('"__entry_setup_snapshot", "__setup_evaluation",');
   });
 });

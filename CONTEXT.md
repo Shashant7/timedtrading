@@ -17,6 +17,9 @@ Single reference for agents. Read this first to avoid context overload.
   direction, duplicate contributions and missing-data behavior. Aggregate
   rank correlation or sorting fixes do not establish that its ingredients
   deserve points. Playbook: `skills/rank-driver-audit.md`.
+- **Setup grade (2026-09-09):** new core entries need a fail-closed 0–10
+  from existing pillars (floor 6). Not PR #1446's export loop and not
+  Ticker Grader Form 4. Playbook: `skills/setup-grade.md`.
 - **Plan first**: Non-trivial (3+ steps) → write to `tasks/todo.md` before coding
 - **Stop on sideways**: If stuck, re-plan; don't push through
 - **Verify before done**: Prove it works; "Would a staff engineer approve?"
@@ -1078,8 +1081,8 @@ playbook in `skills/security-auth-patterns.md`)**
 **Ranking / technical score (PR #1442 — merged and deployed 2026-09-09)**
 - **Question:** whether each rank *ingredient* earns its points (producer,
   direction, missing-data, duplication) — not whether aggregate sort
-  improved. Live `SCORING_VERSION` is `2.1.6-2026-09-09`
-  (setup-admission contract from PR #1444 on top of rank 2.1.5);
+  improved. Live `SCORING_VERSION` is `2.1.7-2026-09-09`
+  (setup-grade admission on top of 2.1.6 setup-admission / 2.1.5 rank);
   traces use `driver_version=rank-drivers-v2` and
   `CANDIDATE_RANK_VERSION=candidate-rank-v3`.
 - **Do not reintroduce:** missing completion/phase treated as early
@@ -1112,6 +1115,20 @@ playbook in `skills/security-auth-patterns.md`)**
   Do not lower floors to recover volume. Playbook: `skills/setup-audit/SKILL.md`.
 - S08–S13 (overlap, touch contracts, sequence, mean-reversion proxies,
   entry-time evidence) are documented, not coded.
+
+**Setup grade admission (2026-09-09) — live now, not a 30-day wait**
+- New core entries need a fail-closed 0–10 grade (`worker/pipeline/setup-grade.js`):
+  structure, tape, macro, value, officer/desk — 2 points each, floor **6**.
+  Missing is 0, not a pass. Default ON (`deep_audit_setup_grade_enabled`).
+  Kill switch / floor / rvol via DA. Index and paper-family paths are exempt.
+- This is Timed's existing overlays (state/stack, observed rvol or
+  directional squeeze, theme/macro-wire, FV tilt, officer tilt or sector
+  OW/UW) — not Ticker Grader Form 4, not fitted weights, not an exit
+  trapdoor. Do not enable `conviction_fusion` as a substitute (holdout
+  was negative). Do not merge PR #1446's export loop as the live act.
+- Stamp `__setup_grade` on the payload / `__setup_evaluation` / entry
+  snapshot. Pro/VIP/Admin only. `SCORING_VERSION` `2.1.7-2026-09-09`.
+  Playbook: `skills/setup-grade.md`.
 
 **Breakout Entry Paths**
 - Three detectors in `indicators.js`: `detectDailyLevelBreak`, `detectATRBreakout`, `detectEMAStackBreakout`
