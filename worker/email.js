@@ -1227,6 +1227,7 @@ function humanizeEmailExitReason(raw) {
 //   - Position & P&L (entry, fill, exit, $ + % P&L, qty, value)
 //   - Trim Status (trimmed % + shares remaining/trimmed) — TRIMs only
 //   - Setup (setup name + grade + risk %)
+//   - Signal Quality (rank / conviction / R:R — entry, trim, and exit)
 //   - Why (exit/trim reason — same humanizer Discord uses)
 //   - AI CIO (decision pill + confidence + edge + FULL reasoning)
 //   - Chart link
@@ -1417,6 +1418,52 @@ async function _fetchTradeTrims(env, tradeId, direction, entry, shares) {
     entryShares,
     direction,
     dropNoOps: true,
+  });
+}
+
+/**
+ * Rank / conviction / R:R lines for trade emails.
+ * Entry-only gating used to drop these on Position Closed (TQQQ Index Swings
+ * 2026-09-10). Same lines render for entry, trim, and exit when present.
+ */
+export function collectTradeAlertSignalQualityLines({
+  signal_quality_lines,
+  rank,
+  conviction_score,
+  conviction_tier,
+  rr,
+  momentum_elite,
+  vwap_pct,
+} = {}) {
+  if (Array.isArray(signal_quality_lines) && signal_quality_lines.length > 0) {
+    return signal_quality_lines.map((line) => String(line));
+  }
+  const lines = [];
+  if (Number.isFinite(Number(rank)) && Number(rank) > 0) {
+    lines.push(`Signal Strength (Rank): ${Math.round(Number(rank))}/100`);
+  }
+  if (Number.isFinite(Number(conviction_score)) && Number(conviction_score) > 0) {
+    const tier = conviction_tier ? ` (${conviction_tier})` : "";
+    lines.push(`Conviction: ${Number(conviction_score).toFixed(0)}${tier}`);
+  }
+  if (Number.isFinite(Number(rr)) && Number(rr) > 0) {
+    lines.push(`Risk/Reward: ${Number(rr).toFixed(1)}:1`);
+  }
+  if (momentum_elite) lines.push("Strong Momentum");
+  if (Number.isFinite(Number(vwap_pct))) {
+    const v = Number(vwap_pct);
+    lines.push(`${v >= 0 ? "Above" : "Below"} 1H VWAP ${v >= 0 ? "+" : ""}${v.toFixed(2)}%`);
+  }
+  return lines;
+}
+
+function formatSignalQualityHtml(lines) {
+  return (lines || []).map((line) => {
+    const idx = String(line).indexOf(": ");
+    if (idx > 0) {
+      return `<strong style="color:white">${String(line).slice(0, idx)}</strong>: ${String(line).slice(idx + 2)}`;
+    }
+    return String(line);
   });
 }
 
@@ -1642,38 +1689,16 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     }
   }
 
-  // SIGNAL QUALITY (entry) — rank, conviction, R:R, full signal tag list
+  // SIGNAL QUALITY — rank, conviction, R:R. Shown on entry, trim, and exit
+  // so a close email still explains the setup that was on (TQQQ W3).
   let signalQualitySection = "";
-  if (isEntry) {
-    const sqLines = [];
-    if (Array.isArray(signal_quality_lines) && signal_quality_lines.length > 0) {
-      for (const line of signal_quality_lines) {
-        const idx = String(line).indexOf(": ");
-        if (idx > 0) {
-          sqLines.push(`<strong style="color:white">${String(line).slice(0, idx)}</strong>: ${String(line).slice(idx + 2)}`);
-        } else {
-          sqLines.push(String(line));
-        }
-      }
-    } else {
-      if (Number.isFinite(Number(rank)) && Number(rank) > 0) {
-        sqLines.push(`Signal Strength (Rank): <strong style="color:white">${Math.round(Number(rank))}/100</strong>`);
-      }
-      if (Number.isFinite(Number(conviction_score)) && Number(conviction_score) > 0) {
-        sqLines.push(`Conviction: <strong style="color:white">${Number(conviction_score).toFixed(0)}</strong>${conviction_tier ? ` (${conviction_tier})` : ""}`);
-      }
-      if (Number.isFinite(Number(rr)) && Number(rr) > 0) {
-        sqLines.push(`Risk/Reward: <strong style="color:white">${Number(rr).toFixed(1)}:1</strong>`);
-      }
-      if (momentum_elite) sqLines.push("Strong Momentum");
-      if (Number.isFinite(Number(vwap_pct))) {
-        const v = Number(vwap_pct);
-        sqLines.push(`${v >= 0 ? "Above" : "Below"} 1H VWAP ${v >= 0 ? "+" : ""}${v.toFixed(2)}%`);
-      }
-    }
-    if (sqLines.length > 0) {
-      signalQualitySection = _section("Signal Quality", sqLines.join("<br>"));
-    }
+  const sqSourceLines = collectTradeAlertSignalQualityLines({
+    signal_quality_lines, rank, conviction_score, conviction_tier, rr,
+    momentum_elite, vwap_pct,
+  });
+  if ((isEntry || isExit || isTrim || isExitSignal) && sqSourceLines.length > 0) {
+    const sqLines = formatSignalQualityHtml(sqSourceLines);
+    signalQualitySection = _section("Signal Quality", sqLines.join("<br>"));
   }
 
   // WHY WE ENTERED (entry only)
@@ -1891,13 +1916,13 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     }
   }
   if (isTrim && trimStatusPlain) _txtParts.push("", "Trim Status:", ...trimStatusPlain.split("\n").map((l) => "  " + l));
+  if (sqSourceLines.length > 0 && (isEntry || isExit || isTrim || isExitSignal)) {
+    _txtParts.push("", "Signal quality:");
+    for (const line of sqSourceLines) _txtParts.push("  " + line);
+  }
   if (isExit && exitReason) _txtParts.push("", "Why: " + humanizeEmailExitReason(exitReason));
   if (isTrim && trim_reason) _txtParts.push("", "Why: " + humanizeEmailTrimReason(trim_reason));
   if (isEntry && why_entered) _txtParts.push("", "Why we entered: " + why_entered);
-  if (isEntry && Array.isArray(signal_quality_lines) && signal_quality_lines.length > 0) {
-    _txtParts.push("", "Signal quality:");
-    for (const line of signal_quality_lines) _txtParts.push("  " + line);
-  }
   if (isEntry && scale_hint && Number(scale_hint.pct_of_account) > 0) {
     _txtParts.push(`Sizing: ${Number(scale_hint.pct_of_account).toFixed(1)}% of account`);
     if (Number(scale_hint.per_thousand) > 0) {
@@ -1943,6 +1968,9 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   const threadLabel = isExitSignal ? "open position" : isExit ? "model fill" : null;
   const subject = renderEmailSubject(sig, { threadLabel });
 
+  if (env?.EMAIL_RETURN_BODY) {
+    return { ok: true, html, text, subject };
+  }
   return sendEmail(env, { to: userEmail, subject, html, text, category: "trade_alert" });
 }
 

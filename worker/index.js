@@ -21074,8 +21074,7 @@ async function processTradeSimulation(
                 exit: Number(trade.exitPrice) || null,
                 pnl: Number(trade.pnl) || null,
                 status: trade.status || null,
-                rank: Number(trade.rank) || null,
-                rr: Number(trade.rr) || null,
+                ...tradeAlertScoreFields({ trade, tickerData, direction: trade.direction }),
                 setup_name: trade.setupName || trade.setup_name || tickerData?.__setupName || null,
                 setup_grade: trade.setupGrade || trade.setup_grade || tickerData?.__setupGrade || null,
                 action_ts: tsMs,
@@ -21715,6 +21714,7 @@ async function processTradeSimulation(
               newTrimmedPct: tgt,
               shares_trimmed: Number(trimShares) || null,
               shares_remaining: (Number(trade.shares) || 0) - (Number(trimShares) || 0),
+              ...tradeAlertScoreFields({ trade, tickerData, direction: dir }),
               setup_name: trade.setupName || trade.setup_name || tickerData?.__setupName || null,
               setup_grade: trade.setupGrade || trade.setup_grade || tickerData?.__setupGrade || null,
               risk_budget: Number(trade.riskBudget || trade.risk_budget || tickerData?.__riskBudget) || null,
@@ -47777,6 +47777,23 @@ function buildTraderEntrySignalQualityLines({ tickerData, direction, rank, rr })
   const signalTags = buildTraderEntrySignalTags(tickerData, direction);
   if (signalTags.length > 0) lines.push(`Signals: ${signalTags.join(", ")}`);
   return { lines, signalTags, conviction_score: conv > 0 ? conv : null, conviction_tier: convTier || null };
+}
+
+/** Rank / conviction / R:R for trade emails on entry, trim, and exit. */
+function tradeAlertScoreFields({ trade, tickerData, direction } = {}) {
+  const { lines, conviction_score, conviction_tier } = buildTraderEntrySignalQualityLines({
+    tickerData,
+    direction: direction || trade?.direction,
+    rank: trade?.rank ?? tickerData?.rank,
+    rr: trade?.rr ?? tickerData?.rr,
+  });
+  return {
+    rank: Number(trade?.rank ?? tickerData?.rank) || null,
+    rr: Number(trade?.rr ?? tickerData?.rr) || null,
+    conviction_score,
+    conviction_tier,
+    signal_quality_lines: lines.length ? lines : null,
+  };
 }
 
 /** Payload shared by Discord-adjacent channels (email, in-app body). */
@@ -80609,6 +80626,7 @@ export default {
               price: 180.10, pnlPct: 2.6, exitReason: "TP_FULL", status: "WIN",
               trade_id: "AAPL-test-sample", entry: 175.50, exit: 180.10,
               pnl: 230, rank: 78, rr: 2.1,
+              conviction_score: 72, conviction_tier: "B",
               setup_name: "tt_gap_reversal_long", setup_grade: "Prime",
               action_ts: Date.now(),
             })],
@@ -95694,6 +95712,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 }
                 if (!playRow && !openBook) continue;
 
+                const tickerRow = Array.isArray(flat)
+                  ? (flat.find((t) => String(t?.ticker || "").toUpperCase() === _itSym) || {})
+                  : {};
+
                 const _itLetf = letfTicker || String(openBook?.letf_ticker || "").toUpperCase();
                 const ulPx = Number(pm[_itSym]?.p) || Number(playRow?.price) || Number(openBook?.last_underlying_price) || 0;
                 const letfPx = Number(pm[_itLetf]?.p) || Number(openBook?.last_letf_price) || 0;
@@ -95757,6 +95779,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         activate: !!playRow,
                         now: Date.now(),
                         loadedBook: loaded,
+                        tickerData: tickerRow,
                       });
                       if (ev?.book) _itBookAfter = ev.book;
                       const _itMirrorCtx = {
@@ -95793,6 +95816,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                               book: ev.book,
                               close_qty: ev.close_qty,
                               loadedBook: { book: ev.book, bookKey: loaded.bookKey, signal_id: _itSid },
+                              tickerData: tickerRow,
                             });
                             if (_fin?.book) _itBookAfter = _fin.book;
                             if (_fin?.embed) {

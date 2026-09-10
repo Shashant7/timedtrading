@@ -21,6 +21,10 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **Exit emails missing Signal Quality (2026-09-10).** TQQQ Index Swings
+      close showed setup + P&L but no rank/conviction. Template was
+      entry-only; paper-lane payload never stamped scores. Branch:
+      `cursor/exit-email-scores-7ffc`.
 - [ ] **Bottom nav scrolls mid-page on mobile (2026-09-05).** Screenshot:
       nav floats ~2/3 down Today (content above + below). v8/v9 CSS
       `bottom:0` + post-scroll settle leaves the bar detached during

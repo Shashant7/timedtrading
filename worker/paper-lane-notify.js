@@ -27,6 +27,83 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Display rank is 0–100. Raw `rank_score` can be 100+ and is not /100. */
+export function pickDisplayRank(...candidates) {
+  for (const v of candidates) {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0 && n <= 100) return n;
+  }
+  return null;
+}
+
+/**
+ * Rank / conviction for Index Swings + Day Trade emails.
+ * Prefer explicit fields, then the paper book (stamped at BUY), then tickerData.
+ */
+export function resolvePaperLaneAlertScores({
+  rank,
+  rr,
+  conviction_score,
+  conviction_tier,
+  signal_quality_lines,
+  tickerData,
+  book,
+  play,
+} = {}) {
+  const src = tickerData && typeof tickerData === "object" ? tickerData : {};
+  const b = book && typeof book === "object" ? book : {};
+  const p = play && typeof play === "object" ? play : {};
+  const displayRank = pickDisplayRank(
+    rank, b.rank, src.rank, src._ranking, src.rank_score,
+  );
+  const conv = num(conviction_score)
+    ?? num(b.conviction_score)
+    ?? num(src.__focus_conviction_score)
+    ?? num(src.focus_conviction_score)
+    ?? num(src.__conviction_score);
+  const tierRaw = conviction_tier
+    || b.conviction_tier
+    || src.__focus_tier
+    || src.focus_tier
+    || src.__conviction_tier
+    || null;
+  const tier = tierRaw ? String(tierRaw).toUpperCase() : null;
+  const rrN = num(rr) ?? num(b.rr) ?? num(src.rr);
+  const suitability = num(p.suitability) ?? num(b.letf_suitability) ?? num(p.score);
+
+  let lines = Array.isArray(signal_quality_lines) && signal_quality_lines.length > 0
+    ? signal_quality_lines.map((line) => String(line))
+    : [];
+  if (!lines.length) {
+    if (displayRank) lines.push(`Signal Strength (Rank): ${Math.round(displayRank)}/100`);
+    if (conv > 0) lines.push(`Conviction: ${conv.toFixed(0)}${tier ? ` (${tier})` : ""}`);
+    if (rrN > 0) lines.push(`Risk/Reward: ${rrN.toFixed(1)}:1`);
+    if (suitability > 0) lines.push(`LETF Suitability: ${Math.round(suitability)}/100`);
+  }
+
+  return {
+    rank: displayRank,
+    rr: rrN > 0 ? rrN : null,
+    conviction_score: conv > 0 ? conv : null,
+    conviction_tier: tier,
+    signal_quality_lines: lines.length ? lines : null,
+    letf_suitability: suitability > 0 ? suitability : null,
+  };
+}
+
+/** Fill blanks only — do not replace an entry stamp with a later tape read. */
+export function mergeBookAlertScores(book, incoming = {}) {
+  const prior = resolvePaperLaneAlertScores({ book });
+  const next = resolvePaperLaneAlertScores({ ...incoming, book: null });
+  const out = { ...(book && typeof book === "object" ? book : {}) };
+  if (!prior.rank && next.rank) out.rank = next.rank;
+  if (!prior.conviction_score && next.conviction_score) out.conviction_score = next.conviction_score;
+  if (!prior.conviction_tier && next.conviction_tier) out.conviction_tier = next.conviction_tier;
+  if (!prior.rr && next.rr) out.rr = next.rr;
+  if (!prior.letf_suitability && next.letf_suitability) out.letf_suitability = next.letf_suitability;
+  return out;
+}
+
 /**
  * Map paper-lane book + event into sendTradeAlertEmail fields so Index
  * Swings / Day Trade emails match Short Term Position Closed (entry, exit, P&L).
@@ -45,6 +122,13 @@ export function buildPaperLaneEmailAlert({
   embed,
   book = null,
   management = null,
+  rank,
+  rr,
+  conviction_score,
+  conviction_tier,
+  signal_quality_lines,
+  tickerData = null,
+  play = null,
 } = {}) {
   const type = paperEventToActivityType(event);
   const isLetf = engine === "index_trend_letf";
@@ -88,6 +172,10 @@ export function buildPaperLaneEmailAlert({
   }
 
   const notional = entry > 0 && shares > 0 ? Math.round(entry * shares * 100) / 100 : null;
+  const scores = resolvePaperLaneAlertScores({
+    rank, rr, conviction_score, conviction_tier, signal_quality_lines,
+    tickerData, book, play,
+  });
 
   return {
     type,
@@ -111,6 +199,11 @@ export function buildPaperLaneEmailAlert({
     action_ts: ts,
     headline: embed?.title || `${event} ${sym}`,
     body: String(embed?.description || "").replace(/\*/g, "").slice(0, 1200),
+    rank: scores.rank,
+    rr: scores.rr,
+    conviction_score: scores.conviction_score,
+    conviction_tier: scores.conviction_tier,
+    signal_quality_lines: scores.signal_quality_lines,
   };
 }
 
@@ -212,11 +305,28 @@ export async function wirePaperLaneNotify(env, {
   embed,
   book,
   management,
+  rank,
+  rr,
+  conviction_score,
+  conviction_tier,
+  signal_quality_lines,
+  tickerData,
+  play,
 } = {}) {
   const KV = env?.KV_TIMED;
+  let latest = tickerData;
+  if (!latest && KV && ticker) {
+    try {
+      latest = await kvGetJSON(KV, `timed:latest:${String(ticker).toUpperCase()}`);
+    } catch {
+      latest = null;
+    }
+  }
   const emailAlert = buildPaperLaneEmailAlert({
     engine, event, ticker, vehicleTicker, direction, price, qty, reason,
     signal_id, ts, embed, book, management,
+    rank, rr, conviction_score, conviction_tier, signal_quality_lines,
+    tickerData: latest, play,
   });
   const row = buildPaperLaneActivityRow({
     engine, event, ticker, vehicleTicker, direction, price, qty, reason,
