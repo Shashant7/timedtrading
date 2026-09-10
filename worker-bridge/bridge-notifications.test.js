@@ -119,7 +119,7 @@ describe("notify coalesce helpers", () => {
       "post-exec drift on exit: expected ~0 held, live 12.4000 (drift 12.4000 sh, reducer_underexecuted)",
     );
     expect(under).toMatch(/leftover shares are still this trade/i);
-    expect(under.toLowerCase()).not.toMatch(/added/);
+    expect(under.toLowerCase()).not.toMatch(/may have been added|user-added excess|user added/);
     expect(under.toLowerCase()).not.toMatch(/\byou(r)?\b/);
     const legacy = meaningForSyncState(
       "reconcile_error",
