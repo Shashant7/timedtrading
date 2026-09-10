@@ -23,6 +23,21 @@ export function indexTrendCarryKey(letfTicker) {
   return `timed:idx-trend-carry:${String(letfTicker || "").toUpperCase()}`;
 }
 
+/** Qty written to the paper action tape. Closes use the flatten size, not remaining=0. */
+export function indexTrendActionShares(decision, { nextBook, priorBook, fallbackShares } = {}) {
+  const ev = String(decision?.event || "").toUpperCase();
+  if (ev === "TRIM") return Math.max(0, Number(decision?.trim_sell_qty) || 0);
+  if (ev === "STOP" || ev === "EXIT") {
+    const stamped = Number(decision?.close_qty);
+    if (Number.isFinite(stamped) && stamped > 0) return Math.round(stamped);
+    const prior = Number(priorBook?.shares_remaining ?? priorBook?.shares);
+    if (Number.isFinite(prior) && prior > 0) return Math.round(prior);
+    return 0;
+  }
+  const live = Number(nextBook?.shares_remaining ?? nextBook?.shares ?? fallbackShares);
+  return Number.isFinite(live) && live > 0 ? Math.round(live) : 0;
+}
+
 function parseJson(raw) {
   if (!raw) return null;
   try { return typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return null; }
@@ -203,7 +218,11 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     underlying: payload.underlying || payload.ticker,
     letf_ticker: payload.letf_ticker,
     signal_id: persistSignalId,
-    shares: nextBook?.shares_remaining ?? nextBook?.shares ?? payload.shares ?? defaultIndexTrendPaperShares(payload.letf_price),
+    shares: indexTrendActionShares(decision, {
+      nextBook,
+      priorBook: book,
+      fallbackShares: payload.shares ?? defaultIndexTrendPaperShares(payload.letf_price),
+    }),
     letf_price: payload.letf_price,
     reason: decision.reason || null,
   }).catch(() => {});

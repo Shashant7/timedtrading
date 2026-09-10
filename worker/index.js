@@ -2514,6 +2514,7 @@ const ROUTES = [
   ["GET",  "/timed/broker/accounts",                     "GET /timed/broker/accounts"],
   ["GET",  "/timed/admin/broker-intents",                "GET /timed/admin/broker-intents"],
   ["POST", "/timed/admin/broker-intents/drain",          "POST /timed/admin/broker-intents/drain"],
+  ["POST", "/timed/admin/index-trend/heal-closes",       "POST /timed/admin/index-trend/heal-closes"],
   ["GET",  "/timed/admin/convexity-tickets",             "GET /timed/admin/convexity-tickets"],
   ["GET",  "/timed/admin/execution/report-card",         "GET /timed/admin/execution/report-card"],
   ["GET",  "/timed/admin/execution/review",              "GET /timed/admin/execution/review"],
@@ -84830,6 +84831,17 @@ export default {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
+      if (routeKey === "POST /timed/admin/index-trend/heal-closes") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { healStrandedIndexTrendCloses } = await import("./index-trend-auto-mirror.js");
+          const out = await healStrandedIndexTrendCloses(env, {});
+          return sendJSON({ ok: true, ...out }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
 
       // 2026-07-21 — Durable silent-failure breadcrumb ring. Survives the
       // 256KB/request Cloudflare log cap that truncates late console.error
@@ -105102,6 +105114,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               + ` filled=${out.filled} rejected=${out.rejected} exhausted=${out.exhausted}`
               + ` deferred=${out.deferred} expired=${out.expired}`,
             );
+          }
+          // Paper STOP/EXIT can Discord and persist, then the isolate dies
+          // before /bridge/order (TQQQ 2026-09-10). Closed books never
+          // re-enter the options/all loop. Flatten leftover mirror qty.
+          try {
+            const { healStrandedIndexTrendCloses } = await import("./index-trend-auto-mirror.js");
+            const heal = await healStrandedIndexTrendCloses(env, {});
+            if (heal.attempted > 0) {
+              console.log(
+                `[INDEX-TREND HEAL] scanned=${heal.scanned} attempted=${heal.attempted}`
+                + ` filled=${heal.filled} skipped=${heal.skipped}`,
+              );
+            }
+          } catch (healErr) {
+            console.warn("[INDEX-TREND HEAL] failed:", String(healErr?.message || healErr).slice(0, 160));
           }
           if (out.attempted > 0 || out.expired > 0) {
             recordCronSuccess(env, "broker_intents_drain").catch(() => {});

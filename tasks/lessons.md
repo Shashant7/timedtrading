@@ -6,6 +6,30 @@
 
 ---
 
+## Index-trend STOP Discord'd; Roth still held TQQQ [2026-09-10]
+
+**Symptom:** 10:00 ET paper STOP on `it:QQQ:TQQQ:LONG:2026-W36`
+(`underlying_invalidation`). Discord + `timed:idx-trend-actions` wrote.
+Day-actions showed TQQQ `not_mirrored` qty=0. Mirror KV still had
+`entry_fired` + `shares_remaining: 21`. No today's row in
+`timed:idx-trend-mirror-log`. UDOW W36 same hole (`shares_remaining: 20`
+after the Sep 4 19:01 ET EXIT died as `equity_ah_too_late_for_broker`).
+
+**Cause:** `/timed/options/all` notifies (persist + Discord + action
+tape) then awaits the bridge. The isolate dies after the paper close.
+The next tick sees `status: closed` / `needs_wait` and never re-fires.
+Action qty was `nextBook.shares_remaining` (always 0 after STOP). There
+is still no durable ENTRY retry; this hole is the close.
+
+**Fix:** `healStrandedIndexTrendCloses` on the monolith `*/5` intent
+drain + `POST /timed/admin/index-trend/heal-closes`. Sells
+`mirror.shares_remaining` when paper already STOPped/EXITed.
+`close_qty` on classify; action tape records the flatten size.
+
+**Do not:** treat a closed paper book as "nothing left to sell". Do not
+backfill leftover ENTRIES (UDOW/TQQQ/TJX 09-03 rule). Do not heal on
+the heavy options/all path (already times out).
+
 ## A core-only grade is not improvement when the book is paper [2026-09-10]
 
 **Symptom:** Operator asked for improvement now. The first setup-grade

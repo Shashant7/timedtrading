@@ -1,6 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
-import { maybeAutoMirrorIndexTrendEvent, indexTrendNeedsEntryCatchUp, indexTrendCatchUpPlaced, INDEX_TREND_MIRROR_LOG_KEY } from "./index-trend-auto-mirror.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  maybeAutoMirrorIndexTrendEvent,
+  indexTrendNeedsEntryCatchUp,
+  indexTrendNeedsExitCatchUp,
+  indexTrendMirrorNeedsExitCatchUp,
+  indexTrendCatchUpPlaced,
+  healStrandedIndexTrendCloses,
+  INDEX_TREND_MIRROR_LOG_KEY,
+} from "./index-trend-auto-mirror.js";
 import { forwardOrderToBridge } from "./broker-bridge-client.js";
+import { indexTrendActionShares } from "./index-trend-alerts.js";
 
 vi.mock("./broker-bridge-client.js", async (importOriginal) => {
   const actual = await importOriginal();
@@ -32,6 +41,11 @@ const ENABLED_PREFS = JSON.stringify({
 });
 
 describe("index-trend-auto-mirror", () => {
+  beforeEach(() => {
+    forwardOrderToBridge.mockClear();
+    forwardOrderToBridge.mockResolvedValue({ ok: true, order_id: "ord-1" });
+  });
+
   it("skips when auto-mirror disabled and still writes the decision log", async () => {
     const env = envWithStore({
       "timed:options:auto-mirror:op@test.com": JSON.stringify({ enabled: false }),
@@ -139,6 +153,93 @@ describe("index-trend-auto-mirror", () => {
     expect(mirror.entry_fired).toBe(true);
     expect(mirror.entry_order_id).toBe("WB-OWNER");
     expect(mirror.entry_order_ids).toEqual(["WB-OWNER", "WB-PARTNER"]);
+  });
+
+  it("heals a paper STOP that never forwarded while the broker still holds (TQQQ 2026-09-10)", async () => {
+    const signalId = "it:QQQ:TQQQ:LONG:2026-W36";
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      [`timed:idx-trend-mirror:${signalId}`]: JSON.stringify({
+        entry_fired: true,
+        trim_fired: true,
+        shares: 28,
+        shares_remaining: 21,
+        letf_ticker: "TQQQ",
+        underlying: "QQQ",
+      }),
+      "timed:idx-trend-actions": JSON.stringify([
+        {
+          ts: RTH_TS,
+          event: "STOP",
+          underlying: "QQQ",
+          letf_ticker: "TQQQ",
+          signal_id: signalId,
+          shares: 0,
+          letf_price: 69.08,
+          reason: "underlying_invalidation",
+        },
+      ]),
+    });
+    expect(await indexTrendNeedsExitCatchUp(env, signalId, RTH_TS)).toBe(true);
+    expect(indexTrendMirrorNeedsExitCatchUp({
+      entry_fired: true,
+      shares_remaining: 21,
+    })).toBe(true);
+    expect(indexTrendMirrorNeedsExitCatchUp({
+      entry_fired: true,
+      exit_fired: true,
+      shares_remaining: 21,
+    })).toBe(false);
+    const out = await healStrandedIndexTrendCloses(env, { now: RTH_TS });
+    expect(out.attempted).toBe(1);
+    expect(out.filled).toBe(1);
+    expect(forwardOrderToBridge).toHaveBeenCalledWith(env, expect.objectContaining({
+      ticker: "TQQQ",
+      side: "exit",
+      qty: 21,
+      trade_id: signalId,
+    }));
+    const mirror = JSON.parse(env.store[`timed:idx-trend-mirror:${signalId}`]);
+    expect(mirror.exit_fired).toBe(true);
+    expect(mirror.shares_remaining).toBe(0);
+    expect(await indexTrendNeedsExitCatchUp(env, signalId, RTH_TS)).toBe(false);
+  });
+
+  it("does not immediately re-heal a rejected close (cooldown)", async () => {
+    forwardOrderToBridge.mockResolvedValueOnce({
+      ok: false,
+      skip: "equity_ah_too_late_for_broker",
+    });
+    const signalId = "it:DIA:UDOW:LONG:2026-W36";
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      [`timed:idx-trend-mirror:${signalId}`]: JSON.stringify({
+        entry_fired: true,
+        shares: 27,
+        shares_remaining: 20,
+        letf_ticker: "UDOW",
+        underlying: "DIA",
+      }),
+      "timed:idx-trend-actions": JSON.stringify([
+        { ts: AFTER_TS, event: "EXIT", signal_id: signalId, letf_ticker: "UDOW", underlying: "DIA", shares: 0 },
+      ]),
+    });
+    const first = await healStrandedIndexTrendCloses(env, { now: AFTER_TS });
+    expect(first.attempted).toBe(1);
+    expect(first.filled).toBe(0);
+    expect(await indexTrendNeedsExitCatchUp(env, signalId, AFTER_TS + 60_000)).toBe(false);
+    expect(await indexTrendNeedsExitCatchUp(env, signalId, AFTER_TS + 16 * 60 * 1000)).toBe(true);
+  });
+
+  it("records flatten qty on STOP, not post-close remaining 0", () => {
+    expect(indexTrendActionShares(
+      { event: "STOP", close_qty: 16 },
+      { nextBook: { shares: 28, shares_remaining: 0 }, priorBook: { shares: 28, shares_remaining: 16 } },
+    )).toBe(16);
+    expect(indexTrendActionShares(
+      { event: "TRIM", trim_sell_qty: 7 },
+      { nextBook: { shares_remaining: 21 } },
+    )).toBe(7);
   });
 
   it("still blocks a fresh BUY outside RTH", async () => {

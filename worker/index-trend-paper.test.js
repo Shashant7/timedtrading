@@ -96,6 +96,7 @@ describe("index-trend-paper", () => {
     expect(d.reason).toBe("underlying_invalidation");
     expect(d.nextBook?.needs_wait).toBe(true);
     expect(d.nextBook?.shares_remaining).toBe(0);
+    expect(d.close_qty).toBe(5);
   });
 
   it("does not flatten an open book solely because FSD month-end passed", () => {

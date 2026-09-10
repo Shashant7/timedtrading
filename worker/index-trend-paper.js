@@ -92,21 +92,30 @@ export function classifyIndexTrendPaperEvent({
   const defaultShares = shares || defaultIndexTrendPaperShares(letfPx);
   const win = shareLaneExecutionWindow(now);
 
-  const closed = (event, reason, extra = {}) => ({
-    event,
-    reason,
-    nextBook: {
-      ...extra,
-      status: "closed",
+  const closed = (event, reason, extra = {}) => {
+    // Day-actions / Discord must record the qty being flattened, not the
+    // post-close remaining (always 0). TQQQ 2026-09-10 STOP wrote shares:0
+    // and looked like a no-op while Roth still held the mirrored remainder.
+    const closeQty = Math.max(0, Math.round(
+      Number(extra.shares_remaining ?? book?.shares_remaining ?? book?.shares) || 0,
+    ));
+    return {
       event,
       reason,
-      needs_wait: true,
-      exit_ts: now,
-      exit_letf_price: letfPx,
-      exit_underlying_price: ulPx,
-      shares_remaining: 0,
-    },
-  });
+      close_qty: closeQty,
+      nextBook: {
+        ...extra,
+        status: "closed",
+        event,
+        reason,
+        needs_wait: true,
+        exit_ts: now,
+        exit_letf_price: letfPx,
+        exit_underlying_price: ulPx,
+        shares_remaining: 0,
+      },
+    };
+  };
 
   // After EXIT/STOP, stay flat while the same weekly play is still live.
   // Clearing needs_wait on the next tick used to BUY the same SPYU book

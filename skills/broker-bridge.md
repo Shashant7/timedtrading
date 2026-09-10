@@ -77,8 +77,12 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   concurrently under the 28s client timeout; the outer receipt must
 >   carry child order IDs/rejects. Never send equity to a Futures
 >   sub-account. Do not backfill leftover books. Index-trend same-tick
->   heal is only for a book younger than 15 minutes. Partner accounts
->   must not manually exit a name that never filled
+>   heal is only for a book younger than 15 minutes. A paper STOP/EXIT
+>   that Discord'd while `/bridge/order` never ran is healed on monolith
+>   `*/5` (`healStrandedIndexTrendCloses`) or
+>   `POST /timed/admin/index-trend/heal-closes` — sell
+>   `mirror.shares_remaining`, do not treat action qty=0 as flat.
+>   Partner accounts must not manually exit a name that never filled
 >   (`no_manifest_for_trade`).
 > - Catch-up trims MUST send `reduce_pct = lot.shares / (remaining +
 >   lot.shares)` from `investor_positions.total_shares`. Replaying raw
