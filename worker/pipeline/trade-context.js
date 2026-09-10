@@ -6,6 +6,7 @@ import { normalizeTfKey } from "../ingest.js";
 import { resolveTickerProfileContext } from "../profile-resolution.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 import { formingPairEnabled, resolveFormingPair, resolveHtfForming, isFormingPairEntryPath } from "../mtf-forming.js";
+import { resolvePlaySide } from "../ranking/play-side.js";
 
 export function buildTradeContext(tickerData, asOfTs = null) {
   const d = tickerData || {};
@@ -289,6 +290,8 @@ export function inferSide(d, state) {
   }
   const consensusDir = d.swing_consensus?.direction;
   if (consensusDir === "LONG" || consensusDir === "SHORT") return consensusDir;
+  const play = resolvePlaySide(d);
+  if (play) return play;
   if (state.includes("BULL")) return "LONG";
   if (state.includes("BEAR")) return "SHORT";
   const h = Number(d.htf_score);

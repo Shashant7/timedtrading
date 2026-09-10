@@ -57,6 +57,30 @@ describe("conviction sector component (Part 4 missing-input repair)", () => {
   });
 });
 
+describe("conviction context overlay", () => {
+  it("adds independent quality/theme context on the play side", () => {
+    const conv = computeConvictionScore({
+      tickerData: {
+        ticker: "BE",
+        _ticker_type: "growth",
+        htf_score: -2.5,
+        _cloud_pivot_detect: { fires: true, direction: "LONG" },
+        _fair_value: { quality_grade: "A", growth_detected: true, tilt: 1 },
+        _compounder: { tier: "growth_elite", eligible: true },
+        daily_structure: { e21: 100, e48: 95, e200: 90, pct_above_e21: 2 },
+      },
+      ctx: { direction: "LONG" },
+      historyStats: null,
+      ttSelected: new Set(),
+      currentGrannyEtfHoldings: null,
+      currentUpticks: null,
+    });
+    expect(conv.breakdown.context.pts).toBe(18);
+    expect(conv.breakdown.context.parts.quality).toBe(8);
+    expect(conv.breakdown.context.parts.theme_member).toBe(4);
+  });
+});
+
 describe("conviction relative-strength component (Part 4 missing-input repair)", () => {
   it("flags input_missing + spy_baseline_missing on the no-data path", () => {
     const conv = computeConvictionScore({

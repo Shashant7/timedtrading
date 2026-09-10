@@ -15,10 +15,10 @@ when the grade later falls.
 
 | Pillar | Pass (2 pts) | Fail-closed |
 |---|---|---|
-| Structure | Candidate-side HTF state (`HTF_BULL_*` / `HTF_BEAR_*`) **or** daily `bull_stack` / `bear_stack` | Opposing HTF (e.g. `HTF_BEAR_LTF_BULL` for a LONG). Empty state and stack |
+| Structure | Candidate-side HTF state (`HTF_BULL_*` / `HTF_BEAR_*`) **or** daily `bull_stack` / `bear_stack` **or** armed Cloud Pivot / weekly ST hold on this side | Opposing HTF with no armed play (e.g. `HTF_BEAR_LTF_BULL` for a LONG). Empty state and stack |
 | Tape | Observed rvol ≥ 1.2 **or** squeeze release **and** 10/15/30 ST dir matches side | TradeContext’s fake 1.0× rvol. Release with no / opposed ST |
-| Macro | `_theme_tilt` or `_macro_wire_tilt` (or `_shadow`) > 0 — already side-applied | Both missing, or ≤ 0 |
-| Value | `_fv_tilt` or `_fv_tilt_shadow` > 0 | Missing / 0 / opposed |
+| Macro | `_theme_tilt` or `_macro_wire_tilt` (or `_shadow`) > 0 — already side-applied. LONG also passes on **theme membership + quality A/B or compounder** when today's breadth tilt is flat | Both missing, or ≤ 0, and no membership+quality |
+| Value | `_fv_tilt` or `_fv_tilt_shadow` > 0, **or** unsigned `_fair_value.tilt` re-signed to this play side | Missing / 0 / opposed |
 | Officer | `_officer_tilt` > 0 **or** sector OW (LONG) / UW (SHORT) | Neutral rating with no officer tilt |
 
 ## Where it lives
@@ -29,7 +29,7 @@ when the grade later falls.
 | TT Core | `qualifyEntry` in `worker/pipeline/tt-core-entry.js` |
 | Legacy enter | `qualifiesForEnter` in `worker/index.js` |
 | Stamp | `d.__setup_grade` + `__setup_evaluation.setup_grade` |
-| Version | `SCORING_VERSION` `2.1.8-2026-09-10` |
+| Version | `SCORING_VERSION` `2.1.9-2026-09-10` |
 | Paper families | `resolvePaperFamilyStandaloneEntry` — same floor |
 
 `deep_audit_setup_grade_enabled` default **true**. Floor
@@ -62,7 +62,7 @@ node node_modules/vitest/vitest.mjs run \
   worker/pipeline/admission-seam.test.js
 ```
 
-After deploy, a sentinel rescore should show `scoring_version` `2.1.8`
+After deploy, a sentinel rescore should show `scoring_version` `2.1.9`
 and `__setup_grade` on rejected/qualified core **and** paper-family
 attempts. Members/anon must not see the stamp (`redactTickerSnapshot`).
 A thin Cloud Pivot proposal must not open. Support Bounce explain must

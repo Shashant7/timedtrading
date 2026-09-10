@@ -71,11 +71,26 @@ describe("canonical candidate score", () => {
     const short = candidate("XYZ", 70, { htf_score: -20 }).payload;
     expect(computeCandidateScore(long, options)).toBe(76);
     expect(computeCandidateScore(short, options)).toBe(64);
+    expect(short._theme_tilt).toBe(-6);
     options.themeMap.enabled = false;
     expect(computeCandidateScore(short, options)).toBe(70);
     expect(short._theme_tilt_shadow).toBe(-6);
     expect(short._theme_tilt).toBeUndefined();
     expect(short._ranking.overlay_delta).toBe(0);
+  });
+
+  it("signs overlays to an armed Cloud Pivot play instead of HTF_BEAR", () => {
+    const options = { themeMap: { enabled: true, by_ticker: { BE: { tilt: 6, theme: "ai_infra_energy" } } } };
+    const play = candidate("BE", 70, {
+      htf_score: -20,
+      _cloud_pivot_detect: { fires: true, direction: "LONG" },
+      _fair_value: { tilt: 1, tilt_enabled: true },
+    }).payload;
+    expect(computeCandidateScore(play, options)).toBe(77);
+    expect(play._theme_tilt).toBe(6);
+    expect(play._fv_tilt).toBe(1);
+    const noPlay = candidate("BE", 70, { htf_score: -20 }).payload;
+    expect(computeCandidateScore(noPlay, options)).toBe(64);
   });
 
   it("malformed overlays cannot erase a valid base score", () => {
