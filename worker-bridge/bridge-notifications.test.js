@@ -112,4 +112,25 @@ describe("notify coalesce helpers", () => {
     expect(orphan).toMatch(/do not auto-rebuy/i);
     expect(orphan).not.toMatch(/closed manually at the broker/i);
   });
+
+  it("does not describe a partial EXIT leftover as shares added", () => {
+    const under = meaningForSyncState(
+      "execution_drift",
+      "post-exec drift on exit: expected ~0 held, live 12.4000 (drift 12.4000 sh, reducer_underexecuted)",
+    );
+    expect(under).toMatch(/leftover shares are still this trade/i);
+    expect(under.toLowerCase()).not.toMatch(/added/);
+    expect(under.toLowerCase()).not.toMatch(/\byou(r)?\b/);
+    const legacy = meaningForSyncState(
+      "reconcile_error",
+      "reducer discrepancy: account holds more than model tracked (user may have added); reducing only the model portion",
+    );
+    expect(legacy).toMatch(/still this trade/i);
+    expect(legacy).not.toMatch(/could not fetch broker positions/i);
+    const replenished = meaningForSyncState(
+      "execution_drift",
+      "post-exec drift on exit: live 55 (reducer_replenished)",
+    );
+    expect(replenished).toMatch(/new lot or transfer/i);
+  });
 });

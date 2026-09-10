@@ -6,6 +6,30 @@
 
 ---
 
+## Partial EXIT leftover is this lot, not shares added [2026-09-10]
+
+**Symptom:** ULTA model EXIT filled at 11:28 ET; broker sold, but not
+the full live holding. Two minutes later Mirror Sync paged "user may
+have added" / `reducer_underexecuted_or_replenished`. No new lot was
+added.
+
+**Cause:** `reconcileReducerQty` treated live held > manifest remaining
+as user-added and sold only the stale remaining. Post-exec lumped
+`live > expected` as `underexecuted_or_replenished`. Persist could stamp
+leftover as `user_added` and zero `broker_remaining_qty`, which blocks
+`runTraderExitCatchup`.
+
+**Fix:** Full EXIT flattens uncounted live shares unless a sibling OPEN
+row or a previously classified `user_added` reserves them. Post-exec
+splits `reducer_underexecuted` (leftover ≤ pre_held, warn) vs
+`reducer_replenished` (live > pre_held, critical). classifyDrift does
+not write leftover as user-added. Digest copy says leftover is still
+this trade; catch-up sells the remainder.
+
+**Do not:** Auto-fire catch-up from the bridge reconciler. POST
+heal-closes blindly. Call leftover a new lot because remaining was
+stale.
+
 ## Stamp scored news on timed:latest — do not fetch on /timed/all [2026-09-10]
 
 **Symptom:** Context conviction was ready for sentiment and S&P-inclusion
@@ -2581,11 +2605,12 @@ broker has time to route) compares live held vs `expected_post_held_qty`:
 - drift outside tolerance → stamp `drift_qty` + `live_held_qty` +
   `drift_detected_at` on the audit (preserving the original expectation
   so operator can diff), write `post_exec_drift` bridge_audit row,
-  emit a critical drift notification (Discord + email).
+  emit a drift notification (warn on underexecution).
 
 Reasons the reconciler distinguishes:
-- `reducer_underexecuted_or_replenished` — live > expected (broker sold
-  LESS than we asked; or the signal was blocked outright).
+- `reducer_underexecuted` — live > expected and ≤ pre_held (partial
+  fill of this TRIM/EXIT; leftover is still this lot).
+- `reducer_replenished` — live > pre_held (a new lot or transfer).
 - `reducer_overexecuted` — live < expected (broker sold MORE than we
   asked, e.g. the KO full-liquidation regression before the trim/sell
   side-mapping fix).

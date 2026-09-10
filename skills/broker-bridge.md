@@ -130,9 +130,15 @@ the operator audit log, or the `tt-broker-bridge` worker.
 > - Drift outside tolerance → `markLastActionDrift` stamps `drift_qty`
 >   + `live_held_qty` + `drift_detected_at` (preserving the original
 >   expectation so operator can diff), write `post_exec_drift`
->   bridge_audit row, emit `critical` drift notification.
->   `reject_reason` distinguishes `reducer_underexecuted_or_replenished`
->   (live > expected) vs `reducer_overexecuted` (live < expected).
+>   bridge_audit row, emit a drift notification (warn on underexecution).
+>   `reject_reason` distinguishes `reducer_underexecuted` (live > expected
+>   and ≤ pre_held — leftover of this TRIM/EXIT, not a new lot),
+>   `reducer_replenished` (live > pre_held), and `reducer_overexecuted`
+>   (live < expected). Underexecution pages warn; the other two stay
+>   critical. Full EXIT flattens uncounted live shares unless a sibling
+>   OPEN row or a classified `user_added` reserves them. Do not persist
+>   leftover as `user_added` (zeros `broker_remaining_qty`, blocks
+>   `runTraderExitCatchup`).
 >
 > Helpers: `writeLastActionAudit`, `markLastActionVerified`,
 > `markLastActionDrift`, `readLastActionAudit` in `worker-bridge/bridge-manifest.js`.
