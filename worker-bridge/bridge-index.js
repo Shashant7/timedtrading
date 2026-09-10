@@ -29,12 +29,12 @@ import {
   claimOrderIdempotency, releaseOrderIdempotency, resolveBridgeAccounts,
   listMirrorParticipants, pauseOwnerAccounts,
 } from "./bridge-storage.js";
-import { preflightOrder, bumpDailyCounter, evaluateReducerAgainstPositions, reconcileReducerQty } from "./bridge-guards.js";
+import { preflightOrder, bumpDailyCounter, evaluateReducerAgainstPositions, reconcileReducerQty, parseKnownUserAddedQty } from "./bridge-guards.js";
 import { roundQtyForBroker } from "./bridge-sizing.js";
 import {
   writeEntryManifest, writeRejectedEntry,
   recentManifestRows, readManifestRow, listManifestRowsForTrade,
-  pickReducerFanoutAccounts,
+  pickReducerFanoutAccounts, sumOpenSiblingEquityQty,
   classifyOrderLifecycle, markManifestModelClosed,
   writeLastActionAudit,
 } from "./bridge-manifest.js";
@@ -2343,13 +2343,26 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     } catch (_) { /* manifest read best-effort */ }
 
     // (c) Reconcile: percentage of the model portion, capped to model shares,
-    // clamped to live holding. Never oversell, never touch user shares.
+    // clamped to live holding. Full EXIT flattens uncounted live shares of
+    // THIS lot (ULTA 2026-09-10) but reserves sibling OPEN claims and a
+    // previously classified user_added excess.
+    let siblingClaimedQty = 0;
+    if (reducerLifecycle === "close" && sanitized.ticker) {
+      siblingClaimedQty = await sumOpenSiblingEquityQty(env, {
+        userId: sanitized.user_id,
+        brokerAccountId,
+        ticker: sanitized.ticker,
+        exceptTradeId: sanitized.trade_id,
+      }).catch(() => 0);
+    }
     const recon = reconcileReducerQty({
       side: sanitized.side,
       requestedQty: sanitized.qty,
       reducePct: sanitized.reduce_pct ?? sanitized.trim_pct ?? null,
       modelRemainingQty: modelRemaining,
       heldQty,
+      siblingClaimedQty,
+      knownUserAddedQty: parseKnownUserAddedQty(modelRow),
     });
 
     // (d) Always log the reconcile; log + notify on a discrepancy.
@@ -2374,8 +2387,13 @@ async function handleSingleAccountOrder(env, ctx, payload) {
       });
       if (modelRow) {
         try {
+          const kinds = recon.discrepancy.map((d) => String(d.kind || ""));
+          // held_gt / undercount is an execution mismatch, not a fetch failure.
+          const syncState = kinds.includes("intent_unit_mismatch")
+            ? "reconcile_error"
+            : "execution_drift";
           await emitDriftNotification(env, {
-            ...modelRow, sync_state: "reconcile_error",
+            ...modelRow, sync_state: syncState,
             sync_note: `reducer discrepancy: ${recon.discrepancy.map((d) => d.note || d.kind).join("; ")}`,
           }, "warn");
         } catch (_) { /* notify best-effort */ }

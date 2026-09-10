@@ -15,7 +15,7 @@
 // the operator asked for after the KO trim regression.
 
 import { describe, it, expect } from "vitest";
-import { reconcileUser } from "./bridge-reconciler.js";
+import { reconcileUser, classifyPostExecHeldDrift } from "./bridge-reconciler.js";
 import { POST_EXEC_VERIFY_DELAY_MS, POST_EXEC_TOLERANCE_QTY } from "./bridge-manifest.js";
 
 function makeDb({ rows = [] } = {}) {
@@ -105,6 +105,53 @@ function makeRow({
     sync_last_action_json: audit ? JSON.stringify(audit) : null,
   };
 }
+
+describe("classifyPostExecHeldDrift — ULTA leftover vs true replenish", () => {
+  const exitAudit = {
+    kind: "exit",
+    pre_held_qty: 50,
+    intended_qty: 50,
+    expected_post_held_qty: 0,
+  };
+
+  it("full EXIT leftover ≤ pre_held is underexecuted, not replenished", () => {
+    const out = classifyPostExecHeldDrift(exitAudit, 12.4);
+    expect(out.status).toBe("drift");
+    expect(out.reason).toBe("reducer_underexecuted");
+    expect(out.severity).toBe("warn");
+    expect(out.leftover_qty).toBeCloseTo(12.4, 6);
+  });
+
+  it("does not treat a blocked trim (still at pre_held) as replenished", () => {
+    const trim = {
+      kind: "trim",
+      pre_held_qty: 10.9,
+      intended_qty: 4.04568,
+      expected_post_held_qty: 6.85432,
+    };
+    const out = classifyPostExecHeldDrift(trim, 10.9);
+    expect(out.reason).toBe("reducer_underexecuted");
+  });
+
+  it("live above pre_held is replenished (a new lot)", () => {
+    const out = classifyPostExecHeldDrift(exitAudit, 55);
+    expect(out.reason).toBe("reducer_replenished");
+    expect(out.severity).toBe("critical");
+    expect(out.added_qty).toBeCloseTo(5, 6);
+  });
+
+  it("live below expected is overexecuted", () => {
+    const trim = {
+      kind: "trim",
+      pre_held_qty: 10.9,
+      intended_qty: 4.04568,
+      expected_post_held_qty: 6.85432,
+    };
+    const out = classifyPostExecHeldDrift(trim, 0);
+    expect(out.reason).toBe("reducer_overexecuted");
+    expect(out.severity).toBe("critical");
+  });
+});
 
 describe("reconcileUser — post-execution audit VERIFIED path", () => {
   it("marks audit verified + emits post_exec_verified when live held converges to expected", async () => {
@@ -328,5 +375,51 @@ describe("reconcileUser — post-exec audit with a sibling trade on the same tic
     const alert = db.audits.find(a => a.args.some(x => String(x).includes("post_exec_drift")));
     expect(alert).toBeTruthy();
     expect(alert.args.some(x => String(x).includes("reducer_overexecuted"))).toBe(true);
+  });
+});
+
+describe("reconcileUser — ULTA partial EXIT leftover", () => {
+  it("stamps reducer_underexecuted when the broker sold only part of a full EXIT", async () => {
+    const audit = {
+      ts: Date.now(),
+      kind: "exit",
+      intended_qty: 50,
+      pre_held_qty: 50,
+      expected_post_held_qty: 0,
+      client_order_id: "tt-exit-ULTA-1",
+      broker_order_id: "wb-ulta-1",
+      verify_after_ms: 0,
+      verified: false,
+    };
+    const row = {
+      user_id: "op@x.com",
+      trade_id: "ULTA-w36",
+      broker_account_id: "WB-ROTH",
+      ticker: "ULTA",
+      mode: "trader",
+      instrument_type: "equity",
+      model_status: "CLOSED",
+      sync_state: "in_sync",
+      model_intended_qty: 50,
+      broker_filled_qty: 50,
+      broker_remaining_qty: 0,
+      sync_last_checked_at: 0,
+      sync_drift_count: 0,
+      mirror_suppressed: 0,
+      sync_last_action_json: JSON.stringify(audit),
+    };
+    const db = makeDb({ rows: [row] });
+    const adapter = {
+      async getEquityPositions() {
+        return { ok: true, positions: [{ symbol: "ULTA", qty: 12.4, avg_cost: 537.25 }] };
+      },
+    };
+    const stats = await reconcileUser({ BRIDGE_DB: db }, perAccountUser, adapter, {});
+    expect(stats.post_exec_drift).toBe(1);
+    const alert = db.audits.find(a => a.args.some(x => String(x).includes("post_exec_drift")));
+    expect(alert).toBeTruthy();
+    expect(alert.args.some(x => String(x).includes("reducer_underexecuted"))).toBe(true);
+    expect(alert.args.some(x => String(x).includes("reducer_underexecuted_or_replenished"))).toBe(false);
+    expect(alert.args.some(x => String(x).includes("reducer_replenished"))).toBe(false);
   });
 });

@@ -555,6 +555,55 @@ export function pickReducerFanoutAccounts(accounts, rows) {
   return (accounts || []).filter((acct) => holders.some((row) => accountMatchesManifestRow(acct, row)));
 }
 
+/**
+ * Qty claimed by other OPEN equity rows on the same ticker + account.
+ * Full EXIT must reserve this so a sibling lot (XLRE) is not flattened
+ * when the live holding is larger than this row's remaining.
+ */
+export function claimQtyFromManifestRow(row) {
+  const remaining = Number(row?.broker_remaining_qty);
+  const intended = Number(row?.model_intended_qty) || 0;
+  return Math.max(
+    (Number.isFinite(remaining) && remaining > 0) ? remaining : 0,
+    intended > 0 ? intended : 0,
+  );
+}
+
+export async function sumOpenSiblingEquityQty(env, {
+  userId,
+  brokerAccountId,
+  ticker,
+  exceptTradeId,
+} = {}) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return 0;
+  const uid = String(userId || "").toLowerCase();
+  const acct = String(brokerAccountId || "").trim();
+  const sym = String(ticker || "").toUpperCase();
+  const except = String(exceptTradeId || "").trim();
+  if (!uid || !sym) return 0;
+  await ensureMirrorManifestSchema(env);
+  try {
+    const r = await db.prepare(`
+      SELECT trade_id, broker_remaining_qty, model_intended_qty
+        FROM mirror_trade_manifest
+       WHERE (user_id = ?1 OR (?2 != '' AND broker_account_id = ?2))
+         AND UPPER(COALESCE(ticker, '')) = ?3
+         AND UPPER(COALESCE(model_status, '')) = 'OPEN'
+         AND LOWER(COALESCE(instrument_type, 'equity')) = 'equity'
+         AND (?4 = '' OR trade_id != ?4)
+       LIMIT 100
+    `).bind(uid, acct, sym, except).all();
+    let sum = 0;
+    for (const row of r?.results || []) sum += claimQtyFromManifestRow(row);
+    return sum;
+  } catch (e) {
+    console.warn("[MANIFEST] sumOpenSiblingEquityQty failed:",
+      String(e?.message || e).slice(0, 200));
+    return 0;
+  }
+}
+
 export async function listManifestRowsForTrade(env, tradeId) {
   const db = env?.BRIDGE_DB;
   if (!db) return [];

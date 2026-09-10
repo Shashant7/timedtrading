@@ -3271,6 +3271,19 @@ function _mirrorMeaning(syncState, syncNote) {
   if (/model_open expected/i.test(note) && /broker holds 0/i.test(note)) {
     return "The model still shows an open position but the broker is flat. This can follow a manual close or a reducer that sold the remaining mirrored shares. Do not auto-rebuy; decide whether the sleeve should be remirrored.";
   }
+  if (/reducer_underexecuted|manifest_remaining_undercounted|reducer leftover|not user-added/i.test(note)
+      && !/reducer_replenished/i.test(note)) {
+    return "The EXIT or TRIM filled, but not the full intended quantity. The leftover shares are still this trade — not a newly added lot. The next exit catch-up sells the remainder.";
+  }
+  if (/reducer_replenished/i.test(note)) {
+    return "Holdings rose above the pre-exit quantity. That is a new lot or transfer, not an underexecuted sell. Review the broker fills before flattening.";
+  }
+  if (/reducer_overexecuted/i.test(note)) {
+    return "The broker sold more than this TRIM or EXIT intended, including a sibling lot on the same ticker. Compare fills before another reducer.";
+  }
+  if (/user may have added|held_gt_model|more than model tracked/i.test(note)) {
+    return "The broker held more than the manifest remaining. That leftover is still this trade unless another OPEN model trade on the same ticker claims those shares, or a prior cycle already tracked an add. This EXIT sells the live mirrored holding minus any reserved sibling or tracked add.";
+  }
   switch (String(syncState || "").toLowerCase()) {
     case "partial_fill":
       return "The broker filled less than the model intended. Future TRIM/EXIT actions will be scaled proportionally.";

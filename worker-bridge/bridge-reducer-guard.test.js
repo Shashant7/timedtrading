@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { evaluateReducerAgainstPositions, reconcileReducerQty } from "./bridge-guards.js";
+import { evaluateReducerAgainstPositions, reconcileReducerQty, parseKnownUserAddedQty } from "./bridge-guards.js";
+
+describe("parseKnownUserAddedQty", () => {
+  it("reads user_added from broker_last_known_state JSON", () => {
+    expect(parseKnownUserAddedQty({
+      broker_last_known_state: JSON.stringify({ qty: 11.4, user_added: 0.5 }),
+    })).toBeCloseTo(0.5, 6);
+    expect(parseKnownUserAddedQty({ broker_last_known_state: "{}" })).toBe(0);
+    expect(parseKnownUserAddedQty(null)).toBe(0);
+  });
+});
 
 describe("roundQtyForBroker — Webull 5dp fractional ceiling", () => {
   it("floors TT 50% trim 1.199385 → 1.19938 (Webull max 5 decimals)", async () => {
@@ -78,10 +88,10 @@ describe("reconcileReducerQty — full-exit dust sweep (2026-07-27)", () => {
       heldQty: 10.90578,
     });
     expect(r.qty).toBeCloseTo(10.90578, 6);
-    expect(r.sweptDust).toBe(true);
-    expect(r.reasons.some((s) => String(s).startsWith("full_exit_sweep_dust_"))).toBe(true);
-    // A dust delta is NOT a real discrepancy on a full exit — skip the
-    // noisy notification.
+    expect(
+      r.sweptDust || r.reasons.includes("full_exit_flatten_uncounted_held"),
+    ).toBe(true);
+    // A dust / undercount delta is NOT a new lot — skip the noisy page.
     expect(r.discrepancy).toBeNull();
   });
 
@@ -98,22 +108,53 @@ describe("reconcileReducerQty — full-exit dust sweep (2026-07-27)", () => {
     expect(r.sweptDust).toBe(false);
   });
 
-  it("does NOT sweep when the excess exceeds the tolerance (protects user shares)", () => {
-    // User added 0.5 sh above the model portion (>0.05 dust tolerance).
-    // A full exit must NOT touch the user's shares — stays at model.
+  it("does NOT sweep a previously tracked user-added excess", () => {
+    // A prior reconcile classified 0.5 sh as user_added. Full EXIT must
+    // not touch those shares. Unclassified excess is flattened instead
+    // (ULTA 2026-09-10 — leftover of this lot, not a new add).
     const r = reconcileReducerQty({
       side: "sell",
       requestedQty: 10.9,
       reducePct: null,
       modelRemainingQty: 10.9,
-      heldQty: 11.4, // 0.5 sh user-added
+      heldQty: 11.4,
+      knownUserAddedQty: 0.5,
     });
     expect(r.qty).toBeCloseTo(10.9, 6);
     expect(r.sweptDust).toBe(false);
-    // The full exit path settled on model portion (10.9); the "held_gt_model"
-    // discrepancy is still surfaced so the operator sees the untouched excess.
+    expect(r.reasons).not.toContain("full_exit_flatten_uncounted_held");
     expect(r.discrepancy).not.toBeNull();
     expect(r.discrepancy.some((d) => d.kind === "held_gt_model")).toBe(true);
+    expect(r.discrepancy.some((d) => /user may have added/i.test(d.note))).toBe(false);
+  });
+
+  it("ULTA: full EXIT flattens uncounted live shares (not a new lot)", () => {
+    // Manifest remaining under-counted the live holding. Broker executed
+    // the stale remaining and left leftover; Mirror Sync claimed shares
+    // were added. Flatten the live holding when nothing is reserved.
+    const r = reconcileReducerQty({
+      side: "exit",
+      requestedQty: 40,
+      reducePct: null,
+      modelRemainingQty: 40,
+      heldQty: 50,
+    });
+    expect(r.qty).toBeCloseTo(50, 6);
+    expect(r.reasons).toContain("full_exit_flatten_uncounted_held");
+    expect(r.discrepancy).toBeNull();
+  });
+
+  it("full EXIT reserves a sibling OPEN claim (XLRE)", () => {
+    const r = reconcileReducerQty({
+      side: "exit",
+      requestedQty: 17.3812,
+      reducePct: null,
+      modelRemainingQty: 17.3812,
+      heldQty: 18.73499,
+      siblingClaimedQty: 1.35379,
+    });
+    expect(r.qty).toBeCloseTo(17.3812, 4);
+    expect(r.reasons).not.toContain("full_exit_flatten_uncounted_held");
   });
 
   it("dust sweep respects heldQty ceiling — cannot oversell if held is below intended", () => {
@@ -129,22 +170,14 @@ describe("reconcileReducerQty — full-exit dust sweep (2026-07-27)", () => {
     expect(r.sweptDust).toBe(false);
   });
 
-  it("dustSweepTolerance is overridable per-call", () => {
-    // 0.1 sh excess is above default 0.05 tolerance → no sweep by default.
-    const rDefault = reconcileReducerQty({
+  it("0.1 sh uncounted excess on full EXIT flattens (same lot, not a new add)", () => {
+    const r = reconcileReducerQty({
       side: "exit", requestedQty: 10, reducePct: null,
       modelRemainingQty: 10, heldQty: 10.1,
     });
-    expect(rDefault.sweptDust).toBe(false);
-    expect(rDefault.qty).toBeCloseTo(10, 6);
-    // With a higher tolerance the sweep engages.
-    const rWide = reconcileReducerQty({
-      side: "exit", requestedQty: 10, reducePct: null,
-      modelRemainingQty: 10, heldQty: 10.1,
-      dustSweepTolerance: 0.5,
-    });
-    expect(rWide.sweptDust).toBe(true);
-    expect(rWide.qty).toBeCloseTo(10.1, 6);
+    expect(r.qty).toBeCloseTo(10.1, 6);
+    expect(r.reasons).toContain("full_exit_flatten_uncounted_held");
+    expect(r.discrepancy).toBeNull();
   });
 });
 

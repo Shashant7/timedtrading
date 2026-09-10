@@ -3,6 +3,7 @@ import {
   classifyDrift,
   pendingReducerAudit,
   PENDING_REDUCER_GRACE_MS,
+  isUnverifiedReducerLeftover,
 } from "./bridge-reconciler.js";
 
 /**
@@ -115,5 +116,43 @@ describe("classifyDrift with a reducer in flight", () => {
     const out = classifyDrift(closedRow, { qty: 0.18271, avgCost: 800 }, { tolerance: 0.01 });
     expect(out.sync_state).toBe("broker_orphan");
     expect(out.drift_detected).toBe(true);
+  });
+
+  it("OPEN leftover after grace is not user_added (catch-up must still see remaining)", () => {
+    const aged = Date.now() - PENDING_REDUCER_GRACE_MS - 5_000;
+    const row = {
+      ...baseRow,
+      broker_remaining_qty: 0,
+      model_intended_qty: 0,
+      sync_last_action_json: auditJson({
+        kind: "exit", pre: 0.18271, intended: 0.18271, ts: aged,
+      }),
+    };
+    const out = classifyDrift(row, { qty: 0.09136, avgCost: 800 }, { tolerance: 0.01 });
+    expect(out.broker_state.user_added).toBeUndefined();
+    expect(out.sync_state).toBe("partial_fill");
+    expect(out.note).toMatch(/not user-added/i);
+  });
+});
+
+describe("isUnverifiedReducerLeftover", () => {
+  it("accepts leftover ≤ pre_held within 24h", () => {
+    const audit = {
+      ts: Date.now() - 2 * 60 * 1000,
+      kind: "exit",
+      pre_held_qty: 50,
+      verified: false,
+    };
+    expect(isUnverifiedReducerLeftover(audit, 12.4)).toBe(true);
+  });
+
+  it("rejects a holding that rose above pre_held", () => {
+    const audit = {
+      ts: Date.now() - 2 * 60 * 1000,
+      kind: "exit",
+      pre_held_qty: 50,
+      verified: false,
+    };
+    expect(isUnverifiedReducerLeftover(audit, 55)).toBe(false);
   });
 });
