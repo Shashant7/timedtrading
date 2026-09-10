@@ -31,7 +31,7 @@ export function rowHoldsReducerQty(row) {
  * EXPE-class (exit, no manifest) yields no ops. AMZN-class (exit +
  * remaining 0.27) yields one op on the holding account only.
  */
-export function planTraderExitCatchup({ exits = [], manifests = [] } = {}) {
+export function planTraderExitCatchup({ exits = [], manifests = [], closedTradeIds = [] } = {}) {
   const byTrade = new Map();
   for (const row of manifests) {
     const id = String(row?.trade_id || "").trim();
@@ -41,24 +41,36 @@ export function planTraderExitCatchup({ exits = [], manifests = [] } = {}) {
   }
   const ops = [];
   const seen = new Set();
+  const pushOp = (row, ex = null) => {
+    const tid = String(row?.trade_id || ex?.position_id || ex?.trade_id || "").trim();
+    if (!tid || !rowHoldsReducerQty(row)) return;
+    const key = `${tid}|${row.user_id}|${row.broker_account_id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    ops.push({
+      trade_id: tid,
+      ticker: String(row.ticker || ex?.ticker || "").toUpperCase(),
+      user_id: row.user_id,
+      broker_account_id: row.broker_account_id,
+      qty: Number(row.broker_remaining_qty),
+      price: Number(ex?.price) || null,
+      exit_ts: Number(ex?.ts) || 0,
+    });
+  };
   for (const ex of exits) {
     const tid = String(ex?.position_id || ex?.trade_id || "").trim();
     if (!tid) continue;
-    for (const row of byTrade.get(tid) || []) {
-      if (!rowHoldsReducerQty(row)) continue;
-      const key = `${tid}|${row.user_id}|${row.broker_account_id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      ops.push({
-        trade_id: tid,
-        ticker: String(row.ticker || ex.ticker || "").toUpperCase(),
-        user_id: row.user_id,
-        broker_account_id: row.broker_account_id,
-        qty: Number(row.broker_remaining_qty),
-        price: Number(ex.price) || null,
-        exit_ts: Number(ex.ts) || 0,
-      });
-    }
+    for (const row of byTrade.get(tid) || []) pushOp(row, ex);
+  }
+  // Leftover remaining on a stale OPEN sleeve after the mothership trade
+  // already closed (ULTA prior lot 2026-09-10 — EXIT was older than 72h).
+  const closed = closedTradeIds instanceof Set ? closedTradeIds : new Set(closedTradeIds);
+  for (const row of manifests) {
+    const tid = String(row?.trade_id || "").trim();
+    const modelClosed = String(row.model_status || "").toUpperCase() === "CLOSED"
+      || closed.has(tid);
+    if (!modelClosed) continue;
+    pushOp(row);
   }
   return ops;
 }
@@ -78,19 +90,38 @@ async function loadExits(env, sinceMs) {
   }
 }
 
+async function loadClosedTradeIds(env, tradeIds) {
+  const closed = new Set();
+  if (!env?.DB?.prepare) return closed;
+  const unique = [...new Set((tradeIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  for (const id of unique.slice(0, 80)) {
+    try {
+      const r = await env.DB.prepare(
+        `SELECT trade_id FROM trades WHERE trade_id = ?1 AND exit_ts IS NOT NULL LIMIT 1`,
+      ).bind(id).first();
+      if (r?.trade_id) closed.add(String(r.trade_id));
+    } catch (_) { /* best-effort */ }
+  }
+  return closed;
+}
+
 async function loadManifests(env) {
   try {
     const bridgeUrl = env?.BROKER_BRIDGE_URL || "https://bridge.internal";
     const svc = env?.BROKER_BRIDGE;
     const opKey = env?.BROKER_BRIDGE_OPERATOR_KEY;
     const headers = opKey ? { Authorization: `Bearer ${opKey}` } : {};
-    const url = `${String(bridgeUrl).replace(/\/$/, "")}/bridge/manifest?limit=400&remaining=1`;
+    // Do not use remaining=1 if that filter drops suppressed leftovers.
+    // ULTA 2026-09-10: Roth still held 0.07902 on a rejected/suppressed
+    // prior lot; remaining=1 hid the sleeve and catch-up never planned it.
+    const url = `${String(bridgeUrl).replace(/\/$/, "")}/bridge/manifest?limit=400`;
     const init = { method: "GET", headers };
     const r = svc && typeof svc.fetch === "function"
       ? await svc.fetch(new Request(url, init))
       : await fetch(url, init);
     const body = await r.json().catch(() => null);
-    return Array.isArray(body?.rows) ? body.rows : [];
+    const rows = Array.isArray(body?.rows) ? body.rows : [];
+    return rows.filter((row) => Number(row?.broker_remaining_qty) > 1e-9);
   } catch (_) {
     return [];
   }
@@ -123,7 +154,11 @@ export async function runTraderExitCatchup(env, opts = {}) {
   const sinceMs = Date.now() - hours * 3600 * 1000;
   const exits = Array.isArray(opts.exits) ? opts.exits : await loadExits(env, sinceMs);
   const manifests = Array.isArray(opts.manifests) ? opts.manifests : await loadManifests(env);
-  const planned = planTraderExitCatchup({ exits, manifests });
+  const leftoverIds = manifests.map((row) => String(row?.trade_id || "").trim()).filter(Boolean);
+  const closedTradeIds = opts.closedTradeIds instanceof Set || Array.isArray(opts.closedTradeIds)
+    ? opts.closedTradeIds
+    : await loadClosedTradeIds(env, leftoverIds);
+  const planned = planTraderExitCatchup({ exits, manifests, closedTradeIds });
   const rth = isNyRegularMarketOpenStatic(now);
   const eth = isEquityBrokerFollowThroughStatic(now);
   const results = [];

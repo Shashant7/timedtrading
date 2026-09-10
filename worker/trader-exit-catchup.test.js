@@ -91,6 +91,26 @@ describe("planTraderExitCatchup", () => {
     expect(ops).toHaveLength(1);
     expect(ops[0].qty).toBe(0.2714);
   });
+
+  it("plans leftover on a stale OPEN sleeve when the mothership trade is closed", () => {
+    const stale = {
+      trade_id: "ULTA-1788443015769-b6e9u2f8g",
+      ticker: "ULTA",
+      user_id: "shashant@gmail.com",
+      broker_account_id: "LJJ84GKUVIVG998B8DO3069DKA",
+      broker_remaining_qty: 0.07902,
+      model_status: "OPEN",
+      sync_state: "rejected",
+      mirror_suppressed: 1,
+    };
+    const ops = planTraderExitCatchup({
+      exits: [],
+      manifests: [stale],
+      closedTradeIds: ["ULTA-1788443015769-b6e9u2f8g"],
+    });
+    expect(ops).toHaveLength(1);
+    expect(ops[0].qty).toBe(0.07902);
+  });
 });
 
 describe("runTraderExitCatchup", () => {

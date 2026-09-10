@@ -44,6 +44,7 @@ import {
   readLastActionAudit,
   markLastActionVerified,
   markLastActionDrift,
+  claimQtyFromManifestRow,
   POST_EXEC_VERIFY_DELAY_MS,
   POST_EXEC_TOLERANCE_QTY,
 } from "./bridge-manifest.js";
@@ -255,16 +256,7 @@ export function claimedOpenEquityByTicker(rows) {
     if (String(r?.model_status || "").toUpperCase() !== "OPEN") continue;
     const ticker = String(r?.ticker || "").toUpperCase();
     if (!ticker) continue;
-    const remaining = Number(r.broker_remaining_qty);
-    const intended = Number(r.model_intended_qty) || 0;
-    // Prefer live remaining; fall back to intended. When both are present,
-    // take the max so a rejected/suppressed re-entry (remaining stamped from
-    // the prior lot, intended = new model size) still covers the broker qty
-    // and a CLOSED sibling cannot page as broker_orphan (DPZ 2026-09-03).
-    const claim = Math.max(
-      (Number.isFinite(remaining) && remaining > 0) ? remaining : 0,
-      intended > 0 ? intended : 0,
-    );
+    const claim = claimQtyFromManifestRow(r);
     if (!(claim > 0)) continue;
     out.set(ticker, (out.get(ticker) || 0) + claim);
   }

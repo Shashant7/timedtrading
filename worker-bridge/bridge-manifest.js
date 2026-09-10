@@ -563,10 +563,14 @@ export function pickReducerFanoutAccounts(accounts, rows) {
 export function claimQtyFromManifestRow(row) {
   const remaining = Number(row?.broker_remaining_qty);
   const intended = Number(row?.model_intended_qty) || 0;
-  return Math.max(
-    (Number.isFinite(remaining) && remaining > 0) ? remaining : 0,
-    intended > 0 ? intended : 0,
-  );
+  const liveRem = (Number.isFinite(remaining) && remaining > 0) ? remaining : 0;
+  const rejected = String(row?.sync_state || "").toLowerCase() === "rejected"
+    || Number(row?.mirror_suppressed) === 1;
+  // Rejected + no leftover is not an open book (ULTA prior lot intended
+  // 1.77 / remaining 0 was still claiming a sibling reserve).
+  if (liveRem > 0) return Math.max(liveRem, rejected ? liveRem : intended);
+  if (rejected) return 0;
+  return intended > 0 ? intended : 0;
 }
 
 export async function sumOpenSiblingEquityQty(env, {
@@ -640,9 +644,7 @@ export async function recentManifestRows(env, opts = {}) {
   const limit = Math.max(1, Math.min(500, Number(opts.limit) || 50));
   const sinceMs = Number(opts.since_ms) || 0;
   const remSql = opts.remaining_only
-    ? ` AND COALESCE(broker_remaining_qty, 0) > 0
-        AND COALESCE(mirror_suppressed, 0) = 0
-        AND sync_state NOT IN ('rejected','expired','mirror_suppressed')`
+    ? ` AND COALESCE(broker_remaining_qty, 0) > 0`
     : "";
   try {
     let q, b;
@@ -917,16 +919,21 @@ export async function markManifestModelClosed(env, userId, tradeId, brokerAccoun
   const db = env?.BRIDGE_DB;
   if (!db) return false;
   await ensureMirrorManifestSchema(env);
+  const tid = String(tradeId || "").trim();
+  if (!tid) return false;
   try {
+    // Close every sleeve for this trade_id. A rejected/suppressed leftover
+    // on another account must not stay OPEN and claim leftover as a sibling
+    // (ULTA 2026-09-10: prior lot stayed OPEN after the model EXIT).
     await db.prepare(`
       UPDATE mirror_trade_manifest
          SET model_status = 'CLOSED',
-             model_exit_ts = ?4,
-             model_exit_reason = ?5,
-             updated_at = ?4
-       WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
+             model_exit_ts = ?2,
+             model_exit_reason = ?3,
+             updated_at = ?2
+       WHERE trade_id = ?1
     `).bind(
-      String(userId).toLowerCase(), String(tradeId), String(brokerAccountId || "default"),
+      tid,
       Number(exitTs) || Date.now(),
       String(exitReason || "exit").slice(0, 200),
     ).run();
