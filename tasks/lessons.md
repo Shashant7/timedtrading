@@ -1,10 +1,28 @@
 # Lessons Learned (Full Archive)
 
 > **Quick refresh:** See [CONTEXT.md](../CONTEXT.md) for condensed critical lessons.
-> **Quick skills:** See [`skills/README.md`](../skills/README.md) for reusable playbooks.
+> **Quick skills:** See [`skills/README.md`](skills/README.md) for reusable playbooks.
 > Update after ANY correction from the user. Review at session start.
 
 ---
+
+## Stamp scored news on timed:latest — do not fetch on /timed/all [2026-09-10]
+
+**Symptom:** Context conviction was ready for sentiment and S&P-inclusion
+headlines (`_news_summary`), but the trader payload never carried it.
+CIO loaded a thin batch for *open* names only; promotion used a
+different shape (`max_catalyst` vs `dominant_sentiment`).
+
+**Fix:** One D1 batch per scoring cron (`loadNewsSummariesBatch` now
+emits the compact CIO/conviction shape + promotion aliases). Stamp
+`_news_summary` on each scored ticker. Persist `focus_conviction_score`
+on the same tick so the rail updates. Replay skips the preload
+(lookahead). Redact `_news_summary` for Members/anon. `SCORING_VERSION`
+`2.1.10-2026-09-10`.
+
+**Do not:** Per-ticker D1 on `/timed/all`. Call Finnhub/GPT on the
+scoring path (research cron already ingest/scores). Load wall-clock
+news in replay.
 
 ## Rank/conviction ignored fundamentals on the play side [2026-09-10]
 

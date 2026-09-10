@@ -49,7 +49,9 @@ from `worker/index.js`.
 HTF sign. Theme *membership* does not move rank when today's observed
 breadth is 0 (editorial-only stays off). Conviction gets that
 membership plus quality / compounder / unsigned FV / news / index
-inclusion (`scoreContextConviction`, cap +18 / −8). Missing is 0.
+inclusion (`scoreContextConviction`, cap +18 / −8). Scoring cron stamps
+`_news_summary` from D1 (`loadNewsSummariesBatch`, 5d). Replay does not
+load wall-clock news. Missing is 0.
 Do not enable `conviction_fusion`. Do not boost SHORT on a quality-A
 compounder.
 
@@ -99,8 +101,8 @@ cd /workspace/worker && ../node_modules/.bin/wrangler deploy \
 cd /workspace/worker-engine && ../node_modules/.bin/wrangler deploy
 ```
 
-Confirm `SCORING_VERSION` is `2.1.9-2026-09-10` on a freshly scored
-payload. Expect lower admissions at unchanged rank floors. Confirm
+Confirm `SCORING_VERSION` is `2.1.10-2026-09-10` on a freshly scored
+payload. `_news_summary` present when D1 has scored headlines. Expect lower admissions at unchanged rank floors. Confirm
 `deep_audit_rank_formula` (`v1` default / `v2` override) before judging
 distribution. Do not lower rank floors to “restore” volume.
 
