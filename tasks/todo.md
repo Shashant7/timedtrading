@@ -21,7 +21,7 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-- [ ] **Exit emails missing Signal Quality (2026-09-10).** TQQQ Index Swings
+- [x] **Exit emails missing Signal Quality (2026-09-10).** TQQQ Index Swings
       close showed setup + P&L but no rank/conviction. Template was
       entry-only; paper-lane payload never stamped scores. Branch:
       `cursor/exit-email-scores-7ffc`.
