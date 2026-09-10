@@ -115,6 +115,7 @@ describe("scoreContextConviction", () => {
     expect(stale.parts.growth).toBeUndefined();
     expect(stale.parts.compounder).toBeUndefined();
     expect(stale.parts.theme_member).toBe(4);
+    expect(stale.parts.value_tilt).toBe(0);
     expect(stale.pts).toBe(4);
   });
 
@@ -157,8 +158,13 @@ describe("BE live-shaped payload", () => {
   });
 
   it("does not pass the same payload as a SHORT fade", () => {
-    const g = evaluateSetupGrade(beLiveShaped(), { side: "SHORT" });
-    expect(g.score).toBe(0);
+    const d = beLiveShaped();
+    const g = evaluateSetupGrade(d, { side: "SHORT" });
+    expect(g.parts.find((p) => p.id === "structure").points).toBe(2);
+    expect(g.parts.find((p) => p.id === "macro").points).toBe(0);
+    expect(g.parts.find((p) => p.id === "value").points).toBe(0);
+    expect(g.score).toBeLessThan(6);
+    expect(admitSetupGrade(d, { side: "SHORT", path: "tt_cloud_pivot_long" }).allow).toBe(false);
   });
 
   it("adds context points to conviction and can clear the 80 floor from a 65 tape", () => {
