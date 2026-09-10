@@ -22,6 +22,7 @@ const WATCH_GLOBS = [
   "worker/ranking/rank-drivers.js",
   "worker/td-sequential-boost.js",
   "worker/replay-runtime-setup.js",
+  "worker/pipeline/setup-grade.js",
 ];
 
 function git(args) {

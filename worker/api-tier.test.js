@@ -75,7 +75,9 @@ describe("redactTickerSnapshot — tier-aware price vs model gating", () => {
     const ranked = { ticker: "QQQ", rank_score: 124,
       _technical_rank: { raw_score: 124, gate_score: 100 },
       _ranking: { final_score: 124 }, __candidate_order: { score: 124, position: 1 },
-      __rank_trace: { rawScore: 124 } };
+      __rank_trace: { rawScore: 124 },
+      __setup_evaluation: { result: "qualified" },
+      __setup_grade: { score: 8, allow: true } };
     for (const tier of ["anon", "free"]) {
       expect(redactTickerSnapshot(ranked, tier)).toEqual({ ticker: "QQQ", _redacted: true });
     }

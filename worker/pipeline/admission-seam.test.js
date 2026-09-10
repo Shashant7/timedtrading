@@ -80,6 +80,15 @@ describe("checkPlayAdmission — allowed outcomes are observable", () => {
     expect(r.identity_missing).toBe(false);
   });
 
+  it("hard-rejects Support Bounce after the 90d pause", () => {
+    const r = checkPlayAdmission({
+      entryPath: "tt_n_test_support", setupName: "Support Bounce", direction: "LONG",
+    });
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toBe("play_catalog_paused");
+    expect(r.play_id).toBe("tt_n_test_support");
+  });
+
   it("does not assign a core restriction to a distinctly stamped paper sibling", () => {
     const r = checkPlayAdmission({
       entryPath: "tt_cloud_pivot_long", setupName: "TT Cloud Pivot", direction: "LONG",

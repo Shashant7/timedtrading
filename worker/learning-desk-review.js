@@ -117,44 +117,49 @@ export function deskTriageProposal(row, ctx = {}) {
   // Restore beats "already blocked". A recovered or workhorse setup
   // must come off the marker, not get an ack that leaves it dead.
   if (demotion && normalizeConfigValue(proposed) === "blocked" && demotion.play_id) {
-    const s30 = findSetupStats(ctx.perSetup30, demotion.play_id, demotion.direction);
-    if (recovered30d(s30)) {
-      return {
-        action: "restore",
-        desk: "cio",
-        confidence: "high",
-        reason: "setup_recovered_30d",
-        play_id: demotion.play_id,
-        n30: s30.n,
-        pnl30: s30.pnl_usd,
-      };
-    }
-    if (WORKHORSE_IDS.has(demotion.play_id) && normalizeConfigValue(live) === "blocked") {
-      return {
-        action: "restore",
-        desk: "cro",
-        confidence: "high",
-        reason: "workhorse_protected",
-        play_id: demotion.play_id,
-      };
-    }
-    if (isCalibrationPlay(demotion.play_id, demotion.direction)) {
-      if (normalizeConfigValue(live) === "blocked") {
+    const catalogPlay = resolvePlay(demotion.play_id, demotion.direction);
+    // Catalog pause is the hard stop. A 30d-green window must not write
+    // allowed and invite the next agent to unpause the play.
+    if (catalogPlay?.status !== PLAY_STATUS.PAUSED) {
+      const s30 = findSetupStats(ctx.perSetup30, demotion.play_id, demotion.direction);
+      if (recovered30d(s30)) {
         return {
           action: "restore",
+          desk: "cio",
+          confidence: "high",
+          reason: "setup_recovered_30d",
+          play_id: demotion.play_id,
+          n30: s30.n,
+          pnl30: s30.pnl_usd,
+        };
+      }
+      if (WORKHORSE_IDS.has(demotion.play_id) && normalizeConfigValue(live) === "blocked") {
+        return {
+          action: "restore",
+          desk: "cro",
+          confidence: "high",
+          reason: "workhorse_protected",
+          play_id: demotion.play_id,
+        };
+      }
+      if (isCalibrationPlay(demotion.play_id, demotion.direction)) {
+        if (normalizeConfigValue(live) === "blocked") {
+          return {
+            action: "restore",
+            desk: "cio",
+            confidence: "high",
+            reason: "calibration_family",
+            play_id: demotion.play_id,
+          };
+        }
+        return {
+          action: "reject",
           desk: "cio",
           confidence: "high",
           reason: "calibration_family",
           play_id: demotion.play_id,
         };
       }
-      return {
-        action: "reject",
-        desk: "cio",
-        confidence: "high",
-        reason: "calibration_family",
-        play_id: demotion.play_id,
-      };
     }
   }
 
