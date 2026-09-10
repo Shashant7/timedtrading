@@ -15,6 +15,7 @@ import {
   CLOUD_PIVOT_FAMILY,
   CONTINUATION_FAMILY,
 } from "../paper-family-label.js";
+import { admitSetupGrade } from "../pipeline/setup-grade.js";
 
 export {
   PAPER_EXPERIMENT_FAMILIES,
@@ -145,6 +146,10 @@ export function resolvePaperFamilyStandaloneEntry(payload = {}, daCfg = {}, opts
   const path = paperFamilyEntryPath(family, direction);
 
   const convRaw = Number(proposal.conviction);
+  // Paper families are the live book. The 0-10 floor applies here too —
+  // a 0.1x Cloud Pivot with only a curl stamp is not an exemption.
+  const grade = admitSetupGrade(payload, { side: direction, path, daCfg });
+  if (!grade.allow) return null;
   return {
     family,
     path,
@@ -154,6 +159,7 @@ export function resolvePaperFamilyStandaloneEntry(payload = {}, daCfg = {}, opts
     conviction: Number.isFinite(convRaw) ? convRaw : null,
     reason: proposal.reason || `paper_family_standalone:${family}`,
     label: PAPER_FAMILY_LABELS[family] || family,
+    setup_grade: payload.__setup_grade || grade,
   };
 }
 

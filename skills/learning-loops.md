@@ -69,8 +69,9 @@ approved).
    LOCATION_WRONG or PREMATURE_*. Those never reach `learning_proposals`.
 5. **Heal used to re-block recovered setups.** Nightly heal now writes
    `enforce_paths` only. CIO restore writes `allowed` when 30d n≥12 and
-   PnL > 0 (Support Bounce 2026-08-27: 20 / +$312). Auto-demote still
-   fires if 30d turns red again.
+   PnL > 0. Support Bounce is catalog **paused** (2026-09-10; 90d PF
+   0.79) — a 30d-green restore must not unpause it. Auto-demote still
+   fires if other mature bleeders turn red.
 6. **New paper families are not mature bleeders.** Cloud Pivot's first
    print was 2026-08-24 at 0.1× paper. Auto-demote after ~10 closed
    losers is too blunt — the open book was still green. Catalog role
@@ -114,10 +115,10 @@ to `#trade-signals` — set the system secret.
 ```
 
 Decide leftover escalations via `POST /timed/admin/learning/proposals/decide`.
-Do not hand-write `model_config` unless healing a mangled key. To restore
-Support Bounce or Cloud Pivot immediately after deploy, either POST the
-desk run or upsert the matching `deep_audit_setup_demotion_*` key to
-`"allowed"`.
+Do not hand-write `model_config` unless healing a mangled key. Do not
+unpause Support Bounce from a 30d-green CIO restore (catalog status is
+the hard stop). Cloud Pivot paper takes the 0–10 setup-grade floor;
+do not catalog-pause the whole family to "act."
 
 ## Verify
 

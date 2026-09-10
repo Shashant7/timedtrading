@@ -41,13 +41,26 @@ describe("deskTriageProposal", () => {
     expect(v).toMatchObject({ action: "reject", desk: "cro", reason: "workhorse_protected" });
   });
 
-  it("CIO restores Support Bounce when 30d is +EV, even if already blocked", () => {
+  it("CIO does not restore a catalog-paused Support Bounce on a 30d-green window", () => {
     const v = deskTriageProposal(
       { config_key: "deep_audit_setup_demotion_TT Support Bounce_long", proposed_value: "blocked" },
       {
         liveValue: "blocked",
         now: NOW,
         perSetup30: [{ setup: "tt_n_test_support", direction: "long", stats: { n: 20, pnl_usd: 312 } }],
+      },
+    );
+    expect(v.action).not.toBe("restore");
+    expect(v).toMatchObject({ action: "ack", desk: "cto", reason: "already_in_effect" });
+  });
+
+  it("CIO still restores a restricted (not paused) setup when 30d is +EV", () => {
+    const v = deskTriageProposal(
+      { config_key: "deep_audit_setup_demotion_TT Resistance Fade_short", proposed_value: "blocked" },
+      {
+        liveValue: "blocked",
+        now: NOW,
+        perSetup30: [{ setup: "tt_n_test_resistance", direction: "short", stats: { n: 20, pnl_usd: 312 } }],
       },
     );
     expect(v).toMatchObject({ action: "restore", desk: "cio", reason: "setup_recovered_30d" });
@@ -137,13 +150,21 @@ describe("deskTriageProposal", () => {
 });
 
 describe("planRecoveredRestores", () => {
-  it("lists Support Bounce when 30d recovered and currently blocked", () => {
+  it("does not list catalog-paused Support Bounce even when 30d recovered", () => {
     const out = planRecoveredRestores(
       [{ setup: "TT Support Bounce", direction: "long", stats: { n: 20, pnl_usd: 312 } }],
       { "deep_audit_setup_demotion_TT Support Bounce_long": "blocked" },
     );
+    expect(out).toHaveLength(0);
+  });
+
+  it("lists a restricted recovered setup that is currently blocked", () => {
+    const out = planRecoveredRestores(
+      [{ setup: "TT Resistance Fade", direction: "short", stats: { n: 20, pnl_usd: 312 } }],
+      { "deep_audit_setup_demotion_TT Resistance Fade_short": "blocked" },
+    );
     expect(out).toHaveLength(1);
-    expect(out[0].play_id).toBe("tt_n_test_support");
+    expect(out[0].play_id).toBe("tt_n_test_resistance");
   });
 
   it("lists Cloud Pivot when it is currently blocked", () => {

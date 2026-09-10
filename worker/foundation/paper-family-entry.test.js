@@ -14,6 +14,8 @@ import {
   stampPaperFamilyOnTrade,
 } from "./paper-family-entry.js";
 
+const GRADE_OFF = { deep_audit_setup_grade_enabled: "false" };
+
 describe("paper family standalone entry", () => {
   const cloudProposal = {
     paper: true,
@@ -21,6 +23,20 @@ describe("paper family standalone entry", () => {
     size_mult: 0.1,
     direction: "LONG",
     reason: "tt_cloud_pivot:curl",
+  };
+  const gradeReadyLong = {
+    kanban_stage: "setup_watch",
+    state: "HTF_BULL_LTF_BULL",
+    rvol_map: { "30": { vr: 1.5 } },
+    daily_structure: { bull_stack: true, bear_stack: false },
+    _theme_tilt: 1,
+    _fv_tilt: 1,
+    _officer_tilt: 1,
+    tf_tech: {
+      "10": { stDir: 1 },
+      "15": { stDir: 1 },
+      "30": { stDir: 1 },
+    },
   };
 
   it("encodes direction on the family path", () => {
@@ -66,7 +82,7 @@ describe("paper family standalone entry", () => {
     const got = resolvePaperFamilyStandaloneEntry({
       kanban_stage: "setup_watch",
       _sequence_queue_proposal: cloudProposal,
-    }, {});
+    }, GRADE_OFF);
     expect(got).toMatchObject({
       family: CLOUD_PIVOT_FAMILY,
       path: "tt_cloud_pivot_long",
@@ -85,7 +101,7 @@ describe("paper family standalone entry", () => {
         family: CONFIRM_STACK_FAMILY,
         size_mult: 0.1,
       },
-    }, {});
+    }, GRADE_OFF);
     expect(got.path).toBe("confirm_stack_ema21_short");
     expect(got.direction).toBe("SHORT");
   });
@@ -107,12 +123,14 @@ describe("paper family standalone entry", () => {
       _sequence_queue_proposal: cloudProposal,
       _env: { _isReplay: true },
     };
-    expect(resolvePaperFamilyStandaloneEntry(payload, {})).toBeNull();
+    expect(resolvePaperFamilyStandaloneEntry(payload, GRADE_OFF)).toBeNull();
     expect(resolvePaperFamilyStandaloneEntry(payload, {
+      ...GRADE_OFF,
       deep_audit_paper_family_standalone_entry_replay: "true",
     })).toBeTruthy();
-    expect(resolvePaperFamilyStandaloneEntry(payload, {}, { isReplay: true })).toBeNull();
+    expect(resolvePaperFamilyStandaloneEntry(payload, GRADE_OFF, { isReplay: true })).toBeNull();
     expect(resolvePaperFamilyStandaloneEntry(payload, {
+      ...GRADE_OFF,
       deep_audit_paper_family_standalone_entry_replay: "true",
     }, { isReplay: true })).toBeTruthy();
   });
@@ -122,6 +140,28 @@ describe("paper family standalone entry", () => {
       kanban_stage: "setup_watch",
       _sequence_queue_proposal: cloudProposal,
     }, { deep_audit_paper_family_standalone_entry_enabled: "false" })).toBeNull();
+  });
+
+  it("blocks a thin Cloud Pivot proposal under the default 0-10 floor", () => {
+    expect(resolvePaperFamilyStandaloneEntry({
+      kanban_stage: "setup_watch",
+      _sequence_queue_proposal: cloudProposal,
+    }, {})).toBeNull();
+  });
+
+  it("opens a Cloud Pivot ticket only when the setup grade clears the floor", () => {
+    const got = resolvePaperFamilyStandaloneEntry({
+      ...gradeReadyLong,
+      _sequence_queue_proposal: cloudProposal,
+    }, {});
+    expect(got).toMatchObject({
+      family: CLOUD_PIVOT_FAMILY,
+      path: "tt_cloud_pivot_long",
+      direction: "LONG",
+      paper: true,
+    });
+    expect(got.setup_grade.allow).toBe(true);
+    expect(got.setup_grade.score).toBeGreaterThanOrEqual(6);
   });
 
   it("pretty-labels family paths without looking like a core catalog play", () => {
@@ -177,7 +217,7 @@ describe("paper family entry budget (2026-09-05)", () => {
   it("carries the proposal conviction onto the resolved entry", () => {
     const res = resolvePaperFamilyStandaloneEntry({
       _sequence_queue_proposal: { paper: true, family: CLOUD_PIVOT_FAMILY, direction: "LONG", conviction: 2.5 },
-    });
+    }, GRADE_OFF);
     expect(res?.conviction).toBe(2.5);
   });
 

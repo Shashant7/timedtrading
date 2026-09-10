@@ -126,12 +126,15 @@ describe("setup-grade admission", () => {
     expect(passed.reason).toBe("setup_grade_passed");
   });
 
-  it("is on by default, killable, and exempts index/paper paths only", () => {
+  it("is on by default, killable, and exempts index/day-trade paths only", () => {
     expect(setupGradeEnabled({})).toBe(true);
     expect(setupGradeEnabled({ deep_audit_setup_grade_enabled: "false" })).toBe(false);
     expect(setupGradeFloor({})).toBe(6);
     expect(isSetupGradeExemptPath("tt_index_etf_swing")).toBe(true);
-    expect(isSetupGradeExemptPath("tt_cloud_pivot_long")).toBe(true);
+    expect(isSetupGradeExemptPath("tt_index_dt")).toBe(true);
+    expect(isSetupGradeExemptPath("tt_cloud_pivot_long")).toBe(false);
+    expect(isSetupGradeExemptPath("confirm_stack_ema21_short")).toBe(false);
+    expect(isSetupGradeExemptPath("momentum_continuation_long")).toBe(false);
     expect(isSetupGradeExemptPath("tt_ath_breakout")).toBe(false);
     expect(isSetupGradeExemptPath("momentum_score")).toBe(false);
 
@@ -140,7 +143,11 @@ describe("setup-grade admission", () => {
     expect(admitSetupGrade(thin, {
       side: "LONG", path: "tt_pullback", daCfg: { deep_audit_setup_grade_enabled: "false" },
     }).reason).toBe("setup_grade_disabled");
-    expect(admitSetupGrade(thin, { side: "LONG", path: "tt_cloud_pivot_long" }).reason).toBe("setup_grade_exempt_path");
+    expect(admitSetupGrade(thin, { side: "LONG", path: "tt_cloud_pivot_long" }).allow).toBe(false);
+    expect(admitSetupGrade(thin, { side: "LONG", path: "tt_cloud_pivot_long" }).reason)
+      .toBe("setup_grade_below_floor:2<6");
+    expect(admitSetupGrade(thin, { side: "LONG", path: "tt_index_etf_swing" }).reason)
+      .toBe("setup_grade_exempt_path");
   });
 
   it("rejects a core ATH that only has structure+tape through the live engine", () => {
@@ -179,5 +186,7 @@ describe("setup-grade wiring", () => {
     expect(index.match(/admitSetupGrade/g)?.length).toBeGreaterThanOrEqual(1);
     const core = readFileSync(new URL("./tt-core-entry.js", import.meta.url), "utf8");
     expect(core).toContain("admitSetupGrade");
+    const paper = readFileSync(new URL("../foundation/paper-family-entry.js", import.meta.url), "utf8");
+    expect(paper).toContain("admitSetupGrade");
   });
 });

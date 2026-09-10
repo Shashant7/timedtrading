@@ -29,15 +29,20 @@ when the grade later falls.
 | TT Core | `qualifyEntry` in `worker/pipeline/tt-core-entry.js` |
 | Legacy enter | `qualifiesForEnter` in `worker/index.js` |
 | Stamp | `d.__setup_grade` + `__setup_evaluation.setup_grade` |
-| Version | `SCORING_VERSION` `2.1.7-2026-09-09` |
+| Version | `SCORING_VERSION` `2.1.8-2026-09-10` |
+| Paper families | `resolvePaperFamilyStandaloneEntry` — same floor |
 
 `deep_audit_setup_grade_enabled` default **true**. Floor
 `deep_audit_setup_grade_floor` (6). Rvol `deep_audit_setup_grade_rvol`
 (1.2). Disable only via DA / `learning_proposals`.
 
-Exempt paths (own engines): `index_etf`, `index_dt`, `day_trade`,
-`cloud_pivot`, `confirm_stack`, `momentum_continuation`. `momentum_score`
-is **not** exempt.
+Exempt paths (own engines): `index_etf`, `index_dt`, `day_trade` only.
+`cloud_pivot` / `confirm_stack` / `momentum_continuation` are **not**
+exempt — they are the open book. `momentum_score` is not exempt.
+
+Support Bounce (`tt_n_test_support`) is catalog **paused** (90d PF 0.79;
+proposals #68 / #70). Demotion `blocked` is already live. Do not unpause
+from a 30d-green CIO restore.
 
 ## Do not
 
@@ -52,10 +57,13 @@ is **not** exempt.
 ```bash
 node node_modules/vitest/vitest.mjs run \
   worker/pipeline/setup-grade.test.js \
-  worker/pipeline/setup-evidence.test.js \
-  worker/api-tier.test.js
+  worker/foundation/paper-family-entry.test.js \
+  worker/foundation/play-catalog.test.js \
+  worker/pipeline/admission-seam.test.js
 ```
 
-After deploy, a sentinel rescore should show `scoring_version` `2.1.7`
-and `__setup_grade` on rejected/qualified core attempts. Members/anon
-must not see the stamp (`redactTickerSnapshot`).
+After deploy, a sentinel rescore should show `scoring_version` `2.1.8`
+and `__setup_grade` on rejected/qualified core **and** paper-family
+attempts. Members/anon must not see the stamp (`redactTickerSnapshot`).
+A thin Cloud Pivot proposal must not open. Support Bounce explain must
+be `play_catalog_paused` or `setup_demotion_blocked`.

@@ -38,11 +38,11 @@ export function setupGradeRvolFloor(daCfg = {}) {
   return Number.isFinite(n) && n >= 0 ? n : SETUP_GRADE_DEFAULT_RVOL;
 }
 
-/** Index model and paper-family experiments keep their own admission. */
+/** Index / day-trade models keep their own admission. Paper families do not. */
 export function isSetupGradeExemptPath(path) {
   const p = String(path || "").toLowerCase();
   if (!p) return false;
-  return /index_etf|index_dt|day_trade|cloud_pivot|confirm_stack|momentum_continuation/.test(p);
+  return /index_etf|index_dt|day_trade/.test(p);
 }
 
 function signedTilt(d, field) {

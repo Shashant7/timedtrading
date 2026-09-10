@@ -6,6 +6,24 @@
 
 ---
 
+## A core-only grade is not improvement when the book is paper [2026-09-10]
+
+**Symptom:** Operator asked for improvement now. The first setup-grade
+ship (2.1.7) only gated new core entries and exempted Cloud Pivot /
+confirm-stack / continuation. Overnight + that exemption meant the
+open book did not change. Support Bounce was still catalog-restricted
+(CIO can restore on a 30d-green window).
+
+**Fix:** `2.1.8-2026-09-10`. Same floor 6 on
+`resolvePaperFamilyStandaloneEntry`. Catalog-pause Support Bounce
+(proposals #68 / #70 already wrote demotion `blocked`). Do not
+catalog-pause all Cloud Pivot — 30d shorts were +EV.
+
+**Do not:** treat a brake on unused core paths as the act. Do not
+mass-exit open tickets because one CP long is red. Do not unpause
+Support Bounce from a 30d-green CIO restore. Do not exempt paper
+families again.
+
 ## Setup grade is a live admission floor, not another 30-day study [2026-09-09]
 
 **Symptom:** Rank honesty (#1442) and setup evidence (#1444) did not
@@ -14,13 +32,14 @@ export. Waiting for a fitted holdout would leave the book taking
 one-or-two-pillar entries.
 
 **Fix:** Fail-closed 0–10 grade from observed pillars already on the
-payload (structure / tape / macro / value / officer). New core entries
-need ≥6. Default ON. No Form 4, no exit trapdoor, no new apply bus.
+payload (structure / tape / macro / value / officer). New core **and**
+paper-family entries need ≥6. Default ON. No Form 4, no exit trapdoor,
+no new apply bus.
 
 **Do not:** treat PR #1446 as the live policy. Do not enable
 `conviction_fusion` (confirm-stack holdout was negative). Do not
-lower the floor to recover volume. Index/paper-family paths stay on
-their own admission.
+lower the floor to recover volume. Only index / day-trade paths stay
+on their own admission.
 
 ## Historical calibration starts with the existing Discovery corpus [2026-09-09]
 

@@ -59,7 +59,9 @@ export const CORE_PLAYS = Object.freeze([
     id: "tt_n_test_support",
     label: "Support Bounce",
     direction: "LONG",
-    status: PLAY_STATUS.RESTRICTED,
+    // 90d PF 0.79 / WR 29% (proposals #68, #70). Catalog pause so a
+    // 30d-green CIO restore cannot reopen the path.
+    status: PLAY_STATUS.PAUSED,
     demotion_label: "TT Support Bounce",
     aliases: [
       "support bounce",
