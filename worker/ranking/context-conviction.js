@@ -85,7 +85,7 @@ export function scoreContextConviction(tickerData = {}, side = null) {
   }
 
   const rawFvTilt = num(fv.tilt);
-  if (rawFvTilt != null && rawFvTilt !== 0 && (dir === "LONG" || dir === "SHORT")) {
+  if (!stale && rawFvTilt != null && rawFvTilt !== 0 && (dir === "LONG" || dir === "SHORT")) {
     const signed = dir === "LONG" ? rawFvTilt : -rawFvTilt;
     const add = Math.max(-4, Math.min(4, Math.round(signed)));
     parts.value_tilt = add;
