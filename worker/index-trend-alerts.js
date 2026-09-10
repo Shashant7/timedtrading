@@ -7,6 +7,9 @@ import {
   buildIndexTrendSignalEmbed,
   classifyIndexTrendPaperEvent,
   defaultIndexTrendPaperShares,
+  indexTrendBookIsLive,
+  isPrematureIndexTrendInvalidation,
+  revivePrematureIndexTrendStop,
 } from "./index-trend-paper.js";
 import { paperEventToNotifType, wirePaperLaneNotify } from "./paper-lane-notify.js";
 
@@ -44,8 +47,168 @@ function parseJson(raw) {
 }
 
 function bookIsLive(book) {
-  const status = String(book?.status || "");
-  return status === "open" || status === "trimmed";
+  return indexTrendBookIsLive(book);
+}
+
+async function loadMirrorSharesRemaining(env, signalId) {
+  if (!env?.KV_TIMED || !signalId) return null;
+  try {
+    const raw = await env.KV_TIMED.get(`timed:idx-trend-mirror:${String(signalId).trim()}`);
+    const row = raw ? JSON.parse(raw) : null;
+    const rem = Number(row?.shares_remaining);
+    return Number.isFinite(rem) && rem > 0 ? rem : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeIndexTrendBook(env, {
+  bookKey,
+  book,
+  letfTicker,
+  signalId,
+  now = Date.now(),
+} = {}) {
+  return persistIndexTrendBook(env?.KV_TIMED, { bookKey, book, letfTicker, signalId, now });
+}
+
+export async function maybeReviveIndexTrendBook(env, {
+  book,
+  bookKey,
+  letfTicker,
+  signalId,
+  atrPct = 0.012,
+  sharesRemaining = null,
+  now = Date.now(),
+} = {}) {
+  if (!isPrematureIndexTrendInvalidation(book, { atrPct })) return null;
+  const rem = Number.isFinite(Number(sharesRemaining)) && Number(sharesRemaining) > 0
+    ? Number(sharesRemaining)
+    : await loadMirrorSharesRemaining(env, signalId);
+  const revived = revivePrematureIndexTrendStop(book, { atrPct, sharesRemaining: rem, now });
+  if (!revived) return null;
+  const key = bookKey || (signalId ? indexTrendBookKey(signalId) : null);
+  await persistIndexTrendBook(env?.KV_TIMED, {
+    bookKey: key,
+    book: revived,
+    letfTicker,
+    signalId,
+    now,
+  });
+  return revived;
+}
+
+function asPendingCloseBook(decision, priorBook, now) {
+  const ev = String(decision?.event || "").toUpperCase();
+  if (ev !== "STOP" && ev !== "EXIT") return decision.nextBook;
+  const closeQty = Math.max(0, Math.round(
+    Number(decision.close_qty ?? priorBook?.shares_remaining ?? priorBook?.shares) || 0,
+  ));
+  return {
+    ...decision.nextBook,
+    status: "pending_close",
+    pending_event: ev,
+    event: ev,
+    reason: decision.reason || decision.nextBook?.reason || null,
+    needs_wait: false,
+    pending_close_ts: now,
+    shares_remaining: closeQty > 0 ? closeQty : (Number(decision.nextBook?.shares) || 0),
+    broadcast_done: false,
+  };
+}
+
+async function broadcastIndexTrendEvent(env, {
+  payload,
+  decision,
+  book,
+  persistSignalId,
+  priorBook,
+} = {}) {
+  const embed = buildIndexTrendSignalEmbed({
+    event: decision.event,
+    underlying: payload.underlying || payload.ticker,
+    letfTicker: payload.letf_ticker,
+    direction: payload.direction,
+    management: payload.management || book?.management || {},
+    book: book || decision.nextBook || priorBook,
+    letfPrice: payload.letf_price,
+    underlyingPrice: payload.underlying_price,
+    reason: decision.reason,
+    now: payload.now || Date.now(),
+  });
+
+  const discord = await notifyDiscord(env, embed, "trade").catch((err) => ({
+    ok: false,
+    error: String(err?.message || err).slice(0, 160),
+  }));
+
+  await wirePaperLaneNotify(env, {
+    engine: "index_trend_letf",
+    event: decision.event,
+    ticker: payload.underlying || payload.ticker,
+    vehicleTicker: payload.letf_ticker,
+    direction: payload.direction,
+    price: payload.letf_price,
+    qty: book?.shares_remaining ?? book?.shares,
+    reason: decision.reason,
+    signal_id: persistSignalId,
+    ts: payload.now || Date.now(),
+    embed,
+    book: book || priorBook,
+    management: payload.management || book?.management || priorBook?.management,
+  }).catch(() => {});
+
+  return { embed, discord };
+}
+
+/** Persist closed + Discord after /bridge/order actually placed (or is already flat). */
+export async function finalizeIndexTrendPaperClose(env, payload = {}) {
+  const KV = env?.KV_TIMED;
+  const signalId = String(payload.signal_id || "").trim();
+  if (!KV || !signalId) return { skipped: true, reason: !KV ? "no_kv" : "no_signal" };
+  const loaded = payload.loadedBook && typeof payload.loadedBook === "object"
+    ? payload.loadedBook
+    : await loadIndexTrendBook(env, { signal_id: signalId, letf_ticker: payload.letf_ticker });
+  const pending = payload.book || loaded.book;
+  if (!pending) return { skipped: true, reason: "no_book" };
+  const ev = String(payload.event || pending.pending_event || pending.event || "STOP").toUpperCase();
+  const now = payload.now || Date.now();
+  const closeQty = Math.max(0, Math.round(
+    Number(payload.close_qty ?? pending.shares_remaining ?? pending.shares) || 0,
+  ));
+  const closedBook = {
+    ...pending,
+    status: "closed",
+    event: ev,
+    reason: payload.reason || pending.reason || null,
+    needs_wait: true,
+    exit_ts: now,
+    exit_letf_price: Number(payload.letf_price) || pending.exit_letf_price || pending.last_letf_price || null,
+    exit_underlying_price: Number(payload.underlying_price) || pending.exit_underlying_price || pending.last_underlying_price || null,
+    shares_remaining: 0,
+    pending_event: null,
+    broadcast_done: true,
+  };
+  const bookKey = loaded.bookKey || indexTrendBookKey(signalId);
+  await persistIndexTrendBook(KV, {
+    bookKey,
+    book: closedBook,
+    letfTicker: payload.letf_ticker,
+    signalId: loaded.signal_id || signalId,
+    now,
+  });
+  if (pending.broadcast_done) {
+    return { ok: true, event: ev, book: closedBook, already_broadcast: true };
+  }
+  const decision = { event: ev, reason: closedBook.reason, close_qty: closeQty };
+  const broadcast = await broadcastIndexTrendEvent(env, {
+    payload: { ...payload, now },
+    decision,
+    book: { ...closedBook, shares: pending.shares || closeQty, shares_remaining: 0 },
+    persistSignalId: loaded.signal_id || signalId,
+    priorBook: pending,
+  });
+  return { ok: true, event: ev, book: closedBook, ...broadcast };
 }
 
 export async function recordIndexTrendAction(env, row) {
@@ -150,9 +313,22 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
       signal_id: signalId,
       letf_ticker: payload.letf_ticker,
     });
-  const book = loaded.book;
   const bookKey = loaded.bookKey || indexTrendBookKey(signalId);
   const persistSignalId = loaded.signal_id || signalId;
+  const now = payload.now || Date.now();
+
+  let book = loaded.book;
+  if (isPrematureIndexTrendInvalidation(book, { atrPct: payload.atrPct })) {
+    const revived = await maybeReviveIndexTrendBook(env, {
+      book,
+      bookKey,
+      letfTicker: payload.letf_ticker,
+      signalId: persistSignalId,
+      atrPct: payload.atrPct,
+      now,
+    });
+    if (revived) book = revived;
+  }
 
   const decision = classifyIndexTrendPaperEvent({
     book,
@@ -161,26 +337,33 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     management: payload.management || book?.management || {},
     direction: payload.direction,
     activate: payload.activate !== false,
-    now: payload.now || Date.now(),
+    now,
     shares: payload.shares,
   });
+
+  const ev = String(decision.event || "").toUpperCase();
+  const isClose = ev === "STOP" || ev === "EXIT";
+  const alreadyPending = !!decision.pending_close || String(book?.status || "") === "pending_close";
 
   if (decision.nextBook) {
     const mgmtSnap = payload.management && typeof payload.management === "object"
       ? { ...payload.management }
       : decision.nextBook.management || null;
-    const stampedBook = {
+    let stampedBook = {
       ...decision.nextBook,
       letf_ticker: String(payload.letf_ticker || decision.nextBook.letf_ticker || "").toUpperCase() || null,
       underlying: String(payload.underlying || payload.ticker || decision.nextBook.underlying || "").toUpperCase() || null,
       management: mgmtSnap,
     };
+    if (isClose && !alreadyPending) {
+      stampedBook = asPendingCloseBook({ ...decision, nextBook: stampedBook }, book, now);
+    }
     await persistIndexTrendBook(KV, {
       bookKey,
       book: stampedBook,
       letfTicker: payload.letf_ticker,
       signalId: persistSignalId,
-      now: payload.now || Date.now(),
+      now,
     });
     decision.nextBook = stampedBook;
   }
@@ -190,31 +373,55 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
       event: null,
       book: decision.nextBook || book,
       fromCarry: !!loaded.fromCarry,
+      revived: book?.revived_from_stop === true && book !== loaded.book,
     };
   }
 
-  const embed = buildIndexTrendSignalEmbed({
-    event: decision.event,
-    underlying: payload.underlying || payload.ticker,
-    letfTicker: payload.letf_ticker,
-    direction: payload.direction,
-    management: payload.management || book?.management || {},
-    book: decision.nextBook || book,
-    letfPrice: payload.letf_price,
-    underlyingPrice: payload.underlying_price,
-    reason: decision.reason,
-    now: payload.now || Date.now(),
+  const nextBook = decision.nextBook || book;
+
+  // STOP/EXIT: persist pending_close + action tape, then the caller mirrors.
+  // Discord waits until finalizeIndexTrendPaperClose after /bridge/order.
+  // Isolate death after this persist still retries — book stays live.
+  if (isClose) {
+    if (!alreadyPending) {
+      await recordIndexTrendAction(env, {
+        ts: now,
+        event: ev,
+        underlying: payload.underlying || payload.ticker,
+        letf_ticker: payload.letf_ticker,
+        signal_id: persistSignalId,
+        shares: indexTrendActionShares(decision, {
+          nextBook,
+          priorBook: book,
+          fallbackShares: payload.shares ?? defaultIndexTrendPaperShares(payload.letf_price),
+        }),
+        letf_price: payload.letf_price,
+        reason: decision.reason || null,
+      }).catch(() => {});
+    }
+    return {
+      ok: true,
+      event: ev,
+      reason: decision.reason || null,
+      pending_close: true,
+      close_qty: decision.close_qty || nextBook?.shares_remaining || null,
+      book: nextBook,
+      fromCarry: !!loaded.fromCarry,
+      notif_type: paperEventToNotifType(ev),
+    };
+  }
+
+  const broadcast = await broadcastIndexTrendEvent(env, {
+    payload: { ...payload, now },
+    decision,
+    book: nextBook,
+    persistSignalId,
+    priorBook: book,
   });
 
-  const discord = await notifyDiscord(env, embed, "trade").catch((err) => ({
-    ok: false,
-    error: String(err?.message || err).slice(0, 160),
-  }));
-
-  const nextBook = decision.nextBook || book;
   await recordIndexTrendAction(env, {
-    ts: payload.now || Date.now(),
-    event: decision.event,
+    ts: now,
+    event: ev,
     underlying: payload.underlying || payload.ticker,
     letf_ticker: payload.letf_ticker,
     signal_id: persistSignalId,
@@ -227,31 +434,15 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     reason: decision.reason || null,
   }).catch(() => {});
 
-  await wirePaperLaneNotify(env, {
-    engine: "index_trend_letf",
-    event: decision.event,
-    ticker: payload.underlying || payload.ticker,
-    vehicleTicker: payload.letf_ticker,
-    direction: payload.direction,
-    price: payload.letf_price,
-    qty: nextBook?.shares_remaining ?? nextBook?.shares,
-    reason: decision.reason,
-    signal_id: persistSignalId,
-    ts: payload.now || Date.now(),
-    embed,
-    book: nextBook || book,
-    management: payload.management || book?.management || nextBook?.management,
-  }).catch(() => {});
-
   return {
-    ok: !!discord?.ok,
-    event: decision.event,
+    ok: !!broadcast.discord?.ok,
+    event: ev,
     reason: decision.reason || null,
     trim_sell_qty: decision.trim_sell_qty || null,
     dca_add_qty: decision.dca_add_qty || null,
-    embed,
-    discord,
+    embed: broadcast.embed,
+    discord: broadcast.discord,
     book: nextBook,
-    notif_type: paperEventToNotifType(decision.event),
+    notif_type: paperEventToNotifType(ev),
   };
 }

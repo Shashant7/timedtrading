@@ -10,9 +10,13 @@ import {
   releaseDailyCounter,
   releaseVehicleCounter,
 } from "./options-auto-mirror.js";
-import { defaultIndexTrendPaperShares } from "./index-trend-paper.js";
+import { defaultIndexTrendPaperShares, indexTrendBookIsLive, isPrematureIndexTrendInvalidation } from "./index-trend-paper.js";
 import { isNyRegularMarketOpenStatic } from "./market-calendar.js";
-import { readIndexTrendActions } from "./index-trend-alerts.js";
+import {
+  readIndexTrendActions,
+  loadIndexTrendBook,
+  maybeReviveIndexTrendBook,
+} from "./index-trend-alerts.js";
 
 const VEHICLE_KEY = "index_trend_letf";
 const MIRROR_TTL = 21 * 86400;
@@ -84,9 +88,21 @@ async function claimHealLock(env, now) {
   }
 }
 
+/** True when a close no longer needs broker follow-through (placed or already flat). */
+export function indexTrendCloseReadyToFinalize(result) {
+  if (!result) return false;
+  if (indexTrendCatchUpPlaced(result)) return true;
+  const reason = String(
+    result.reason || result.fired?.skip || result.fired?.response?.reject_reason || "",
+  );
+  return /mirror_position_already_flat|no_mirrored_entry|no_broker_position|already_flat|nothing_to_sell|position_zero|qty_zero/i.test(reason);
+}
+
 /**
  * Scan recent paper STOP/EXIT rows and flatten any mirrored remainder
  * the same-tick forward never placed.
+ * Premature day-trade invalidations on a runner (TQQQ W36) are revived
+ * and held — heal must not sell those leftovers.
  */
 export async function healStrandedIndexTrendCloses(env, { now = Date.now(), limit = 8 } = {}) {
   const out = {
@@ -94,6 +110,7 @@ export async function healStrandedIndexTrendCloses(env, { now = Date.now(), limi
     attempted: 0,
     filled: 0,
     skipped: 0,
+    revived: 0,
     locked: false,
     results: [],
   };
@@ -109,6 +126,35 @@ export async function healStrandedIndexTrendCloses(env, { now = Date.now(), limi
     if (!sid || seen.has(sid)) continue;
     if (ev !== "STOP" && ev !== "EXIT") continue;
     seen.add(sid);
+    const loaded = await loadIndexTrendBook(env, {
+      signal_id: sid,
+      letf_ticker: a.letf_ticker,
+    });
+    if (isPrematureIndexTrendInvalidation(loaded?.book, { atrPct: 0.012 })) {
+      const revived = await maybeReviveIndexTrendBook(env, {
+        book: loaded.book,
+        bookKey: loaded.bookKey,
+        letfTicker: a.letf_ticker,
+        signalId: sid,
+        now,
+      });
+      if (revived) {
+        out.revived += 1;
+        out.results.push({
+          signal_id: sid,
+          ticker: String(a.letf_ticker || "").toUpperCase(),
+          placed: false,
+          revived: true,
+          qty: revived.shares_remaining ?? null,
+          reason: "premature_invalidation_widened",
+        });
+        continue;
+      }
+    }
+    // A revived / still-open runner must not be flatten-healed off a stale STOP tape.
+    if (loaded?.book && indexTrendBookIsLive(loaded.book) && loaded.book.status !== "pending_close") {
+      continue;
+    }
     if (!(await indexTrendNeedsExitCatchUp(env, sid, now))) continue;
     const mirror = await loadMirror(env, sid);
     out.scanned += 1;

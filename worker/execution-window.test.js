@@ -135,14 +135,21 @@ describe("index-trend lane obeys the share execution window", () => {
   });
 
   it("defers a hard stop past 19:00 ET but fires it at 16:30 ET", () => {
+    const fresh = {
+      ...book,
+      status: "open",
+      trims_fired: [],
+      peak_underlying_r: 0,
+      shares_remaining: 27,
+    };
     const late = classifyIndexTrendPaperEvent({
-      book, letfPrice: 69, underlyingPrice: 447, management: mgmt,
+      book: fresh, letfPrice: 69, underlyingPrice: 447, management: mgmt,
       direction: "LONG", activate: false, now: ET(19, 30),
     });
     expect(late.event).toBeNull();
     expect(late.reason).toMatch(/^stop_deferred:/);
     const ah = classifyIndexTrendPaperEvent({
-      book, letfPrice: 69, underlyingPrice: 447, management: mgmt,
+      book: fresh, letfPrice: 69, underlyingPrice: 447, management: mgmt,
       direction: "LONG", activate: false, now: ET(16, 30),
     });
     expect(ah.event).toBe("STOP");

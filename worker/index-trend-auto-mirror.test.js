@@ -5,6 +5,7 @@ import {
   indexTrendNeedsExitCatchUp,
   indexTrendMirrorNeedsExitCatchUp,
   indexTrendCatchUpPlaced,
+  indexTrendCloseReadyToFinalize,
   healStrandedIndexTrendCloses,
   INDEX_TREND_MIRROR_LOG_KEY,
 } from "./index-trend-auto-mirror.js";
@@ -155,7 +156,7 @@ describe("index-trend-auto-mirror", () => {
     expect(mirror.entry_order_ids).toEqual(["WB-OWNER", "WB-PARTNER"]);
   });
 
-  it("heals a paper STOP that never forwarded while the broker still holds (TQQQ 2026-09-10)", async () => {
+  it("revives a premature TQQQ runner STOP instead of heal-selling", async () => {
     const signalId = "it:QQQ:TQQQ:LONG:2026-W36";
     const env = envWithStore({
       "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
@@ -167,6 +168,21 @@ describe("index-trend-auto-mirror", () => {
         letf_ticker: "TQQQ",
         underlying: "QQQ",
       }),
+      [`timed:idx-trend-book:${signalId}`]: JSON.stringify({
+        status: "closed",
+        reason: "underlying_invalidation",
+        direction: "LONG",
+        entry_underlying_price: 711.8,
+        entry_letf_price: 70.32,
+        stop_underlying: 710.26,
+        shares: 28,
+        shares_remaining: 0,
+        trims_fired: [1, 2],
+        peak_underlying_r: 5.88,
+        needs_wait: true,
+        letf_ticker: "TQQQ",
+        underlying: "QQQ",
+      }),
       "timed:idx-trend-actions": JSON.stringify([
         {
           ts: RTH_TS,
@@ -174,35 +190,79 @@ describe("index-trend-auto-mirror", () => {
           underlying: "QQQ",
           letf_ticker: "TQQQ",
           signal_id: signalId,
-          shares: 0,
+          shares: 21,
           letf_price: 69.08,
           reason: "underlying_invalidation",
         },
       ]),
     });
-    expect(await indexTrendNeedsExitCatchUp(env, signalId, RTH_TS)).toBe(true);
-    expect(indexTrendMirrorNeedsExitCatchUp({
-      entry_fired: true,
-      shares_remaining: 21,
-    })).toBe(true);
-    expect(indexTrendMirrorNeedsExitCatchUp({
-      entry_fired: true,
-      exit_fired: true,
-      shares_remaining: 21,
-    })).toBe(false);
     const out = await healStrandedIndexTrendCloses(env, { now: RTH_TS });
+    expect(out.revived).toBe(1);
+    expect(out.attempted).toBe(0);
+    expect(forwardOrderToBridge).not.toHaveBeenCalled();
+    const book = JSON.parse(env.store[`timed:idx-trend-book:${signalId}`]);
+    expect(book.status).toBe("trimmed");
+    expect(book.shares_remaining).toBe(21);
+    expect(book.stop_underlying).toBeLessThan(710.26);
+    expect(await indexTrendNeedsExitCatchUp(env, signalId, RTH_TS)).toBe(true);
+    forwardOrderToBridge.mockClear();
+    const again = await healStrandedIndexTrendCloses(env, { now: RTH_TS + 60_000 });
+    expect(again.revived).toBe(0);
+    expect(again.attempted).toBe(0);
+    expect(forwardOrderToBridge).not.toHaveBeenCalled();
+  });
+
+  it("heals a real first-stop leftover (no runner) to the broker", async () => {
+    const signalId = "it:IWM:TNA:LONG:2026-W36";
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      [`timed:idx-trend-mirror:${signalId}`]: JSON.stringify({
+        entry_fired: true,
+        shares: 10,
+        shares_remaining: 10,
+        letf_ticker: "TNA",
+        underlying: "IWM",
+      }),
+      [`timed:idx-trend-book:${signalId}`]: JSON.stringify({
+        status: "closed",
+        reason: "underlying_invalidation",
+        direction: "LONG",
+        entry_underlying_price: 240,
+        stop_underlying: 236,
+        shares: 10,
+        shares_remaining: 0,
+        trims_fired: [],
+        peak_underlying_r: 0.2,
+        needs_wait: true,
+      }),
+      "timed:idx-trend-actions": JSON.stringify([
+        {
+          ts: RTH_TS,
+          event: "STOP",
+          underlying: "IWM",
+          letf_ticker: "TNA",
+          signal_id: signalId,
+          shares: 10,
+          reason: "underlying_invalidation",
+        },
+      ]),
+    });
+    expect(indexTrendMirrorNeedsExitCatchUp({
+      entry_fired: true,
+      shares_remaining: 10,
+    })).toBe(true);
+    expect(indexTrendCloseReadyToFinalize({ skipped: false, fired: { ok: true, order_id: "ord-1" } })).toBe(true);
+    expect(indexTrendCloseReadyToFinalize({ skipped: true, reason: "disabled" })).toBe(false);
+    const out = await healStrandedIndexTrendCloses(env, { now: RTH_TS });
+    expect(out.revived).toBe(0);
     expect(out.attempted).toBe(1);
     expect(out.filled).toBe(1);
     expect(forwardOrderToBridge).toHaveBeenCalledWith(env, expect.objectContaining({
-      ticker: "TQQQ",
+      ticker: "TNA",
       side: "exit",
-      qty: 21,
+      qty: 10,
       trade_id: signalId,
     }));
-    const mirror = JSON.parse(env.store[`timed:idx-trend-mirror:${signalId}`]);
-    expect(mirror.exit_fired).toBe(true);
-    expect(mirror.shares_remaining).toBe(0);
-    expect(await indexTrendNeedsExitCatchUp(env, signalId, RTH_TS)).toBe(false);
   });
 
   it("does not immediately re-heal a rejected close (cooldown)", async () => {

@@ -4,6 +4,7 @@
 // Pure — no I/O.
 
 import { shareLaneExecutionWindow, peakGivebackFloor } from "./execution-window.js";
+import { resolveIndexTrendStopUnderlying } from "./index-trend-letf.js";
 
 function num(v) {
   const n = Number(v);
@@ -57,9 +58,126 @@ export function computeUnderlyingR({
   return round2(gain / risk);
 }
 
-function bookIsLive(book) {
+export function indexTrendBookIsLive(book) {
   const status = String(book?.status || "");
-  return status === "open" || status === "trimmed";
+  return status === "open" || status === "trimmed" || status === "pending_close";
+}
+
+function bookIsLive(book) {
+  return indexTrendBookIsLive(book);
+}
+
+/** After +1R or any trim, the original entry stop is noise — trail/giveback only. */
+export function indexTrendHasRunnerProtection(book, peakR = null) {
+  const peak = Number(peakR ?? book?.peak_underlying_r) || 0;
+  const trims = Array.isArray(book?.trims_fired) ? book.trims_fired : [];
+  return peak + 1e-9 >= 1 || trims.length > 0;
+}
+
+/**
+ * When the swing floor replaces a tighter day-trade stop, R-multiples
+ * shrink. Keep the same peak *price* so giveback does not fire on a
+ * stale 5.88R that was measured against a 0.22% stop (TQQQ W36).
+ */
+export function rescalePeakForWiderStop({
+  peakR,
+  entryUnderlying,
+  oldStop,
+  newStop,
+  direction = "LONG",
+} = {}) {
+  const peak = Number(peakR) || 0;
+  const entry = num(entryUnderlying);
+  const prev = num(oldStop);
+  const next = num(newStop);
+  if (!(entry > 0) || !(prev > 0) || !(next > 0) || !(peak > 0)) return peak;
+  const oldRisk = Math.abs(entry - prev);
+  const newRisk = Math.abs(entry - next);
+  if (!(oldRisk > 0) || !(newRisk > 0)) return peak;
+  if (newRisk <= oldRisk + 1e-9) return peak;
+  const dir = String(direction).toUpperCase() === "SHORT" ? "SHORT" : "LONG";
+  const peakUl = dir === "LONG" ? entry + peak * oldRisk : entry - peak * oldRisk;
+  return computeUnderlyingR({
+    direction: dir,
+    entryUnderlying: entry,
+    stopUnderlying: next,
+    currentUnderlying: peakUl,
+  }) ?? peak;
+}
+
+export function isPrematureIndexTrendInvalidation(book, { atrPct = 0.012 } = {}) {
+  if (!book) return false;
+  const status = String(book.status || "");
+  if (status !== "closed" && status !== "pending_close" && status !== "flat") return false;
+  if (String(book.reason || "") !== "underlying_invalidation") return false;
+  if (!indexTrendHasRunnerProtection(book)) return false;
+  const entry = num(book.entry_underlying_price);
+  const stop = num(book.stop_underlying ?? book.management?.stop_underlying);
+  if (!(entry > 0) || !(stop > 0)) return false;
+  const dir = String(book.direction || "LONG").toUpperCase() === "SHORT" ? "SHORT" : "LONG";
+  const floor = resolveIndexTrendStopUnderlying({
+    direction: dir,
+    price: entry,
+    atrPct,
+    sl: null,
+  });
+  if (!(floor > 0)) return false;
+  return dir === "LONG" ? stop > floor + 1e-6 : stop < floor - 1e-6;
+}
+
+/**
+ * Re-open a runner that died on a day-trade stop. Rescales peak R onto
+ * the swing floor so giveback does not immediately flatten.
+ */
+export function revivePrematureIndexTrendStop(book, {
+  atrPct = 0.012,
+  sharesRemaining = null,
+  now = Date.now(),
+} = {}) {
+  if (!isPrematureIndexTrendInvalidation(book, { atrPct })) return null;
+  const entry = num(book.entry_underlying_price);
+  const dir = String(book.direction || "LONG").toUpperCase() === "SHORT" ? "SHORT" : "LONG";
+  const oldStop = num(book.stop_underlying ?? book.management?.stop_underlying);
+  const newStop = resolveIndexTrendStopUnderlying({
+    direction: dir,
+    price: entry,
+    atrPct,
+    sl: null,
+  });
+  const oldPeak = num(book.peak_underlying_r) || 0;
+  const newPeak = rescalePeakForWiderStop({
+    peakR: oldPeak,
+    entryUnderlying: entry,
+    oldStop,
+    newStop,
+    direction: dir,
+  });
+  const rem = num(sharesRemaining);
+  const qty = rem > 0
+    ? Math.round(rem)
+    : Math.max(1, Math.round(Number(book.shares) || 1));
+  return {
+    ...book,
+    status: "trimmed",
+    event: "REVIVE",
+    reason: "premature_invalidation_widened",
+    needs_wait: false,
+    exit_ts: null,
+    exit_letf_price: null,
+    exit_underlying_price: null,
+    shares_remaining: qty,
+    stop_underlying: newStop,
+    peak_underlying_r: newPeak,
+    management: {
+      ...(book.management && typeof book.management === "object" ? book.management : {}),
+      stop_underlying: newStop,
+      stop_source: "swing_floor",
+      stop_widened_from: oldStop,
+    },
+    revived_from_stop: true,
+    revived_ts: now,
+    pending_event: null,
+  };
 }
 
 function trimSize(shares, fraction = 0.25) {
@@ -117,6 +235,20 @@ export function classifyIndexTrendPaperEvent({
     };
   };
 
+  // Flatten is in-flight at the broker — do not re-classify or re-BUY.
+  if (status === "pending_close") {
+    const closeQty = Math.max(0, Math.round(
+      Number(book?.shares_remaining ?? book?.shares) || 0,
+    ));
+    return {
+      event: String(book.pending_event || book.event || "STOP").toUpperCase(),
+      reason: book.reason || "pending_close_retry",
+      close_qty: closeQty,
+      pending_close: true,
+      nextBook: book,
+    };
+  }
+
   // After EXIT/STOP, stay flat while the same weekly play is still live.
   // Clearing needs_wait on the next tick used to BUY the same SPYU book
   // immediately (Discord EXIT + Today still HELD, plus a second BUY card).
@@ -172,28 +304,39 @@ export function classifyIndexTrendPaperEvent({
   if (!(letfPx > 0) || !(ulPx > 0)) return { event: null, nextBook: null };
 
   const entryUl = num(book.entry_underlying_price);
+  const bookStop = num(book.stop_underlying);
+  const effectiveStop = stopUl ?? bookStop;
   const r = computeUnderlyingR({
     direction: dir,
     entryUnderlying: entryUl,
-    stopUnderlying: stopUl ?? book.stop_underlying,
+    stopUnderlying: effectiveStop,
     currentUnderlying: ulPx,
   });
   // Peak only advances on RTH prints — an AH spike must not arm a giveback
   // exit that then fires at the open on a normal print.
-  const prevPeakR = num(book.peak_underlying_r) || 0;
+  const prevPeakR = rescalePeakForWiderStop({
+    peakR: num(book.peak_underlying_r) || 0,
+    entryUnderlying: entryUl,
+    oldStop: bookStop,
+    newStop: effectiveStop,
+    direction: dir,
+  });
   const peakR = win.can_ratchet ? Math.max(prevPeakR, r ?? 0) : prevPeakR;
   const stamped = {
     ...book,
     last_letf_price: letfPx,
     last_underlying_price: ulPx,
     peak_underlying_r: peakR,
+    stop_underlying: effectiveStop ?? book.stop_underlying,
   };
 
   // Hard stop on underlying invalidation — only while the broker can still
   // take a share order. Outside that window the book stays open and the
   // stop re-evaluates on the first tick the mirror can act.
-  if (stopUl != null && ulPx != null) {
-    const stopped = dir === "LONG" ? ulPx <= stopUl + 1e-9 : ulPx >= stopUl - 1e-9;
+  // After +1R / any trim the original stop is noise (TQQQ 70→72→69 on a
+  // 0.22% QQQ OR stop). Trail / giveback manage the runner.
+  if (effectiveStop != null && ulPx != null && !indexTrendHasRunnerProtection(book, peakR)) {
+    const stopped = dir === "LONG" ? ulPx <= effectiveStop + 1e-9 : ulPx >= effectiveStop - 1e-9;
     if (stopped) {
       if (!win.can_stop) {
         return { event: null, nextBook: stamped, reason: `stop_deferred:${win.blocked_reason || "broker_closed"}` };

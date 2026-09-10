@@ -846,10 +846,12 @@ import {
   maybeNotifyIndexTrendPaperEvent as _itNotifyPaper,
   loadIndexTrendBook as _itLoadBook,
   readIndexTrendActions as _itReadActions,
+  finalizeIndexTrendPaperClose as _itFinalizeClose,
+  maybeReviveIndexTrendBook as _itReviveBook,
 } from "./index-trend-alerts.js";
 import { paperEventToNotifType } from "./paper-lane-notify.js";
 import { listOpenPaperLaneTrades, loadOpenIndexTrendBookForUnderlying } from "./paper-lane-positions.js";
-import { buildIndexTrendSignalId as _itBuildSignalId } from "./index-trend-paper.js";
+import { buildIndexTrendSignalId as _itBuildSignalId, indexTrendBookIsLive as _itBookIsLive } from "./index-trend-paper.js";
 import { buildDayTradePositionMgmtLine as _optDtPositionMgmtLine, isOptionsSellWindowEt as _isOptionsSellWindowEt } from "./option-day-trade-plan.js";
 import {
   priceMapFromTimedPrices as _priceMapFromTimedPrices,
@@ -858,7 +860,7 @@ import {
   applyLiveMarkToEquityPoints as _applyLiveMarkToEquityPoints,
 } from "./account-summary.js";
 import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction, applyPaperMirrorLog, paperMirrorLogSide } from "./broker-day-actions-join.js";
-import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendNeedsEntryCatchUp, indexTrendCatchUpPlaced } from "./index-trend-auto-mirror.js";
+import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendNeedsEntryCatchUp, indexTrendCatchUpPlaced, indexTrendCloseReadyToFinalize } from "./index-trend-auto-mirror.js";
 import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
@@ -19972,6 +19974,11 @@ async function processTradeSimulation(
           const _win = shareLaneExecutionWindow(now);
           if (!_win.can_enter) {
             _paperBudgetBlock = `entry_window:${_win.blocked_reason || "outside_enter_window"}`;
+          } else if (_win.et_minutes >= 14 * 60) {
+            // Family 14d 15:00-16:00: n=8, 50% WR, -9.9pp. Core late-day
+            // block is 14:00; paper family must not sneak in via the
+            // share-window 15:30 cutoff or the momentum late-day bypass.
+            _paperBudgetBlock = "entry_window:late_day_paper_family";
           } else {
             const _budget = await _paperFamilyBudgetCounts(env, now);
             const _chk = paperFamilyBudgetAllows(
@@ -21865,7 +21872,8 @@ async function processTradeSimulation(
           if (_ldNyMins >= _blockStart && _ldNyMins < _rthCloseMins) {
             lateDayEntryBlocked = true;
             const _lateDaCfg = tickerData?._env?._deepAuditConfig || {};
-            if (shouldBypassLateDaySmartGate(tickerData, _lateDaCfg)) {
+            if (shouldBypassLateDaySmartGate(tickerData, _lateDaCfg)
+                && !tickerData.__paper_family_ticket) {
               lateDayEntryBlocked = false;
               tickerData.__smart_gate_bypass = "late_day_momentum_breakout";
               console.log(`[SMART_GATE] ${sym} late-day bypass: momentum breakout rank=${tickerData?.rank} path=${tickerData?.__entry_path || "pending"}`);
@@ -95658,13 +95666,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   ? _itBuildSignalId(_itSym, letfTicker, direction)
                   : null;
                 let loaded = await _itLoadBook(env, { signal_id: signalId, letf_ticker: letfTicker || null });
-                let openBook = loaded.book
-                  && (loaded.book.status === "open" || loaded.book.status === "trimmed")
-                  ? loaded.book
-                  : null;
+                if (loaded?.book) {
+                  const _revived = await _itReviveBook(env, {
+                    book: loaded.book,
+                    bookKey: loaded.bookKey,
+                    letfTicker: letfTicker || loaded.book.letf_ticker,
+                    signalId: loaded.signal_id || signalId,
+                    now: Date.now(),
+                  }).catch(() => null);
+                  if (_revived) loaded = { ...loaded, book: _revived };
+                }
+                let openBook = _itBookIsLive(loaded.book) ? loaded.book : null;
                 if (!openBook) {
                   const carryLoaded = await loadOpenIndexTrendBookForUnderlying(env, _itSym);
-                  if (carryLoaded?.book && (carryLoaded.book.status === "open" || carryLoaded.book.status === "trimmed")) {
+                  if (carryLoaded?.book && _itBookIsLive(carryLoaded.book)) {
                     loaded = carryLoaded;
                     openBook = carryLoaded.book;
                     letfTicker = String(carryLoaded.letf_ticker || openBook?.letf_ticker || letfTicker || "").toUpperCase();
@@ -95747,23 +95762,49 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         now: Date.now(),
                       };
                       if (ev?.event) {
-                        d1InsertNotification(env, {
-                          email: null,
-                          type: paperEventToNotifType(ev.event),
-                          title: ev.embed?.title || `${ev.event} ${_itLetf} index trend`,
-                          body: String(ev.embed?.description || ev.event).replace(/\*/g, "").slice(0, 280),
-                          link: "/today.html",
-                          alert_class: "trade_signal",
-                          severity: ev.event === "STOP" ? "high" : "info",
-                          engine: "index_trend_letf",
-                          exec_state: ev.event,
-                        }).catch(() => {});
+                        if (!ev.pending_close) {
+                          d1InsertNotification(env, {
+                            email: null,
+                            type: paperEventToNotifType(ev.event),
+                            title: ev.embed?.title || `${ev.event} ${_itLetf} index trend`,
+                            body: String(ev.embed?.description || ev.event).replace(/\*/g, "").slice(0, 280),
+                            link: "/today.html",
+                            alert_class: "trade_signal",
+                            severity: ev.event === "STOP" ? "high" : "info",
+                            engine: "index_trend_letf",
+                            exec_state: ev.event,
+                          }).catch(() => {});
+                        }
                         // Await on the request path. queueBackground + in-process
                         // self-fetch waitUntil was returning before the decision
                         // (and timed:idx-trend-mirror-log) was written, so Broker
                         // Connections showed a bare NOT MIRRORED for SPYU/TNA.
                         try {
-                          await _itAutoMirror(env, { ..._itMirrorCtx, event: ev.event, book: ev.book });
+                          const _itFired = await _itAutoMirror(env, { ..._itMirrorCtx, event: ev.event, book: ev.book });
+                          if (ev.pending_close && indexTrendCloseReadyToFinalize(_itFired)) {
+                            const _fin = await _itFinalizeClose(env, {
+                              ..._itMirrorCtx,
+                              event: ev.event,
+                              reason: ev.reason,
+                              book: ev.book,
+                              close_qty: ev.close_qty,
+                              loadedBook: { book: ev.book, bookKey: loaded.bookKey, signal_id: _itSid },
+                            });
+                            if (_fin?.book) _itBookAfter = _fin.book;
+                            if (_fin?.embed) {
+                              d1InsertNotification(env, {
+                                email: null,
+                                type: paperEventToNotifType(ev.event),
+                                title: _fin.embed?.title || `${ev.event} ${_itLetf} index trend`,
+                                body: String(_fin.embed?.description || ev.event).replace(/\*/g, "").slice(0, 280),
+                                link: "/today.html",
+                                alert_class: "trade_signal",
+                                severity: ev.event === "STOP" ? "high" : "info",
+                                engine: "index_trend_letf",
+                                exec_state: ev.event,
+                              }).catch(() => {});
+                            }
+                          }
                         } catch (_) { /* never block index trend paper */ }
                       }
                     }
@@ -95772,10 +95813,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   }
                 }
 
-                const _itLive = _itBookAfter
-                  && (_itBookAfter.status === "open" || _itBookAfter.status === "trimmed")
-                  ? _itBookAfter
-                  : null;
+                const _itLive = _itBookIsLive(_itBookAfter) ? _itBookAfter : null;
                 const baseRow = playRow || {
                   ticker: _itSym,
                   price: ulPx,

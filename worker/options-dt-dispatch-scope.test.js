@@ -29,6 +29,9 @@ describe("index day-trade dispatch scope", () => {
     expect(block).toMatch(/await _itAutoMirror\(/);
     expect(block).toMatch(/indexTrendNeedsEntryCatchUp/);
     expect(block).toMatch(/indexTrendCatchUpPlaced/);
+    expect(block).toMatch(/indexTrendCloseReadyToFinalize/);
+    expect(block).toMatch(/_itFinalizeClose/);
+    expect(block).toMatch(/pending_close/);
     expect(block.indexOf("indexTrendNeedsEntryCatchUp")).toBeLessThan(block.indexOf("_itNotifyPaper"));
   });
 
