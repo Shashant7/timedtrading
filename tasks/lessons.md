@@ -6,6 +6,36 @@
 
 ---
 
+## Rank/conviction ignored fundamentals on the play side [2026-09-10]
+
+**Symptom:** Mega movers printed low conviction. BE was quality-A
+(`growth_elite` / COMPOUND CORE), in `ai_infra_energy`, recently added
+to the S&P, Cloud Pivot LONG while basing near support — and still
+showed conviction 65 / Tier C, rank overlays signed SHORT, setup
+grade 2/10 SHORT (`setup_grade_below_floor:2<6`). The desk wanted the
+LONG base, not a fade.
+
+**Cause:** Fundamentals and sentiment *were* computed (`_fair_value`,
+`_compounder`, `THEMES`, CIO news) but conviction
+(`computeConvictionScore`) was tape-only. Rank / setup-grade signed
+FV + officer + theme to HTF (`HTF_BEAR` → `_fv_tilt=-1`). Theme tilt
+skips `observed=0`, so membership never moved macro. `inferSide`
+used the BEAR substring, so legacy enter graded the fade.
+
+**Fix:** Armed play side (`resolvePlaySide`: Cloud Pivot fire, else
+held high-quality / tested weekly ST hold). Context conviction
+(`scoreContextConviction`, cap +18/−8): quality A/B, growth,
+compounder, theme membership, unsigned FV, news, S&P-inclusion
+headlines. Setup-grade structure accepts the armed play; macro
+accepts membership+quality on LONG; value re-signs `_fair_value.tilt`
+to the play. `inferSide` / `computeCandidateScore` use play side
+before HTF. `SCORING_VERSION` `2.1.9-2026-09-10`.
+
+**Do not:** Fit new rank weights. Enable `conviction_fusion` (holdout
+negative). Lower the setup-grade floor. Unpause Support Bounce.
+Treat `CONVICTION_TOO_LOW` as a license to loosen floors. Boost SHORT
+on a quality-A compounder.
+
 ## Index-trend STOP Discord'd; Roth still held TQQQ [2026-09-10]
 
 **Symptom:** 10:00 ET paper STOP on `it:QQQ:TQQQ:LONG:2026-W36`

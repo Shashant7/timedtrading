@@ -20,6 +20,9 @@ correlation improved. Do not fit new weights on the 2026-09-09 sample.
 | v1 / v2 technical score | `worker/ranking/technical-rank.js` (`createTechnicalRanker`) |
 | Direction / event / TD / RSI helpers | `worker/ranking/rank-drivers.js` |
 | Ordering + overlays + kanban batch | `worker/ranking/candidate-rank.js` |
+| Armed play side | `worker/ranking/play-side.js` (Cloud Pivot / weekly ST hold) |
+| Context conviction | `worker/ranking/context-conviction.js` (quality / theme / news) |
+| Conviction score | `worker/focus-tier.js` (`computeConvictionScore`) |
 | Worker wiring | `worker/index.js` → `computeRank` / `computeDynamicScore` |
 | Version | `SCORING_VERSION` in `worker/indicators.js` |
 
@@ -41,7 +44,14 @@ from `worker/index.js`.
   hold-intent / phase-zone-change bonuses on top of `computeRank`
 
 `computeDynamicScore` is technical base + independent overlays
-(theme / FV / harmonic / officer / macro), then freshness.
+(theme / FV / harmonic / officer / macro), then freshness. Overlay
+**side** is rank-trace → armed play (Cloud Pivot / weekly ST hold) →
+HTF sign. Theme *membership* does not move rank when today's observed
+breadth is 0 (editorial-only stays off). Conviction gets that
+membership plus quality / compounder / unsigned FV / news / index
+inclusion (`scoreContextConviction`, cap +18 / −8). Missing is 0.
+Do not enable `conviction_fusion`. Do not boost SHORT on a quality-A
+compounder.
 
 ## Read a trace
 
@@ -89,7 +99,7 @@ cd /workspace/worker && ../node_modules/.bin/wrangler deploy \
 cd /workspace/worker-engine && ../node_modules/.bin/wrangler deploy
 ```
 
-Confirm `SCORING_VERSION` is `2.1.5-2026-09-09` on a freshly scored
+Confirm `SCORING_VERSION` is `2.1.9-2026-09-10` on a freshly scored
 payload. Expect lower admissions at unchanged rank floors. Confirm
 `deep_audit_rank_formula` (`v1` default / `v2` override) before judging
 distribution. Do not lower rank floors to “restore” volume.

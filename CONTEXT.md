@@ -17,6 +17,12 @@ Single reference for agents. Read this first to avoid context overload.
   direction, duplicate contributions and missing-data behavior. Aggregate
   rank correlation or sorting fixes do not establish that its ingredients
   deserve points. Playbook: `skills/rank-driver-audit.md`.
+- **Rank / conviction context (2026-09-10):** fundamentals, theme
+  membership, news, and S&P-inclusion headlines were computed but not
+  applied to conviction, and rank/setup-grade signed them to HTF (BE
+  quality-A LONG play scored as a SHORT fade). Play side is Cloud Pivot
+  / weekly ST hold. Context cap +18/−8. Do not fit weights or enable
+  `conviction_fusion`. Playbook: `skills/rank-driver-audit.md`.
 - **Setup grade (2026-09-10):** fail-closed 0–10 (floor 6) on new core
   **and** paper-family entries (Cloud Pivot / confirm-stack /
   continuation). Index/day-trade stay exempt. Support Bounce is catalog
@@ -1085,9 +1091,9 @@ playbook in `skills/security-auth-patterns.md`)**
 **Ranking / technical score (PR #1442 — merged and deployed 2026-09-09)**
 - **Question:** whether each rank *ingredient* earns its points (producer,
   direction, missing-data, duplication) — not whether aggregate sort
-  improved. Live `SCORING_VERSION` is `2.1.8-2026-09-10`
-  (paper-family + Support Bounce pause on top of 2.1.7 core grade /
-  2.1.6 setup-admission / 2.1.5 rank);
+  improved. Live `SCORING_VERSION` is `2.1.9-2026-09-10`
+  (play-side + context conviction on top of 2.1.8 paper-family grade /
+  2.1.7 core grade / 2.1.6 setup-admission / 2.1.5 rank);
   traces use `driver_version=rank-drivers-v2` and
   `CANDIDATE_RANK_VERSION=candidate-rank-v3`.
 - **Do not reintroduce:** missing completion/phase treated as early
@@ -1132,13 +1138,15 @@ playbook in `skills/security-auth-patterns.md`)**
   demotion `blocked` (proposals #68 / #70, 90d PF 0.79). A 30d-green
   CIO restore must not unpause it. Do not catalog-pause all Cloud Pivot
   — shorts were +EV; longs take the grade floor instead.
-- This is Timed's existing overlays (state/stack, observed rvol or
-  directional squeeze, theme/macro-wire, FV tilt, officer tilt or sector
-  OW/UW) — not Ticker Grader Form 4, not fitted weights, not an exit
-  trapdoor. Do not enable `conviction_fusion` as a substitute (holdout
-  was negative). Do not merge PR #1446's export loop as the live act.
+- This is Timed's existing overlays (state/stack **or armed Cloud Pivot
+  / weekly ST hold**, observed rvol or directional squeeze, theme tilt
+  **or theme membership + quality A/B/compounder**, FV tilt **re-signed
+  to the play side**, officer tilt or sector OW/UW) — not Ticker Grader
+  Form 4, not fitted weights, not an exit trapdoor. Do not enable
+  `conviction_fusion` as a substitute (holdout was negative). Do not
+  merge PR #1446's export loop as the live act.
 - Stamp `__setup_grade` on the payload / `__setup_evaluation` / entry
-  snapshot. Pro/VIP/Admin only. `SCORING_VERSION` `2.1.8-2026-09-10`.
+  snapshot. Pro/VIP/Admin only. `SCORING_VERSION` `2.1.9-2026-09-10`.
   Playbook: `skills/setup-grade.md`.
 
 **Breakout Entry Paths**
