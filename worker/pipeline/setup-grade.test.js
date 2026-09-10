@@ -175,6 +175,7 @@ describe("setup-grade wiring", () => {
     expect(storage).toContain('"__setup_grade"');
     const index = readFileSync(new URL("../index.js", import.meta.url), "utf8");
     expect(index).toContain("setup_grade: tickerData?.__setup_grade");
+    expect(index).toContain("setup_grade: result.__setup_grade");
     expect(index.match(/admitSetupGrade/g)?.length).toBeGreaterThanOrEqual(1);
     const core = readFileSync(new URL("./tt-core-entry.js", import.meta.url), "utf8");
     expect(core).toContain("admitSetupGrade");

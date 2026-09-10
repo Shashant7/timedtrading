@@ -7232,6 +7232,22 @@ function qualifiesForEnter(d, asOfTs = null) {
   // Kill switch: deep_audit_focus_tier_enabled = "false" reverts.
   // ─────────────────────────────────────────────────────────────────
   const _focusDaCfg = d?._env?._deepAuditConfig || {};
+  {
+    const _setupGrade = admitSetupGrade(d, {
+      side: inferSide(d),
+      path: null,
+      daCfg: _focusDaCfg,
+    });
+    if (!_setupGrade.allow) {
+      return {
+        qualifies: false,
+        reason: _setupGrade.reason,
+        path: null,
+        confidence: 0,
+        meta: { setup_grade: d.__setup_grade },
+      };
+    }
+  }
   const _focusTierEnabledLegacy = String(_focusDaCfg.deep_audit_focus_tier_enabled ?? "false") === "true";
 
   // V13 data-capture: force rank trace on EVERY qualifying entry. Previously
@@ -7416,23 +7432,6 @@ function qualifiesForEnter(d, asOfTs = null) {
         }
       }
     } catch { /* defensive — fall through to legacy flow */ }
-  }
-
-  {
-    const _setupGrade = admitSetupGrade(d, {
-      side: inferSide(d),
-      path: null,
-      daCfg: _focusDaCfg,
-    });
-    if (!_setupGrade.allow) {
-      return {
-        qualifies: false,
-        reason: _setupGrade.reason,
-        path: null,
-        confidence: 0,
-        meta: { setup_grade: d.__setup_grade },
-      };
-    }
   }
 
   const state = String(d?.state || "");
@@ -68030,6 +68029,7 @@ export default {
               path: q.path || null,
               stage,
               detail: q,
+              setup_grade: result.__setup_grade || q.meta?.setup_grade || null,
             },
             diag: {
               state: result.state,
