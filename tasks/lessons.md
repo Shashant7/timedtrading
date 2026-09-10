@@ -6,6 +6,26 @@
 
 ---
 
+## Stale OPEN leftover sleeve hid ULTA after the model closed [2026-09-10]
+
+**Symptom:** After #1451 merged, ULTA was still open. Model book was
+already LOSS. Roth still held 0.07902 on a prior trade's rejected /
+suppressed OPEN manifest. Today's EXIT reserved that leftover as a
+sibling and sold only the new lot.
+
+**Cause:** Catch-up `remaining=1` dropped suppressed leftovers. Scan by
+`trade_id` hit a remaining=0 partner sleeve first (`nothing_to_exit`).
+Hourly planner only pairs EXITs inside 72h (prior EXIT was older).
+`markManifestModelClosed` updated one user+account, so other sleeves
+stayed OPEN and claimed intended.
+
+**Fix:** Pick the leftover sleeve. Include suppressed remaining in
+manifest load. Plan leftover when mothership `trades.exit_ts` is set.
+Close every sleeve for the trade_id. Rejected remaining=0 does not claim.
+
+**Do not:** Treat a rejected prior lot as a living sibling that protects
+leftover from the next EXIT. Heal-sell TQQQ W36.
+
 ## Partial EXIT leftover is this lot, not shares added [2026-09-10]
 
 **Symptom:** ULTA model EXIT filled at 11:28 ET; broker sold, but not

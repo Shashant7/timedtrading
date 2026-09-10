@@ -32,6 +32,22 @@ describe("claimedOpenEquityByTicker", () => {
     ]);
     expect(map.get("DPZ")).toBe(0.2714);
   });
+
+  it("does not claim intended on a rejected sleeve with remaining 0", () => {
+    const map = claimedOpenEquityByTicker([
+      {
+        ticker: "ULTA",
+        mode: "trader",
+        instrument_type: "equity",
+        model_status: "OPEN",
+        broker_remaining_qty: 0,
+        model_intended_qty: 1.772,
+        sync_state: "rejected",
+        mirror_suppressed: 1,
+      },
+    ]);
+    expect(map.get("ULTA")).toBeUndefined();
+  });
 });
 
 describe("classifyDrift — cross-mode claim", () => {
