@@ -783,6 +783,7 @@ const PROPRIETARY_SNAPSHOT_FIELDS = new Set([
   "rank", "score", "dynamicScore", "entry_quality", "conviction",
   "rank_score", "_technical_rank", "_ranking", "__candidate_order", "__rank_trace",
   "__setup_evaluation", "__setup_grade",
+  "_news_summary", "news_summary",
   "regime_forecast", "kanban_stage", "trade_plan",
   // Phase C1 (2026-07-03) — the snapshot chain carries scores/stages;
   // Members/anon must not see the journey either.

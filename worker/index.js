@@ -280,6 +280,7 @@ else apikeyInput.addEventListener('change', startPolling, { once:true });
 
 </body></html>`;
 import { computeConvictionScore, TT_SELECTED_DEFAULT } from "./focus-tier.js";
+import { attachNewsSummary } from "./discovery/news-tracker.js";
 import {
   getTickerType as getTickerTypeForFocus,
   SECTOR_MAP as SECTOR_MAP_FILE,
@@ -7175,6 +7176,9 @@ function computeConvictionScoreForD(d, sideOverride = null) {
     try {
       d._ticker_type = getTickerTypeForFocus(d.ticker || d.sym || "");
     } catch { /* ignore */ }
+  }
+  if (!d._news_summary) {
+    try { attachNewsSummary(d, env._newsSummaries); } catch { /* ignore */ }
   }
 
   // V15 P0.1 — derive entry side for the Saty ATR proximity signal.
@@ -108031,6 +108035,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           removed: Array.isArray(_removedRegistry) ? _removedRegistry : [],
         });
 
+        // Scored-news stamp for context conviction. One D1 read. Do not
+        // load wall-clock news during replay (lookahead). Missing is 0.
+        if (!env._isReplay && env?.DB) {
+          try {
+            const { loadNewsSummariesBatch } = await import("./discovery/news-tracker.js");
+            env._newsSummaries = await loadNewsSummariesBatch(env, allTickers, { lookbackDays: 5 });
+          } catch (e) {
+            console.warn("[SCORING] news summaries preload failed:", String(e?.message || e).slice(0, 150));
+            env._newsSummaries = {};
+          }
+        }
+
         // Score ALL tickers every cycle (core + user-added)
         // With ~140+ tickers and 15-way parallelism, full cycle completes in ~10-15s
         let scored = 0, skipped = 0, errors = 0, trailWrites = 0;
@@ -109003,6 +109019,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             } catch (_) { /* fair value must never break scoring */ }
 
+            try { attachNewsSummary(result, env._newsSummaries); } catch (_) { /* news never breaks scoring */ }
+
             // Unified model lifecycle — Watching/Queued/Bought/Held/Trimming/Exited.
             // Horizon is metadata; trader vs investor is book label, not a product fork.
             // Model play (shares|letf|options) hydrates from entry stamp, prior KV, or open trade snapshot.
@@ -109109,6 +109127,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _currentGrannyHoldings: env._currentGrannyHoldings || null,
             };
             if (env._currentVix != null) result._vix = env._currentVix;
+            try {
+              const _fc = computeConvictionScoreForD(result);
+              if (_fc) {
+                result.__focus_tier = _fc.tier;
+                result.__focus_conviction_score = _fc.score;
+                result.__focus_conviction_breakdown = _fc.breakdown;
+                result.focus_tier = _fc.tier;
+                result.focus_conviction_score = _fc.score;
+              }
+            } catch (_) { /* conviction stamp must never break scoring */ }
 
             // PER-INDEX market cycle: gate THIS ticker against its HOME index's
             // cycle (trailing-beta map in timed:ticker-index-map), falling back to

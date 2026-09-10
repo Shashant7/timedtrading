@@ -18,6 +18,11 @@
 //   +10 — on Mark Newton's Upticks list    (LIVE ONLY; backtest=0)
 //   + 5 — recent winner (≥2 wins, net +3% PnL in last 30 days)
 //
+// Plus independent context (2026-09-10, cap +18 / −8) — quality /
+// compounder / theme membership / unsigned FV / news / index inclusion.
+// Technical conviction never scored these. Side is play-side (Cloud
+// Pivot / weekly ST hold) then HTF sign. Do not enable conviction_fusion.
+//
 // Tier from score:
 //   >= 75 → Tier A (smoke treatment: lower floor, larger risk, sooner
 //                  winner-protect, ETF Precision Gate eligible)
@@ -26,6 +31,9 @@
 //
 // See: tasks/v13-focus-tier-strategy-2026-04-24.md
 // ═══════════════════════════════════════════════════════════════════════
+
+import { scoreContextConviction } from "./ranking/context-conviction.js";
+import { resolvePlaySide } from "./ranking/play-side.js";
 
 // Hard-coded curated set — user-maintained, backtest-safe (no lookahead).
 // Keep aligned with TT_SELECTED in worker/index.js:~31461.
@@ -904,6 +912,11 @@ export function computeConvictionScore({
   const grannyBonus = (currentGrannyEtfHoldings && currentGrannyEtfHoldings.has(tickerUpper)) ? 10 : 0;
   const upticksBonus = (currentUpticks && currentUpticks.has(tickerUpper)) ? 10 : 0;
   const recentBonus = scoreRecentWinner(tickerUpper, historyStats);
+  const contextSide = String(ctx?.direction || ctx?.side || "").toUpperCase() === "SHORT"
+    || String(ctx?.direction || ctx?.side || "").toUpperCase() === "LONG"
+    ? String(ctx.direction || ctx.side).toUpperCase()
+    : (resolvePlaySide(tickerData) || (Number(tickerData?.htf_score) < 0 ? "SHORT" : "LONG"));
+  const context = scoreContextConviction(tickerData, contextSide);
 
   // V15 P0.5 (2026-04-26): reverted weights to P0.3 baseline.
   //   liquidity 0-10
@@ -924,8 +937,8 @@ export function computeConvictionScore({
   // V16 Setup #2 (2026-04-28):
   //   n_test_support 0 to +12 (additive — captures N-test support/resistance)
   // Max base = 10+15+10+15+25+20+10+10+5+12+12+10+12 = 166
-  // Max bonuses = 40 → theoretical max 206
-  const total = Math.max(0, Math.min(206, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus));
+  // Max bonuses = 40 + context 18 → theoretical max 224, clamp 206
+  const total = Math.max(0, Math.min(206, base + ttSelBonus + grannyBonus + upticksBonus + recentBonus + context.pts));
 
   // V15 P0.5 tier thresholds (back to P0.3 calibration):
   //   A ≥ 110, B ≥ 80, C < 80
@@ -956,6 +969,7 @@ export function computeConvictionScore({
         upticks: upticksBonus,
         recent_winner: recentBonus,
       },
+      context,
     },
   };
 }
