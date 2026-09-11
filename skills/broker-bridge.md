@@ -93,6 +93,24 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   (TQQQ W36). Do not treat action qty=0 as flat.
 >   Partner accounts must not manually exit a name that never filled
 >   (`no_manifest_for_trade`).
+> - **Model vs broker coverage (2026-09-11):** `worker/mirror-coverage.js`
+>   is the fail-closed join. Every model action (ST ledger, investor
+>   lots, index-trend tape, index DT tape, convexity tickets that
+>   engaged the mirror) is classified against `bridge:client:recent`,
+>   `broker_intents`, and the paper mirror logs.
+>   Status: `mirrored` / `mirrored_partial` / `rejected_terminal` /
+>   `pending_intent` / `deferred` / `in_flight` / `unmatched`.
+>   Buys/DCAs need a broker order id — HTTP 200 and `{ok:true,deduped:true}`
+>   are not fills. A prior BUY on the same position is not today's DCA.
+>   Share count may differ (cash scale); entry ratio must hold on later
+>   trims/exits (100/2 then 100/2, never 100/100).
+>   Read: `GET /timed/admin/broker/coverage?hours=48` (`requireKeyOrAdmin`).
+>   Watch: sanity `model_broker_coverage` (fast 15 min) + `*/5` snapshot
+>   at `timed:mirror-coverage:latest` (Discord when the fail set changes).
+>   Heal stays on existing lanes (investor catch-up, trader EXIT catch-up,
+>   index-trend entry/close, intent drain). Unmatched Short Term ENTRIES
+>   page only — they must re-qualify, not chase. Do not backfill leftover
+>   books that already tried a place.
 > - Long Term DCA (`/timed/investor/dca/execute`) must **await**
 >   `forwardInvestorMirror` before the HTTP response. `waitUntil` after
 >   lot+email dies (PLTR 2026-09-02 / 09-11). The 15:46–16:15 sweep

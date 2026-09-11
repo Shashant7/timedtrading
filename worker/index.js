@@ -2518,6 +2518,8 @@ const ROUTES = [
   ["GET",  "/timed/broker/accounts",                     "GET /timed/broker/accounts"],
   ["GET",  "/timed/admin/broker-intents",                "GET /timed/admin/broker-intents"],
   ["POST", "/timed/admin/broker-intents/drain",          "POST /timed/admin/broker-intents/drain"],
+  ["GET",  "/timed/admin/broker/coverage",               "GET /timed/admin/broker/coverage"],
+  ["POST", "/timed/admin/index-trend/heal-entries",      "POST /timed/admin/index-trend/heal-entries"],
   ["POST", "/timed/admin/index-trend/heal-closes",       "POST /timed/admin/index-trend/heal-closes"],
   ["GET",  "/timed/admin/convexity-tickets",             "GET /timed/admin/convexity-tickets"],
   ["GET",  "/timed/admin/execution/report-card",         "GET /timed/admin/execution/report-card"],
@@ -84858,6 +84860,31 @@ export default {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
+      if (routeKey === "GET /timed/admin/broker/coverage") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const hours = Math.min(168, Math.max(1, Number(url.searchParams.get("hours")) || 48));
+          const { loadMirrorCoverage } = await import("./mirror-coverage.js");
+          const out = await loadMirrorCoverage(env, {
+            sinceMs: Date.now() - hours * 3600 * 1000,
+          });
+          return sendJSON({ ok: true, hours, ...out }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/index-trend/heal-entries") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { healMissedIndexTrendEntries } = await import("./index-trend-auto-mirror.js");
+          const out = await healMissedIndexTrendEntries(env, {});
+          return sendJSON({ ok: true, ...out }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
       if (routeKey === "POST /timed/admin/index-trend/heal-closes") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -105268,6 +105295,30 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
         } catch (e) {
           console.warn("[CONVEXITY TICKET] cron failed:", String(e?.message || e).slice(0, 300));
+        }
+      })());
+    }
+
+    // ── Model vs broker coverage snapshot (*/5) ──
+    //
+    // 2026-09-11 — Fail-closed join of every model lane against the
+    // client ring + intents. Pages Discord when the unmatched set
+    // changes. Does not place orders; existing lane heals own that.
+    if (!_isDedicatedEngine && _isEvery5Min && env?.BROKER_BRIDGE_URL) {
+      ctx.waitUntil((async () => {
+        try {
+          const { snapshotMirrorCoverage } = await import("./mirror-coverage.js");
+          const out = await snapshotMirrorCoverage(env, {
+            notify: (embed) => notifyDiscord(env, embed, "system"),
+          });
+          if (out?.summary?.fails > 0 || out?.paged) {
+            console.log(
+              `[MIRROR COVERAGE] actions=${out.summary.actions} fails=${out.summary.fails}`
+              + ` unmatched=${out.summary.unmatched} paged=${!!out.paged}`,
+            );
+          }
+        } catch (e) {
+          console.warn("[MIRROR COVERAGE] snapshot failed:", String(e?.message || e).slice(0, 200));
         }
       })());
     }

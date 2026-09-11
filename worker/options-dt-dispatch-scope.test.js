@@ -62,6 +62,9 @@ describe("index day-trade dispatch scope", () => {
     expect(src).toMatch(/healMissedIndexTrendEntries/);
     expect(src).toMatch(/healStrandedIndexTrendCloses/);
     expect(src).toMatch(/POST \/timed\/admin\/index-trend\/heal-closes/);
+    expect(src).toMatch(/POST \/timed\/admin\/index-trend\/heal-entries/);
+    expect(src).toMatch(/GET \/timed\/admin\/broker\/coverage/);
+    expect(src).toMatch(/snapshotMirrorCoverage/);
     const idx = src.indexOf("Durable broker intents drain");
     expect(idx).toBeGreaterThan(-1);
     const slice = src.slice(idx, idx + 2800);
