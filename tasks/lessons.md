@@ -6,6 +6,31 @@
 
 ---
 
+## Model vs broker must be one fail-closed join [2026-09-11]
+
+**Symptom:** Daily mirror misses (TNA W37 never-attempted BUY, PLTR
+DCA `waitUntil` death, AMZN EXIT leftover, TNA W36 ghost EXIT). The
+operator cannot see "model did X / broker did Y" in one place.
+TWLO 11:47 ET SL email looked like a leftover from Sep 10 CIO
+rejects — it was a new Sep 11 10:04 approve.
+
+**Cause:** Coverage was fragmented. Investor-only sanity checks miss
+ST / index-trend. Day-actions is a UI join, not fail-closed. Relative
+qty was not a contract, so a cash-scaled book could flatten on
+model-space shares.
+
+**Fix:** `worker/mirror-coverage.js` classifies every lane. Sanity
+`model_broker_coverage` + `GET /timed/admin/broker/coverage` + `*/5`
+snapshot. Heals stay on existing catch-ups. Unmatched ST ENTRIES
+page only.
+
+**Do not:** Invent a new ST ENTRY buy path. Heal-sell TQQQ W36.
+Backfill leftover ENTRIES that already tried a place. Treat HTTP 200
+or `{ok:true,deduped:true}` as a buy fill. Treat a prior BUY as
+today's DCA.
+
+---
+
 ## PLTR Long Term ADD never hit the broker [2026-09-11]
 
 **Symptom:** 3:50 PM ET email `+ PLTR · LONG TERM · ADD` (11.93 sh

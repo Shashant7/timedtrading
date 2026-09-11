@@ -17,6 +17,18 @@ Single reference for agents. Read this first to avoid context overload.
   direction, duplicate contributions and missing-data behavior. Aggregate
   rank correlation or sorting fixes do not establish that its ingredients
   deserve points. Playbook: `skills/rank-driver-audit.md`.
+- **Model vs broker coverage (2026-09-11):** one fail-closed join
+  (`worker/mirror-coverage.js`) of every lane (ST / Long Term /
+  index-trend / index DT / convexity) against `bridge:client:recent`
+  + `broker_intents` + paper mirror logs. Share count may differ;
+  the ratio must stay relative. `GET /timed/admin/broker/coverage`
+  + sanity `model_broker_coverage` (15 min) + `*/5` snapshot.
+  Unmatched ST ENTRIES page only (must re-qualify). Playbook:
+  `skills/broker-bridge.md`.
+- **TWLO SL exit was a same-day CIO approve (2026-09-11):** 11:47 ET
+  safety stop closed a 10:04 ET Forming Pair that CIO approved
+  (conf 0.83). Sep 10 rejects (CHOP + weekly divergence) never
+  opened a position. Overnight CIO flip, not a leftover.
 - **PLTR Long Term DCA miss (2026-09-11):** 15:50 ET `dca_pullback`
   wrote the lot + email; `/bridge/order` never ran. Sweep marked the
   day clean on an empty 15:46 window; execute used `waitUntil` that

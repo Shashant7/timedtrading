@@ -359,6 +359,9 @@ export async function runSelfHealing(env, options = {}) {
     // 2026-09-11 — same catch-up as investor_signal_bridge_coverage.
     // Does not place overnight market sells.
     "bridge_mirror_coverage",
+    // 2026-09-11 — all-lane model vs broker. Fans out to existing
+    // lane heals; does not invent a Short Term ENTRY buy path.
+    "model_broker_coverage",
     // 2026-08-17 (evolved from PR #896) — stale investor compute.
     "compute_freshness",
   ]);
@@ -406,6 +409,10 @@ export async function runSelfHealing(env, options = {}) {
       action = enabled
         ? await _healInvestorBridgeCatchup(env, baseUrl, adminKey)
         : { ok: true, dry_run: true, would_do: "POST /timed/admin/broker-bridge/catchup-investor {dry_run:false,hours:72,max_ops:24}" };
+    } else if (check.id === "model_broker_coverage") {
+      action = enabled
+        ? await _healModelBrokerCoverage(env)
+        : { ok: true, dry_run: true, would_do: "POST catchup-investor + catchup-trader-exits + index-trend heal-entries/closes + broker-intents/drain" };
     } else if (check.id === "compute_freshness") {
       action = enabled
         ? await _healComputeFreshness(env)
@@ -440,6 +447,41 @@ export async function runSelfHealing(env, options = {}) {
   }
 
   return { healed, skipped, elapsed_ms: Date.now() - t0 };
+}
+
+async function _healModelBrokerCoverage(env) {
+  const results = {};
+  results.investor = await _healInvestorBridgeCatchup(env);
+  try {
+    const r = await _dispatch(env, "/timed/admin/broker-bridge/catchup-trader-exits", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dry_run: false, hours: 72, max_ops: 8, source: "catchup_coo_heal" }),
+    });
+    results.trader_exits = await r.json().catch(() => ({}));
+  } catch (e) {
+    results.trader_exits = { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+  try {
+    const r = await _dispatch(env, "/timed/admin/index-trend/heal-entries", { method: "POST" });
+    results.index_entries = await r.json().catch(() => ({}));
+  } catch (e) {
+    results.index_entries = { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+  try {
+    const r = await _dispatch(env, "/timed/admin/index-trend/heal-closes", { method: "POST" });
+    results.index_closes = await r.json().catch(() => ({}));
+  } catch (e) {
+    results.index_closes = { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+  try {
+    const r = await _dispatch(env, "/timed/admin/broker-intents/drain", { method: "POST" });
+    results.intents = await r.json().catch(() => ({}));
+  } catch (e) {
+    results.intents = { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+  const ok = Object.values(results).some((row) => row && row.ok);
+  return { ok, results };
 }
 
 async function _healInvestorBridgeCatchup(env, baseUrl, adminKey) {

@@ -17,6 +17,7 @@
 //   6. position_drift              same position trimmed >2x in last hour
 //   7. price_outlier               ticker price > 3x its 30d average
 //   8. bridge_mirror_coverage      BROKER_INVESTOR_MIRROR_ENABLED on AND last call >24h
+//  18. model_broker_coverage       every model lane vs ring/intents (relative qty)
 //   9. loop2_breaker_stale         Loop 2 paused for >48h with no operator action
 //  10. nav_script_coverage         user-facing html missing tt-bottom-nav.js
 //  15. broker_bridge_bindings      URL set but HMAC/service-binding missing
@@ -50,6 +51,10 @@ import {
   slDrawdownPct,
   DEFAULT_MAX_SL_DRAWDOWN_PCT,
 } from "./sanity-stop-heal.js";
+import {
+  evaluateModelBrokerCoverage,
+  loadMirrorCoverage,
+} from "./mirror-coverage.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -1084,6 +1089,43 @@ const checkInvestorSignalBridgeCoverage = timed(async function checkInvestorSign
   );
 });
 
+// ── Check 18: model_broker_coverage ─────────────────────────────────────
+//
+// 2026-09-11 — Fail-closed join of every model lane (ST, Long Term,
+// index-trend, index DT, convexity) against bridge:client:recent +
+// broker_intents + paper mirror logs. Complements the investor-only
+// checks: TNA W37 never-attempted BUY, PLTR DCA waitUntil death, and
+// AMZN EXIT leftovers were invisible to those. Relative qty drift
+// (model 100 / broker 2 on entry, then broker 100 on exit) pages too.
+const checkModelBrokerCoverage = timed(async function checkModelBrokerCoverage(env, ctx) {
+  const anomalies = [];
+  try {
+    if (!env?.BROKER_BRIDGE_URL) {
+      return envelope(
+        "model_broker_coverage",
+        "Model actions reached the broker (all lanes)",
+        [],
+        "no_op: BROKER_BRIDGE_URL not configured",
+        "would have caught: TNA W37 paper+email with no /bridge/order; PLTR 15:50 DCA lot with no ring row; AMZN EXIT leftover after waitUntil died",
+      );
+    }
+    const snap = await loadMirrorCoverage(env, {});
+    anomalies.push(...evaluateModelBrokerCoverage({
+      rows: snap.actions,
+      nowMs: snap.ts,
+    }));
+  } catch (e) {
+    anomalies.push({ detail: `check failed: ${String(e?.message || e).slice(0, 200)}`, severity: "fail" });
+  }
+  return envelope(
+    "model_broker_coverage",
+    "Model actions reached the broker (all lanes)",
+    anomalies,
+    "Inspect GET /timed/admin/broker/coverage. COO heals existing lanes (investor catch-up, trader EXIT catch-up, index-trend entry/close heal, intent drain). Unmatched Short Term ENTRIES page only — they must re-qualify, not chase.",
+    "would have caught: TNA W37 paper+email with no /bridge/order; PLTR 15:50 DCA lot with no ring row; AMZN EXIT leftover after waitUntil died; META flatten when catch-up replayed model-space shares",
+  );
+});
+
 // ── Master sweep ────────────────────────────────────────────────────────
 
 const CHECKS = [
@@ -1110,6 +1152,9 @@ const CHECKS = [
   // source-contract test. Catches investor SELLs written to D1 but
   // never forwarded to the broker bridge (KO event-risk gap).
   checkInvestorSignalBridgeCoverage,
+  // 2026-09-11 — All-lane model vs broker (ST / Long Term / index-trend
+  // / index DT / convexity) + relative qty. Fast-pathed below.
+  checkModelBrokerCoverage,
 ];
 
 // Critical-path subset that runs every 15min instead of hourly. These
@@ -1130,6 +1175,7 @@ const FAST_CHECKS = [
   // is the difference between catching it before earnings and eating
   // the drawdown.
   checkInvestorSignalBridgeCoverage,
+  checkModelBrokerCoverage,
 ];
 
 /**

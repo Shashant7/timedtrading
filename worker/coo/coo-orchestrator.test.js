@@ -270,4 +270,22 @@ describe("runSelfHealing — unknown checks", () => {
     });
     expect(out.skipped.some((s) => s.check === "bridge_mirror_coverage" && /catchup-investor/.test(s.would_do || ""))).toBe(true);
   });
+
+  it("routes model_broker_coverage through the multi-lane healer (no new ST buy path)", async () => {
+    const kv = makeKv();
+    const env = makeEnv({
+      KV_TIMED: kv,
+      TIMED_API_KEY: "k",
+      COO_SELF_HEAL: "false",
+    });
+    const out = await runSelfHealing(env, {
+      sweep: { checks: [{ id: "model_broker_coverage", status: "fail" }] },
+    });
+    const row = out.skipped.find((s) => s.check === "model_broker_coverage");
+    expect(row).toBeTruthy();
+    expect(row.would_do || "").toMatch(/catchup-investor/);
+    expect(row.would_do || "").toMatch(/catchup-trader-exits/);
+    expect(row.would_do || "").toMatch(/heal-entries/);
+    expect(JSON.stringify(out)).not.toMatch(/processTradeSimulation/);
+  });
 });
