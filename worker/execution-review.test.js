@@ -65,13 +65,36 @@ describe("buildReviewFromInputs", () => {
       knobs: { deep_audit_max_daily_entries: "6" },
     });
     expect(review.ok).toBe(true);
-    expect(review.changes_since).toBe("2026-09-05");
+    expect(review.changes_since).toBe("2026-09-04");
     expect(review.label).toMatch(/^Week ending Sep 8, 2026$/);
     expect(review.week.trades.closed).toBe(3);
     expect(review.options_desk.mirror.reason).toBe("graded_2_of_20");
     expect(review.broker_intents.placed).toBe(3);
     expect(review.knobs.deep_audit_max_daily_entries).toBe("6");
-    expect(EXECUTION_CHANGES_TS).toBe(Date.UTC(2026, 8, 5));
+    expect(EXECUTION_CHANGES_TS).toBe(Date.UTC(2026, 8, 4, 4, 0, 0));
+  });
+
+  it("includes Sep 4 RTH entries in the since-changes cohort", () => {
+    // 2026-09-04 15:11 ET (EDT) — first Cloud Pivot cluster (ULTA/TJX/ETN).
+    const sep4Rth = Date.UTC(2026, 8, 4, 19, 11, 0);
+    expect(sep4Rth).toBeGreaterThanOrEqual(EXECUTION_CHANGES_TS);
+    const rows = [trade(0, { pnl: 1.2, entry: sep4Rth })];
+    const review = buildReviewFromInputs({ now: MON, sinceRows: rows });
+    expect(review.since_changes.trades.closed).toBe(1);
+    expect(review.verdict.closed_n).toBe(1);
+  });
+
+  it("renders n=0 instead of a bare n/a when the since-changes core is empty", () => {
+    const v = judgePassCondition({
+      trades: { closed: 0 },
+      baseline: { core: { n: 0 } },
+      core: { by_entry_hour_et: {} },
+      family: { by_direction: { LONG: { n: 0 } } },
+    });
+    expect(v.checks.find((c) => c.name === "core win rate").value).toBe("n=0");
+    expect(v.checks.find((c) => c.name === "core sum").value).toBe("n=0");
+    expect(v.checks.find((c) => c.name === "family LONG win rate").value).toBe("n=0");
+    expect(v.checks.find((c) => c.name === "AM vs PM core sum").value).toBe("am 0pp / pm 0pp");
   });
 });
 

@@ -86178,7 +86178,7 @@ export default {
         if (authFail) return authFail;
         try {
           const { loadRotationSnapshot } = await import("./cro/rotation-engine.js");
-          const r = await loadRotationSnapshot(env);
+          const r = await loadRotationSnapshot(env, { computeIfMissing: true });
           if (!r) return sendJSON({ ok: false, error_kind: "no_snapshot_yet" }, 200, corsHeaders(env, req));
           return sendJSON({ ok: true, ...r }, 200, corsHeaders(env, req));
         } catch (e) {

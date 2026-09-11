@@ -184,7 +184,8 @@ function StatusGrid({
   ba,
   eg,
   cioReadiness,
-  positions
+  positions,
+  learningPending
 }) {
   const tile = opts => {
     const {
@@ -348,6 +349,12 @@ function StatusGrid({
     sub: wr?.window?.label || "Awaiting first run",
     status: wrDays == null ? "warn" : wrDays > 8 ? "warn" : "ok",
     href: "#retro"
+  }), tile({
+    title: "LEARNING QUEUE",
+    value: learningPending == null ? "—" : learningPending === 0 ? "Clear" : `${learningPending} pending`,
+    sub: "Operator decide — desk does not auto-apply",
+    status: learningPending == null ? null : learningPending > 0 ? "warn" : "ok",
+    href: "#learning-queue"
   }));
 }
 function CooStatusCard({
@@ -1661,6 +1668,180 @@ function VehicleTogglesCard({
     }, "\u2014")));
   })))));
 }
+function LearningQueueCard({
+  apiBase,
+  onPendingCount
+}) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState({});
+  const [flash, setFlash] = useState({});
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${apiBase}/timed/admin/learning/proposals?status=pending&limit=50&_t=${Date.now()}`, {
+        credentials: "include",
+        cache: "no-store"
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${r.status}`);
+      const list = Array.isArray(j.proposals) ? j.proposals : [];
+      setRows(list);
+      setErr(null);
+      if (typeof onPendingCount === "function") onPendingCount(list.length);
+    } catch (e) {
+      setErr(String(e?.message || e));
+      if (typeof onPendingCount === "function") onPendingCount(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase, onPendingCount]);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+  const decide = async (id, action) => {
+    if (busy[id]) return;
+    const confirmText = action === "approve" ? `Approve proposal #${id} and write the knob to model_config?` : `Reject proposal #${id} and keep the live knob?`;
+    if (!window.confirm(confirmText)) return;
+    setBusy(s => ({
+      ...s,
+      [id]: action
+    }));
+    try {
+      const r = await fetch(`${apiBase}/timed/admin/learning/proposals/decide`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          id,
+          action
+        })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j?.ok === false) throw new Error(j?.error || `HTTP ${r.status}`);
+      setFlash(f => ({
+        ...f,
+        [id]: action === "approve" ? "applied" : "rejected"
+      }));
+      await refresh();
+    } catch (e) {
+      setFlash(f => ({
+        ...f,
+        [id]: String(e?.message || e)
+      }));
+    } finally {
+      setBusy(s => {
+        const c = {
+          ...s
+        };
+        delete c[id];
+        return c;
+      });
+    }
+  };
+  const ago = ms => {
+    const n = Number(ms);
+    if (!n) return "—";
+    const m = Math.max(0, Math.round((Date.now() - n) / 60000));
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    if (h < 48) return `${h}h ago`;
+    return `${Math.round(h / 24)}d ago`;
+  };
+  return React.createElement("div", {
+    id: "learning-queue",
+    className: "mc-card mb-5",
+    style: {
+      scrollMarginTop: 80
+    }
+  }, React.createElement("div", {
+    className: "mc-section-title"
+  }, React.createElement("span", {
+    className: "mc-dot"
+  }), "Learning queue \u2014 operator decide", loading && React.createElement("span", {
+    className: "text-[10px] mc-mute ml-2 mc-loading"
+  }, "refreshing\u2026")), React.createElement("div", {
+    className: "text-[11px] mc-mute mb-3"
+  }, "Not a live trade signal. Desk triage of ", React.createElement("code", {
+    className: "text-[#34d399]"
+  }, "learning_proposals"), ". The desk does not auto-apply \u2014 approve writes the knob, reject keeps the live value."), err && React.createElement("div", {
+    className: "text-red-400 text-xs mb-2"
+  }, err), rows.length === 0 && !err && React.createElement("div", {
+    className: "text-[12px] mc-mute"
+  }, "No pending proposals."), React.createElement("div", {
+    className: "grid gap-3"
+  }, rows.map(p => {
+    let evidence = null;
+    try {
+      evidence = p.evidence_json ? JSON.parse(p.evidence_json) : null;
+    } catch (_) {
+      evidence = null;
+    }
+    const note = p.note || evidence?.note || evidence?.reason || evidence?.summary || "";
+    return React.createElement("div", {
+      key: p.id,
+      style: {
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 10,
+        padding: "12px 14px",
+        background: "rgba(255,255,255,0.02)"
+      }
+    }, React.createElement("div", {
+      className: "flex items-center gap-2 flex-wrap mb-1"
+    }, React.createElement("span", {
+      className: "text-[13px] font-semibold text-white"
+    }, "#", p.id), React.createElement("span", {
+      className: "mc-pill mc-pill-warn"
+    }, p.source || "unknown"), React.createElement("span", {
+      className: "mc-pill"
+    }, p.tier || "tier2"), React.createElement("span", {
+      className: "text-[10px] mc-mute ml-auto"
+    }, ago(p.created_at))), React.createElement("div", {
+      className: "text-[12px] text-[#d1d5db] mb-1",
+      style: {
+        wordBreak: "break-word"
+      }
+    }, React.createElement("code", null, p.config_key || p.kind || "proposal")), React.createElement("div", {
+      className: "text-[12px] mb-2"
+    }, React.createElement("span", {
+      className: "mc-mute"
+    }, "live"), " ", React.createElement("strong", null, p.current_value ?? "—"), React.createElement("span", {
+      className: "mc-mute"
+    }, " \u2192 proposed "), React.createElement("strong", {
+      className: "text-[#fbbf24]"
+    }, p.proposed_value ?? "—")), note && React.createElement("div", {
+      className: "text-[11px] mc-mute mb-2"
+    }, String(note).slice(0, 280)), React.createElement("div", {
+      className: "flex items-center gap-2 flex-wrap"
+    }, React.createElement("button", {
+      className: "mc-btn",
+      disabled: !!busy[p.id],
+      onClick: () => decide(p.id, "approve"),
+      style: {
+        padding: "4px 10px",
+        fontSize: 11,
+        borderColor: "rgba(34,197,94,0.4)",
+        color: "#22c55e"
+      }
+    }, busy[p.id] === "approve" ? "Applying…" : "Approve"), React.createElement("button", {
+      className: "mc-btn",
+      disabled: !!busy[p.id],
+      onClick: () => decide(p.id, "reject"),
+      style: {
+        padding: "4px 10px",
+        fontSize: 11
+      }
+    }, busy[p.id] === "reject" ? "Rejecting…" : "Reject"), flash[p.id] && React.createElement("span", {
+      className: "text-[11px] mc-mute"
+    }, flash[p.id])));
+  })), React.createElement("div", {
+    className: "text-[10px] mc-mute mt-3"
+  }, "Same bus as ", React.createElement("code", null, "POST /timed/admin/learning/proposals/decide"), ". High-confidence desk rows may already be decided hourly."));
+}
 function BridgeSection({
   apiBase
 }) {
@@ -2963,6 +3144,7 @@ function MissionControl({
   const [cioErr, setCioErr] = useState(null);
   const [cioBackfillBusy, setCioBackfillBusy] = useState(false);
   const [cioBackfillMsg, setCioBackfillMsg] = useState(null);
+  const [learningPending, setLearningPending] = useState(null);
   const fetchCio = useCallback(async () => {
     setCioLoading(true);
     try {
@@ -3144,7 +3326,11 @@ function MissionControl({
     ba: ba,
     eg: eg,
     cioReadiness: cioReadiness,
-    positions: data?.positions
+    positions: data?.positions,
+    learningPending: learningPending
+  }), React.createElement(LearningQueueCard, {
+    apiBase: API_BASE,
+    onPendingCount: setLearningPending
   }), React.createElement(DetailSectionsToggle, null, React.createElement("div", {
     id: "perf",
     className: "mc-card mb-5",
@@ -4211,6 +4397,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1788812870099:126980240
+// cache-bust:1789100836832:476162604
 
-// cache-bust:1788812870099:126980240
+// cache-bust:1789100836832:476162604

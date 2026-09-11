@@ -1,13 +1,18 @@
 // worker/execution-review.js
 //
-// Weekly execution review (2026-09-05). The self-grading loop from the
+// Weekly execution review (2026-09-04 NY). The self-grading loop from the
 // execution-discipline plan, automated: every Friday 17:00 ET (the hourly
 // cron slot, gated by ET day + hour) the system grades itself off the ledger (execution report card for the week, since
-// the 2026-09-05 changes, and the 42-day pre-change baseline), the options
-// desk report card, the broker intent ledger, and the live DA knobs; judges
-// the plan's pass condition; stores the result in KV; emails the operator;
-// posts a one-line Discord summary. GET /timed/admin/execution/review serves
-// the latest to the Execution Review page.
+// the 2026-09-04 Cloud Pivot / execution-discipline cluster, and the 42-day
+// pre-change baseline), the options desk report card, the broker intent
+// ledger, and the live DA knobs; judges the plan's pass condition; stores
+// the result in KV; emails the operator; posts a one-line Discord summary.
+// GET /timed/admin/execution/review serves the latest to the Execution
+// Review page.
+//
+// Cutoff is NY midnight 2026-09-04 (EDT = UTC-4), not UTC midnight Sep 5.
+// The first cluster (ULTA/TJX/ETN/CAT) entered ~15:11 ET on Sep 4 — a
+// UTC-midnight Sep 5 gate dropped them and the verdict card read n=0.
 //
 // Pure pieces (buildReviewFromInputs, judgePassCondition, renderReviewHtml)
 // take data in; the I/O wrappers below load it.
@@ -15,7 +20,8 @@
 import { gradeExecution } from "./execution-report-card.js";
 import { convexityTicketReport } from "./convexity-tickets.js";
 
-export const EXECUTION_CHANGES_TS = Date.UTC(2026, 8, 5); // 2026-09-05T00:00Z
+// 2026-09-04 00:00 America/New_York (EDT, UTC-4).
+export const EXECUTION_CHANGES_TS = Date.UTC(2026, 8, 4, 4, 0, 0);
 export const REVIEW_KV_LATEST = "timed:execution:review:latest";
 export const REVIEW_KV_HISTORY = "timed:execution:review:history";
 export const REVIEW_HISTORY_MAX = 12;
@@ -40,12 +46,14 @@ export function judgePassCondition(sinceGrade) {
   const pmSum = ["12:00-14:00", "14:00-15:00", "15:00-16:00"]
     .reduce((a, k) => a + (Number(afternoon[k]?.sum_pct) || 0), 0);
   const amSum = ["09:30-10:30", "10:30-12:00"].reduce((a, k) => a + (Number(afternoon[k]?.sum_pct) || 0), 0);
+  const rateOrEmpty = (slice) => (slice?.n ? (slice.win_rate_pct ?? null) : "n=0");
+  const sumOrEmpty = (slice) => (slice?.n ? (slice.sum_pct ?? null) : "n=0");
   const checks = [
     { name: "closed trades since changes", value: closedN, target: `>= ${PASS_CONDITION.min_closed}`, ok: closedN >= PASS_CONDITION.min_closed },
-    { name: "core win rate", value: core.win_rate_pct ?? null, target: `>= ${PASS_CONDITION.core_win_rate_pct}%`, ok: (core.win_rate_pct ?? -1) >= PASS_CONDITION.core_win_rate_pct },
-    { name: "core sum", value: core.sum_pct ?? null, target: "> 0pp", ok: (core.sum_pct ?? -1) > PASS_CONDITION.core_sum_pct_gt },
-    { name: "afternoon (12:00+) not the dominant loss", value: `am ${amSum}pp / pm ${pmSum}pp`, target: "pm >= am or pm >= 0", ok: pmSum >= 0 || pmSum >= amSum },
-    { name: "family LONG win rate", value: famLong.win_rate_pct ?? null, target: `>= ${PASS_CONDITION.family_long_win_rate_pct}%`, ok: famLong.n === 0 || (famLong.win_rate_pct ?? -1) >= PASS_CONDITION.family_long_win_rate_pct },
+    { name: "core win rate", value: rateOrEmpty(core), target: `>= ${PASS_CONDITION.core_win_rate_pct}%`, ok: (core.win_rate_pct ?? -1) >= PASS_CONDITION.core_win_rate_pct },
+    { name: "core sum", value: sumOrEmpty(core), target: "> 0pp", ok: (core.sum_pct ?? -1) > PASS_CONDITION.core_sum_pct_gt },
+    { name: "AM vs PM core sum", value: `am ${amSum}pp / pm ${pmSum}pp`, target: "pm >= am or pm >= 0", ok: pmSum >= 0 || pmSum >= amSum },
+    { name: "family LONG win rate", value: rateOrEmpty(famLong), target: `>= ${PASS_CONDITION.family_long_win_rate_pct}%`, ok: famLong.n === 0 || (famLong.win_rate_pct ?? -1) >= PASS_CONDITION.family_long_win_rate_pct },
   ];
   const status = closedN < PASS_CONDITION.min_closed
     ? "insufficient"

@@ -45,7 +45,7 @@ const KNOB_LABELS = {
 };
 
 const DECIDE_NEXT =
-  "Next: Mission Control learning queue, or POST /timed/admin/learning/proposals/decide (approve = pause this setup, reject = keep it live).";
+  "Next: Mission Control learning queue (top of the page, below the status tiles), or POST /timed/admin/learning/proposals/decide (approve writes the knob, reject keeps the live value).";
 
 export function parseDemotionKey(configKey) {
   const raw = String(configKey || "");

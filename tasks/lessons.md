@@ -6,6 +6,32 @@
 
 ---
 
+## Ops desk: review cutoff, learning queue, bindings heal, rotation cache [2026-09-11]
+
+**Symptom:** Execution Review verdict showed 0 closed / n/a after the
+Sep 4 Cloud Pivot cluster. Discord learning-desk alert #74 pointed at
+a Mission Control queue that was not on the page. Sanity Sweep paged
+`broker_bridge_bindings` and skipped heal as `no_handler`. Research
+Desk Rotation Engine said "No snapshot yet."
+
+**Cause:** `EXECUTION_CHANGES_TS` was UTC midnight Sep 5, so Sep 4
+15:11 ET entries were excluded. Mission Control had COO / Decision
+Review but no `learning_proposals` card (and collapsed sections do
+not mount). Heal treated every unknown fail as `no_handler` and
+counted ETH limit-only / `no_broker_position` as a bindings outage.
+Rotation KV used a 60-minute `expirationTtl` while the daily cycle
+skips rotation after 22:00 UTC.
+
+**Fix:** NY-midnight Sep 4 cutoff; always-visible Learning queue;
+expected-reject filter + `not_self_healable` skip; 7-day persist +
+GET compute-on-read.
+
+**Do not:** Auto-apply proposal #74. Heal-sell TQQQ W36 or fire
+overnight market orders to "fix" UDOW ETH. Treat Decision Review as
+the learning queue.
+
+---
+
 ## Exit emails must keep Signal Quality [2026-09-10]
 
 **Symptom:** Short Term Position Closed for TQQQ Index Swings showed
