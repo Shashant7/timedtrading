@@ -25,10 +25,17 @@ const MIRROR_LOG_KEY = INDEX_TREND_MIRROR_LOG_KEY;
 const MIRROR_LOG_MAX = 120;
 
 export const INDEX_TREND_REJECT_COOLDOWN_MS = 15 * 60 * 1000;
+/** Same-tick follow-through only. Older rejected leftovers stay unbought. */
+export const INDEX_TREND_SAME_TICK_ENTRY_MS = 15 * 60 * 1000;
+/** Never-attempted open books (email wrote, /bridge/order did not). Covers the weekend so Friday W37 can still catch up Monday RTH. Week-old leftovers stay excluded. */
+export const INDEX_TREND_NEVER_ATTEMPTED_ENTRY_MS = 4 * 86400 * 1000;
+export const INDEX_TREND_CARRY_LETFS = Object.freeze([
+  "SPYU", "SPXU", "TQQQ", "SQQQ", "TNA", "TZA", "UDOW", "SDOW",
+]);
 const HEAL_LOCK_KEY = "timed:idx-trend-heal-lock";
 const HEAL_LOCK_MS = 45 * 1000;
 const EXIT_CATCHUP_LOOKBACK_MS = 14 * 86400 * 1000;
-const TERMINAL_EXIT_REJECT = /no_broker_position|already_flat|nothing_to_sell|position_zero|qty_zero/i;
+const TERMINAL_EXIT_REJECT = /no_broker_position|already_flat|nothing_to_sell|position_flat|position_zero|qty_zero/i;
 
 /** Bridge place that actually filled or claimed (not a false-ok 200). */
 export function indexTrendFiredLooksPlaced(fired) {
@@ -40,6 +47,46 @@ export function indexTrendFiredLooksPlaced(fired) {
   return !!parseBridgeOrderIds(parsed).order_id;
 }
 
+/**
+ * Same extraction the client ring uses. Fan-out hides reject_reason on
+ * the child, so `fired.response.reject_reason` alone stamped
+ * "bridge_reject" and the EXIT healer looped (TNA W36 2026-09-11).
+ */
+export function extractIndexTrendRejectReason(fired) {
+  if (!fired) return "bridge_reject";
+  if (fired.skip) return String(fired.skip).slice(0, 200);
+  const parsed = fired.response && typeof fired.response === "object"
+    ? fired.response
+    : fired;
+  const childReject = Array.isArray(parsed?.results)
+    ? parsed.results.map((row) => (
+      row?.result?.reject_reason || row?.result?.error || row?.result?.message || null
+    )).find(Boolean)
+    : null;
+  const reason = parsed?.reject_reason
+    || parsed?.error
+    || parsed?.message
+    || childReject
+    || fired.error
+    || null;
+  if (reason) return String(reason).slice(0, 200);
+  if (fired.ok === true && !indexTrendFiredLooksPlaced(fired)) {
+    return "false_ok_no_order_id";
+  }
+  return "bridge_reject";
+}
+
+export function isTerminalIndexTrendExitReject(reason) {
+  return TERMINAL_EXIT_REJECT.test(String(reason || ""));
+}
+
+export function indexTrendMirrorLooksAttempted(mirror) {
+  if (!mirror || typeof mirror !== "object") return false;
+  if (mirror.entry_fired) return true;
+  if (mirror.entry_order_id) return true;
+  return !!String(mirror.last_reject || "").trim();
+}
+
 export async function indexTrendNeedsEntryCatchUp(env, signalId, now = Date.now()) {
   const existing = await loadMirror(env, signalId);
   if (existing?.entry_fired) return false;
@@ -48,6 +95,26 @@ export async function indexTrendNeedsEntryCatchUp(env, signalId, now = Date.now(
     return false;
   }
   return true;
+}
+
+/**
+ * Same-tick age gate stays (UDOW/TQQQ/TJX leftover rule). A never-
+ * attempted BUY for a still-open book (age < 4d) may catch up
+ * during RTH — TNA W37 emailed at 12:00 ET and never hit /bridge/order.
+ */
+export async function indexTrendShouldCatchUpOpenEntry(env, { signalId, book, now = Date.now() } = {}) {
+  if (!signalId) return false;
+  const status = String(book?.status || "");
+  if (status !== "open" && status !== "trimmed") return false;
+  if (!(await indexTrendNeedsEntryCatchUp(env, signalId, now))) return false;
+  const age = (Number(now) || Date.now()) - (Number(book?.entry_ts) || 0);
+  if (age >= 0 && age < INDEX_TREND_SAME_TICK_ENTRY_MS) return true;
+  const existing = await loadMirror(env, signalId);
+  if (indexTrendMirrorLooksAttempted(existing)) return false;
+  if (!isNyRegularMarketOpenStatic(new Date(Number(now) || Date.now()))) return false;
+  // Same session, or the next RTH morning after a Friday miss.
+  // Not a backfill of week-old leftover books.
+  return age >= 0 && age < INDEX_TREND_NEVER_ATTEMPTED_ENTRY_MS;
 }
 
 /**
@@ -92,10 +159,10 @@ async function claimHealLock(env, now) {
 export function indexTrendCloseReadyToFinalize(result) {
   if (!result) return false;
   if (indexTrendCatchUpPlaced(result)) return true;
-  const reason = String(
-    result.reason || result.fired?.skip || result.fired?.response?.reject_reason || "",
-  );
-  return /mirror_position_already_flat|no_mirrored_entry|no_broker_position|already_flat|nothing_to_sell|position_zero|qty_zero/i.test(reason);
+  if (result.flattened) return true;
+  const reason = String(result.reason || extractIndexTrendRejectReason(result.fired) || "");
+  return /mirror_position_already_flat|no_mirrored_entry/i.test(reason)
+    || isTerminalIndexTrendExitReject(reason);
 }
 
 /**
@@ -180,8 +247,54 @@ export async function healStrandedIndexTrendCloses(env, { now = Date.now(), limi
       signal_id: sid,
       ticker: String(a.letf_ticker || mirror?.letf_ticker || "").toUpperCase(),
       placed,
+      flattened: !!result?.flattened,
       qty: result?.qty ?? null,
-      reason: result?.reason || result?.fired?.response?.reject_reason || result?.fired?.skip || null,
+      reason: result?.reason || extractIndexTrendRejectReason(result?.fired) || result?.fired?.skip || null,
+    });
+    if (out.attempted >= limit) break;
+  }
+  return out;
+}
+
+/**
+ * Catch a same-session paper BUY that never reached /bridge/order
+ * (notify/email wrote, isolate died, actions tape raced). Scans carry
+ * keys so a dropped BUY row still heals. Runs before EXIT heal so a
+ * doomed no_broker_position flatten cannot starve the live entry.
+ */
+export async function healMissedIndexTrendEntries(env, { now = Date.now(), limit = 4 } = {}) {
+  const out = { scanned: 0, attempted: 0, filled: 0, skipped: 0, results: [] };
+  if (!isNyRegularMarketOpenStatic(new Date(Number(now) || Date.now()))) {
+    out.reason = "outside_rth";
+    return out;
+  }
+  for (const letf of INDEX_TREND_CARRY_LETFS) {
+    const loaded = await loadIndexTrendBook(env, { letf_ticker: letf });
+    const book = loaded?.book;
+    const sid = loaded?.signal_id || book?.signal_id || null;
+    if (!sid || !book || !indexTrendBookIsLive(book)) continue;
+    out.scanned += 1;
+    if (!(await indexTrendShouldCatchUpOpenEntry(env, { signalId: sid, book, now }))) continue;
+    const result = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      catch_up: true,
+      signal_id: sid,
+      underlying: book.underlying || loaded.underlying,
+      letf_ticker: letf,
+      letf_price: Number(book.last_letf_price) || Number(book.entry_letf_price) || 0,
+      book,
+      now,
+    });
+    out.attempted += 1;
+    const placed = indexTrendCatchUpPlaced(result);
+    if (placed) out.filled += 1;
+    else out.skipped += 1;
+    out.results.push({
+      signal_id: sid,
+      ticker: letf,
+      placed,
+      qty: result?.qty ?? null,
+      reason: result?.reason || extractIndexTrendRejectReason(result?.fired) || null,
     });
     if (out.attempted >= limit) break;
   }
@@ -234,7 +347,7 @@ async function recordMirrorDecision(env, ctx, result) {
       letf_ticker: String(ctx.letf_ticker || "").toUpperCase(),
       skipped,
       decision: skipped ? "skipped" : (rejected ? "rejected" : "placed"),
-      reason: result?.reason || result?.error || firedSkip || null,
+      reason: result?.reason || extractIndexTrendRejectReason(result?.fired) || result?.error || firedSkip || null,
     });
     if (list.length > MIRROR_LOG_MAX) list.length = MIRROR_LOG_MAX;
     await KV.put(MIRROR_LOG_KEY, JSON.stringify(list), { expirationTtl: 30 * 86400 });
@@ -401,13 +514,20 @@ async function runIndexTrendMirror(env, ctx = {}) {
       });
     } else if (signalId) {
       await saveMirror(env, signalId, {
-        last_reject: fired?.response?.reject_reason || fired?.error || fired?.skip || "bridge_reject",
+        last_reject: extractIndexTrendRejectReason(fired),
         last_reject_ts: Number(ctx.now) || Date.now(),
       });
     }
     if (!placed) await releaseEntryCounters(env, operatorEmail, counterOk);
 
-    return { skipped: false, fired, event, qty: sizing.qty, vehicle: VEHICLE_KEY };
+    return {
+      skipped: false,
+      fired,
+      event,
+      qty: sizing.qty,
+      vehicle: VEHICLE_KEY,
+      reason: placed ? null : extractIndexTrendRejectReason(fired),
+    };
   }
 
   if (event === "DCA_ADD") {
@@ -469,20 +589,43 @@ async function runIndexTrendMirror(env, ctx = {}) {
     meta: { underlying, lane: "index_trend", close_event: event.toLowerCase() },
   });
 
+  const rejectReason = extractIndexTrendRejectReason(fired);
   if (indexTrendFiredLooksPlaced(fired)) {
     const remaining = Math.max(0, (Number(mirror.shares_remaining) || 0) - qty);
     const patch = event === "TRIM"
       ? { trim_fired: true, trim_qty: qty, shares_remaining: remaining, last_reject: null, last_reject_ts: null }
       : { exit_fired: true, exit_qty: qty, shares_remaining: remaining, last_reject: null, last_reject_ts: null };
     await saveMirror(env, signalId, patch);
-  } else {
-    await saveMirror(env, signalId, {
-      last_reject: fired?.response?.reject_reason || fired?.error || fired?.skip || "bridge_reject",
-      last_reject_ts: Number(ctx.now) || Date.now(),
-    });
+    return { skipped: false, fired, event, qty, vehicle: VEHICLE_KEY };
   }
 
-  return { skipped: false, fired, event, qty, vehicle: VEHICLE_KEY };
+  const nowTs = Number(ctx.now) || Date.now();
+  if (isTerminalIndexTrendExitReject(rejectReason)) {
+    await saveMirror(env, signalId, {
+      exit_fired: true,
+      shares_remaining: 0,
+      last_reject: rejectReason,
+      last_reject_ts: nowTs,
+      exit_terminal: true,
+      exit_terminal_reason: rejectReason,
+    });
+    return {
+      skipped: false,
+      fired,
+      event,
+      qty,
+      vehicle: VEHICLE_KEY,
+      flattened: true,
+      reason: rejectReason,
+    };
+  }
+
+  await saveMirror(env, signalId, {
+    last_reject: rejectReason,
+    last_reject_ts: nowTs,
+  });
+
+  return { skipped: false, fired, event, qty, vehicle: VEHICLE_KEY, reason: rejectReason };
 }
 
 function isNyBuyWindow(ts) {

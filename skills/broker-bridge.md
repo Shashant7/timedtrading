@@ -76,11 +76,18 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   (fractional cash scale + `bridgeResponseIsOk`). Fan-out accounts run
 >   concurrently under the 28s client timeout; the outer receipt must
 >   carry child order IDs/rejects. Never send equity to a Futures
->   sub-account. Do not backfill leftover books. Index-trend same-tick
->   heal is only for a book younger than 15 minutes. A paper STOP/EXIT
->   persists `pending_close` and Discords only after `/bridge/order`
->   places (`finalizeIndexTrendPaperClose`). Heal on monolith `*/5`
->   (`healStrandedIndexTrendCloses`) or
+>   sub-account. Do not backfill leftover books that already tried a
+>   place (UDOW/TQQQ/TJX 2026-09-03). Index-trend same-tick heal stays
+>   under 15 minutes; a **never-attempted** BUY (no mirror row) for a
+>   still-open book younger than 4 days may catch up during RTH
+>   (`healMissedIndexTrendEntries` on `*/5`, before EXIT heal). Stamp
+>   the real bridge reject (fan-out child `reject_reason`), not
+>   `bridge_reject`. Terminal EXIT rejects (`no_broker_position`,
+>   `already_flat`, …) flatten the KV mirror so heal stops looping.
+>   Reconciler closes untracked OPEN claims when the broker is already
+>   flat. A paper STOP/EXIT persists `pending_close` and Discords only
+>   after `/bridge/order` places (`finalizeIndexTrendPaperClose`). Heal
+>   on monolith `*/5` (`healStrandedIndexTrendCloses`) or
 >   `POST /timed/admin/index-trend/heal-closes` sells leftover qty for
 >   *real* closes. Do not heal-sell a premature runner invalidation
 >   (TQQQ W36). Do not treat action qty=0 as flat.

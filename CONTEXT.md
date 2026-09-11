@@ -17,6 +17,12 @@ Single reference for agents. Read this first to avoid context overload.
   direction, duplicate contributions and missing-data behavior. Aggregate
   rank correlation or sorting fixes do not establish that its ingredients
   deserve points. Playbook: `skills/rank-driver-audit.md`.
+- **Index-trend broker/recon (2026-09-11):** TNA W37 paper+email with
+  no `/bridge/order` BUY — never-attempted RTH catch-up for open
+  books younger than 4 days (not leftover backfill). W36 EXIT spam:
+  stamp real `no_broker_position` (fan-out child) and flatten the
+  mirror. Reconciler closes untracked OPEN claims when the broker
+  is flat. Playbook: `skills/broker-bridge.md`.
 - **Ops desk four-pack (2026-09-11):** Execution Review cutoff is NY
   midnight 2026-09-04 (Sep 4 RTH cluster is in the cohort). Mission
   Control Learning queue is always visible. Sanity heal does not page

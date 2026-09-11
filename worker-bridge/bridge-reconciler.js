@@ -264,6 +264,22 @@ export function claimedOpenEquityByTicker(rows) {
 }
 
 /**
+ * Untracked leftover claiming shares the broker does not hold
+ * (TNA W36 2026-09-11: rem=4, sync=untracked, broker=0, paper flat).
+ * Close the ghost so Phase C stops paging a 4-share claim.
+ */
+export function isGhostUntrackedBrokerFlat(row, brokerState, cfg = {}) {
+  const modelStatus = String(row?.model_status || "OPEN").toUpperCase();
+  if (modelStatus !== "OPEN") return false;
+  if (String(row?.sync_state || "") !== SYNC_STATES.UNTRACKED) return false;
+  const tolerance = Number(cfg.tolerance) || TOLERANCE.trader_equity;
+  const rem = Number(row?.broker_remaining_qty);
+  if (!(Number.isFinite(rem) && rem > tolerance)) return false;
+  const brokerQty = Number(brokerState?.qty) || 0;
+  return brokerQty <= tolerance;
+}
+
+/**
  * Classify drift for a single open manifest row. Returns
  * { sync_state, drift_detected, severity, note, broker_state }.
  *
@@ -277,6 +293,17 @@ export function classifyDrift(row, brokerState, cfg = {}) {
   const modelStatus = String(row.model_status || "OPEN").toUpperCase();
   const modelQty = Number(row.model_intended_qty) || 0;
   const expectedBrokerQty = Number(row.broker_remaining_qty);
+  if (isGhostUntrackedBrokerFlat(row, brokerState, { ...cfg, tolerance })) {
+    return {
+      sync_state: SYNC_STATES.IN_SYNC,
+      drift_detected: false,
+      severity: "info",
+      close_model: true,
+      close_reason: "reconcile_untracked_broker_flat",
+      note: "untracked leftover — broker flat; closed ghost claim",
+      broker_state: { qty: 0, avgCost: 0, expected: 0 },
+    };
+  }
   // 2026-08-13 — Reducer in flight: an unverified recent last-action
   // audit means a TRIM/EXIT just placed and broker_remaining_qty is
   // stale (pre-trim). Its expected_post_held_qty is the real expected.
@@ -812,6 +839,10 @@ async function _persistRowUpdate(env, row, classification) {
     : (row.mirror_suppressed_reason || null);
   const newSuppressedAt = shouldAutoSuppress ? now : (row.mirror_suppressed_at || null);
   const noteShort = String(classification.note || "").slice(0, 200);
+  const closeModel = classification.close_model === true ? 1 : 0;
+  const closeReason = closeModel
+    ? String(classification.close_reason || "reconcile_broker_flat").slice(0, 200)
+    : null;
   // 2026-07-24 — broker_remaining_qty = shares the MIRROR holds at the
   // broker right now (live qty minus any user-added excess the model
   // doesn't own). The old binding wrote back `expected` — which is
@@ -841,6 +872,9 @@ async function _persistRowUpdate(env, row, classification) {
              mirror_suppressed = ?13,
              mirror_suppressed_at = ?14,
              mirror_suppressed_reason = ?15,
+             model_status = CASE WHEN ?16 = 1 THEN 'CLOSED' ELSE model_status END,
+             model_exit_ts = CASE WHEN ?16 = 1 THEN ?8 ELSE model_exit_ts END,
+             model_exit_reason = CASE WHEN ?16 = 1 THEN ?17 ELSE model_exit_reason END,
              updated_at = ?8
        WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
     `).bind(
@@ -857,6 +891,8 @@ async function _persistRowUpdate(env, row, classification) {
       newSuppressed,
       newSuppressedAt,
       newSuppressedReason ? String(newSuppressedReason).slice(0, 200) : null,
+      closeModel,
+      closeReason,
     ).run();
     // Keep the in-memory row aligned with what we just wrote.
     // emitDriftNotification reads sync_state / sync_note from this object;
@@ -867,6 +903,11 @@ async function _persistRowUpdate(env, row, classification) {
     row.sync_drift_count = newDriftCount;
     if (heldQty !== null) row.broker_remaining_qty = heldQty;
     if (filledUpdate !== null) row.broker_filled_qty = filledUpdate;
+    if (closeModel) {
+      row.model_status = "CLOSED";
+      row.model_exit_ts = now;
+      row.model_exit_reason = closeReason;
+    }
     row.mirror_suppressed = newSuppressed;
     row.mirror_suppressed_at = newSuppressedAt;
     row.mirror_suppressed_reason = newSuppressedReason;
