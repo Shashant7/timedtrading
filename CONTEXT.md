@@ -17,6 +17,12 @@ Single reference for agents. Read this first to avoid context overload.
   direction, duplicate contributions and missing-data behavior. Aggregate
   rank correlation or sorting fixes do not establish that its ingredients
   deserve points. Playbook: `skills/rank-driver-audit.md`.
+- **Ops desk four-pack (2026-09-11):** Execution Review cutoff is NY
+  midnight 2026-09-04 (Sep 4 RTH cluster is in the cohort). Mission
+  Control Learning queue is always visible. Sanity heal does not page
+  `no_handler` for unhealable checks; expected ETH / no-position
+  rejects are not a bindings outage. Rotation snapshot persists 7
+  days; GET computes on read if KV expired.
 - **Rank / conviction context (2026-09-10):** fundamentals, theme
   membership, news, and S&P-inclusion headlines were computed but not
   applied to conviction, and rank/setup-grade signed them to HTF (BE
@@ -547,10 +553,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   Any future writer of `timed:prices` MUST own every symbol it emits — no
   more single-blob-two-writers architecture (PRs #1175 + #1176 fixed the
   per-writer stamping; this fixes cross-writer coordination).
-- **Sanity `broker_bridge_bindings` ring density (2026-07-24)**: count only
-  *unresolved* 6h failures — skip rows superseded by a later `ok` for the
-  same `trade_id`+side (and `inv-inv-*` → `inv-*`). Otherwise operator
-  retries keep paging after NVDA/TT/ETN were fixed.
+- **Sanity `broker_bridge_bindings` ring density (2026-07-24, ETH
+  rejects 2026-09-11)**: count only *unresolved* 6h failures — skip
+  rows superseded by a later `ok` for the same `trade_id`+side (and
+  `inv-inv-*` → `inv-*`), plus expected rejects (`no_broker_position`,
+  ETH "only limit orders"). Those are not a bindings outage. Heal
+  skips unknown check ids as `not_self_healable` (do not page
+  `no_handler`). Do not heal-sell overnight to "fix" ETH limit-only.
 - **`broker_remaining_qty` = shares HELD at broker (2026-07-24)**: entry
   write was `intended - filled` (unfilled remainder) → fully-filled entries
   got `remaining=0` and reducers clamp to it. Entry fills must ADD to
@@ -839,8 +848,11 @@ playbook in `skills/security-auth-patterns.md`)**
   clamped ±10% when `COO_AUTO_APPLY_TIER1=true`; tier-2 (flag flips,
   bans, big moves) ALWAYS waits for the operator
   (`POST /timed/admin/learning/proposals/decide`). Don't add new bespoke
-  apply paths. The hourly learning desk (CIO/CRO/CTO) decides
-  high-confidence rows; only mixed/low-confidence items stay pending.
+  apply paths. Mission Control has an always-visible **Learning queue**
+  card under the status tiles (not Decision Review, not COO
+  Self-Learning). Discord `#system-alerts` points there. The hourly
+  learning desk (CIO/CRO/CTO) decides high-confidence rows; only
+  mixed/low-confidence items stay pending.
   Learning desk Discord is ops (`lane=system` → `#system-alerts`), not a
   `#trade-signals` post: human next-action copy, skip unchanged hourly
   escalates. If `DISCORD_SYSTEM_WEBHOOK_URL` is unset on tt-research the

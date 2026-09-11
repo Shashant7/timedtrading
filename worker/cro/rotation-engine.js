@@ -24,13 +24,21 @@
 //       (typically 5–15 names → ~50 pairs max per theme).
 //
 //  All three compute together, cache to KV at
-//  `timed:cro:rotation-snapshot` with a 30-min TTL, and surface via a
-//  single read helper for the CRO daily-note synthesis.
+//  `timed:cro:rotation-snapshot`. Recompute freshness is 30 min
+//  (`computed_at`); the KV row persists 7 days so the Research Desk
+//  still has a snapshot after the nightly 22:00 UTC write (intraday
+//  cycle skips rotation). GET snapshot computes on read if the key
+//  is gone.
 
 import { THEMES, getThemesForTicker } from "../sector-mapping.js";
 
 const SNAPSHOT_KV_KEY = "timed:cro:rotation-snapshot";
-const SNAPSHOT_TTL_SECONDS = 30 * 60;     // 30 min
+export const SNAPSHOT_TTL_SECONDS = 30 * 60; // recompute freshness
+export const SNAPSHOT_PERSIST_TTL_SECONDS = 7 * 24 * 3600; // desk + CRO still see last night
+
+function rotationKv(env) {
+  return env?.KV || env?.KV_TIMED || null;
+}
 
 // Canonical pairs the operator's editorial inspiration tracks. These are
 // the ones the CRO check tracks against the upstream view. Operator can
@@ -54,7 +62,7 @@ export const DEFAULT_RS_PAIRS = [
 // ── Utilities ─────────────────────────────────────────────────────────────────
 async function loadConfiguredPairs(env) {
   try {
-    const raw = await env?.KV?.get(CONFIG_KV_KEY);
+    const raw = await rotationKv(env)?.get(CONFIG_KV_KEY);
     if (raw) {
       const arr = JSON.parse(raw);
       if (Array.isArray(arr) && arr.length > 0) return arr;
@@ -364,9 +372,10 @@ function aggregateSectorBreadth(themeBreadthArray) {
 
 // ── Public: run the whole rotation snapshot ───────────────────────────────────
 export async function runRotationSnapshot(env, { force = false, windowDays = 80 } = {}) {
+  const kv = rotationKv(env);
   if (!force) {
     try {
-      const cached = await env?.KV?.get(SNAPSHOT_KV_KEY);
+      const cached = await kv?.get(SNAPSHOT_KV_KEY);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed && (Date.now() - (parsed.computed_at || 0)) < SNAPSHOT_TTL_SECONDS * 1000) {
@@ -449,21 +458,29 @@ export async function runRotationSnapshot(env, { force = false, windowDays = 80 
   };
 
   try {
-    await env?.KV?.put(SNAPSHOT_KV_KEY, JSON.stringify(snapshot), { expirationTtl: SNAPSHOT_TTL_SECONDS * 2 });
+    await kv?.put(SNAPSHOT_KV_KEY, JSON.stringify(snapshot), { expirationTtl: SNAPSHOT_PERSIST_TTL_SECONDS });
   } catch (_) {}
 
   return snapshot;
 }
 
-export async function loadRotationSnapshot(env) {
+export async function loadRotationSnapshot(env, { computeIfMissing = false } = {}) {
+  const kv = rotationKv(env);
   try {
-    const raw = await env?.KV?.get(SNAPSHOT_KV_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch (_) { return null; }
+    const raw = await kv?.get(SNAPSHOT_KV_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (_) { /* fall through */ }
+  if (computeIfMissing) {
+    try {
+      return await runRotationSnapshot(env, { force: true });
+    } catch (_) { return null; }
+  }
+  return null;
 }
 
 export async function setRotationPairs(env, pairs) {
-  if (!env?.KV) return { ok: false };
-  await env.KV.put(CONFIG_KV_KEY, JSON.stringify(pairs));
+  const kv = rotationKv(env);
+  if (!kv) return { ok: false };
+  await kv.put(CONFIG_KV_KEY, JSON.stringify(pairs));
   return { ok: true };
 }
