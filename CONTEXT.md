@@ -23,12 +23,17 @@ Single reference for agents. Read this first to avoid context overload.
   + `broker_intents` + paper mirror logs. Share count may differ;
   the ratio must stay relative. `GET /timed/admin/broker/coverage`
   + sanity `model_broker_coverage` (15 min) + `*/5` snapshot.
-  Unmatched ST ENTRIES page only (must re-qualify). Playbook:
+  Discord pages new fail sets **and** one `BROKER COVERAGE · clean`
+  per NY day when actions > 0 and fails = 0. Friday Execution
+  Review + operator Account-today carry the desk block; the
+  Execution Review page overlays the live snapshot. Unmatched ST
+  ENTRIES page only (must re-qualify). Playbook:
   `skills/broker-bridge.md`.
 - **TWLO SL exit was a same-day CIO approve (2026-09-11):** 11:47 ET
   safety stop closed a 10:04 ET Forming Pair that CIO approved
   (conf 0.83). Sep 10 rejects (CHOP + weekly divergence) never
-  opened a position. Overnight CIO flip, not a leftover.
+  opened a position. Overnight CIO flip, not a leftover. Broker
+  never placed the 10:04 ENTRY — unmatched ST ENTRY, page only.
 - **PLTR Long Term DCA miss (2026-09-11):** 15:50 ET `dca_pullback`
   wrote the lot + email; `/bridge/order` never ran. Sweep marked the
   day clean on an empty 15:46 window; execute used `waitUntil` that
@@ -324,8 +329,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   guard. Any new "unsuppressible" reason must be classed there too, or the
   `[EXIT SHIELD]` re-gates it as soft (TSLA/TJX/ELF 2026-09-04).
 - Weekly execution review: Friday 17:00 ET cron (`worker/execution-review.js`)
-  -> KV `timed:execution:review:latest` + history, operator email, Discord
-  line; `/execution-review.html` (Admin menu) renders / reruns it;
+  -> KV `timed:execution:review:latest` + history, operator email on the
+  shared dark `emailLayout` (logo, Georgia, Twelve Data footer, coverage
+  block), Discord line; `/execution-review.html` (Admin menu) renders /
+  reruns it and overlays live `broker_coverage`;
   `GET|POST /timed/admin/execution/review`. Member Weekly Retrospective is
   in the same Friday slot (was Sunday 18:00).
 

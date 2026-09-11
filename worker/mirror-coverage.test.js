@@ -15,6 +15,13 @@ import {
   modelActionFromIndexTrend,
   modelActionFromIndexDt,
   snapshotMirrorCoverage,
+  summarizeCoverageForDesk,
+  coverageDeskHeadline,
+  coverageDeskPlainLines,
+  renderCoverageEmailBlock,
+  notifyCoverageCleanIfDue,
+  nyDateKey,
+  COVERAGE_CLEAN_DAY_KEY,
   HEAL_PAGE_ONLY,
   HEAL_INVESTOR,
   HEAL_TRADER_EXIT,
@@ -560,6 +567,9 @@ describe("source contract — coverage is wired fail-closed", () => {
     const index = readFileSync(join(root, "index.js"), "utf8");
     expect(index).toMatch(/GET \/timed\/admin\/broker\/coverage/);
     expect(index).toMatch(/snapshotMirrorCoverage/);
+    expect(index).toMatch(/overlayLiveCoverage/);
+    expect(index).toMatch(/paged_clean/);
+    expect(index).toMatch(/ADMIN_EMAIL/);
     expect(index).toMatch(/POST \/timed\/admin\/index-trend\/heal-entries/);
     const coo = readFileSync(join(root, "coo/coo-orchestrator.js"), "utf8");
     expect(coo).toMatch(/model_broker_coverage/);
@@ -593,7 +603,68 @@ describe("snapshotMirrorCoverage", () => {
     });
     expect(first.summary.actions).toBe(0);
     expect(first.paged).toBe(false);
+    expect(first.paged_clean).toBe(false);
     expect(store.has(COVERAGE_SNAPSHOT_KEY)).toBe(true);
     expect(pages).toHaveLength(0);
+  });
+});
+
+describe("coverage desk helpers", () => {
+  it("summarizes a healthy snapshot and renders the dark email block", () => {
+    const desk = summarizeCoverageForDesk({
+      ts: NOW,
+      summary: { actions: 4, mirrored: 4, unmatched: 0, pending_intent: 0, rejected_terminal: 0, fails: 0 },
+      anomalies: [],
+    });
+    expect(desk.healthy).toBe(true);
+    expect(coverageDeskHeadline(desk)).toBe("4 model actions mirrored");
+    expect(coverageDeskPlainLines(desk)).toContain("mirrored 4");
+    const html = renderCoverageEmailBlock(desk, { href: "https://timed-trading.com/execution-review.html" });
+    expect(html).toContain("Model vs broker");
+    expect(html).toContain("#00c853");
+    expect(html).toContain("Open Execution Review");
+    expect(html).toContain("#0b0e11");
+  });
+
+  it("lists unmatched samples and escapes HTML", () => {
+    const desk = summarizeCoverageForDesk({
+      ts: NOW,
+      summary: { actions: 2, mirrored: 1, unmatched: 1, pending_intent: 0, rejected_terminal: 0, fails: 1 },
+      anomalies: [{
+        severity: "fail", ticker: "TWLO", lane: "trader", event: "ENTRY",
+        reason: "never_attempted <script>",
+      }],
+    });
+    expect(desk.healthy).toBe(false);
+    expect(coverageDeskHeadline(desk)).toBe("1 unmatched model action");
+    const html = renderCoverageEmailBlock(desk);
+    expect(html).toContain("TWLO");
+    expect(html).toContain("never_attempted &lt;script&gt;");
+    expect(html).not.toContain("never_attempted <script>");
+  });
+
+  it("pages a clean Discord line once per NY day", async () => {
+    const store = new Map();
+    const env = {
+      KV_TIMED: {
+        async get(k) { return store.get(k) ?? null; },
+        async put(k, v) { store.set(k, v); },
+      },
+    };
+    const pages = [];
+    const desk = { healthy: true, actions: 3, quiet: false };
+    const first = await notifyCoverageCleanIfDue(env, desk, {
+      nowMs: NOW,
+      notify: async (embed) => { pages.push(embed); },
+    });
+    const again = await notifyCoverageCleanIfDue(env, desk, {
+      nowMs: NOW,
+      notify: async (embed) => { pages.push(embed); },
+    });
+    expect(first).toBe(true);
+    expect(again).toBe(false);
+    expect(pages).toHaveLength(1);
+    expect(pages[0].title).toBe("BROKER COVERAGE · clean");
+    expect(store.get(COVERAGE_CLEAN_DAY_KEY)).toBe(nyDateKey(NOW));
   });
 });

@@ -5,8 +5,9 @@
 // cron slot, gated by ET day + hour) the system grades itself off the ledger (execution report card for the week, since
 // the 2026-09-04 Cloud Pivot / execution-discipline cluster, and the 42-day
 // pre-change baseline), the options desk report card, the broker intent
-// ledger, and the live DA knobs; judges the plan's pass condition; stores
-// the result in KV; emails the operator; posts a one-line Discord summary.
+// ledger, live DA knobs, and the model-vs-broker coverage snapshot; judges
+// the plan's pass condition; stores the result in KV; emails the operator
+// on the shared dark emailLayout; posts a one-line Discord summary.
 // GET /timed/admin/execution/review serves the latest to the Execution
 // Review page.
 //
@@ -19,6 +20,14 @@
 
 import { gradeExecution } from "./execution-report-card.js";
 import { convexityTicketReport } from "./convexity-tickets.js";
+import { emailLayout } from "./email.js";
+import {
+  COVERAGE_SNAPSHOT_KEY,
+  summarizeCoverageForDesk,
+  coverageDeskHeadline,
+  coverageDeskPlainLines,
+  renderCoverageEmailBlock,
+} from "./mirror-coverage.js";
 
 // 2026-09-04 00:00 America/New_York (EDT, UTC-4).
 export const EXECUTION_CHANGES_TS = Date.UTC(2026, 8, 4, 4, 0, 0);
@@ -66,6 +75,7 @@ export function buildReviewFromInputs({
   now = Date.now(),
   weekRows = [], sinceRows = [], baselineRows = [], candles = {},
   tickets = null, intents = null, knobs = {},
+  broker_coverage = null,
 } = {}) {
   const week = gradeExecution(weekRows, candles, { days: 7 });
   const since = gradeExecution(sinceRows, candles, { days: Math.max(1, Math.round((now - EXECUTION_CHANGES_TS) / DAY_MS)) });
@@ -88,6 +98,7 @@ export function buildReviewFromInputs({
     } : null,
     broker_intents: intents,
     knobs,
+    broker_coverage,
   };
 }
 
@@ -96,52 +107,109 @@ function fmt(v, suffix = "") {
   return `${v}${suffix}`;
 }
 
+const FONT_UI = "'Helvetica Neue',Arial,sans-serif";
+const FONT_EDITORIAL = "Georgia,'Iowan Old Style','Palatino Linotype',Palatino,serif";
+const FONT_MONO = "'SF Mono',Menlo,Consolas,'Courier New',monospace";
+const C_TEXT = "#e5e7eb";
+const C_SECONDARY = "#9ca3af";
+const C_MUTED = "#6b7280";
+const C_BORDER = "#1e2128";
+const C_GREEN = "#00c853";
+const C_RED = "#ef4444";
+const C_AMBER = "#f59e0b";
+const REVIEW_PAGE_URL = "https://timed-trading.com/execution-review.html";
+
 function summaryRow(label, s) {
-  if (!s || !s.n) return `<tr><td>${label}</td><td colspan="4" style="color:#888">n=0</td></tr>`;
-  const color = (s.sum_pct || 0) >= 0 ? "#1f8f5f" : "#c0392b";
-  return `<tr><td>${label}</td><td>${s.n}</td><td>${fmt(s.win_rate_pct, "%")}</td><td style="color:${color}">${fmt(s.sum_pct, "pp")}</td><td>${fmt(s.median_pct, "pp")}</td></tr>`;
+  if (!s || !s.n) {
+    return `<tr><td style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};color:${C_SECONDARY};font-size:12px">${label}</td><td colspan="4" style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};color:${C_MUTED};font-size:12px">n=0</td></tr>`;
+  }
+  const color = (s.sum_pct || 0) >= 0 ? C_GREEN : C_RED;
+  return `<tr>
+    <td style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};color:${C_SECONDARY};font-size:12px">${label}</td>
+    <td style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};font-family:${FONT_MONO};font-size:12px;color:${C_TEXT}">${s.n}</td>
+    <td style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};font-family:${FONT_MONO};font-size:12px;color:${C_TEXT}">${fmt(s.win_rate_pct, "%")}</td>
+    <td style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};font-family:${FONT_MONO};font-size:12px;color:${color}">${fmt(s.sum_pct, "pp")}</td>
+    <td style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};font-family:${FONT_MONO};font-size:12px;color:${C_TEXT}">${fmt(s.median_pct, "pp")}</td>
+  </tr>`;
 }
 
-const TABLE_HEAD = `<tr><th align="left">slice</th><th align="left">n</th><th align="left">win</th><th align="left">sum</th><th align="left">median</th></tr>`;
+const TABLE_HEAD = `<tr>
+  <th align="left" style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:${C_MUTED}">slice</th>
+  <th align="left" style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:${C_MUTED}">n</th>
+  <th align="left" style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:${C_MUTED}">win</th>
+  <th align="left" style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:${C_MUTED}">sum</th>
+  <th align="left" style="padding:6px 4px;border-bottom:1px solid ${C_BORDER};font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:${C_MUTED}">median</th>
+</tr>`;
 
-/** Pure. Operator email body. No second person (compliance copy rule). */
-export function renderReviewHtml(review) {
+function gradeBlock(grade, title) {
+  const b = grade?.baseline || {};
+  const hours = grade?.core?.by_entry_hour_et || {};
+  return `
+    <p style="margin:18px 0 8px;font-size:11px;font-weight:700;color:${C_MUTED};letter-spacing:0.08em;text-transform:uppercase;font-family:${FONT_UI}">${title}</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%">${TABLE_HEAD}
+      ${summaryRow("all", b.all)}${summaryRow("core", b.core)}${summaryRow("paper family", b.family)}
+      ${Object.entries(hours).map(([k, s]) => summaryRow(`core ${k} ET`, s)).join("")}
+      ${summaryRow("family LONG", grade?.family?.by_direction?.LONG)}${summaryRow("family SHORT", grade?.family?.by_direction?.SHORT)}
+    </table>
+    <p style="margin:8px 0 0;font-size:12px;color:${C_MUTED};line-height:1.5">MFE: ${grade?.mfe?.corrupt_n ?? 0} impossible peaks flagged; core winners closing under 40% of peak ${grade?.mfe?.giveback?.core?.closed_below_40pct ?? 0}/${grade?.mfe?.giveback?.core?.armed ?? 0}, family ${grade?.mfe?.giveback?.family?.closed_below_40pct ?? 0}/${grade?.mfe?.giveback?.family?.armed ?? 0}.</p>`;
+}
+
+/** Pure. Operator email via the shared dark emailLayout. No second person. */
+export function renderReviewHtml(review, { baseUrl } = {}) {
   const v = review.verdict || {};
-  const badge = v.status === "pass" ? "#1f8f5f" : v.status === "fail" ? "#c0392b" : "#b7791f";
+  const badge = v.status === "pass" ? C_GREEN : v.status === "fail" ? C_RED : C_AMBER;
   const badgeText = v.status === "pass" ? "PASS" : v.status === "fail" ? "FAIL" : `INSUFFICIENT (${v.closed_n} closed)`;
-  const g = (grade, title) => {
-    const b = grade?.baseline || {};
-    const hours = grade?.core?.by_entry_hour_et || {};
-    return `
-      <h3 style="margin:18px 0 6px">${title}</h3>
-      <table cellpadding="6" style="border-collapse:collapse;font-size:13px;width:100%">${TABLE_HEAD}
-        ${summaryRow("all", b.all)}${summaryRow("core", b.core)}${summaryRow("paper family", b.family)}
-        ${Object.entries(hours).map(([k, s]) => summaryRow(`core ${k} ET`, s)).join("")}
-        ${summaryRow("family LONG", grade?.family?.by_direction?.LONG)}${summaryRow("family SHORT", grade?.family?.by_direction?.SHORT)}
-      </table>
-      <p style="font-size:12px;color:#666">MFE: ${grade?.mfe?.corrupt_n ?? 0} impossible peaks flagged; core winners closing under 40% of peak ${grade?.mfe?.giveback?.core?.closed_below_40pct ?? 0}/${grade?.mfe?.giveback?.core?.armed ?? 0}, family ${grade?.mfe?.giveback?.family?.closed_below_40pct ?? 0}/${grade?.mfe?.giveback?.family?.armed ?? 0}.</p>`;
-  };
   const checks = (v.checks || []).map((c) =>
-    `<li style="color:${c.ok ? "#1f8f5f" : "#c0392b"}">${c.ok ? "ok" : "miss"} — ${c.name}: ${fmt(c.value)} (target ${c.target})</li>`).join("");
+    `<tr>
+      <td style="padding:4px 0;font-size:13px;color:${c.ok ? C_GREEN : C_RED};font-family:${FONT_UI}">${c.ok ? "ok" : "miss"}</td>
+      <td style="padding:4px 8px;font-size:13px;color:${C_TEXT};font-family:${FONT_UI}">${c.name}: ${fmt(c.value)}</td>
+      <td style="padding:4px 0;font-size:11px;color:${C_MUTED};font-family:${FONT_MONO};text-align:right">${c.target}</td>
+    </tr>`).join("");
   const od = review.options_desk;
   const bi = review.broker_intents || {};
-  const knobs = Object.entries(review.knobs || {}).map(([k, val]) => `<li><code>${k}</code> = ${fmt(val)}</li>`).join("");
-  return `<!doctype html><html><body style="font-family:Inter,Arial,sans-serif;color:#111;max-width:760px;margin:0 auto;padding:16px">
-    <h2 style="margin:0 0 4px">Execution review — ${review.label}</h2>
-    <p style="margin:0 0 12px;color:#555">Model truth from the ledger. Changes graded from ${review.changes_since}.</p>
-    <div style="display:inline-block;padding:6px 12px;border-radius:6px;background:${badge};color:#fff;font-weight:700">${badgeText}</div>
-    <ul style="font-size:13px">${checks}</ul>
-    ${g(review.week, "This week")}
-    ${g(review.since_changes, `Since changes (${review.changes_since})`)}
-    ${g(review.baseline_42d_pre_change, "Baseline: 42 days before the changes")}
-    <h3 style="margin:18px 0 6px">Options desk</h3>
-    <p style="font-size:13px">${od ? `open ${od.open}, closed ${od.closed_n}, win ${fmt(od.win_rate_pct, "%")}, median ${fmt(od.median_pnl_pct, "%")}; broker mirror ${od.mirror?.enabled ? "ON" : "off"} (${od.mirror?.reason || ""})` : "no data"}</p>
-    <h3 style="margin:18px 0 6px">Broker intents (7d)</h3>
-    <p style="font-size:13px">${Object.entries(bi).map(([k, n]) => `${k} ${n}`).join(" · ") || "none"}</p>
-    <h3 style="margin:18px 0 6px">Live knobs</h3>
-    <ul style="font-size:13px">${knobs}</ul>
-    <p style="font-size:11px;color:#888;margin-top:24px">Full detail: /execution-review.html. Market data powered by Twelve Data.</p>
-  </body></html>`;
+  const knobRows = Object.entries(review.knobs || {}).map(([k, val]) =>
+    `<tr>
+      <td style="padding:4px 0;font-size:12px;color:${C_SECONDARY};font-family:${FONT_MONO}">${k}</td>
+      <td style="padding:4px 0;font-size:12px;color:${C_TEXT};font-family:${FONT_MONO};text-align:right">${fmt(val)}</td>
+    </tr>`).join("");
+  const pageUrl = `${String(baseUrl || "https://timed-trading.com").replace(/\/$/, "")}/execution-review.html`;
+  const bodyHtml = `
+    <h2 style="margin:0 0 4px;font-size:20px;color:${C_TEXT};font-family:${FONT_EDITORIAL}">Execution review</h2>
+    <p style="margin:0 0 16px;color:${C_SECONDARY};font-size:13px;line-height:1.5">${review.label}. Model truth from the ledger. Changes graded from ${review.changes_since}.</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 16px">
+      <tr><td style="padding:6px 12px;border-radius:6px;background:${badge};color:#fff;font-weight:700;font-size:12px;letter-spacing:0.06em;font-family:${FONT_UI}">${badgeText}</td></tr>
+    </table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">${checks}</table>
+    ${renderCoverageEmailBlock(review.broker_coverage, { href: pageUrl, linkLabel: "Open Execution Review →" })}
+    ${gradeBlock(review.week, "This week")}
+    ${gradeBlock(review.since_changes, `Since changes (${review.changes_since})`)}
+    ${gradeBlock(review.baseline_42d_pre_change, "Baseline: 42 days before the changes")}
+    <p style="margin:18px 0 8px;font-size:11px;font-weight:700;color:${C_MUTED};letter-spacing:0.08em;text-transform:uppercase;font-family:${FONT_UI}">Options desk</p>
+    <p style="margin:0;font-size:13px;color:${C_TEXT};line-height:1.5">${od ? `open ${od.open}, closed ${od.closed_n}, win ${fmt(od.win_rate_pct, "%")}, median ${fmt(od.median_pnl_pct, "%")}; broker mirror ${od.mirror?.enabled ? "ON" : "off"} (${od.mirror?.reason || ""})` : "no data"}</p>
+    <p style="margin:18px 0 8px;font-size:11px;font-weight:700;color:${C_MUTED};letter-spacing:0.08em;text-transform:uppercase;font-family:${FONT_UI}">Broker intents (7d)</p>
+    <p style="margin:0;font-size:13px;color:${C_TEXT};font-family:${FONT_MONO}">${Object.entries(bi).map(([k, n]) => `${k} ${n}`).join(" · ") || "none"}</p>
+    <p style="margin:18px 0 8px;font-size:11px;font-weight:700;color:${C_MUTED};letter-spacing:0.08em;text-transform:uppercase;font-family:${FONT_UI}">Live knobs</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${knobRows || `<tr><td style="font-size:12px;color:${C_MUTED}">defaults in force</td></tr>`}</table>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
+      <tr><td style="background:${C_GREEN};border-radius:8px;padding:10px 24px">
+        <a href="${pageUrl}" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block;font-family:${FONT_UI}">Open Execution Review</a>
+      </td></tr>
+    </table>
+  `;
+  return emailLayout(bodyHtml, {
+    preheader: `Execution review — ${review.label} — ${badgeText}`,
+  });
+}
+
+export function renderReviewText(review) {
+  const v = review.verdict || {};
+  const c = review.since_changes?.baseline?.core || {};
+  return [
+    `Execution review ${review.label}: ${String(v.status || "").toUpperCase()}`,
+    `Since ${review.changes_since}: core n=${c.n ?? 0} win=${fmt(c.win_rate_pct, "%")} sum=${fmt(c.sum_pct, "pp")}`,
+    coverageDeskPlainLines(review.broker_coverage),
+    `Open Execution Review: ${REVIEW_PAGE_URL}`,
+  ].join("\n");
 }
 
 // ─── I/O ────────────────────────────────────────────────────────────────
@@ -201,19 +269,35 @@ async function loadIntentSummary(env, sinceTs) {
   } catch (_) { return {}; }
 }
 
+async function loadCoverageDesk(env) {
+  try {
+    const snap = await env?.KV_TIMED?.get(COVERAGE_SNAPSHOT_KEY, "json");
+    return summarizeCoverageForDesk(snap);
+  } catch (_) {
+    return summarizeCoverageForDesk(null);
+  }
+}
+
+/** Overlay the live coverage snapshot onto a stored or freshly built review. */
+export async function overlayLiveCoverage(env, review) {
+  if (!review || typeof review !== "object") return review;
+  return { ...review, broker_coverage: await loadCoverageDesk(env) };
+}
+
 export async function buildWeeklyExecutionReview(env, { now = Date.now() } = {}) {
   const baselineFrom = EXECUTION_CHANGES_TS - 42 * DAY_MS;
-  const [weekRows, sinceRows, baselineRows, tickets, intents, knobs] = await Promise.all([
+  const [weekRows, sinceRows, baselineRows, tickets, intents, knobs, broker_coverage] = await Promise.all([
     loadExecutionRows(env, now - 7 * DAY_MS),
     loadExecutionRows(env, EXECUTION_CHANGES_TS),
     loadExecutionRows(env, baselineFrom, EXECUTION_CHANGES_TS),
     convexityTicketReport(env, { days: 90, now }).catch(() => null),
     loadIntentSummary(env, now - 7 * DAY_MS),
     loadKnobs(env),
+    loadCoverageDesk(env),
   ]);
   const tickers = [...weekRows, ...sinceRows, ...baselineRows].map((r) => r.ticker);
   const candles = await loadDailyCandles(env, tickers, baselineFrom).catch(() => ({}));
-  return buildReviewFromInputs({ now, weekRows, sinceRows, baselineRows, candles, tickets, intents, knobs });
+  return buildReviewFromInputs({ now, weekRows, sinceRows, baselineRows, candles, tickets, intents, knobs, broker_coverage });
 }
 
 /**
@@ -249,7 +333,7 @@ export async function runWeeklyExecutionReview(env, { now = Date.now(), sendEmai
           to,
           subject: `Execution review — ${review.label} — ${review.verdict.status.toUpperCase()}`,
           html: renderReviewHtml(review),
-          text: `Execution review ${review.label}: ${review.verdict.status}; core since changes n=${review.since_changes?.baseline?.core?.n ?? 0}.`,
+          text: renderReviewText(review),
           category: "execution_review",
         });
         email = { sent: r?.ok === true, reason: r?.ok ? null : (r?.error || "send_failed"), to };
@@ -267,6 +351,7 @@ export async function runWeeklyExecutionReview(env, { now = Date.now(), sendEmai
           `Since ${review.changes_since}: core n=${c.n ?? 0} win=${fmt(c.win_rate_pct, "%")} sum=${fmt(c.sum_pct, "pp")}`,
           `This week: all n=${review.week?.baseline?.all?.n ?? 0} sum=${fmt(review.week?.baseline?.all?.sum_pct, "pp")}`,
           `Options desk: ${review.options_desk?.closed_n ?? 0} graded, mirror ${review.options_desk?.mirror?.enabled ? "ON" : "off"}`,
+          `Broker: ${coverageDeskHeadline(review.broker_coverage)}`,
           email.sent ? `Email sent to operator` : `Email: ${email.reason}`,
         ].join("\n"),
         color: review.verdict.status === "pass" ? 0x30a46c : review.verdict.status === "fail" ? 0xe5484d : 0xf0a020,

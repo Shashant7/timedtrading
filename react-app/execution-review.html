@@ -209,6 +209,7 @@
         const od = review?.options_desk || null;
         const bi = review?.broker_intents || {};
         const knobs = review?.knobs || {};
+        const cov = review?.broker_coverage || null;
 
         return (
           <main>
@@ -216,7 +217,7 @@
               <div>
                 <h1>Execution Review</h1>
                 <div className="sub">
-                  The ledger grades the execution-discipline plan. Runs every Friday at 5 PM ET; emailed to the operator; one line to Discord.
+                  The ledger grades the execution-discipline plan. Runs every Friday at 5 PM ET; emailed to the operator on the same dark template as Brief / trade / Account-today mail; one line to Discord.
                   {review && <> Latest: <strong>{review.label}</strong> · generated {fmtTs(review.generated_at)} · source {review.source || "kv"}.</>}
                 </div>
               </div>
@@ -263,6 +264,41 @@
                       </div>
                     )}
                   </div>
+                </div>
+
+                <div className="card" style={{ marginBottom: 14 }}>
+                  <h2>Model vs broker</h2>
+                  {!cov ? (
+                    <div className="dim" style={{ fontSize: 13 }}>Coverage snapshot not taken yet.</div>
+                  ) : (
+                    <>
+                      <span className={`badge badge--${cov.healthy ? "pass" : cov.quiet ? "insufficient" : "fail"}`}>
+                        {cov.healthy ? "MIRRORED" : cov.quiet ? "QUIET" : `${cov.fails} UNMATCHED`}
+                      </span>
+                      <div className="kv" style={{ marginTop: 12 }}>
+                        <span className="k">actions</span><span className="v">{cov.actions}</span>
+                        <span className="k">mirrored</span><span className="v">{cov.mirrored}</span>
+                        <span className="k">unmatched</span><span className={`v ${cov.unmatched ? "neg" : ""}`}>{cov.unmatched}</span>
+                        <span className="k">pending intents</span><span className="v">{cov.pending_intent}</span>
+                        <span className="k">terminal rejects</span><span className="v">{cov.rejected_terminal}</span>
+                      </div>
+                      {(cov.sample || []).length > 0 && (
+                        <ul className="checks">
+                          {cov.sample.map((row, i) => (
+                            <li key={`${row.ticker}-${row.event}-${i}`}>
+                              <span className="dot dot--miss" />
+                              <span>{row.ticker} {row.lane} {row.event}: <strong>{row.reason}</strong></span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="note">
+                        Fail-closed join of Short Term, Long Term, index-trend, index DT, and convexity against the broker ring.
+                        Discord pages when the unmatched set changes, and one clean confirmation per NY day when every action is mirrored.
+                        Detail: GET /timed/admin/broker/coverage. Unmatched Short Term ENTRIES page only — they must re-qualify.
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="grid grid--3" style={{ marginBottom: 14 }}>

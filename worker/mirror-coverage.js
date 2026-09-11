@@ -38,6 +38,7 @@ export const RELATIVE_QTY_ABS = 0.05;
 export const RELATIVE_QTY_PCT = 0.10;
 export const COVERAGE_SNAPSHOT_KEY = "timed:mirror-coverage:latest";
 export const COVERAGE_PAGED_KEY = "timed:mirror-coverage:paged";
+export const COVERAGE_CLEAN_DAY_KEY = "timed:mirror-coverage:clean-day";
 export const DEFAULT_COVERAGE_LOOKBACK_MS = 48 * 3600 * 1000;
 
 export const HEAL_PAGE_ONLY = "page_only";
@@ -653,6 +654,102 @@ export async function loadMirrorCoverage(env, {
   return { since_ms: sinceMs, ts: nowMs, actions: rows, anomalies, summary };
 }
 
+export function nyDateKey(nowMs = Date.now()) {
+  return new Date(nowMs).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+/** Compact desk view of a coverage snapshot (emails, Execution Review, digest). */
+export function summarizeCoverageForDesk(snap) {
+  const s = snap?.summary || {};
+  const fails = (snap?.anomalies || []).filter((a) => a.severity === "fail").slice(0, 6);
+  const actions = Number(s.actions) || 0;
+  const failN = Number(s.fails) || 0;
+  return {
+    ts: snap?.ts || null,
+    actions,
+    mirrored: Number(s.mirrored) || 0,
+    mirrored_partial: Number(s.mirrored_partial) || 0,
+    unmatched: Number(s.unmatched) || 0,
+    pending_intent: Number(s.pending_intent) || 0,
+    rejected_terminal: Number(s.rejected_terminal) || 0,
+    fails: failN,
+    sample: fails.map((a) => ({
+      ticker: a.ticker || null,
+      lane: a.lane || null,
+      event: a.event || null,
+      reason: a.reason || a.detail || null,
+    })),
+    healthy: failN === 0 && actions > 0,
+    quiet: actions === 0,
+  };
+}
+
+export function coverageDeskHeadline(desk) {
+  if (!desk) return "Coverage snapshot not taken yet";
+  if (desk.quiet) return "No model actions in the coverage window";
+  if (desk.healthy) return `${desk.actions} model action${desk.actions === 1 ? "" : "s"} mirrored`;
+  return `${desk.fails} unmatched model action${desk.fails === 1 ? "" : "s"}`;
+}
+
+export function coverageDeskPlainLines(desk) {
+  if (!desk) return "Broker coverage: snapshot not taken yet.";
+  const bits = [
+    `Broker coverage: ${coverageDeskHeadline(desk)}`,
+    `  mirrored ${desk.mirrored} · unmatched ${desk.unmatched} · pending ${desk.pending_intent} · terminal ${desk.rejected_terminal}`,
+  ];
+  for (const row of desk.sample || []) {
+    bits.push(`  ${row.ticker} ${row.lane} ${row.event} — ${String(row.reason || "").slice(0, 80)}`);
+  }
+  return bits.join("\n");
+}
+
+function escHtml(v) {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Dark-theme HTML snippet that matches emailLayout / Account today. */
+export function renderCoverageEmailBlock(desk, { href, linkLabel } = {}) {
+  const tone = !desk ? "#6b7280" : desk.healthy ? "#00c853" : desk.quiet ? "#9ca3af" : "#ef4444";
+  const sample = (desk?.sample || []).map((row) =>
+    `<div style="margin:4px 0 0;font-size:12px;color:#9ca3af;font-family:'SF Mono',Menlo,Consolas,'Courier New',monospace">${
+      escHtml(String(row.ticker || "").toUpperCase())
+    } ${escHtml(row.lane || "")} ${escHtml(row.event || "")} — ${escHtml(String(row.reason || "").slice(0, 80))}</div>`).join("");
+  const safeHref = href && /^https?:\/\//i.test(String(href)) ? String(href) : "";
+  const link = safeHref
+    ? `<div style="margin:10px 0 0;font-size:12px"><a href="${escHtml(safeHref)}" style="color:#00c853;font-weight:700;text-decoration:none">${escHtml(linkLabel || "Open Execution Review →")}</a></div>`
+    : "";
+  return `
+    <p style="margin:18px 0 8px;font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.08em;text-transform:uppercase">Model vs broker</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px;background:#0b0e11;border:1px solid #1e2128;border-radius:10px">
+      <tr><td style="padding:14px 16px">
+        <div style="font-size:15px;font-weight:700;color:${tone}">${escHtml(coverageDeskHeadline(desk))}</div>
+        ${desk ? `<div style="margin:6px 0 0;font-size:12px;color:#9ca3af;font-family:'SF Mono',Menlo,Consolas,'Courier New',monospace">mirrored ${Number(desk.mirrored) || 0} · unmatched ${Number(desk.unmatched) || 0} · pending ${Number(desk.pending_intent) || 0} · terminal ${Number(desk.rejected_terminal) || 0}</div>` : ""}
+        ${sample}
+        ${link}
+      </td></tr>
+    </table>`;
+}
+
+/** One Discord “clean” line per NY day when the contract is healthy. */
+export async function notifyCoverageCleanIfDue(env, desk, { nowMs = Date.now(), notify } = {}) {
+  if (!desk?.healthy || typeof notify !== "function") return false;
+  const day = nyDateKey(nowMs);
+  let lastClean = "";
+  try { lastClean = String((await env?.KV_TIMED?.get(COVERAGE_CLEAN_DAY_KEY)) || ""); } catch (_) { lastClean = ""; }
+  if (lastClean === day) return false;
+  await notify({
+    title: "BROKER COVERAGE · clean",
+    description: `${desk.actions} model action${desk.actions === 1 ? "" : "s"} mirrored · unmatched 0`,
+    color: 0x30a46c,
+  });
+  try {
+    await env?.KV_TIMED?.put(COVERAGE_CLEAN_DAY_KEY, day, { expirationTtl: 2 * 86400 });
+  } catch (_) { /* best-effort */ }
+  return true;
+}
+
 function pageFingerprint(anomalies) {
   return (anomalies || [])
     .filter((a) => a.severity === "fail")
@@ -702,5 +799,9 @@ export async function snapshotMirrorCoverage(env, {
   if (snap.summary.fails === 0 && prev) {
     try { await env?.KV_TIMED?.put(COVERAGE_PAGED_KEY, "", { expirationTtl: 3600 }); } catch (_) { /* */ }
   }
-  return { ...snap, paged: shouldPage };
+
+  // One clean confirmation per NY day so the desk sees that the
+  // contract is live — not only the failure pages.
+  const pagedClean = await notifyCoverageCleanIfDue(env, summarizeCoverageForDesk(snap), { nowMs, notify });
+  return { ...snap, paged: shouldPage, paged_clean: pagedClean };
 }

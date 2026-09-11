@@ -515,7 +515,7 @@ export async function sendEmail(env, { to, subject, html, text, category }) {
 // Email Layout Wrapper
 // ═══════════════════════════════════════════════════════════════════════
 
-function emailLayout(bodyHtml, { unsubscribeUrl, preheader } = {}) {
+export function emailLayout(bodyHtml, { unsubscribeUrl, preheader } = {}) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -547,6 +547,7 @@ ${preheader ? `<span style="display:none;font-size:1px;color:${BRAND.dark};max-h
     </p>
     ${unsubscribeUrl ? `<p style="margin:0;font-size:11px;color:${BRAND.textMuted}"><a href="${unsubscribeUrl}" style="color:${BRAND.textMuted};text-decoration:underline">Unsubscribe</a> from these emails</p>` : ""}
     <p style="margin:8px 0 0;font-size:10px;color:${BRAND.textMuted}">This is not financial advice. For educational purposes only.</p>
+    <p style="margin:6px 0 0;font-size:10px;color:${BRAND.textMuted}">Market data powered by Twelve Data</p>
   </td></tr>
 </table>
 </td></tr>
@@ -3470,6 +3471,7 @@ export function buildDailyOwnerDigestEmail(digest, opts = {}) {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">
       ${posRows || `<tr><td style="padding:6px 0;color:${BRAND.textMuted};font-size:12px">No open equity positions</td></tr>`}
     </table>
+    ${opts.coverageHtml || ""}
     <p style="margin:18px 0 0;font-size:12px">
       <a href="${_esc(baseUrl)}/broker-connections.html" style="color:${BRAND.green};font-weight:700;text-decoration:none">Broker Connections →</a>
       &nbsp;&nbsp;
@@ -3503,6 +3505,7 @@ export function buildDailyOwnerDigestEmail(digest, opts = {}) {
     `  Unrealized $${Number(digest.day_pnl?.unrealized || 0).toFixed(2)}`,
     `Equity end $${Number(digest.equity_end || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
     "",
+    ...(opts.coverageText ? ["", opts.coverageText] : []),
     `Broker Connections: ${baseUrl}/broker-connections.html`,
     `Email preferences: ${baseUrl}/my-account.html#email`,
   ];
