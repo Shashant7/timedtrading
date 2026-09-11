@@ -17,6 +17,12 @@ Single reference for agents. Read this first to avoid context overload.
   direction, duplicate contributions and missing-data behavior. Aggregate
   rank correlation or sorting fixes do not establish that its ingredients
   deserve points. Playbook: `skills/rank-driver-audit.md`.
+- **PLTR Long Term DCA miss (2026-09-11):** 15:50 ET `dca_pullback`
+  wrote the lot + email; `/bridge/order` never ran. Sweep marked the
+  day clean on an empty 15:46 window; execute used `waitUntil` that
+  died after sendJSON. Await mirrors on the request path; only mark
+  the sweep clean after today's lots exist and catch-up planned 0.
+  Playbook: `skills/broker-bridge.md`.
 - **Index-trend broker/recon (2026-09-11):** TNA W37 paper+email with
   no `/bridge/order` BUY — never-attempted RTH catch-up for open
   books younger than 4 days (not leftover backfill). W36 EXIT spam:

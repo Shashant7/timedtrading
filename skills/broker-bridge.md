@@ -93,6 +93,10 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   (TQQQ W36). Do not treat action qty=0 as flat.
 >   Partner accounts must not manually exit a name that never filled
 >   (`no_manifest_for_trade`).
+> - Long Term DCA (`/timed/investor/dca/execute`) must **await**
+>   `forwardInvestorMirror` before the HTTP response. `waitUntil` after
+>   lot+email dies (PLTR 2026-09-02 / 09-11). The 15:46–16:15 sweep
+>   must not mark the day clean on an empty lot window.
 > - Catch-up trims MUST send `reduce_pct = lot.shares / (remaining +
 >   lot.shares)` from `investor_positions.total_shares`. Replaying raw
 >   model-space `investor_lots.shares` is the META flatten (PLTR OpEx
