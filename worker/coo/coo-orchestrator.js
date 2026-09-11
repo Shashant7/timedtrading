@@ -356,6 +356,9 @@ export async function runSelfHealing(env, options = {}) {
     // 2026-07-30 — Missed broker mirrors (ETH fractional reject, missing
     // forward call). Gated catch-up replays only when thesis/price intact.
     "investor_signal_bridge_coverage",
+    // 2026-09-11 — same catch-up as investor_signal_bridge_coverage.
+    // Does not place overnight market sells.
+    "bridge_mirror_coverage",
     // 2026-08-17 (evolved from PR #896) — stale investor compute.
     "compute_freshness",
   ]);
@@ -399,7 +402,7 @@ export async function runSelfHealing(env, options = {}) {
       action = enabled
         ? await _healInvalidationDistance(env)
         : { ok: true, dry_run: true, would_do: "tightenWideOpenStops(dryRun=false)" };
-    } else if (check.id === "investor_signal_bridge_coverage") {
+    } else if (check.id === "investor_signal_bridge_coverage" || check.id === "bridge_mirror_coverage") {
       action = enabled
         ? await _healInvestorBridgeCatchup(env, baseUrl, adminKey)
         : { ok: true, dry_run: true, would_do: "POST /timed/admin/broker-bridge/catchup-investor {dry_run:false,hours:72,max_ops:24}" };
@@ -408,7 +411,11 @@ export async function runSelfHealing(env, options = {}) {
         ? await _healComputeFreshness(env)
         : { ok: true, dry_run: true, would_do: "POST /timed/investor/compute" };
     } else {
-      action = { ok: false, reason: `no_handler_for_${check.id}` };
+      // Unknown fail/warn is not a missing healer — do not page Discord
+      // as "Heal skipped: <id> (no_handler)". Operator triage stays on
+      // the sanity check itself.
+      skipped.push({ check: check.id, reason: "not_self_healable" });
+      continue;
     }
 
     await recordAction(env, {

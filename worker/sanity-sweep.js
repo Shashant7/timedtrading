@@ -704,6 +704,55 @@ const checkAlertDelivery = timed(async function checkAlertDelivery(env, ctx) {
 });
 
 // ── Check 15: broker_bridge_bindings ────────────────────────────────────
+//
+// 2026-07-24 — Ignore failures superseded by a later ok for the same
+// trade_id+side (operator retry / catch-up). Also treat inv-inv-* DCA
+// rejects as resolved when inv-* later placed (double-prefix catch-up).
+// 2026-09-11 — Do not treat expected broker rejects as a bindings outage:
+// already-flat `no_broker_position`, and ETH "only limit orders" (the
+// healer must not fire overnight market sells to "fix" those).
+
+export function isExpectedBridgeReject(row) {
+  const reason = String(row?.reject_reason || row?.error || "").toLowerCase();
+  if (!reason) return false;
+  if (reason.includes("no_broker_position")) return true;
+  if (reason.includes("only limit orders are supported for extended-hours")) return true;
+  return false;
+}
+
+export function isSupersededBridgeReject(row, ring = []) {
+  const ts = Number(row?.ts || 0);
+  const side = String(row?.side || "");
+  const tid = String(row?.trade_id || "");
+  const altTid = tid.startsWith("inv-inv-") ? tid.replace(/^inv-inv-/, "inv-") : null;
+  for (const o of ring) {
+    if (o?.status !== "ok") continue;
+    if (String(o?.side || "") !== side) continue;
+    if (Number(o?.ts || 0) <= ts) continue;
+    const otid = String(o?.trade_id || "");
+    if (otid === tid || (altTid && otid === altTid)) return true;
+  }
+  return false;
+}
+
+export function evaluateBrokerRejectDensity({
+  ring = [],
+  nowMs = Date.now(),
+  windowMs = 6 * 3600000,
+} = {}) {
+  const list = Array.isArray(ring) ? ring : [];
+  const recent = list.filter((r) => (nowMs - Number(r?.ts || 0)) < windowMs);
+  const bad = recent.filter((r) =>
+    (r?.status === "error" || r?.status === "fetch_error")
+    && !isSupersededBridgeReject(r, list)
+    && !isExpectedBridgeReject(r));
+  if (bad.length < 3) return [];
+  const sample = bad.slice(0, 3).map((r) => `${r.ticker}/${r.side}:${r.reject_reason || r.error || r.http_status}`).join("; ");
+  return [{
+    detail: `${bad.length} unresolved bridge mirror failures in last 6h (of ${recent.length} dispatches; superseded retries and expected rejects excluded) — e.g. ${sample}`,
+    severity: bad.length >= 8 ? "fail" : "warn",
+  }];
+}
 
 const checkBrokerBridgeBindings = timed(async function checkBrokerBridgeBindings(env, ctx) {
   const anomalies = [];
@@ -726,38 +775,11 @@ const checkBrokerBridgeBindings = timed(async function checkBrokerBridgeBindings
     }
 
     // Recent reject / fetch_error density in the client ring.
-    // 2026-07-24 — Ignore failures superseded by a later ok for the same
-    // trade_id+side (operator retry / catch-up). Also treat inv-inv-* DCA
-    // rejects as resolved when inv-* later placed (double-prefix catch-up).
-    // Otherwise the 6h window keeps paging after NVDA/TT/ETN were fixed.
     const ringRaw = await env.KV_TIMED.get("bridge:client:recent");
     let ring = [];
     try { ring = ringRaw ? JSON.parse(ringRaw) : []; } catch (_) { ring = []; }
     if (!Array.isArray(ring)) ring = [];
-    const recent = ring.filter((r) => (Date.now() - Number(r?.ts || 0)) < 6 * 3600000);
-    const isSuperseded = (r) => {
-      const ts = Number(r?.ts || 0);
-      const side = String(r?.side || "");
-      const tid = String(r?.trade_id || "");
-      const altTid = tid.startsWith("inv-inv-") ? tid.replace(/^inv-inv-/, "inv-") : null;
-      for (const o of ring) {
-        if (o?.status !== "ok") continue;
-        if (String(o?.side || "") !== side) continue;
-        if (Number(o?.ts || 0) <= ts) continue;
-        const otid = String(o?.trade_id || "");
-        if (otid === tid || (altTid && otid === altTid)) return true;
-      }
-      return false;
-    };
-    const bad = recent.filter((r) =>
-      (r?.status === "error" || r?.status === "fetch_error") && !isSuperseded(r));
-    if (bad.length >= 3) {
-      const sample = bad.slice(0, 3).map((r) => `${r.ticker}/${r.side}:${r.reject_reason || r.error || r.http_status}`).join("; ");
-      anomalies.push({
-        detail: `${bad.length} unresolved bridge mirror failures in last 6h (of ${recent.length} dispatches; superseded retries excluded) — e.g. ${sample}`,
-        severity: bad.length >= 8 ? "fail" : "warn",
-      });
-    }
+    anomalies.push(...evaluateBrokerRejectDensity({ ring }));
   } catch (e) {
     anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
   }

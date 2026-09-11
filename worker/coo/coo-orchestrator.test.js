@@ -21,6 +21,7 @@ import {
   runCooCalibrationCycle,
   runMoveDiscoveryCycle,
   runScreenerAutoPromote,
+  runSelfHealing,
 } from "./coo-orchestrator.js";
 
 function makeKv() {
@@ -238,5 +239,35 @@ describe("COO orchestrator — runScreenerAutoPromote", () => {
     const result = await runScreenerAutoPromote(env);
     expect(result.promoted).toEqual([]);
     expect(result.skipped[0]?.reason).toBe("no_eligible_candidates");
+  });
+});
+
+describe("runSelfHealing — unknown checks", () => {
+  it("skips broker_bridge_bindings as not_self_healable instead of no_handler", async () => {
+    const kv = makeKv();
+    const env = makeEnv({
+      KV_TIMED: kv,
+      TIMED_API_KEY: "k",
+      COO_SELF_HEAL: "true",
+    });
+    const out = await runSelfHealing(env, {
+      sweep: { checks: [{ id: "broker_bridge_bindings", status: "fail" }] },
+    });
+    expect(out.healed).toEqual([]);
+    expect(out.skipped.some((s) => s.check === "broker_bridge_bindings" && s.reason === "not_self_healable")).toBe(true);
+    expect(JSON.stringify(out)).not.toMatch(/no_handler/);
+  });
+
+  it("routes bridge_mirror_coverage through the investor catch-up healer", async () => {
+    const kv = makeKv();
+    const env = makeEnv({
+      KV_TIMED: kv,
+      TIMED_API_KEY: "k",
+      COO_SELF_HEAL: "false",
+    });
+    const out = await runSelfHealing(env, {
+      sweep: { checks: [{ id: "bridge_mirror_coverage", status: "warn" }] },
+    });
+    expect(out.skipped.some((s) => s.check === "bridge_mirror_coverage" && /catchup-investor/.test(s.would_do || ""))).toBe(true);
   });
 });
