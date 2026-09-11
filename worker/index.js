@@ -861,7 +861,7 @@ import {
   applyLiveMarkToEquityPoints as _applyLiveMarkToEquityPoints,
 } from "./account-summary.js";
 import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction, applyPaperMirrorLog, paperMirrorLogSide } from "./broker-day-actions-join.js";
-import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendNeedsEntryCatchUp, indexTrendCatchUpPlaced, indexTrendCloseReadyToFinalize } from "./index-trend-auto-mirror.js";
+import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendShouldCatchUpOpenEntry, indexTrendCatchUpPlaced, indexTrendCloseReadyToFinalize } from "./index-trend-auto-mirror.js";
 import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
@@ -95745,12 +95745,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     const _itOpenBefore = openBook
                       && (openBook.status === "open" || openBook.status === "trimmed");
                     let _itHealedEntry = false;
-                    // Same-tick follow-through only (book just written, waitUntil
-                    // died). Do not backfill older open books — operator ask
-                    // 2026-09-03: no catch-up of UDOW/TQQQ/TJX leftovers.
-                    const _itBookAgeMs = Date.now() - (Number(openBook?.entry_ts) || 0);
-                    if (_itOpenBefore && _itSid && _itBookAgeMs >= 0 && _itBookAgeMs < 15 * 60 * 1000
-                        && await indexTrendNeedsEntryCatchUp(env, _itSid)) {
+                    // Same-tick follow-through, or a never-attempted BUY
+                    // still open in the same NY session during RTH.
+                    // Do not backfill leftover books that already tried
+                    // (UDOW/TQQQ/TJX 2026-09-03).
+                    if (_itOpenBefore && _itSid
+                        && await indexTrendShouldCatchUpOpenEntry(env, {
+                          signalId: _itSid,
+                          book: openBook,
+                          now: Date.now(),
+                        })) {
                       try {
                         const _heal = await _itAutoMirror(env, {
                           ..._itMirrorBase,
@@ -105185,8 +105189,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // Paper STOP/EXIT can Discord and persist, then the isolate dies
           // before /bridge/order (TQQQ 2026-09-10). Closed books never
           // re-enter the options/all loop. Flatten leftover mirror qty.
+          // Missed same-session BUYs run first so a doomed EXIT
+          // (no_broker_position) cannot starve the live entry.
           try {
-            const { healStrandedIndexTrendCloses } = await import("./index-trend-auto-mirror.js");
+            const {
+              healMissedIndexTrendEntries,
+              healStrandedIndexTrendCloses,
+            } = await import("./index-trend-auto-mirror.js");
+            const entryHeal = await healMissedIndexTrendEntries(env, {});
+            if (entryHeal.attempted > 0) {
+              console.log(
+                `[INDEX-TREND ENTRY HEAL] scanned=${entryHeal.scanned} attempted=${entryHeal.attempted}`
+                + ` filled=${entryHeal.filled} skipped=${entryHeal.skipped}`,
+              );
+            }
             const heal = await healStrandedIndexTrendCloses(env, {});
             if (heal.attempted > 0) {
               console.log(

@@ -6,6 +6,36 @@
 
 ---
 
+## Index-trend broker miss + ghost EXIT heal [2026-09-11]
+
+**Symptom:** SHORT TERM TNA LONG email at 12:00 PM ET (30 sh, IWM
+Index Swings) with no Roth fill. Healer kept EXIT-ing W36 TNA every
+few minutes; Webull returned `no_broker_position`. Manifest showed
+`it:IWM:TNA:LONG:2026-W36` untracked with `broker_remaining_qty=4`.
+
+**Cause:**
+1. Paper W37 opened and emailed; `/bridge/order` BUY never ran
+   (same-isolate W36 EXIT took ~6s; actions tape dropped the BUY).
+2. Same-tick entry heal only retried books younger than 15 minutes,
+   so the never-attempted open book was ignored after 12:15 ET.
+3. EXIT reject was saved as generic `bridge_reject` (fan-out child
+   `reject_reason` was ignored), so `TERMINAL_EXIT_REJECT` never
+   matched and heal looped.
+4. Reconciler left the untracked 4-share claim OPEN while the
+   broker was already flat.
+
+**Fix:** Extract child reject reasons; flatten the KV mirror on
+terminal EXIT rejects; allow never-attempted BUY catch-up during
+RTH for still-open books younger than 4 days (`healMissedIndexTrendEntries`
+before EXIT heal); close untracked OPEN ghost claims when broker
+qty is 0.
+
+**Do not:** Backfill leftover ENTRIES that already tried a place
+(UDOW/TQQQ/TJX 09-03). Heal-sell TQQQ W36. Treat HTTP 200 without
+an order id as a buy fill.
+
+---
+
 ## Ops desk: review cutoff, learning queue, bindings heal, rotation cache [2026-09-11]
 
 **Symptom:** Execution Review verdict showed 0 closed / n/a after the

@@ -7,6 +7,10 @@ import {
   indexTrendCatchUpPlaced,
   indexTrendCloseReadyToFinalize,
   healStrandedIndexTrendCloses,
+  healMissedIndexTrendEntries,
+  extractIndexTrendRejectReason,
+  indexTrendShouldCatchUpOpenEntry,
+  indexTrendMirrorLooksAttempted,
   INDEX_TREND_MIRROR_LOG_KEY,
 } from "./index-trend-auto-mirror.js";
 import { forwardOrderToBridge } from "./broker-bridge-client.js";
@@ -300,6 +304,165 @@ describe("index-trend-auto-mirror", () => {
       { event: "TRIM", trim_sell_qty: 7 },
       { nextBook: { shares_remaining: 21 } },
     )).toBe(7);
+  });
+
+  it("extracts fan-out child reject_reason instead of generic bridge_reject", () => {
+    expect(extractIndexTrendRejectReason({
+      ok: false,
+      response: {
+        ok: false,
+        fanout: true,
+        results: [
+          { http_status: 200, result: { ok: false, reject_reason: "no_broker_position" } },
+        ],
+      },
+    })).toBe("no_broker_position");
+    expect(extractIndexTrendRejectReason({ ok: true })).toBe("false_ok_no_order_id");
+  });
+
+  it("flattens the mirror on a terminal EXIT reject and stops re-heal", async () => {
+    forwardOrderToBridge.mockResolvedValueOnce({
+      ok: false,
+      response: {
+        ok: false,
+        fanout: true,
+        results: [
+          { http_status: 200, result: { ok: false, reject_reason: "no_broker_position" } },
+        ],
+      },
+    });
+    const signalId = "it:IWM:TNA:LONG:2026-W36";
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      [`timed:idx-trend-mirror:${signalId}`]: JSON.stringify({
+        entry_fired: true,
+        shares: 29,
+        shares_remaining: 29,
+        letf_ticker: "TNA",
+        underlying: "IWM",
+        last_reject: "bridge_reject",
+      }),
+      [`timed:idx-trend-book:${signalId}`]: JSON.stringify({
+        status: "closed",
+        reason: "underlying_invalidation",
+        shares: 29,
+        shares_remaining: 0,
+      }),
+      "timed:idx-trend-actions": JSON.stringify([
+        { ts: RTH_TS, event: "STOP", signal_id: signalId, letf_ticker: "TNA", underlying: "IWM", shares: 29 },
+      ]),
+    });
+    const first = await healStrandedIndexTrendCloses(env, { now: RTH_TS });
+    expect(first.attempted).toBe(1);
+    expect(first.filled).toBe(0);
+    expect(first.results[0].flattened).toBe(true);
+    expect(first.results[0].reason).toBe("no_broker_position");
+    const mirror = JSON.parse(env.store[`timed:idx-trend-mirror:${signalId}`]);
+    expect(mirror.exit_fired).toBe(true);
+    expect(mirror.shares_remaining).toBe(0);
+    expect(mirror.last_reject).toBe("no_broker_position");
+    expect(indexTrendMirrorNeedsExitCatchUp(mirror, RTH_TS + 60_000)).toBe(false);
+    forwardOrderToBridge.mockClear();
+    const again = await healStrandedIndexTrendCloses(env, { now: RTH_TS + 60_000 });
+    expect(again.attempted).toBe(0);
+    expect(forwardOrderToBridge).not.toHaveBeenCalled();
+  });
+
+  it("catches up a never-attempted same-session BUY past 15 minutes during RTH", async () => {
+    const now = Date.UTC(2026, 8, 11, 17, 30, 0); // 1:30 PM ET Fri
+    const entryTs = now - 70 * 60 * 1000;
+    const signalId = "it:IWM:TNA:LONG:2026-W37";
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      "timed:idx-trend-carry:TNA": JSON.stringify({
+        signal_id: signalId,
+        book: {
+          status: "open",
+          shares: 30,
+          shares_remaining: 30,
+          entry_ts: entryTs,
+          underlying: "IWM",
+          letf_ticker: "TNA",
+          last_letf_price: 65.32,
+          signal_id: signalId,
+        },
+      }),
+    });
+    expect(indexTrendMirrorLooksAttempted(null)).toBe(false);
+    expect(await indexTrendShouldCatchUpOpenEntry(env, {
+      signalId,
+      book: { status: "open", shares: 30, entry_ts: entryTs },
+      now,
+    })).toBe(true);
+    const heal = await healMissedIndexTrendEntries(env, { now });
+    expect(heal.attempted).toBe(1);
+    expect(heal.filled).toBe(1);
+    expect(forwardOrderToBridge).toHaveBeenCalledWith(env, expect.objectContaining({
+      ticker: "TNA",
+      side: "buy",
+      qty: 30,
+      trade_id: signalId,
+    }));
+  });
+
+  it("still catches a Friday never-attempted BUY on Monday RTH", async () => {
+    const monday = Date.UTC(2026, 8, 14, 14, 30, 0); // 10:30 AM ET
+    const fridayEntry = Date.UTC(2026, 8, 11, 16, 0, 43);
+    const signalId = "it:IWM:TNA:LONG:2026-W37";
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+    });
+    expect(await indexTrendShouldCatchUpOpenEntry(env, {
+      signalId,
+      book: { status: "open", shares: 30, entry_ts: fridayEntry },
+      now: monday,
+    })).toBe(true);
+    expect(await indexTrendShouldCatchUpOpenEntry(env, {
+      signalId,
+      book: { status: "open", shares: 30, entry_ts: monday - 8 * 86400 * 1000 },
+      now: monday,
+    })).toBe(false);
+  });
+
+  it("does not backfill a leftover BUY that already rejected", async () => {
+    const now = Date.UTC(2026, 8, 11, 17, 30, 0);
+    const entryTs = now - 70 * 60 * 1000;
+    const signalId = "it:DIA:UDOW:LONG:2026-W36";
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      [`timed:idx-trend-mirror:${signalId}`]: JSON.stringify({
+        last_reject: "insufficient_cash_for_one_unit",
+        last_reject_ts: entryTs + 60_000,
+      }),
+    });
+    expect(await indexTrendShouldCatchUpOpenEntry(env, {
+      signalId,
+      book: { status: "open", shares: 27, entry_ts: entryTs },
+      now,
+    })).toBe(false);
+  });
+
+  it("does not stamp entry_fired on a false-ok 200 with no order id", async () => {
+    forwardOrderToBridge.mockResolvedValueOnce({ ok: true, http_status: 200, response: { ok: true } });
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+    });
+    const signalId = "it:IWM:TNA:LONG:2026-W36";
+    const r = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      catch_up: true,
+      signal_id: signalId,
+      underlying: "IWM",
+      letf_ticker: "TNA",
+      letf_price: 68.15,
+      book: { shares: 29, status: "open" },
+      now: RTH_TS,
+    });
+    expect(r.skipped).toBe(false);
+    expect(indexTrendCatchUpPlaced(r)).toBe(false);
+    const mirror = JSON.parse(env.store[`timed:idx-trend-mirror:${signalId}`]);
+    expect(mirror.entry_fired).toBeFalsy();
+    expect(mirror.last_reject).toBe("false_ok_no_order_id");
   });
 
   it("still blocks a fresh BUY outside RTH", async () => {
