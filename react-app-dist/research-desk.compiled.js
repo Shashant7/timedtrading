@@ -1237,7 +1237,7 @@ function RotationCard({
       className: "card"
     }, h("h2", null, "🔄 Rotation Engine"), h("div", {
       className: "muted"
-    }, "No snapshot yet."));
+    }, r?.error_kind === "no_snapshot_yet" ? "No snapshot in cache. GET now recomputes if the nightly write expired; use Refresh rotation engine to force one." : "No snapshot yet. Nightly CRO cycle writes this at 22:00 UTC; GET recomputes if the 7-day cache is empty."));
   }
   const headlines = r.headlines || [];
   const rsPairs = (r.rs_pairs || []).filter(p => p.ok).slice(0, 10);
@@ -1713,6 +1713,6 @@ root.render(AuthGate ? h(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "pro"
 }, () => h(App)) : h(App));
-// cache-bust:1788812870099:126980240
+// cache-bust:1789100836832:476162604
 
-// cache-bust:1788812870099:126980240
+// cache-bust:1789100836832:476162604

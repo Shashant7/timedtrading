@@ -16,13 +16,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1788812870099" />
-    <script defer src="/vendor/react.production.min.js?v=1788812870099"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1788812870099"></script>
-<script defer src="auth-gate.js?v=1788812870099"></script>
-    <script src="tt-bottom-nav.js?v=1788812870099" defer></script>
-    <script src="tt-nav-extras.js?v=1788812870099" defer></script>
-    <script src="tt-global-search.js?v=1788812870099" defer></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1789100836832" />
+    <script defer src="/vendor/react.production.min.js?v=1789100836832"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1789100836832"></script>
+<script defer src="auth-gate.js?v=1789100836832"></script>
+    <script src="tt-bottom-nav.js?v=1789100836832" defer></script>
+    <script src="tt-nav-extras.js?v=1789100836832" defer></script>
+    <script src="tt-global-search.js?v=1789100836832" defer></script>
     <style>
       :root {
         --tt-bg-base: var(--vf-ink, #0B1410);
@@ -64,7 +64,11 @@
       .badge--fail { background: rgba(255,107,107,0.12); color: var(--tt-red); border: 1px solid rgba(255,107,107,0.4); }
       .badge--insufficient { background: rgba(245,196,81,0.12); color: var(--tt-amber); border: 1px solid rgba(245,196,81,0.4); }
       .checks { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
-      .checks li { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: baseline; font-size: 13px; }
+      .checks li { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: 13px; }
+      @media (max-width: 640px) {
+        .checks li { grid-template-columns: 18px minmax(0, 1fr); }
+        .checks .target { grid-column: 2; }
+      }
       .checks .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 3px; }
       .dot--ok { background: var(--tt-accent); }
       .dot--miss { background: var(--tt-red); }
@@ -82,10 +86,10 @@
       .kv .v { font-family: var(--tt-font-mono); }
       .note { font-size: 11.5px; color: var(--tt-text-dim); margin-top: 10px; line-height: 1.5; }
       .hist { display: flex; gap: 8px; flex-wrap: wrap; }
-      .hist .pill { border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 10px; min-width: 128px; background: var(--tt-bg-elev); }
+      .hist .pill { border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 10px; min-width: 168px; background: var(--tt-bg-elev); }
       .hist .pill .l { font-size: 10.5px; color: var(--tt-text-dim); }
       .hist .pill .s { font-weight: 800; font-size: 12px; letter-spacing: 0.05em; margin-top: 2px; }
-      .hist .pill .n { font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); margin-top: 2px; }
+      .hist .pill .n { font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); margin-top: 2px; white-space: nowrap; }
       .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--tt-border-hi); border-top-color: var(--tt-accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
       @keyframes spin { to { transform: rotate(360deg); } }
       .footer-note { margin-top: 28px; font-size: 11px; color: var(--tt-text-faint); }
@@ -102,10 +106,10 @@
   </head>
   <body class="vf-page">
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1788812870099"></script>
+    <script defer src="shared-nav.js?v=1789100836832"></script>
     <div id="root"></div>
-    <script defer src="execution-review.compiled.js?v=1788812870099"></script>
+    <script defer src="execution-review.compiled.js?v=1789100836832"></script>
   </body>
 </html>
 
-<!-- cache-bust:1788812870099:126980240 -->
+<!-- cache-bust:1789100836832:476162604 -->

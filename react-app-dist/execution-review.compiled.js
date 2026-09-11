@@ -10,6 +10,10 @@ const fetchOpts = {
   cache: "no-store"
 };
 const fmt = (v, suffix = "") => v === null || v === undefined || v === "" ? "n/a" : `${v}${suffix}`;
+const histSlice = (slice, prefix) => {
+  const n = Number(slice?.n) || 0;
+  return n ? `${prefix} n=${n} · ${signed(slice.sum_pct)}` : `${prefix} n=0`;
+};
 const signed = (v, suffix = "pp") => {
   if (v === null || v === undefined) return "n/a";
   const n = Number(v);
@@ -224,7 +228,7 @@ function App() {
     } : undefined
   }, String(h.status || "").toUpperCase()), React.createElement("div", {
     className: "n"
-  }, "wk n=", h.week_all?.n ?? 0, " ", signed(h.week_all?.sum_pct), " \xB7 core since n=", h.core_since?.n ?? 0, " ", signed(h.core_since?.sum_pct))))))), React.createElement("div", {
+  }, histSlice(h.week_all, "wk"), " \xB7 ", histSlice(h.core_since, "core since"))))))), React.createElement("div", {
     className: "grid grid--3",
     style: {
       marginBottom: 14
@@ -324,6 +328,6 @@ root.render(AuthGate ? React.createElement(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "admin"
 }, () => React.createElement(App, null)) : React.createElement(App, null));
-// cache-bust:1788812870099:126980240
+// cache-bust:1789100836832:476162604
 
-// cache-bust:1788812870099:126980240
+// cache-bust:1789100836832:476162604
