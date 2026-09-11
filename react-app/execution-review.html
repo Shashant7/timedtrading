@@ -58,7 +58,11 @@
       .badge--fail { background: rgba(255,107,107,0.12); color: var(--tt-red); border: 1px solid rgba(255,107,107,0.4); }
       .badge--insufficient { background: rgba(245,196,81,0.12); color: var(--tt-amber); border: 1px solid rgba(245,196,81,0.4); }
       .checks { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
-      .checks li { display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: baseline; font-size: 13px; }
+      .checks li { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: 13px; }
+      @media (max-width: 640px) {
+        .checks li { grid-template-columns: 18px minmax(0, 1fr); }
+        .checks .target { grid-column: 2; }
+      }
       .checks .dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 3px; }
       .dot--ok { background: var(--tt-accent); }
       .dot--miss { background: var(--tt-red); }
@@ -76,10 +80,10 @@
       .kv .v { font-family: var(--tt-font-mono); }
       .note { font-size: 11.5px; color: var(--tt-text-dim); margin-top: 10px; line-height: 1.5; }
       .hist { display: flex; gap: 8px; flex-wrap: wrap; }
-      .hist .pill { border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 10px; min-width: 128px; background: var(--tt-bg-elev); }
+      .hist .pill { border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 10px; min-width: 168px; background: var(--tt-bg-elev); }
       .hist .pill .l { font-size: 10.5px; color: var(--tt-text-dim); }
       .hist .pill .s { font-weight: 800; font-size: 12px; letter-spacing: 0.05em; margin-top: 2px; }
-      .hist .pill .n { font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); margin-top: 2px; }
+      .hist .pill .n { font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); margin-top: 2px; white-space: nowrap; }
       .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--tt-border-hi); border-top-color: var(--tt-accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
       @keyframes spin { to { transform: rotate(360deg); } }
       .footer-note { margin-top: 28px; font-size: 11px; color: var(--tt-text-faint); }
@@ -104,6 +108,10 @@
       const fetchOpts = { credentials: "include", cache: "no-store" };
 
       const fmt = (v, suffix = "") => (v === null || v === undefined || v === "" ? "n/a" : `${v}${suffix}`);
+      const histSlice = (slice, prefix) => {
+        const n = Number(slice?.n) || 0;
+        return n ? `${prefix} n=${n} · ${signed(slice.sum_pct)}` : `${prefix} n=0`;
+      };
       const signed = (v, suffix = "pp") => {
         if (v === null || v === undefined) return "n/a";
         const n = Number(v);
@@ -249,7 +257,7 @@
                           <div className="pill" key={h.generated_at}>
                             <div className="l">{h.label}</div>
                             <div className={`s ${h.status === "pass" ? "pos" : h.status === "fail" ? "neg" : ""}`} style={h.status === "insufficient" ? { color: "var(--tt-amber)" } : undefined}>{String(h.status || "").toUpperCase()}</div>
-                            <div className="n">wk n={h.week_all?.n ?? 0} {signed(h.week_all?.sum_pct)} · core since n={h.core_since?.n ?? 0} {signed(h.core_since?.sum_pct)}</div>
+                            <div className="n">{histSlice(h.week_all, "wk")} · {histSlice(h.core_since, "core since")}</div>
                           </div>
                         ))}
                       </div>
