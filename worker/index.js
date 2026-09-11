@@ -862,6 +862,7 @@ import {
 } from "./account-summary.js";
 import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction, applyPaperMirrorLog, paperMirrorLogSide } from "./broker-day-actions-join.js";
 import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendShouldCatchUpOpenEntry, indexTrendCatchUpPlaced, indexTrendCloseReadyToFinalize } from "./index-trend-auto-mirror.js";
+import { dcaSweepShouldMarkClean } from "./investor-dca-sweep.js";
 import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
@@ -39715,14 +39716,9 @@ async function runDcaSweepGuarded(env, { mirror = true } = {}) {
   }
   try {
     const out = await sweepInvestorDcaSideEffects(env, { mirror });
-    const catchupClean = !out?.catchup
-      || (!out.catchup.error
-        && (out.catchup.planned || 0) === 0
-        && (out.catchup.forwarded_fail || 0) === 0);
-    const clean = out?.ok === true
-      && !out?.healed_count
-      && out?.mirror_checked === true
-      && catchupClean;
+    // PLTR 2026-09-11: empty 15:46 window used to mark the day clean
+    // before the 15:50 lot existed; later ticks skipped the broker heal.
+    const clean = dcaSweepShouldMarkClean(out);
     if (clean && KV) {
       await KV.put(cleanKey, String(Date.now()), { expirationTtl: 12 * 3600 }).catch(() => {});
     }
@@ -97389,6 +97385,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
           const executed = [];
           const errors = [];
+          const _dcaMirrorPs = [];
           let dueCount = 0;
 
           for (const pos of dcaPositions) {
@@ -97576,7 +97573,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               // investor cash drift vs broker. Mirror every executed DCA.
               try {
                 const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
-                const _dcaMirrorP = forwardInvestorMirror(env, {
+                // Await before the HTTP response (cron self-dispatch
+                // waitUntil dies after sendJSON — PLTR 2026-09-02 / 09-11).
+                _dcaMirrorPs.push(forwardInvestorMirror(env, {
                   kind: "dca",
                   ticker: pos.ticker,
                   shares,
@@ -97587,12 +97586,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   stage: scoreRow?.stage || "accumulate",
                   score: tickerScore,
                   source: "dca_execute",
-                });
-                if (typeof ctx !== "undefined" && ctx && typeof ctx.waitUntil === "function") {
-                  ctx.waitUntil(_dcaMirrorP.catch(() => {}));
-                } else {
-                  await _dcaMirrorP.catch(() => {});
-                }
+                }));
               } catch (mirrorErr) {
                 console.warn(`[INVESTOR_MIRROR] dca ${pos.ticker} setup failed:`, String(mirrorErr?.message || mirrorErr).slice(0, 160));
               }
@@ -97610,6 +97604,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             } catch (e) {
               errors.push({ ticker: pos.ticker, error: e.message });
             }
+          }
+
+          if (_dcaMirrorPs.length) {
+            await Promise.all(_dcaMirrorPs.map((p) => p.catch((e) => {
+              console.warn("[INVESTOR_MIRROR] dca forward failed:", String(e?.message || e).slice(0, 160));
+            })));
           }
 
           return sendJSON({
@@ -105059,7 +105059,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // can die the same way — instead, EVERY */1 tick from 15:46 to 16:15
     // ET re-verifies and heals until one pass comes back fully clean (a
     // daily KV marker then short-circuits the rest, so this is normally
-    // one cheap pass). The lock inside runDcaSweepGuarded prevents
+    // one cheap pass). Do NOT mark clean on an empty window — that
+    // froze the 15:50 PLTR lot on 2026-09-11. The lock inside
+    // runDcaSweepGuarded prevents
     // concurrent passes double-firing channels. Mirror leg only runs
     // while RTH is open (Webull fractionals reject after close); a miss
     // after 16:00 is covered by the morning catch-up trust window.

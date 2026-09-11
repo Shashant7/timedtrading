@@ -6,6 +6,31 @@
 
 ---
 
+## PLTR Long Term ADD never hit the broker [2026-09-11]
+
+**Symptom:** 3:50 PM ET email `+ PLTR · LONG TERM · ADD` (11.93 sh
+@ $167.67, `dca_pullback`). Model lot
+`lot-PLTR-dca-2026-09-11-dca_pullback` committed. `bridge:client:recent`
+had no PLTR row.
+
+**Cause:**
+1. `/timed/investor/dca/execute` fired `forwardInvestorMirror` via
+   `waitUntil`. The cron self-dispatch returned after lot + email;
+   the isolate died before `/bridge/order`.
+2. The 15:46–16:15 sweep marked the day clean when `lots.length===0`
+   (execute was still running). Later ticks skipped as `clean`, so
+   catch-up never placed. Stage is now `watch` + exhausted — without
+   the fresh-lot trust window the planner would also veto.
+
+**Fix:** Await DCA mirrors before `sendJSON`. Mark the sweep clean
+only when today's lots exist, catch-up actually ran, and planned=0
+(`dcaSweepShouldMarkClean`).
+
+**Do not:** Chase the add after a >5% bounce. Heal-sell TQQQ W36.
+Auto-apply proposal #74.
+
+---
+
 ## Index-trend broker miss + ghost EXIT heal [2026-09-11]
 
 **Symptom:** SHORT TERM TNA LONG email at 12:00 PM ET (30 sh, IWM
