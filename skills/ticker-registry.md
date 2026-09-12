@@ -70,6 +70,15 @@ exist.
   admin assigns one. That's fine; it is still scored and visible.
 - Never re-introduce a divergent list. New consumers MUST call
   `resolveScoringUniverse` (or read `/timed/tickers`), never re-union sources.
+- **Dead weight is a review list, not a delete job.** Names that never
+  produced a live trade (screener adds, broken orphans, idle core-map
+  names) are classified by `worker/dead-weight-tickers.js` from cheap
+  tables only. KEEP always includes open books, user slots, Newton
+  `TT_SELECTED`, and index/pulse/levered proxies. Do not auto-REMOVE.
+  Do not `GROUP BY ticker_candles` to build the list. Snapshot:
+  [`docs/dead-weight-tickers-2026-09-12.md`](../docs/dead-weight-tickers-2026-09-12.md).
+  Trimming the book does not fix D1 read overage
+  (`docs/d1-billing-investigation-2026-06-22.md`).
 
 ## Verify
 
