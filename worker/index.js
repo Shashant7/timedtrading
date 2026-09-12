@@ -319,6 +319,7 @@ export { BacktestRunner } from "./backtest-runner-do.js";
 export { CandleChainShard } from "./foundation/candle-chain-do.js";
 export { DeltaOneStream } from "./discovery/delta-one-stream.js";
 import { candleShardStub as _candleShardStub } from "./foundation/candle-chain-do.js";
+import { prepareHtCandleWrite as _prepareHtCandleWrite } from "./foundation/candle-chain.js";
 // Phase 2 seam: chain-backed getCandles for shadow scoring (live-vs-chain diff).
 import { makeChainGetCandles as _makeChainGetCandles, getSeriesFromBases as _getSeriesFromBases, makeHybridGetCandles as _makeHybridGetCandles, HYBRID_CHAIN_TFS as _HYBRID_CHAIN_TFS, resolveScoreGetCandles as _resolveScoreGetCandles } from "./foundation/chain-series-adapter.js";
 // Market cycle (replay-parity) + per-index benchmark mapping + breadth-aware backdrop.
@@ -40686,8 +40687,10 @@ async function d1UpsertCandle(env, ticker, tf, candle) {
   const tfKey = normalizeTfKey(tf);
   if (!sym || !tfKey) return { ok: false, error: "bad_params" };
 
-  const ts = Number(candle?.ts);
-  if (!Number.isFinite(ts)) return { ok: false, error: "bad_ts" };
+  const rawTs = Number(candle?.ts);
+  if (!Number.isFinite(rawTs)) return { ok: false, error: "bad_ts" };
+  const write = _prepareHtCandleWrite(tfKey, rawTs);
+  const ts = write.ts;
   const o = Number(candle?.o);
   const h = Number(candle?.h);
   const l = Number(candle?.l);
@@ -40729,6 +40732,12 @@ async function d1UpsertCandle(env, ticker, tf, candle) {
         throw sessionErr;
       }
     }
+    if (write.siblingFrom != null) {
+      await db.prepare(
+        `DELETE FROM ticker_candles
+          WHERE ticker = ?1 AND tf = ?2 AND ts >= ?3 AND ts < ?4 AND ts != ?5`,
+      ).bind(sym, tfKey, write.siblingFrom, write.siblingTo, ts).run().catch(() => {});
+    }
     return { ok: true };
   } catch (err) {
     console.error(`[D1 CANDLES] Upsert failed for ${sym} ${tfKey}:`, err);
@@ -40757,6 +40766,8 @@ async function d1UpsertIngestCandle(env, ticker, tf, price, tsMs) {
   if (!sym || !tfKey || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tsMs)) return { ok: false };
   try {
     await d1EnsureCandleSchema(env);
+    const write = _prepareHtCandleWrite(tfKey, tsMs);
+    const snapped = write.ts;
     await db.prepare(
       `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8)
@@ -40765,7 +40776,13 @@ async function d1UpsertIngestCandle(env, ticker, tf, price, tsMs) {
          l = MIN(ticker_candles.l, excluded.l),
          c = excluded.c,
          updated_at = excluded.updated_at`
-    ).bind(sym, tfKey, tsMs, price, price, price, price, Date.now()).run();
+    ).bind(sym, tfKey, snapped, price, price, price, price, Date.now()).run();
+    if (write.siblingFrom != null) {
+      await db.prepare(
+        `DELETE FROM ticker_candles
+          WHERE ticker = ?1 AND tf = ?2 AND ts >= ?3 AND ts < ?4 AND ts != ?5`,
+      ).bind(sym, tfKey, write.siblingFrom, write.siblingTo, snapped).run().catch(() => {});
+    }
     return { ok: true };
   } catch (err) {
     console.warn(`[INGEST CANDLE] ${sym} ${tfKey} upsert failed:`, String(err).slice(0, 100));
@@ -54123,16 +54140,18 @@ export default {
               : [candleOrArray];
             for (const candle of candles) {
               if (!candle || typeof candle !== "object") continue;
-              const ts = Number(candle.ts);
+              const rawTs = Number(candle.ts);
               const o = Number(candle.o);
               const h = Number(candle.h);
               const l = Number(candle.l);
               const c = Number(candle.c);
               const v = candle.v != null ? Number(candle.v) : null;
-              if (!Number.isFinite(ts) || ![o, h, l, c].every(x => Number.isFinite(x))) {
+              if (!Number.isFinite(rawTs) || ![o, h, l, c].every(x => Number.isFinite(x))) {
                 errCount++;
                 continue;
               }
+              const write = _prepareHtCandleWrite(tfKey, rawTs);
+              const ts = write.ts;
               stmts.push(
                 db.prepare(
                   `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
@@ -54142,6 +54161,14 @@ export default {
                      updated_at=excluded.updated_at`
                 ).bind(ticker, tfKey, ts, o, h, l, c, v, updatedAt)
               );
+              if (write.siblingFrom != null) {
+                stmts.push(
+                  db.prepare(
+                    `DELETE FROM ticker_candles
+                      WHERE ticker = ?1 AND tf = ?2 AND ts >= ?3 AND ts < ?4 AND ts != ?5`,
+                  ).bind(ticker, tfKey, write.siblingFrom, write.siblingTo, ts)
+                );
+              }
             }
           }
 

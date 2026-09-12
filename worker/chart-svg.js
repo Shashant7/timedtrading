@@ -82,6 +82,24 @@ function _utcDayKey(ts) {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
+function _nyDayKey(ts) {
+  try {
+    return new Date(Number(ts)).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  } catch (_) {
+    return "";
+  }
+}
+
+function _preferLaterBar(prev, next) {
+  if (!prev) return next;
+  const prevTs = Number(prev.ts) || 0;
+  const nextTs = Number(next.ts) || 0;
+  const prevV = Number(prev.v) || 0;
+  const nextV = Number(next.v) || 0;
+  if (nextTs > prevTs || (nextTs === prevTs && nextV > prevV)) return next;
+  return prev;
+}
+
 /**
  * Daily/weekly D1 rows sometimes carry two stamps for the same
  * session (00:00 UTC and 04:00 UTC) with the same OHLC. AMAT's
@@ -102,22 +120,22 @@ export function collapseChartCandles(candles, tf) {
     }
     return out;
   }
-  const byDay = new Map();
+  const byUtc = new Map();
   for (const c of list) {
-    const ts = Number(c.ts);
-    const key = _utcDayKey(ts);
+    const key = _utcDayKey(c.ts);
     if (!key) continue;
-    const prev = byDay.get(key);
-    if (!prev) {
-      byDay.set(key, c);
-      continue;
-    }
-    const prevTs = Number(prev.ts) || 0;
-    const prevV = Number(prev.v) || 0;
-    const nextV = Number(c.v) || 0;
-    if (ts > prevTs || (ts === prevTs && nextV > prevV)) byDay.set(key, c);
+    byUtc.set(key, _preferLaterBar(byUtc.get(key), c));
   }
-  return [...byDay.values()].sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+  const mid = [...byUtc.values()].sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+  const out = [];
+  for (const c of mid) {
+    const prev = out[out.length - 1];
+    const sameNy = prev && _nyDayKey(prev.ts) && _nyDayKey(prev.ts) === _nyDayKey(c.ts);
+    const closeInTime = prev && Math.abs(Number(c.ts) - Number(prev.ts)) <= 12 * 3600000;
+    if (prev && sameNy && closeInTime) out[out.length - 1] = _preferLaterBar(prev, c);
+    else out.push(c);
+  }
+  return out;
 }
 
 /**

@@ -5853,7 +5853,10 @@ export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
 /**
  * Deduplicate candles so there is at most one per calendar period.
  *
- * For Daily: one candle per calendar date (UTC).
+ * For Daily: one candle per UTC day, plus same-NY-day stamps
+ * within 12 hours (close print + late twin). 00:00Z and 04:00Z
+ * of the same UTC day collapse; consecutive TwelveData midnights
+ * do not.
  * For Weekly: one candle per ISO week.
  * For Monthly: one candle per year-month.
  * For intraday: deduplicate by exact timestamp (safety net).
@@ -5907,13 +5910,23 @@ export function deduplicateCandles(candles, tf) {
   const upperTf = String(tf).toUpperCase();
 
   if (upperTf === "D" || upperTf === "1D" || upperTf === "DAY") {
-    const byDate = new Map();
+    const DAY_MS = 86400000;
+    const byUtc = new Map();
     for (const c of candles) {
-      const key = nyTradingDayKey(c.ts);
-      if (!key) continue;
-      byDate.set(key, _mergeOhlcCandle(byDate.get(key), c));
+      if (!Number.isFinite(Number(c?.ts))) continue;
+      const key = Math.floor(Number(c.ts) / DAY_MS) * DAY_MS;
+      byUtc.set(key, _mergeOhlcCandle(byUtc.get(key), c));
     }
-    return [...byDate.values()].sort((a, b) => a.ts - b.ts);
+    const mid = [...byUtc.values()].sort((a, b) => a.ts - b.ts);
+    const out = [];
+    for (const c of mid) {
+      const prev = out[out.length - 1];
+      const sameNy = prev && nyTradingDayKey(prev.ts) && nyTradingDayKey(prev.ts) === nyTradingDayKey(c.ts);
+      const closeInTime = prev && Math.abs(Number(c.ts) - Number(prev.ts)) <= 12 * 3600000;
+      if (prev && sameNy && closeInTime) out[out.length - 1] = _mergeOhlcCandle(prev, c);
+      else out.push(c);
+    }
+    return out;
   }
 
   if (upperTf === "W" || upperTf === "1W" || upperTf === "WEEK") {

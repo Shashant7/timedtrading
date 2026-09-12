@@ -17,6 +17,15 @@ describe("deduplicateCandles", () => {
     expect(out[0].l).toBe(49);
   });
 
+  it("merges TwelveData 00:00Z and Alpaca 04:00Z stamps of the same UTC day", () => {
+    const midnightUtc = { ts: Date.UTC(2026, 5, 22, 0, 0, 0), o: 626.22, h: 641.18, l: 620.69, c: 640.18 };
+    const midnightEt = { ts: Date.UTC(2026, 5, 22, 4, 0, 0), o: 626.22, h: 641.18, l: 620.69, c: 640.18 };
+    expect(nyTradingDayKey(midnightUtc.ts)).not.toBe(nyTradingDayKey(midnightEt.ts));
+    const out = deduplicateCandles([midnightUtc, midnightEt], "D");
+    expect(out).toHaveLength(1);
+    expect(out[0].c).toBe(640.18);
+  });
+
   it("dedupes intraday bars by exact timestamp", () => {
     const a = { ts: 1000, o: 1, h: 2, l: 0.5, c: 1.5 };
     const b = { ts: 1000, o: 9, h: 9, l: 9, c: 9 };
