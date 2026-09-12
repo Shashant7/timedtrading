@@ -35,6 +35,7 @@ describe("classifyDeadWeightTicker", () => {
     expect(classifyDeadWeightTicker({ ticker: "SPY" }, NOW).bucket).toBe("KEEP");
     expect(classifyDeadWeightTicker({ ticker: "FOO", isUserSlot: true }, NOW).reason).toBe("user_slot");
     expect(classifyDeadWeightTicker({ ticker: "ALL", isPriorityPick: true }, NOW).reason).toBe("priority_pick");
+    expect(classifyDeadWeightTicker({ ticker: "DDOG", isUptick: true }, NOW).reason).toBe("upticks_overlay");
     expect(isStructuralProxy("TNA")).toBe(true);
     expect(classifyDeadWeightTicker({ ticker: "BAR", openLiveTrades: 1 }, NOW).bucket).toBe("KEEP");
     expect(classifyDeadWeightTicker({ ticker: "BAZ", openInvestor: true }, NOW).reason).toBe("open_investor");
@@ -91,7 +92,7 @@ describe("classifyDeadWeightTicker", () => {
       hasProfile: true,
       hasUsableScore: true,
       liveTradeCount: 0,
-    }, NOW)).toMatchObject({ bucket: "DEAD", reason: "unused_add" });
+    }, NOW)).toMatchObject({ bucket: "WATCH", reason: "registry_never_traded" });
   });
 
   it("marks a broken core-map name with no trades as DEAD", () => {

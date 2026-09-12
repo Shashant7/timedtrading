@@ -21,7 +21,7 @@ import {
 import { backfill as tdBackfill } from "./data-provider.js";
 import { normalizeLearnedTickerProfile } from "./profile-resolution.js";
 
-import { SECTOR_MAP, SECTOR_ETF_MAP, getSector } from "./sector-mapping.js";
+import { SECTOR_MAP, SECTOR_ETF_MAP, getSector, pickTickerSector } from "./sector-mapping.js";
 
 // ─── KV helpers ──────────────────────────────────────────────────────────────
 
@@ -196,7 +196,7 @@ function r4(v) { return Number.isFinite(v) ? Math.round(v * 10000) / 10000 : 0; 
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function computeFingerprint(dailyCandles, moves, ticker) {
-  const sector = getSector(ticker) || "Unknown";
+  const sector = pickTickerSector(ticker) || getSector(ticker) || "Unknown";
   const closes = dailyCandles.map(b => b.c);
   const atr = atrSeries(dailyCandles, 14);
 

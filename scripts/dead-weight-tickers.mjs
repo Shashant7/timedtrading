@@ -65,6 +65,7 @@ tickers.delete("");
 const profiles = new Set(profileRows.map((r) => up(r.ticker)));
 const users = new Set(userRows.filter((r) => !r.deleted_at).map((r) => up(r.ticker)));
 const priority = new Set((dump.priorityPicks || []).map(up));
+const upticks = new Set((dump.upticks || dump.priorityPicks || []).map(up));
 
 const latestBy = new Map();
 for (const r of latestRows) {
@@ -104,6 +105,8 @@ const facts = [...tickers].sort().map((ticker) => {
     inSectorMap: sectorKeys.has(ticker),
     isUserSlot: users.has(ticker),
     isPriorityPick: priority.has(ticker),
+    isUptick: upticks.has(ticker),
+    isTtSelected: priority.has(ticker),
     hasProfile: profiles.has(ticker),
     hasUsableScore: hasUsableLatestScore(latest),
     openLiveTrades: tr.openLiveTrades || 0,

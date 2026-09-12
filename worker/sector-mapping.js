@@ -1,5 +1,6 @@
-// Sector Mapping — 230-ticker active universe
-// Maps tickers to their GICS sectors
+// Sector Mapping — registry-complete GICS (+ ETF / crypto sleeves)
+// Every ticker_index / timed:tickers name must resolve here. TT Selected
+// (Upticks + GRNY/GRNJ/GRNI) is a sentiment overlay, not the only scored set.
 
 import {
   getEffectiveSectorRating,
@@ -29,6 +30,11 @@ const SECTOR_MAP = {
   'KWEB': 'Consumer Discretionary',
   'XYZ': 'Consumer Discretionary',
   'GRNY': 'Consumer Discretionary',
+  'ABNB': 'Consumer Discretionary',
+  'DKS': 'Consumer Discretionary',
+  'GME': 'Consumer Discretionary',
+  'SRAD': 'Consumer Discretionary',
+  'VSXY': 'Consumer Discretionary',
 
   // Consumer Staples
   'KO': 'Consumer Staples',
@@ -90,6 +96,18 @@ const SECTOR_MAP = {
   'QXO': 'Industrials',
   'NOC': 'Industrials',
   'RKLB': 'Industrials',
+  // 2026-09-12 — Delta is a live Newton Uptick; was theme-only (travel_leisure).
+  'DAL': 'Industrials',
+  'ALNT': 'Industrials',
+  'LMT': 'Industrials',
+  'LUNR': 'Industrials',
+  'MOD': 'Industrials',
+  'NVT': 'Industrials',
+  'VRT': 'Industrials',
+  'EOSE': 'Industrials',
+  'ECHO': 'Industrials',
+  'PL': 'Industrials',
+  'SMR': 'Industrials',
 
   // Information Technology
   'ACN': 'Information Technology',
@@ -145,6 +163,13 @@ const SECTOR_MAP = {
   'CSCO': 'Information Technology',
   'LRCX': 'Information Technology',
   'CRWD': 'Information Technology',
+  // 2026-09-12 — Datadog added to Newton Upticks (Sep 2026). Was theme-only
+  // (ai_software), so scoring treated it as Unknown / dead-weight unused_add
+  // and D1 ticker_latest froze on 2026-08-27.
+  'DDOG': 'Information Technology',
+  // 2026-09-12 — Atlassian. Same theme-only hole; live gate could see it
+  // but sector/type stayed unknown.
+  'TEAM': 'Information Technology',
   'QLYS': 'Information Technology',
   'PEGA': 'Information Technology',
   'IOT': 'Information Technology',
@@ -162,6 +187,34 @@ const SECTOR_MAP = {
   'AEHR': 'Information Technology',
   'SNDK': 'Information Technology',
   'NBIS': 'Information Technology',
+  // 2026-09-12 — registry names that scored Unknown (theme-only or ETF auto-add).
+  'AAOI': 'Information Technology',
+  'ALAB': 'Information Technology',
+  'AMKR': 'Information Technology',
+  'BDC': 'Information Technology',
+  'CIEN': 'Information Technology',
+  'CRDO': 'Information Technology',
+  'DRAM': 'Information Technology',
+  'ENPH': 'Information Technology',
+  'ESTC': 'Information Technology',
+  'FORM': 'Information Technology',
+  'FSLY': 'Information Technology',
+  'FTNT': 'Information Technology',
+  'HIMX': 'Information Technology',
+  'MKSI': 'Information Technology',
+  'MRVL': 'Information Technology',
+  'NET': 'Information Technology',
+  'OKTA': 'Information Technology',
+  'P': 'Information Technology',
+  'RBRK': 'Information Technology',
+  'RMBS': 'Information Technology',
+  'SEDG': 'Information Technology',
+  'TENB': 'Information Technology',
+  'TTMI': 'Information Technology',
+  'VICR': 'Information Technology',
+  'ZETA': 'Information Technology',
+  'ZM': 'Information Technology',
+  'ZS': 'Information Technology',
 
   // Communication Services
   'META': 'Communication Services',
@@ -172,6 +225,9 @@ const SECTOR_MAP = {
   'TWLO': 'Communication Services',
   'SPOT': 'Communication Services',
   'U': 'Communication Services',
+  'IRDM': 'Communication Services',
+  'CBRS': 'Communication Services',
+  'DUOL': 'Communication Services',
 
   // Basic Materials
   'ALB': 'Basic Materials',
@@ -189,6 +245,8 @@ const SECTOR_MAP = {
   'AA': 'Basic Materials',
   'GOLD': 'Basic Materials',
   'UUUU': 'Basic Materials',
+  'AG': 'Basic Materials',
+  'FCX': 'Basic Materials',
 
   // Energy
   'VST': 'Energy',
@@ -205,6 +263,16 @@ const SECTOR_MAP = {
   'TPL': 'Energy',
   'AR': 'Energy',
   'XOM': 'Energy',
+  'LEU': 'Energy',
+  'NXE': 'Energy',
+  'OKLO': 'Energy',
+  'SOC': 'Energy',
+
+  // Utilities — was empty; CEG/NEE lived in themes only.
+  'CEG': 'Utilities',
+
+  // Real Estate — was empty; IRM/EQIX/DLR lived in themes only.
+  'IRM': 'Real Estate',
 
   // Financials
   'JPM': 'Financials',
@@ -221,6 +289,12 @@ const SECTOR_MAP = {
   'BRK-B': 'Financials',
   'COIN': 'Financials',
   'LMND': 'Financials',
+  // 2026-09-12 — Allstate is a live Newton Uptick; was missing from the map
+  // so scoring stamped Unknown and conviction treated it as untyped.
+  'ALL': 'Financials',
+  'BNY': 'Financials',
+  'CFR': 'Financials',
+  'RKT': 'Financials',
 
   // Health Care
   'AMGN': 'Health Care',
@@ -239,6 +313,13 @@ const SECTOR_MAP = {
   'TEM': 'Health Care',
   'BMNR': 'Health Care',
   'CRWV': 'Health Care',
+  'COO': 'Health Care',
+  'ERAS': 'Health Care',
+  'IDYA': 'Health Care',
+  'NBIX': 'Health Care',
+  'NTRA': 'Health Care',
+  'PGEN': 'Health Care',
+  'SLS': 'Health Care',
 
   // Crypto-Related
   'BTCUSD': 'Crypto',
@@ -246,6 +327,8 @@ const SECTOR_MAP = {
   'GLXY': 'Crypto',
   'RIOT': 'Crypto',
   'ETHA': 'Crypto',
+  'CIFR': 'Crypto',
+  'WULF': 'Crypto',
 
   // Precious Metals
   'GDX': 'Precious Metals',
@@ -265,6 +348,7 @@ const SECTOR_MAP = {
   'TNA': 'Index ETF',
   'SPHB': 'Index ETF',
   'RPG':  'Index ETF',
+  'SPYU': 'Index ETF',
 
   // Sector ETFs (mirror underlying sector, double-counts vs sector
   // names so cap should be aware of overlap).
@@ -303,6 +387,7 @@ const SECTOR_MAP = {
   // September 2026 sector-allocation theme sleeve (15% bucket)
   'XOP':  'Thematic ETF',  // SPDR S&P Oil & Gas E&P — Energy sleeve
   'IHE':  'Thematic ETF',  // iShares U.S. Pharmaceuticals
+  'SKHY': 'Thematic ETF',  // thin listing; keep a real sleeve so scoring is not Unknown
 
   // Commodity & Volatility ETFs (futures equivalents)
   'GLD': 'Commodity ETF',
@@ -314,6 +399,9 @@ const SECTOR_MAP = {
   // in worker/futures-proxy.js to have data when TV alerts pause.
   'UNG':  'Commodity ETF',
   'CPER': 'Commodity ETF',
+  // 2026-09-12 — DBA is a live Newton Uptick and was missing from both
+  // SECTOR_MAP and D1 ticker_index (the book could not see it).
+  'DBA': 'Commodity ETF',
 
 };
 
@@ -343,8 +431,115 @@ const SECTOR_RATINGS = {
   'Precious Metals':          { rating: 'neutral',     boost: 0  },
 };
 
+const CANONICAL_SECTORS = new Set([
+  "Information Technology",
+  "Health Care",
+  "Financials",
+  "Consumer Discretionary",
+  "Consumer Staples",
+  "Communication Services",
+  "Industrials",
+  "Energy",
+  "Utilities",
+  "Real Estate",
+  "Basic Materials",
+  "Index ETF",
+  "Sector ETF",
+  "Thematic ETF",
+  "Commodity ETF",
+  "Crypto",
+  "Precious Metals",
+  "ETF",
+]);
+
+const SECTOR_ALIASES = {
+  "information technology": "Information Technology",
+  technology: "Information Technology",
+  tech: "Information Technology",
+  "technology services": "Information Technology",
+  semiconductors: "Information Technology",
+  semiconductor: "Information Technology",
+  software: "Information Technology",
+  "health care": "Health Care",
+  healthcare: "Health Care",
+  health: "Health Care",
+  financials: "Financials",
+  "financial services": "Financials",
+  financial: "Financials",
+  banks: "Financials",
+  "consumer discretionary": "Consumer Discretionary",
+  "consumer cyclical": "Consumer Discretionary",
+  retail: "Consumer Discretionary",
+  "consumer staples": "Consumer Staples",
+  "consumer defensive": "Consumer Staples",
+  "communication services": "Communication Services",
+  communications: "Communication Services",
+  communication: "Communication Services",
+  industrials: "Industrials",
+  industrial: "Industrials",
+  energy: "Energy",
+  utilities: "Utilities",
+  utility: "Utilities",
+  "real estate": "Real Estate",
+  materials: "Basic Materials",
+  "basic materials": "Basic Materials",
+  "basic material": "Basic Materials",
+  "index etf": "Index ETF",
+  "sector etf": "Sector ETF",
+  "thematic etf": "Thematic ETF",
+  "commodity etf": "Commodity ETF",
+  commodities: "Commodity ETF",
+  commodity: "Commodity ETF",
+  crypto: "Crypto",
+  cryptocurrency: "Crypto",
+  "precious metals": "Precious Metals",
+  "precious metal": "Precious Metals",
+  etf: "Thematic ETF",
+};
+
+function isUnknownSector(value) {
+  const s = String(value || "").trim();
+  if (!s) return true;
+  return /^(unknown|none|n\/?a|\(none\)|-)$/i.test(s);
+}
+
+function normalizeSectorLabel(raw) {
+  if (isUnknownSector(raw)) return null;
+  const trimmed = String(raw).trim();
+  if (CANONICAL_SECTORS.has(trimmed)) return trimmed;
+  return SECTOR_ALIASES[trimmed.toLowerCase()] || null;
+}
+
+function pickTickerSector(ticker, hints = {}) {
+  const t = String(ticker || "").toUpperCase();
+  const candidates = [
+    hints.mapSector,
+    t ? SECTOR_MAP[t] : null,
+    hints.kvSector,
+    hints.holdingsSector,
+    hints.profileSector,
+    hints.payloadSector,
+    hints.metadataSector,
+  ];
+  for (const c of candidates) {
+    const n = normalizeSectorLabel(c);
+    if (n) return n;
+  }
+  return null;
+}
+
+function stampResolvedSector(ticker, obj, hints = {}) {
+  if (!obj || typeof obj !== "object") return obj;
+  const sector = pickTickerSector(ticker, { ...hints, payloadSector: obj.sector });
+  if (sector) {
+    obj.sector = sector;
+    obj._sector = sector;
+  }
+  return obj;
+}
+
 function getSector(ticker) {
-  return SECTOR_MAP[ticker?.toUpperCase()] || null;
+  return pickTickerSector(ticker);
 }
 
 function getSectorRating(sector) {
@@ -575,6 +770,9 @@ const TICKER_TYPE_MAP = {
   // Commodity ETFs
   'GLD': 'commodity_etf', 'SLV': 'commodity_etf',
   'USO': 'commodity_etf', 'VIXY': 'commodity_etf',
+  'DBA': 'commodity_etf',
+  'SPYU': 'broad_etf',
+  'SKHY': 'thematic_etf',
 
   // Crypto-adjacent equities
   'MSTR': 'crypto_adj', 'COIN': 'crypto_adj', 'HOOD': 'crypto_adj',
@@ -594,12 +792,17 @@ const TICKER_TYPE_MAP = {
   'RBLX': 'growth', 'IONQ': 'growth', 'APP': 'growth', 'HIMS': 'growth',
   'SOFI': 'growth', 'RDDT': 'growth', 'CVNA': 'growth', 'JOBY': 'growth',
   'RKLB': 'growth', 'NBIS': 'growth', 'IREN': 'growth', 'APLD': 'growth',
-  'CRWD': 'growth', 'PANW': 'growth', 'MDB': 'growth', 'PATH': 'growth',
+  'CRWD': 'growth', 'DDOG': 'growth', 'TEAM': 'growth',
+  'NET': 'growth', 'ZS': 'growth', 'OKTA': 'growth', 'FTNT': 'growth',
+  'CRDO': 'growth', 'ALAB': 'growth', 'MRVL': 'growth', 'ABNB': 'growth',
+  'PANW': 'growth', 'MDB': 'growth', 'PATH': 'growth',
   'NFLX': 'growth', 'AVGO': 'growth', 'ANET': 'growth', 'META': 'growth',
   'TWLO': 'growth', 'FSLR': 'growth', 'BE': 'growth',
 
   // Value / Defensive
   'WMT': 'value', 'COST': 'value', 'KO': 'value', 'BRK-B': 'value',
+  'ALL': 'value', 'CEG': 'value', 'IRM': 'value', 'LMT': 'value',
+  'DAL': 'large_cap',
   'JPM': 'value', 'GS': 'value', 'PNC': 'value', 'ALLY': 'value',
   'MSFT': 'value', 'AAPL': 'value', 'GOOGL': 'value',
   'UNH': 'value', 'AMGN': 'value', 'GILD': 'value',
@@ -625,9 +828,12 @@ function getTickerType(ticker) {
   const t = ticker?.toUpperCase();
   if (!t) return 'unknown';
   if (TICKER_TYPE_MAP[t]) return TICKER_TYPE_MAP[t];
-  const sector = SECTOR_MAP[t];
+  const sector = pickTickerSector(t);
   if (!sector) return 'unknown';
-  if (sector === 'ETF') return 'broad_etf';
+  if (sector === 'ETF' || sector === 'Index ETF') return 'broad_etf';
+  if (sector === 'Sector ETF') return 'sector_etf';
+  if (sector === 'Thematic ETF') return 'thematic_etf';
+  if (sector === 'Commodity ETF') return 'commodity_etf';
   if (sector === 'Crypto') return 'crypto';
   if (sector === 'Precious Metals') return 'precious_metal';
   return 'large_cap';
@@ -737,6 +943,7 @@ module.exports = {
   TICKER_TYPE_MAP,
   TICKER_PROXY_MAP,
   THEMES,
+  CANONICAL_SECTORS,
   getSector,
   getSectorRating,
   getSectorETF,
@@ -744,6 +951,10 @@ module.exports = {
   getAllSectors,
   getTickerType,
   getProxies,
+  isUnknownSector,
+  normalizeSectorLabel,
+  pickTickerSector,
+  stampResolvedSector,
   // 2026-05-28 — Discovery Phase 3 theme helpers
   getThemesForTicker,
   getTickersInTheme,

@@ -60,7 +60,10 @@ done
 
 If a name is missing from `SECTOR_MAP`, add the GICS sector in
 `worker/sector-mapping.js` in the same PR (do not leave KV as
-"Technology Services" / Bloomberg-style labels).
+"Technology Services" / Bloomberg-style labels). Sep 2026: `ALL` /
+`DAL` were live Upticks with no map row; `DBA` was also missing from
+D1 `ticker_index`. Adding the GICS row puts the name in the core
+scoring universe.
 
 ## Fast-track weighting
 
@@ -70,18 +73,26 @@ Conviction uses:
   scoring cron from `timed:admin:upticks`)
 - `+15` when in `TT_SELECTED` / `TT_SELECTED_DEFAULT`
 
-After a monthly rotation, update **both** hardcoded sets to match the
-live KV list so cold isolates and backtest-safe defaults stay aligned.
+After a monthly rotation, update **`TT_SELECTED_DEFAULT`** in
+`worker/focus-tier.js` (index.js aliases it — do not fork a second
+Set). Then rescore every add. A KV-only sync without the code list
+leaves new names at +0 curated / frozen D1 scores (DDOG Sep 2026:
+on the live list, last `ticker_latest.ts` 2026-08-27, dead-weight
+classified it as an unused add).
+
+`worker/upticks-alignment.js` `diffUpticksAlignment(live, hardcoded)`
+is the check. Adds also need a GICS row in `worker/sector-mapping.js`
+— theme membership is not enough (DDOG/TEAM were `ai_software` only).
 
 ## Verify
 
 ```bash
 curl -s "${LIVE}/timed/admin/upticks" -H "X-API-Key: ${TIMED_API_KEY}" | jq .
-curl -s -X POST "${LIVE}/timed/admin/rescore-ticker?ticker=VLO" \
+curl -s -X POST "${LIVE}/timed/admin/rescore-ticker?ticker=DDOG" \
   -H "X-API-Key: ${TIMED_API_KEY}" -H 'content-type: application/json' -d '{}' | jq .
-# expect has_W/has_M true, sector Energy, non-null rank
+# expect sector Information Technology, non-null rank, fresh ts
 
-curl -s "${LIVE}/timed/admin/entry-explain?ticker=VLO" \
+curl -s "${LIVE}/timed/admin/entry-explain?ticker=DDOG" \
   -H "X-API-Key: ${TIMED_API_KEY}" | jq '.diag|{conviction,tier,focus_bonuses,in_upticks,in_tt_selected}'
 # expect upticks:10, tt_selected:15, in_upticks/in_tt_selected true
 ```

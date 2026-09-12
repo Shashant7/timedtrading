@@ -59,6 +59,8 @@ export function hasUsableLatestScore(latest) {
  * @param {boolean} [facts.inSectorMap]
  * @param {boolean} [facts.isUserSlot]
  * @param {boolean} [facts.isPriorityPick]
+ * @param {boolean} [facts.isUptick]
+ * @param {boolean} [facts.isTtSelected]
  * @param {boolean} [facts.hasProfile]
  * @param {boolean} [facts.hasUsableScore]
  * @param {number} [facts.openLiveTrades]
@@ -74,6 +76,8 @@ export function classifyDeadWeightTicker(facts = {}, now = Date.now()) {
   const inSectorMap = !!facts.inSectorMap;
   const isUserSlot = !!facts.isUserSlot;
   const isPriorityPick = !!facts.isPriorityPick;
+  const isUptick = !!facts.isUptick;
+  const isTtSelected = !!facts.isTtSelected;
   const hasProfile = !!facts.hasProfile;
   const hasUsableScore = !!facts.hasUsableScore;
   const openLive = Number(facts.openLiveTrades) || 0;
@@ -88,6 +92,7 @@ export function classifyDeadWeightTicker(facts = {}, now = Date.now()) {
 
   if (proxy) keep.push("structural_proxy");
   if (isPriorityPick) keep.push("priority_pick");
+  if (isUptick || isTtSelected) keep.push("upticks_overlay");
   if (isUserSlot) keep.push("user_slot");
   if (openLive > 0) keep.push("open_live_trade");
   if (openInvestor) keep.push("open_investor");
@@ -114,8 +119,12 @@ export function classifyDeadWeightTicker(facts = {}, now = Date.now()) {
     || (lastEntry > 0 && (now - lastEntry) > WATCH_IDLE_MS);
   const healthy = hasProfile && hasUsableScore;
 
-  if (inSectorMap && healthy && idle) {
-    reasons.push(liveCount === 0 ? "core_never_traded" : "core_idle_365d");
+  if (healthy && idle) {
+    reasons.push(
+      liveCount === 0
+        ? (inSectorMap ? "core_never_traded" : "registry_never_traded")
+        : (inSectorMap ? "core_idle_365d" : "registry_idle_365d"),
+    );
     return {
       ticker,
       bucket: "WATCH",
