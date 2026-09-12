@@ -45,6 +45,7 @@ const COLORS = {
   entryLine: "#ffffff",
   slLine: "#f43f5e",
   tpLine: "#00c853",
+  trendLine: "#a78bfa",
 };
 
 function _fmtPrice(n) {
@@ -81,12 +82,19 @@ function _fmtDateMMDD(ts) {
  * @param {number} [opts.sl]        Stop-loss annotation (red dashed)
  * @param {number} [opts.tp]        Take-profit annotation (green dashed)
  * @param {string} [opts.subtitle]  Small label below ticker (e.g. "Entry +1.4% · 14:22 ET")
+ * @param {string} [opts.style="line"]  `line` (trade alerts) or `candles` (gaps / weekend desk)
+ * @param {number} [opts.tl0]       Trendline price at the first visible bar
+ * @param {number} [opts.tl1]       Trendline price at the last visible bar
+ * @param {string} [opts.tlLabel]   Trendline role ("Support" / "Resistance")
+ * @param {string} [opts.levelLabel] Horizontal level role instead of "E"
  * @returns {string} SVG string
  */
 export function renderChartSvg(opts) {
   const candles = Array.isArray(opts?.candles) ? opts.candles.filter(c => c && Number.isFinite(Number(c.c))) : [];
   const ticker = String(opts?.ticker || "").toUpperCase();
   const tfLabel = _formatTfLabel(opts?.tf);
+  const styleRaw = String(opts?.style || "line").toLowerCase();
+  const candleStyle = styleRaw === "candles" || styleRaw === "candle" || styleRaw === "ohlc";
   /* 2026-06-01 — Strict positive-price guard for annotations.
 
      The DIA EXIT email rendered a flat-line chart with y-axis -25.69 to
@@ -109,6 +117,10 @@ export function renderChartSvg(opts) {
   const entry = _toPositivePrice(opts?.entry);
   const sl = _toPositivePrice(opts?.sl);
   const tp = _toPositivePrice(opts?.tp);
+  const tl0 = _toPositivePrice(opts?.tl0);
+  const tl1 = _toPositivePrice(opts?.tl1);
+  const tlLabel = String(opts?.tlLabel || opts?.tl_label || "").slice(0, 24);
+  const levelLabel = String(opts?.levelLabel || opts?.level_label || "").slice(0, 24);
   const subtitle = String(opts?.subtitle || "").slice(0, 80);
 
   // ── Empty-state ─────────────────────────────────────────────────────
@@ -136,7 +148,7 @@ export function renderChartSvg(opts) {
   const _maxAnnotDist = Math.max(_priceMid * 0.30, (priceMax - priceMin) * 4);
   const _annotIncluded = [];
   const _annotExcluded = [];
-  for (const [label, v] of [["entry", entry], ["sl", sl], ["tp", tp]]) {
+  for (const [label, v] of [["entry", entry], ["sl", sl], ["tp", tp], ["tl0", tl0], ["tl1", tl1]]) {
     if (v == null) continue;
     if (Math.abs(v - _priceMid) > _maxAnnotDist) {
       _annotExcluded.push({ label, value: v });
@@ -193,9 +205,10 @@ export function renderChartSvg(opts) {
   const annotations = [];
   if (_annotByLabel.entry != null) {
     const y = yFor(_annotByLabel.entry).toFixed(1);
+    const eLabel = levelLabel || "E";
     annotations.push(
       `<line x1="${PAD_LEFT}" x2="${PAD_LEFT + PLOT_W}" y1="${y}" y2="${y}" stroke="${COLORS.entryLine}" stroke-width="1.2" />`,
-      `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.entryLine}" text-anchor="end">E ${_fmtPrice(_annotByLabel.entry)}</text>`,
+      `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.entryLine}" text-anchor="end">${_escape(eLabel)} ${_fmtPrice(_annotByLabel.entry)}</text>`,
     );
   }
   if (_annotByLabel.sl != null) {
@@ -211,6 +224,24 @@ export function renderChartSvg(opts) {
       `<line x1="${PAD_LEFT}" x2="${PAD_LEFT + PLOT_W}" y1="${y}" y2="${y}" stroke="${COLORS.tpLine}" stroke-width="1" stroke-dasharray="4,3" />`,
       `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.tpLine}" text-anchor="end">TP ${_fmtPrice(_annotByLabel.tp)}</text>`,
     );
+  }
+  if (tl0 != null && tl1 != null) {
+    const xA = candleStyle
+      ? PAD_LEFT + (0.5 / candles.length) * PLOT_W
+      : xFor(0);
+    const xB = candleStyle
+      ? PAD_LEFT + ((candles.length - 0.5) / candles.length) * PLOT_W
+      : xFor(candles.length - 1);
+    const yA = yFor(tl0);
+    const yB = yFor(tl1);
+    annotations.push(
+      `<line x1="${xA.toFixed(1)}" y1="${yA.toFixed(1)}" x2="${xB.toFixed(1)}" y2="${yB.toFixed(1)}" stroke="${COLORS.trendLine}" stroke-width="1.6" />`,
+    );
+    if (tlLabel) {
+      annotations.push(
+        `<text x="${(xB - 4).toFixed(1)}" y="${(yB - 5).toFixed(1)}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.trendLine}" text-anchor="end">${_escape(tlLabel)} ${_fmtPrice(tl1)}</text>`,
+      );
+    }
   }
 
   // ── Y-axis labels (top + bottom) ────────────────────────────────────
@@ -246,14 +277,44 @@ export function renderChartSvg(opts) {
   ${header}
   ${subtitleEl}
   ${gridLines}
-  <path d="${areaPath}" fill="${lineColor}" opacity="0.10" />
-  <polyline points="${linePoints}" fill="none" stroke="${lineColor}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" />
+  ${candleStyle ? _renderCandleBodies(candles, xFor, yFor, PLOT_W) : `<path d="${areaPath}" fill="${lineColor}" opacity="0.10" /><polyline points="${linePoints}" fill="none" stroke="${lineColor}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" />`}
   ${annotations.join("")}
   ${yLabelTop}
   ${yLabelBot}
   ${xLabelLeft}
   ${xLabelRight}
 </svg>`;
+}
+
+function _ohlcOf(c) {
+  const close = Number(c?.c);
+  if (!Number.isFinite(close)) return null;
+  const open = Number.isFinite(Number(c.o)) ? Number(c.o) : close;
+  const high = Number.isFinite(Number(c.h)) ? Number(c.h) : Math.max(open, close);
+  const low = Number.isFinite(Number(c.l)) ? Number(c.l) : Math.min(open, close);
+  return { o: open, h: high, l: low, c: close };
+}
+
+function _renderCandleBodies(candles, _xFor, yFor, plotW) {
+  const n = candles.length;
+  const slot = plotW / Math.max(n, 1);
+  const bodyW = Math.max(1.2, Math.min(6.5, slot * 0.62));
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const bar = _ohlcOf(candles[i]);
+    if (!bar) continue;
+    const x = PAD_LEFT + (i + 0.5) * slot;
+    const yH = yFor(bar.h);
+    const yL = yFor(bar.l);
+    const yO = yFor(bar.o);
+    const yC = yFor(bar.c);
+    const color = bar.c >= bar.o ? COLORS.upColor : COLORS.downColor;
+    parts.push(
+      `<line x1="${x.toFixed(1)}" y1="${yH.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yL.toFixed(1)}" stroke="${color}" stroke-width="1"/>`,
+      `<rect x="${(x - bodyW / 2).toFixed(1)}" y="${Math.min(yO, yC).toFixed(1)}" width="${bodyW.toFixed(1)}" height="${Math.max(1, Math.abs(yC - yO)).toFixed(1)}" fill="${color}"/>`,
+    );
+  }
+  return parts.join("");
 }
 
 function _formatTfLabel(tf) {

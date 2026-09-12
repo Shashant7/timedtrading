@@ -88766,6 +88766,12 @@ export default {
           const sl = Number(url.searchParams.get("sl")) || null;
           const tp = Number(url.searchParams.get("tp")) || null;
           const subtitle = String(url.searchParams.get("subtitle") || "").slice(0, 80);
+          const styleRaw = String(url.searchParams.get("style") || "line").toLowerCase();
+          const style = (styleRaw === "candles" || styleRaw === "candle" || styleRaw === "ohlc") ? "candles" : "line";
+          const tl0 = Number(url.searchParams.get("tl0")) || null;
+          const tl1 = Number(url.searchParams.get("tl1")) || null;
+          const tlLabel = String(url.searchParams.get("tl_label") || url.searchParams.get("tlLabel") || "").slice(0, 24);
+          const levelLabel = String(url.searchParams.get("level_label") || url.searchParams.get("levelLabel") || "").slice(0, 24);
 
           // Pull candles from D1 ticker_candles (cached by 5-min CF
           // cache header below). Latest N bars sorted ASC for the
@@ -88795,6 +88801,7 @@ export default {
 
           const svg = renderChartSvg({
             candles, ticker, tf: tfClean, entry, sl, tp, subtitle,
+            style, tl0, tl1, tlLabel, levelLabel,
           });
           return new Response(svg, {
             status: 200,
