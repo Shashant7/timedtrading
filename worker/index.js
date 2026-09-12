@@ -84731,7 +84731,8 @@ export default {
             email: wantEmail,
             forceEmail,
             compose: phase !== "rescore",
-            continueRescore: phase !== "rescore",
+            continueRescore: String(url.searchParams.get("continue") || body?.continue || "0") === "1"
+              || phase === "full",
             rescoreOffset: offset,
             rescoreLimit: limit,
             rescorePage: wantRescore ? (o) => rescoreStaleUniverse(env, o) : null,

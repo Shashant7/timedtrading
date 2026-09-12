@@ -16,6 +16,8 @@ import {
   watchPromotesToSetup,
   breakoutWatchLookForEntryCopy,
 } from "./breakout-watch.js";
+import { SECTOR_MAP } from "./sector-mapping.js";
+import { attachNewsSummary, loadNewsSummariesBatch } from "./discovery/news-tracker.js";
 
 export const WEEKEND_DESK_KV = "timed:weekend-desk:latest";
 export const WEEKEND_DESK_CURSOR_KV = "timed:weekend-desk:rescore-cursor";
@@ -46,6 +48,24 @@ function _n(v) {
 function _dir(v) {
   const s = String(v || "").toUpperCase();
   return s === "LONG" || s === "SHORT" ? s : null;
+}
+
+function voteDir(votes, dir) {
+  const d = _dir(dir);
+  if (d) votes.push(d);
+}
+
+/** Require two agreeing family votes so mixed ST/EMA/FVG notes do not invent a side. */
+export function consensusDir(votes = []) {
+  let long = 0;
+  let short = 0;
+  for (const v of votes) {
+    if (v === "LONG") long += 1;
+    else if (v === "SHORT") short += 1;
+  }
+  if (long >= 2 && long > short) return "LONG";
+  if (short >= 2 && short > long) return "SHORT";
+  return null;
 }
 
 function _esc(s) {
@@ -228,27 +248,27 @@ export function analyzeTickerForWeekendDesk(td, extras = {}) {
   const notes = [];
   const tags = [];
   const families = new Set();
+  const dirVotes = [];
   let score = 0;
-  let dir = _dir(watch?.dir) || _dir(flags.breakout_watch_dir) || _dir(flags.momentum_elite_dir);
 
   if (watch?.retest) {
     score += 22;
     tags.push("retest");
     families.add("trendline");
     notes.push(breakoutWatchLookForEntryCopy({ ...watch, retest: true }) || "Broken line retest — look for a good entry");
-    dir = dir || _dir(watch.dir);
+    voteDir(dirVotes, watch.dir);
   } else if (watchPromotesToSetup(watch) || flags.breakout_watch) {
     score += 18;
     tags.push("breakout");
     families.add("trendline");
     notes.push(breakoutWatchLookForEntryCopy(watch) || "Level or trendline breakout — look for a good entry");
-    dir = dir || _dir(watch?.dir);
+    voteDir(dirVotes, watch?.dir || flags.breakout_watch_dir);
   } else if (watch?.approaching || flags.breakout_approaching) {
     score += 10;
     tags.push("tl_watch");
     families.add("trendline");
     notes.push(breakoutWatchLookForEntryCopy(watch) || "Trendline nearby — watching for a break");
-    dir = dir || _dir(watch?.dir);
+    voteDir(dirVotes, watch?.dir || flags.breakout_watch_dir);
   }
 
   const holdTfs = holdTimeframes(flags);
@@ -264,8 +284,7 @@ export function analyzeTickerForWeekendDesk(td, extras = {}) {
     tags.push("st_magnet");
     families.add("supertrend");
     const magnet = td?.st_hold_setup?.magnet;
-    const side = _dir(magnet?.sideLabel || magnet?.side);
-    if (side) dir = dir || side;
+    voteDir(dirVotes, magnet?.sideLabel || magnet?.side);
     notes.push(`Flat SuperTrend magnet on ${magTfs.join("/") || "HTF"} — acting as a magnet`);
   }
   if (flags.st_flip_extended) {
@@ -282,8 +301,8 @@ export function analyzeTickerForWeekendDesk(td, extras = {}) {
     tags.push(regime != null && regime < 0 ? "ema_short" : "ema_long");
     families.add("ema");
     notes.push(...emaNotes.slice(0, 2));
-    if (regime != null && regime >= 2) dir = dir || "LONG";
-    if (regime != null && regime <= -2) dir = dir || "SHORT";
+    if (regime != null && regime >= 2) voteDir(dirVotes, "LONG");
+    if (regime != null && regime <= -2) voteDir(dirVotes, "SHORT");
   }
 
   const imbNotes = imbalanceNote(imb);
@@ -293,8 +312,8 @@ export function analyzeTickerForWeekendDesk(td, extras = {}) {
     tags.push("imbalance");
     families.add("imbalance");
     notes.push(...imbNotes);
-    if (imbDir.includes("LONG") || imbDir === "BULLISH_LEAN") dir = dir || "LONG";
-    if (imbDir.includes("SHORT") || imbDir === "BEARISH_LEAN") dir = dir || "SHORT";
+    if (imbDir.includes("LONG") || imbDir === "BULLISH_LEAN") voteDir(dirVotes, "LONG");
+    if (imbDir.includes("SHORT") || imbDir === "BEARISH_LEAN") voteDir(dirVotes, "SHORT");
   } else if ((flags.fvg_in_bull_D || 0) > 0) {
     score += 5;
     tags.push("fvg_support");
@@ -306,9 +325,8 @@ export function analyzeTickerForWeekendDesk(td, extras = {}) {
     score += 16;
     tags.push("momentum_elite");
     families.add("momentum");
-    const meDir = _dir(flags.momentum_elite_dir);
-    if (meDir) dir = dir || meDir;
-    notes.push(`Momentum Elite${meDir ? ` ${meDir}` : ""}`);
+    voteDir(dirVotes, flags.momentum_elite_dir);
+    notes.push(`Momentum Elite${_dir(flags.momentum_elite_dir) ? ` ${flags.momentum_elite_dir}` : ""}`);
   }
 
   const nNotes = newsNote(news);
@@ -319,8 +337,8 @@ export function analyzeTickerForWeekendDesk(td, extras = {}) {
     tags.push("news");
     families.add("news");
     notes.push(...nNotes.slice(0, 2));
-    if (dom === "bullish") dir = dir || "LONG";
-    if (dom === "bearish") dir = dir || "SHORT";
+    if (dom === "bullish") voteDir(dirVotes, "LONG");
+    if (dom === "bearish") voteDir(dirVotes, "SHORT");
   }
 
   const aNotes = analystNote(td);
@@ -360,11 +378,12 @@ export function analyzeTickerForWeekendDesk(td, extras = {}) {
   const familyList = [...families];
   const timedUptick = score >= UPTICK_MIN_SCORE && familyList.length >= UPTICK_MIN_FAMILIES;
   if (timedUptick) tags.unshift("timed_uptick");
+  const dir = consensusDir(dirVotes);
 
   return {
     ticker,
     score,
-    dir: dir || null,
+    dir,
     tags,
     families: familyList,
     notes: notes.slice(0, 6),
@@ -606,10 +625,47 @@ export async function loadPromotionCandidates(env) {
       seen.add(card.ticker);
       out.push(card);
     }
-    return out;
-  } catch (_) {
+    if (out.length) return out;
+  } catch (_) { /* fall through to raw screener */ }
+  return loadScreenerOutsideUniverse(env);
+}
+
+/** Fallback when the promotion queue is empty or every row is already tracked. */
+export async function loadScreenerOutsideUniverse(env) {
+  const KV = env?.KV_TIMED || env?.KV;
+  if (!KV) return [];
+  let parsed = null;
+  try {
+    const raw = await KV.get("timed:screener:candidates");
+    parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch {
     return [];
   }
+  const list = Array.isArray(parsed) ? parsed : (parsed?.candidates || []);
+  const universe = new Set(Object.keys(SECTOR_MAP || {}).map((s) => String(s).toUpperCase()));
+  try {
+    const reg = await KV.get("timed:tickers");
+    const arr = typeof reg === "string" ? JSON.parse(reg) : reg;
+    for (const t of (Array.isArray(arr) ? arr : (arr?.tickers || []))) {
+      const sym = String(t || "").toUpperCase();
+      if (sym) universe.add(sym);
+    }
+  } catch (_) { /* registry optional */ }
+  const seen = new Set();
+  const out = [];
+  for (const c of list) {
+    const ticker = String(c?.ticker || c?.symbol || "").toUpperCase();
+    if (!ticker || seen.has(ticker) || universe.has(ticker)) continue;
+    seen.add(ticker);
+    out.push({
+      ticker,
+      status: "screener",
+      score: _n(c.total_score ?? c.score ?? c.rank) || 0,
+      thesis: String(c.thesis_text || c.thesis || c.reason || c.setup || "Screener candidate outside the book").slice(0, 220),
+      in_universe: false,
+    });
+  }
+  return out.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, SECTION_LIMIT);
 }
 
 export async function persistWeekendDesk(env, desk) {
@@ -704,8 +760,13 @@ export async function composeWeekendDeskFromEnv(env, { now = Date.now(), rescore
     loadNewtonUpticksSet(env),
     loadPromotionCandidates(env),
   ]);
+  let newsMap = {};
+  try {
+    newsMap = await loadNewsSummariesBatch(env, payloads.map((p) => p.ticker), { lookbackDays: 7 });
+  } catch (_) { newsMap = {}; }
   const cards = [];
   for (const td of payloads) {
+    if (!td._news_summary) attachNewsSummary(td, newsMap);
     const card = analyzeTickerForWeekendDesk(td, { newtonUpticks });
     if (card && (card.score > 0 || card.timed_uptick)) cards.push(card);
   }

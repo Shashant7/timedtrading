@@ -3,6 +3,7 @@ import {
   analyzeTickerForWeekendDesk,
   compactPromotionCandidate,
   composeWeekendDesk,
+  consensusDir,
   renderWeekendDeskHtml,
   renderWeekendDeskText,
   weekendDeskHasYouYour,
@@ -97,6 +98,18 @@ describe("analyzeTickerForWeekendDesk", () => {
     expect(out.tags).toContain("st_magnet");
     expect(out.notes.join(" ")).toMatch(/magnet/i);
     expect(out.notes.join(" ")).not.toMatch(/\bbuy\b/i);
+  });
+
+  it("requires two family votes before stamping a side", () => {
+    expect(consensusDir(["LONG"])).toBe(null);
+    expect(consensusDir(["LONG", "SHORT"])).toBe(null);
+    expect(consensusDir(["LONG", "LONG", "SHORT"])).toBe("LONG");
+    const mixed = card({
+      ticker: "WMT",
+      flags: { st_magnet: true, st_magnet_M: true, ema_regime_D: -2, momentum_elite: true },
+      fvg_imbalance_D: { imbalance_direction: "LONG_OPPORTUNITY", upside_magnets: 8, downside_magnets: 1 },
+    });
+    expect(mixed.dir).toBe(null);
   });
 
   it("treats missing news as no news family", () => {
