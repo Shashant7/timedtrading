@@ -21,10 +21,13 @@ already knows.
 TT Setups are a **short unique list** (3–4 names). Each name is a
 structure story: named **support** or **resistance** (not "the
 line"), daily-brief tone + ticker chips, and **daily candles** so
-gaps stay visible. If the setup is a trendline, the chart draws it.
-Personality, psych handles, and earnings appear only when the
-payload already has them. Volume is a first-class CMT input.
-Indicator tags stay off the subscriber email.
+gaps stay visible. Also-on-the-tape names get the same charts.
+Longs lead; a quality short (retest / fired / quiet probe) is added
+only when longs are thin. If the setup fired, or a flat HTF shelf is
+the magnet, the mail names the **target** and the potential R:R when
+both sides are real. Personality, psych handles, and earnings appear
+only when the payload already has them. Volume is a first-class CMT
+input. Indicator tags stay off the subscriber email.
 
 **Email is admin-only** until `WEEKEND_DESK_BROADCAST=1` is set on
 the worker. Cron and `force=1` still send, but only to

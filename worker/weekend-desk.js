@@ -465,6 +465,111 @@ function distancePhrase(px, level) {
   return `${Math.abs(pct).toFixed(1)}% ${pct >= 0 ? "above" : "below"}`;
 }
 
+function magnetPrice(td) {
+  return _n(td?.st_hold_setup?.magnet?.stLine
+    ?? td?.st_hold_setup?.magnet?.line
+    ?? td?.st_hold_setup?.best?.stLine
+    ?? td?.st_hold_setup?.best?.line);
+}
+
+function readAtr(td) {
+  return _n(td?.atr)
+    ?? _n(td?.atr14)
+    ?? _n(td?.atr_d)
+    ?? _n(td?.tf_tech?.D?.atr)
+    ?? _n(td?.tf_tech?.D?.atr14)
+    ?? _n(td?.tf_tech?.["240"]?.atr)
+    ?? _n(td?.tf_tech?.W?.atr);
+}
+
+function nextPsychHandle(px, dir) {
+  if (!(px > 0)) return null;
+  if (dir === "LONG") {
+    for (const h of PSYCH_HANDLES) {
+      if (h > px * 1.025) return h;
+    }
+  } else if (dir === "SHORT") {
+    for (let i = PSYCH_HANDLES.length - 1; i >= 0; i--) {
+      if (PSYCH_HANDLES[i] < px * 0.975) return PSYCH_HANDLES[i];
+    }
+  }
+  return null;
+}
+
+export function computeSetupRR({ entry, stop, target, dir } = {}) {
+  if (!(entry > 0) || !(stop > 0) || !(target > 0)) return null;
+  const risk = dir === "SHORT" ? (stop - entry) : (entry - stop);
+  const reward = dir === "SHORT" ? (entry - target) : (target - entry);
+  if (!(risk > 0) || !(reward > 0)) return null;
+  const rr = reward / risk;
+  if (rr < 0.4 || rr > 15) return null;
+  return Number(rr.toFixed(1));
+}
+
+/**
+ * Structural target / invalidation. Magnet shelf is the target when
+ * present. Fired / retest risk is a close back through the named level.
+ * R:R is omitted unless both sides are real — no invented 2R marks.
+ */
+export function resolveSetupObjective(td, { kind, dir, level, px } = {}) {
+  const magPx = magnetPrice(td);
+  const atr = readAtr(td);
+  const out = { target: null, target_label: null, stop: null, rr: null };
+  if (kind === "magnet" && magPx > 0) {
+    out.target = Number(magPx.toFixed(2));
+    out.target_label = "flat higher-timeframe shelf";
+    if (atr > 0 && px > 0) {
+      const towardLong = px < magPx;
+      const stop = towardLong ? px - atr * 0.6 : px + atr * 0.6;
+      if (stop > 0) {
+        out.stop = Number(stop.toFixed(2));
+        out.rr = computeSetupRR({
+          entry: px,
+          stop: out.stop,
+          target: out.target,
+          dir: towardLong ? "LONG" : "SHORT",
+        });
+      }
+    }
+    return out;
+  }
+  if (!level || !(level > 0) || !(px > 0)) return out;
+  const tradeDir = _dir(dir);
+  if (!tradeDir) return out;
+  if (!["fired", "retest", "quiet_pierce", "approaching"].includes(kind)) return out;
+  const buf = atr > 0 ? atr * 0.15 : level * 0.004;
+  out.stop = Number((tradeDir === "SHORT" ? level + buf : level - buf).toFixed(2));
+  if (magPx > 0 && ((tradeDir === "LONG" && magPx > Math.max(px, level))
+    || (tradeDir === "SHORT" && magPx < Math.min(px, level)))) {
+    out.target = Number(magPx.toFixed(2));
+    out.target_label = "flat higher-timeframe shelf";
+  } else {
+    const psych = nextPsychHandle(px, tradeDir);
+    if (psych) {
+      out.target = psych;
+      out.target_label = `${psych} handle`;
+    }
+  }
+  const entry = kind === "fired" ? px : level;
+  if (out.target && out.stop) {
+    out.rr = computeSetupRR({ entry, stop: out.stop, target: out.target, dir: tradeDir });
+  }
+  return out;
+}
+
+function fmtPx(n) {
+  return Number.isFinite(n) && n > 0 ? `$${Number(n).toFixed(2)}` : "";
+}
+
+function objectiveLine(story) {
+  const bits = [];
+  if (story?.target) {
+    bits.push(`Target ${fmtPx(story.target)}${story.target_label ? ` · ${story.target_label}` : ""}`);
+  }
+  if (Number.isFinite(story?.rr) && story.rr > 0) bits.push(`${story.rr.toFixed(1)}R`);
+  return bits.join("  ·  ");
+}
+
 function storyChart(kind, flags = {}, magTfs = []) {
   if (kind === "magnet") {
     if (magTfs.includes("D") || flags.st_magnet_D) return { tf: "D", bars: 90 };
@@ -562,7 +667,8 @@ export function buildSetupStory(td, card = {}) {
   const vol = readWeekendVolume(td, watch);
   const kind = inferSetupKind(td, card);
   if (!kind) return null;
-  const dir = _dir(watch.dir || card.dir || flags.breakout_watch_dir);
+  const mag = td?.st_hold_setup?.magnet || {};
+  const dir = _dir(watch.dir || card.dir || flags.breakout_watch_dir || mag.sideLabel);
   const watchKind = String(watch.kind || flags.breakout_watch_kind || "trendline");
   const magTfs = magnetTimeframes(flags);
   const chart = storyChart(kind, flags, magTfs);
@@ -579,6 +685,9 @@ export function buildSetupStory(td, card = {}) {
   const lvTxt = level != null && level > 0 ? `$${Number(level).toFixed(2)}` : "";
   const dist = distancePhrase(px, level);
   const personality = resolvePersonality(td);
+  const objective = resolveSetupObjective(td, { kind, dir, level, px });
+  const tgtTxt = fmtPx(objective.target);
+  const rrTxt = Number.isFinite(objective.rr) && objective.rr > 0 ? `${objective.rr.toFixed(1)}R` : "";
 
   let headline = "";
   let why = "";
@@ -603,11 +712,15 @@ export function buildSetupStory(td, card = {}) {
   } else if (kind === "fired" && watchKind === "daily_level") {
     headline = dir === "SHORT" ? "Horizontal support gave way" : "Horizontal resistance gave way";
     why = `${ticker} closed through ${lvTxt || "a daily shelf"} that had been containing the range.`;
-    watchingFor = `A hold on this side of ${lvTxt || "the shelf"} keeps the break accepted. The first close back through it would say the move did not stick.`;
+    watchingFor = tgtTxt
+      ? `If the break holds, the first target is ${tgtTxt}${objective.target_label ? ` (${objective.target_label})` : ""}${rrTxt ? ` — about ${rrTxt}` : ""}. A close back through ${lvTxt || "the shelf"} would say the move did not stick.`
+      : `A hold on this side of ${lvTxt || "the shelf"} keeps the break accepted. The first close back through it would say the move did not stick.`;
   } else if (kind === "fired") {
     headline = dir === "SHORT" ? "Rising support gave way" : "Falling resistance gave way";
     why = `${ticker} closed through ${lvTxt || levelName.toLowerCase()} with enough participation that the break is live, not just a wick.`;
-    watchingFor = `The first pullback toward ${lvTxt || "that level"} is the confirmation window. Failure to hold the break puts it back in the range.`;
+    watchingFor = tgtTxt
+      ? `If the break holds, the first target is ${tgtTxt}${objective.target_label ? ` (${objective.target_label})` : ""}${rrTxt ? ` — about ${rrTxt} from here` : ""}. Failure to hold ${lvTxt || "the break"} puts it back in the range.`
+      : `The first pullback toward ${lvTxt || "that level"} is the confirmation window. Failure to hold the break puts it back in the range.`;
   } else if (kind === "approaching") {
     headline = dir === "SHORT"
       ? (watchKind === "daily_level" ? "Price is sitting on horizontal support" : "Price is sitting on rising support")
@@ -618,7 +731,9 @@ export function buildSetupStory(td, card = {}) {
     watchingFor = `Acceptance through ${lvTxt || "the level"} would open the next leg. A rejection here keeps the prevailing structure.`;
   } else if (kind === "magnet") {
     headline = "A flat higher-timeframe shelf is acting as a magnet";
-    why = `When the higher-timeframe shelf goes flat, price often gets pulled back to ${lvTxt || "it"} before the next move.`;
+    why = lvTxt
+      ? `${ticker} is being pulled toward ${lvTxt} — that is the magnet target, the flat higher-timeframe shelf.${rrTxt ? ` About ${rrTxt} if the pull completes before a failed approach.` : ""}`
+      : `When the higher-timeframe shelf goes flat, price often gets pulled back to it before the next move.`;
     watchingFor = `A hold at ${lvTxt || "the shelf"} as a possible bounce, or a clean break through it. Either outcome is more useful than chasing the stretch away from the shelf.`;
   } else if (kind === "stretch") {
     headline = "The last flip already ran too far";
@@ -655,8 +770,11 @@ export function buildSetupStory(td, card = {}) {
       ? "Recent headlines lean the same way as the chart."
       : "Recent headlines lean the other way — the chart still has to do the work.");
   }
-  if (kind !== "magnet" && (flags.st_magnet || (card.tags || []).includes("st_magnet"))) {
-    extras.push("A flat higher-timeframe shelf is also nearby, which can act as a magnet.");
+  const nearbyMagnet = magnetPrice(td);
+  if (kind !== "magnet" && nearbyMagnet > 0 && nearbyMagnet !== objective.target) {
+    extras.push(`A flat higher-timeframe shelf at ${fmtPx(nearbyMagnet)} is also nearby — that is the magnet target.`);
+  } else if (kind !== "magnet" && nearbyMagnet > 0 && !tgtTxt) {
+    extras.push(`A flat higher-timeframe shelf at ${fmtPx(nearbyMagnet)} is also nearby — that is the magnet target.`);
   }
   if (extras.length) why = `${why} ${extras.slice(0, 3).join(" ")}`;
 
@@ -680,6 +798,11 @@ export function buildSetupStory(td, card = {}) {
     chart_style: "candles",
     volume: vol.quietPierce ? "quiet" : vol.heavy ? "expanded" : vol.dry ? "light" : null,
     day_pct: weekendDeskDayPct(td),
+    price: px,
+    target: objective.target,
+    target_label: objective.target_label,
+    stop: objective.stop,
+    rr: objective.rr,
   };
 }
 
@@ -729,7 +852,11 @@ export function weekendSetupChartUrl(story, origin = "https://timed-trading.com"
     }
   } else if (Number.isFinite(level) && level > 0) {
     p.set("entry", String(level));
-    if (roleLabel) p.set("level_label", roleLabel);
+    p.set("level_label", story?.kind === "magnet" ? "Target" : (roleLabel || "Level"));
+  }
+  const target = Number(story?.target);
+  if (Number.isFinite(target) && target > 0 && target !== level) {
+    p.set("tp", String(target));
   }
   return `${base}/timed/chart-image?${p.toString()}`;
 }
@@ -748,13 +875,15 @@ export function pickFeaturedSetups(cards = [], { promotions = [], limit = FEATUR
     if (!story?.headline || !story?.watching_for) continue;
     scoredTickers.add(ticker);
     const kind = story.kind;
+    const side = _dir(story.dir || card.dir);
     const rank = (STORY_KIND_RANK[kind] || 0)
       + (story.posture === "already_watching" ? 6 : 0)
       + (story.volume === "quiet" && kind === "quiet_pierce" ? 6 : 0)
       + (story.volume === "expanded" && (kind === "fired" || kind === "retest") ? 5 : 0)
+      + (side === "LONG" ? 16 : 0)
       + Math.min(Number(card.score) || 0, 24) * 0.15
       + (card.timed_uptick ? 3 : 0);
-    scored.push({ card, story, rank, ticker, kind });
+    scored.push({ card, story, rank, ticker, kind, side });
   }
   scored.sort((a, b) => b.rank - a.rank || a.ticker.localeCompare(b.ticker));
   const picked = [];
@@ -766,13 +895,33 @@ export function pickFeaturedSetups(cards = [], { promotions = [], limit = FEATUR
     pickedSet.add(row.ticker);
     picked.push({ ...row.card, ticker: row.ticker, story: row.story });
   };
+  const QUALITY_SHORT = new Set(["retest", "fired", "quiet_pierce"]);
+  // Longs first, still one-kind-first so the mail does not stack clones.
   for (const row of scored) {
+    if (row.side !== "LONG") continue;
     if ((kindCount[row.kind] || 0) >= 1) continue;
     take(row);
   }
   for (const row of scored) {
+    if (row.side !== "LONG") continue;
     if ((kindCount[row.kind] || 0) >= 2) continue;
     take(row);
+  }
+  // Quality shorts only when longs are thin (fewer than 3).
+  if (picked.length < 3 && picked.length < limit) {
+    for (const row of scored) {
+      if (row.side !== "SHORT") continue;
+      if (!QUALITY_SHORT.has(row.kind)) continue;
+      if ((kindCount[row.kind] || 0) >= 2) continue;
+      take(row);
+    }
+  }
+  if (picked.length < limit) {
+    for (const row of scored) {
+      if (row.side === "SHORT") continue;
+      if ((kindCount[row.kind] || 0) >= 2) continue;
+      take(row);
+    }
   }
   if (picked.length < limit) {
     for (const promo of promotions || []) {
@@ -799,14 +948,18 @@ export function pickAlsoOnTape(cards = [], featured = [], { limit = ALSO_TAPE_LI
     used.add(ticker);
     scored.push({ ...card, ticker });
   }
-  scored.sort((a, b) => {
+  const QUALITY_SHORT = new Set(["retest", "fired", "quiet_pierce"]);
+  const rankAlso = (a, b) => {
     const aNew = featuredKinds.has(a.story?.kind) ? 0 : 1;
     const bNew = featuredKinds.has(b.story?.kind) ? 0 : 1;
     return bNew - aNew
       || (STORY_KIND_RANK[b.story?.kind] || 0) - (STORY_KIND_RANK[a.story?.kind] || 0)
       || (b.score || 0) - (a.score || 0);
-  });
-  return scored.slice(0, limit).map((card) => ({
+  };
+  const longs = scored.filter((c) => _dir(c.story?.dir || c.dir) === "LONG").sort(rankAlso);
+  const qualityShorts = scored.filter((c) => _dir(c.story?.dir || c.dir) === "SHORT"
+    && QUALITY_SHORT.has(c.story?.kind)).sort(rankAlso);
+  return [...longs, ...qualityShorts].slice(0, limit).map((card) => ({
     ticker: card.ticker,
     story: card.story,
     score: card.score || 0,
@@ -1089,11 +1242,6 @@ export function composeWeekendDesk({
   };
 }
 
-function storyLine(c) {
-  const s = c.story || {};
-  return `${c.ticker} — ${s.headline || c.headline || "setup"}`;
-}
-
 function chartTfLabel(tf) {
   if (tf === "W") return "Weekly";
   if (tf === "240") return "4-hour";
@@ -1119,20 +1267,28 @@ export function renderWeekendDeskText(desk) {
     lines.push(s.posture === "already_watching" ? "Already watching" : "Should be watching");
     lines.push(s.headline || c.headline || "");
     if (s.level_name) lines.push(s.level_name);
+    const obj = objectiveLine(s);
+    if (obj) lines.push(obj);
     lines.push(s.why || "");
     if (s.watching_for) lines.push(`Watch: ${s.watching_for}`);
     lines.push("");
   });
   if (also.length) {
     lines.push("ALSO ON THE TAPE");
-    for (const c of also) lines.push(`- ${storyLine(c)}`);
+    for (const c of also) {
+      const s = c.story || {};
+      const obj = objectiveLine(s);
+      lines.push(`- ${c.ticker} — ${s.headline || c.headline || "setup"}`);
+      if (s.level_name) lines.push(`  ${s.level_name}`);
+      if (obj) lines.push(`  ${obj}`);
+    }
     lines.push("");
   }
   lines.push(`Open Today: ${WEEKEND_DESK_PAGE}`);
   return lines.join("\n");
 }
 
-function featuredBlock(card, index, origin) {
+function featuredBlock(card, index, origin, { compact = false } = {}) {
   const s = card.story || {};
   const ticker = String(card.ticker || s.ticker || "").toUpperCase();
   const chart = weekendSetupChartUrl({ ...s, ticker }, origin);
@@ -1142,6 +1298,8 @@ function featuredBlock(card, index, origin) {
   const chip = buildEmailBriefTickerChip(ticker, s.day_pct, null, origin);
   const kindLabel = s.kind_label || STORY_KIND_LABEL[s.kind] || "";
   const levelName = s.level_name || "";
+  const obj = objectiveLine(s);
+  const headlineSize = compact ? 18 : 22;
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">
     <tr><td style="padding:${index > 1 ? "28px 0 0" : "0"};${index > 1 ? `border-top:1px solid ${BRAND.border};` : ""}">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -1150,8 +1308,9 @@ function featuredBlock(card, index, origin) {
           <td align="right" style="font-family:${EMAIL_FONT_UI};font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">${_esc(kindLabel)}${kindLabel ? " · " : ""}${_esc(posture)}</td>
         </tr>
       </table>
-      <div style="font-family:${EMAIL_FONT_EDITORIAL};font-size:22px;line-height:1.25;font-weight:400;color:white;margin:12px 0 8px">${_esc(s.headline || ticker)}</div>
-      ${levelName ? `<div style="font-family:${EMAIL_FONT_UI};font-size:12px;color:${BRAND.textMuted};margin:0 0 10px">${_esc(levelName)}</div>` : ""}
+      <div style="font-family:${EMAIL_FONT_EDITORIAL};font-size:${headlineSize}px;line-height:1.25;font-weight:400;color:white;margin:12px 0 8px">${_esc(s.headline || ticker)}</div>
+      ${levelName ? `<div style="font-family:${EMAIL_FONT_UI};font-size:12px;color:${BRAND.textMuted};margin:0 0 6px">${_esc(levelName)}</div>` : ""}
+      ${obj ? `<div style="font-family:${EMAIL_FONT_UI};font-size:13px;color:${BRAND.editorial};margin:0 0 10px">${_esc(obj)}</div>` : ""}
       <p style="margin:0 0 10px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6;font-family:${EMAIL_FONT_UI}">${_esc(s.why || "")}</p>
       ${s.watching_for ? `<p style="margin:0 0 14px;font-size:14px;color:${BRAND.textSecondary};line-height:1.55;font-family:${EMAIL_FONT_UI}"><span style="font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.editorial}">Watch</span> ${_esc(s.watching_for)}</p>` : ""}
       <a href="${today}" style="display:block;line-height:0;border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border}">
@@ -1175,17 +1334,10 @@ export function renderWeekendDeskHtml(desk, { unsubscribeUrl, origin, preview = 
     ? featured.map((c, i) => featuredBlock(c, i + 1, base)).join("")
     : `<p style="margin:0 0 18px;font-size:14px;color:${BRAND.textMuted};font-family:${EMAIL_FONT_UI}">No clean setups cleared the bar this weekend.</p>`;
   const alsoHtml = also.length
-    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 18px">
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 8px">
         <tr><td style="padding:0 0 10px;font-size:10px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:${BRAND.textMuted};font-family:${EMAIL_FONT_UI}">Also on the tape</td></tr>
-        ${also.map((c) => {
-          const chip = buildEmailBriefTickerChip(c.ticker, c.story?.day_pct, null, base);
-          return `<tr><td style="padding:8px 0 12px;border-top:1px solid ${BRAND.border}">
-            <div>${chip}</div>
-            <div style="font-family:${EMAIL_FONT_EDITORIAL};font-size:16px;color:white;margin:6px 0 2px">${_esc(c.story?.headline || c.headline || "")}</div>
-            <div style="font-family:${EMAIL_FONT_UI};font-size:12px;color:${BRAND.textMuted}">${_esc(c.story?.level_name || "")}</div>
-          </td></tr>`;
-        }).join("")}
-      </table>`
+      </table>
+      ${also.map((c, i) => featuredBlock(c, i + 1, base, { compact: true })).join("")}`
     : "";
   const previewNote = preview
     ? `<p style="margin:0 0 16px;font-size:12px;color:${BRAND.warning};font-family:${EMAIL_FONT_UI};line-height:1.45">Preview — admin only. The list is not going to members until the desk locks the copy.</p>`

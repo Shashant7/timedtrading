@@ -19,6 +19,8 @@ import {
   weekendDeskShouldEmail,
   weekendDeskSlot,
   weekendSetupChartUrl,
+  computeSetupRR,
+  resolveSetupObjective,
 } from "./weekend-desk.js";
 
 const SAT_10_ET = Date.UTC(2026, 8, 12, 14, 0, 0); // Sat Sep 12 2026 10:00 ET
@@ -239,6 +241,7 @@ describe("composeWeekendDesk", () => {
     expect(desk.disclaimer).toMatch(/TT Setups/);
     expect(desk.featured[0].ticker).toBe("CRDO");
     expect(desk.featured.map((c) => c.ticker)).toContain("SNOW");
+    expect(desk.featured.every((c) => c.story.dir !== "SHORT")).toBe(true);
     const emailTickers = uniqueEmailTickers(desk);
     expect(new Set(emailTickers).size).toBe(emailTickers.length);
     expect(emailTickers).toContain("CRDO");
@@ -297,6 +300,12 @@ describe("composeWeekendDesk", () => {
             reason: "tl_through_low_rvol", line: 312.4, rvol: 0.7,
           },
         }),
+        card({
+          ticker: "TSM",
+          price: 398.2,
+          flags: { st_magnet: true, st_magnet_W: true, st_hold: true },
+          st_hold_setup: { magnet: { sideLabel: "LONG", magnet: true, stLine: 421.91 } },
+        }),
       ],
       now: SAT_10_ET,
       scanned: 10,
@@ -323,6 +332,8 @@ describe("composeWeekendDesk", () => {
     expect(html).not.toContain("What the model is watching for");
     expect(html).not.toMatch(/\bthe line\b/i);
     expect(html).toContain("light volume");
+    expect(html).toContain("ticker=TSM");
+    expect(html).toMatch(/Target \$421\.91|magnet target/i);
     const tickers = uniqueEmailTickers(desk);
     expect(new Set(tickers).size).toBe(tickers.length);
     const story = buildSetupStory({
@@ -360,6 +371,101 @@ describe("composeWeekendDesk", () => {
     expect(out.story.why).toMatch(/80%/);
     expect(out.story.why).toMatch(/150 handle/);
     expect(out.story.why).not.toMatch(/\bthe line\b/i);
+  });
+
+  it("prefers longs and only adds quality shorts when longs are thin", () => {
+    const longRetest = card({
+      ticker: "CRDO",
+      flags: { breakout_retest: true, st_magnet: true, st_magnet_D: true, momentum_elite: true },
+      _breakout_watch: { kind: "trendline", dir: "LONG", retest: true, promotes_setup: true, line: 88.2 },
+    });
+    const longApproach = card({
+      ticker: "SNOW",
+      flags: { breakout_approaching: true },
+      _breakout_watch: { kind: "trendline", dir: "LONG", approaching: true, line: 220 },
+    });
+    const shortRetest = card({
+      ticker: "AVAV",
+      flags: { breakout_retest: true, breakout_watch_dir: "SHORT" },
+      _breakout_watch: { kind: "trendline", dir: "SHORT", retest: true, promotes_setup: true, line: 41.1 },
+    });
+    const shortApproach = card({
+      ticker: "AAOI",
+      flags: { breakout_approaching: true, breakout_watch_dir: "SHORT" },
+      _breakout_watch: { kind: "trendline", dir: "SHORT", approaching: true, line: 100.99 },
+    });
+    const desk = composeWeekendDesk({
+      cards: [shortRetest, shortApproach, longRetest, longApproach],
+      now: SAT_10_ET,
+      scanned: 8,
+    });
+    expect(desk.featured.map((c) => c.ticker)).toEqual(["CRDO", "SNOW", "AVAV"]);
+    expect(desk.also_on_tape.map((c) => c.ticker)).not.toContain("AAOI");
+    expect(uniqueEmailTickers(desk)).not.toContain("AAOI");
+  });
+
+  it("keeps a quality short when the long list is empty", () => {
+    const shortFired = card({
+      ticker: "ORCL",
+      price: 148.2,
+      flags: { breakout_watch: true, breakout_watch_dir: "SHORT" },
+      _breakout_watch: { kind: "trendline", dir: "SHORT", promotes_setup: true, line: 151.2, rvol: 1.4 },
+    });
+    const picked = pickFeaturedSetups([shortFired]);
+    expect(picked.map((c) => c.ticker)).toEqual(["ORCL"]);
+  });
+
+  it("names the magnet shelf as the target and draws also-on-tape charts", () => {
+    const tsm = card({
+      ticker: "TSM",
+      price: 398.2,
+      atr: 8.4,
+      flags: { st_magnet: true, st_magnet_W: true },
+      st_hold_setup: { magnet: { sideLabel: "LONG", magnet: true, stLine: 421.91 } },
+    });
+    expect(tsm.story.kind).toBe("magnet");
+    expect(tsm.story.target).toBe(421.91);
+    expect(tsm.story.why).toMatch(/\$421\.91/);
+    expect(tsm.story.why).toMatch(/magnet target/i);
+    expect(tsm.story.rr).toBeGreaterThan(0);
+    const obj = resolveSetupObjective({
+      st_hold_setup: { magnet: { stLine: 421.91 } },
+      atr: 8.4,
+    }, { kind: "magnet", dir: "LONG", level: 421.91, px: 398.2 });
+    expect(obj.target).toBe(421.91);
+    expect(obj.rr).toBe(computeSetupRR({ entry: 398.2, stop: obj.stop, target: 421.91, dir: "LONG" }));
+    const desk = composeWeekendDesk({
+      cards: [
+        card({
+          ticker: "CRDO",
+          flags: { breakout_retest: true, st_magnet: true, st_magnet_D: true, momentum_elite: true },
+          _breakout_watch: { kind: "trendline", dir: "LONG", retest: true, promotes_setup: true, line: 88.2 },
+        }),
+        card({
+          ticker: "CDNS",
+          flags: { breakout_approaching: true, breakout_watch_dir: "LONG" },
+          _breakout_watch: { kind: "trendline", dir: "LONG", approaching: true, reason: "tl_through_low_rvol", line: 312.4, rvol: 0.7 },
+        }),
+        card({
+          ticker: "NVDA",
+          flags: { breakout_watch: true, breakout_watch_dir: "LONG" },
+          _breakout_watch: { kind: "trendline", dir: "LONG", promotes_setup: true, line: 180, rvol: 1.5 },
+        }),
+        card({
+          ticker: "AMZN",
+          flags: { breakout_approaching: true },
+          _breakout_watch: { kind: "daily_level", dir: "LONG", approaching: true, line: 230 },
+        }),
+        tsm,
+      ],
+      now: SAT_10_ET,
+      scanned: 12,
+    });
+    const html = renderWeekendDeskHtml(desk, { origin: "https://timed-trading.com" });
+    expect(html).toContain("Also on the tape");
+    expect(html).toContain("ticker=TSM");
+    expect(html).toContain("style=candles");
+    expect(html).toContain("level_label=Target");
   });
 });
 
