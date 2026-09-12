@@ -4,6 +4,7 @@ import {
   compactPromotionCandidate,
   composeWeekendDesk,
   consensusDir,
+  isScreenerPromoteCandidate,
   renderWeekendDeskHtml,
   renderWeekendDeskText,
   weekendDeskHasYouYour,
@@ -170,6 +171,9 @@ describe("composeWeekendDesk", () => {
     expect(desk.timed_upticks.map((c) => c.ticker)).toEqual(["CRDO"]);
     expect(desk.trendlines.map((c) => c.ticker)).toEqual(["CRDO", "SNOW"]);
     expect(desk.promotion_candidates.map((c) => c.ticker)).toEqual(["APP"]);
+    expect(isScreenerPromoteCandidate("DECXF")).toBe(false);
+    expect(isScreenerPromoteCandidate("ONCO", { price: 1.2 })).toBe(false);
+    expect(isScreenerPromoteCandidate("APP", { price: 420, market_cap: 2e9 })).toBe(true);
     expect(desk.disclaimer).toMatch(/not a buy list/i);
     expect(desk.disclaimer).toMatch(/not Newton's/i);
   });

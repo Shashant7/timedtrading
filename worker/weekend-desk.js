@@ -630,6 +630,18 @@ export async function loadPromotionCandidates(env) {
   return loadScreenerOutsideUniverse(env);
 }
 
+/** Raw screener rows include OTC junk. Keep listed-looking names with a real price. */
+export function isScreenerPromoteCandidate(ticker, c = {}) {
+  const sym = String(ticker || "").toUpperCase();
+  if (!/^[A-Z]{1,5}$/.test(sym)) return false;
+  if (sym.length === 5 && sym.endsWith("F")) return false;
+  const px = _n(c.price);
+  if (px != null && px < 5) return false;
+  const mcap = _n(c.market_cap);
+  if (mcap != null && mcap < 5e8) return false;
+  return true;
+}
+
 /** Fallback when the promotion queue is empty or every row is already tracked. */
 export async function loadScreenerOutsideUniverse(env) {
   const KV = env?.KV_TIMED || env?.KV;
@@ -656,12 +668,20 @@ export async function loadScreenerOutsideUniverse(env) {
   for (const c of list) {
     const ticker = String(c?.ticker || c?.symbol || "").toUpperCase();
     if (!ticker || seen.has(ticker) || universe.has(ticker)) continue;
+    if (!isScreenerPromoteCandidate(ticker, c)) continue;
     seen.add(ticker);
+    const week = _n(c.week_change_pct ?? c.change_pct);
+    const name = String(c.name || "").slice(0, 40);
+    const thesis = c.thesis_text || c.thesis || c.reason || [
+      name || ticker,
+      week != null ? `weekly ${week >= 0 ? "+" : ""}${week.toFixed(1)}%` : "screener candidate",
+      "outside the book",
+    ].join(" · ");
     out.push({
       ticker,
       status: "screener",
-      score: _n(c.total_score ?? c.score ?? c.rank) || 0,
-      thesis: String(c.thesis_text || c.thesis || c.reason || c.setup || "Screener candidate outside the book").slice(0, 220),
+      score: _n(c.total_score ?? c.score ?? c.week_change_pct ?? c.rank) || 0,
+      thesis: String(thesis).slice(0, 220),
       in_universe: false,
     });
   }
