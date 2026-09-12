@@ -456,6 +456,16 @@ describe("composeWeekendDesk", () => {
       atr: 2.1,
     }, { kind: "fired", dir: "LONG", level: 104.02, px: 104.5 });
     expect(firedFar.target).toBeNull();
+    const amat = card({
+      ticker: "AMAT",
+      price: 456.5,
+      flags: { breakout_approaching: true, st_magnet: true, st_magnet_W: true },
+      _breakout_watch: { kind: "trendline", dir: "LONG", approaching: true, line: 460.28, slope: -0.4 },
+      st_hold_setup: { magnet: { sideLabel: "SHORT", magnet: true, stLine: 320.82 } },
+    });
+    expect(amat.story.kind).toBe("approaching");
+    expect(amat.story.why).not.toMatch(/\$320\.82/);
+    expect(amat.story.why).not.toMatch(/magnet target/i);
     const desk = composeWeekendDesk({
       cards: [
         card({

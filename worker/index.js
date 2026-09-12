@@ -88777,15 +88777,18 @@ export default {
           // Pull candles from D1 ticker_candles (cached by 5-min CF
           // cache header below). Latest N bars sorted ASC for the
           // chart renderer's left-to-right plot.
-          const { renderChartSvg } = await import("./chart-svg.js");
+          const { renderChartSvg, collapseChartCandles } = await import("./chart-svg.js");
           let candles = [];
           try {
+            const overfetch = (tfClean === "D" || tfClean === "W")
+              ? Math.min(200, Math.max(bars * 2, bars + 40))
+              : bars;
             const rows = await env.DB.prepare(
               `SELECT ts, o, h, l, c, v FROM ticker_candles
                  WHERE ticker = ?1 AND tf = ?2
                  ORDER BY ts DESC LIMIT ?3`
-            ).bind(ticker, tfClean, bars).all().catch(() => ({ results: [] }));
-            candles = (rows?.results || [])
+            ).bind(ticker, tfClean, overfetch).all().catch(() => ({ results: [] }));
+            candles = collapseChartCandles((rows?.results || [])
               .map(r => ({
                 ts: Number(r.ts) || 0,
                 o: Number(r.o) || null,
@@ -88795,7 +88798,7 @@ export default {
                 v: Number(r.v) || null,
               }))
               .filter(c => Number.isFinite(c.c))
-              .reverse(); // ASC for the chart
+              .reverse(), tfClean).slice(-bars);
           } catch (e) {
             console.warn(`[CHART_IMG] D1 read failed for ${ticker}/${tfClean}:`, String(e?.message || e).slice(0, 200));
           }

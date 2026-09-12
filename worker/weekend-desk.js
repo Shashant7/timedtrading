@@ -786,10 +786,12 @@ export function buildSetupStory(td, card = {}) {
       : "Recent headlines lean the other way — the chart still has to do the work.");
   }
   const nearbyMagnet = magnetPrice(td);
-  if (kind !== "magnet" && nearbyMagnet > 0 && nearbyMagnet !== objective.target) {
-    extras.push(`A flat higher-timeframe shelf at ${fmtPx(nearbyMagnet)} is also nearby — that is the magnet target.`);
-  } else if (kind !== "magnet" && nearbyMagnet > 0 && !tgtTxt) {
-    extras.push(`A flat higher-timeframe shelf at ${fmtPx(nearbyMagnet)} is also nearby — that is the magnet target.`);
+  if (kind !== "magnet" && nearbyMagnet > 0 && nearbyMagnet !== objective.target && px > 0) {
+    const pct = Math.abs(nearbyMagnet - px) / px;
+    const withTrade = (dir === "LONG" && nearbyMagnet > px) || (dir === "SHORT" && nearbyMagnet < px);
+    if (withTrade && pct <= 0.12) {
+      extras.push(`A flat higher-timeframe shelf at ${fmtPx(nearbyMagnet)} is also nearby — that is the magnet target.`);
+    }
   }
   if (extras.length) why = `${why} ${extras.slice(0, 3).join(" ")}`;
 
@@ -838,6 +840,7 @@ export function weekendSetupChartUrl(story, origin = "https://timed-trading.com"
   const bars = Number(story?.chart_bars || (tfClean === "W" ? 80 : 90));
   p.set("bars", String(bars));
   p.set("style", "candles");
+  p.set("v", "2");
   const levelName = String(story?.level_name || "").trim();
   if (levelName) p.set("subtitle", levelName.slice(0, 80));
   else if (story?.headline) p.set("subtitle", String(story.headline).slice(0, 80));

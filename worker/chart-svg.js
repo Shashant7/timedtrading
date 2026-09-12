@@ -71,6 +71,55 @@ function _fmtDateMMDD(ts) {
   } catch (_) { return ""; }
 }
 
+function _isDayWeekMonth(tf) {
+  const t = String(tf || "").toUpperCase();
+  return t === "D" || t === "1D" || t === "W" || t === "1W" || t === "M" || t === "1M";
+}
+
+function _utcDayKey(ts) {
+  const d = new Date(Number(ts));
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Daily/weekly D1 rows sometimes carry two stamps for the same
+ * session (00:00 UTC and 04:00 UTC) with the same OHLC. AMAT's
+ * weekend chart drew each June/July day twice. Collapse to one
+ * bar per UTC day; prefer the later stamp / higher volume.
+ */
+export function collapseChartCandles(candles, tf) {
+  const list = Array.isArray(candles) ? candles.filter((c) => c && Number.isFinite(Number(c.c))) : [];
+  if (list.length < 2) return list;
+  if (!_isDayWeekMonth(tf)) {
+    const seen = new Set();
+    const out = [];
+    for (const c of list) {
+      const ts = Number(c.ts) || 0;
+      if (seen.has(ts)) continue;
+      seen.add(ts);
+      out.push(c);
+    }
+    return out;
+  }
+  const byDay = new Map();
+  for (const c of list) {
+    const ts = Number(c.ts);
+    const key = _utcDayKey(ts);
+    if (!key) continue;
+    const prev = byDay.get(key);
+    if (!prev) {
+      byDay.set(key, c);
+      continue;
+    }
+    const prevTs = Number(prev.ts) || 0;
+    const prevV = Number(prev.v) || 0;
+    const nextV = Number(c.v) || 0;
+    if (ts > prevTs || (ts === prevTs && nextV > prevV)) byDay.set(key, c);
+  }
+  return [...byDay.values()].sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+}
+
 /**
  * Render an SVG chart for an array of candles. Returns the SVG string.
  *
@@ -90,7 +139,10 @@ function _fmtDateMMDD(ts) {
  * @returns {string} SVG string
  */
 export function renderChartSvg(opts) {
-  const candles = Array.isArray(opts?.candles) ? opts.candles.filter(c => c && Number.isFinite(Number(c.c))) : [];
+  const candles = collapseChartCandles(
+    Array.isArray(opts?.candles) ? opts.candles : [],
+    opts?.tf,
+  );
   const ticker = String(opts?.ticker || "").toUpperCase();
   const tfLabel = _formatTfLabel(opts?.tf);
   const styleRaw = String(opts?.style || "line").toLowerCase();
@@ -257,8 +309,14 @@ export function renderChartSvg(opts) {
   // ── X-axis labels (first + last timestamp) ─────────────────────────
   const firstTs = Number(candles[0].ts);
   const lastTs = Number(candles[candles.length - 1].ts);
-  const xLabelLeft = `<text x="${PAD_LEFT}" y="${PANEL_H - 8}" font-family="Inter,Arial,sans-serif" font-size="10" fill="${COLORS.textFaint}">${_fmtDateMMDD(firstTs)} ${_fmtTimeHHMM(firstTs)}</text>`;
-  const xLabelRight = `<text x="${PAD_LEFT + PLOT_W}" y="${PANEL_H - 8}" font-family="Inter,Arial,sans-serif" font-size="10" fill="${COLORS.textFaint}" text-anchor="end">${_fmtDateMMDD(lastTs)} ${_fmtTimeHHMM(lastTs)}</text>`;
+  const xLeft = _isDayWeekMonth(opts?.tf)
+    ? _fmtDateMMDD(firstTs)
+    : `${_fmtDateMMDD(firstTs)} ${_fmtTimeHHMM(firstTs)}`.trim();
+  const xRight = _isDayWeekMonth(opts?.tf)
+    ? _fmtDateMMDD(lastTs)
+    : `${_fmtDateMMDD(lastTs)} ${_fmtTimeHHMM(lastTs)}`.trim();
+  const xLabelLeft = `<text x="${PAD_LEFT}" y="${PANEL_H - 8}" font-family="Inter,Arial,sans-serif" font-size="10" fill="${COLORS.textFaint}">${xLeft}</text>`;
+  const xLabelRight = `<text x="${PAD_LEFT + PLOT_W}" y="${PANEL_H - 8}" font-family="Inter,Arial,sans-serif" font-size="10" fill="${COLORS.textFaint}" text-anchor="end">${xRight}</text>`;
 
   // ── Header row ─────────────────────────────────────────────────────
   const lastPriceFmt = _fmtPrice(lastClose);

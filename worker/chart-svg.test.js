@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderChartSvg } from "./chart-svg.js";
+import { collapseChartCandles, renderChartSvg } from "./chart-svg.js";
 
 function sampleCandles(n = 8) {
   const out = [];
@@ -64,5 +64,22 @@ describe("renderChartSvg", () => {
     });
     expect(svg).toContain("Support 105.0");
     expect(svg).not.toContain("E 105");
+  });
+
+  it("collapses 00:00 and 04:00 UTC stamps of the same daily session", () => {
+    const dup = [
+      { ts: Date.UTC(2026, 5, 22, 0, 0, 0), o: 626.22, h: 641.18, l: 620.69, c: 640.18, v: 10737300 },
+      { ts: Date.UTC(2026, 5, 22, 4, 0, 0), o: 626.22, h: 641.18, l: 620.69, c: 640.18, v: 10746253 },
+      { ts: Date.UTC(2026, 5, 23, 0, 0, 0), o: 581.93, h: 592.5, l: 573.51, c: 585.88, v: 12035100 },
+    ];
+    const out = collapseChartCandles(dup, "D");
+    expect(out).toHaveLength(2);
+    expect(out[0].ts).toBe(Date.UTC(2026, 5, 22, 4, 0, 0));
+    expect(out[1].c).toBe(585.88);
+    const svg = renderChartSvg({ ticker: "AMAT", tf: "D", style: "candles", candles: dup });
+    const bodies = svg.match(/<rect [^>]*fill="#(?:00c853|f43f5e)"/g) || [];
+    expect(bodies).toHaveLength(2);
+    expect(svg).toContain(">6/22<");
+    expect(svg).not.toMatch(/6\/22 20:00/);
   });
 });
