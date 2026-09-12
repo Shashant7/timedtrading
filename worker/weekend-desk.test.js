@@ -116,6 +116,7 @@ describe("analyzeTickerForWeekendDesk", () => {
     });
     expect(out.story.kind).toBe("quiet_pierce");
     expect(out.story.why).toMatch(/light volume/i);
+    expect((out.story.why.match(/light volume/gi) || []).length).toBe(1);
     expect(out.story.watching_for).toMatch(/volume expanding/i);
     expect(out.families).toContain("volume");
   });
@@ -247,6 +248,7 @@ describe("composeWeekendDesk", () => {
     expect(isWeekendEmailTicker("BTCUSD")).toBe(false);
     expect(isWeekendEmailTicker("AMZN")).toBe(true);
     expect(desk.featured.length).toBeLessThanOrEqual(4);
+    expect(new Set(desk.featured.map((c) => c.story.kind)).size).toBeGreaterThanOrEqual(2);
     expect(pickFeaturedSetups([crdo, crdo, cl]).map((c) => c.ticker)).toEqual(["CRDO"]);
   });
 

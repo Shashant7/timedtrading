@@ -276,7 +276,10 @@ export function readWeekendVolume(td, watch = null) {
 
 function volumeSentences(vol, kind) {
   if (!vol) return [];
-  if (vol.quietPierce) {
+  if (kind === "quiet_pierce" || vol.quietPierce && kind === "quiet_pierce") {
+    return [];
+  }
+  if (vol.quietPierce && kind !== "quiet_pierce") {
     return ["Price poked through that line on light volume. The model does not treat a quiet poke as a confirmed break."];
   }
   if (vol.confirmedBreak && (kind === "fired" || kind === "retest")) {
@@ -524,13 +527,19 @@ export function pickFeaturedSetups(cards = [], { promotions = [], limit = FEATUR
   const picked = [];
   const pickedSet = new Set();
   const kindCount = {};
-  for (const row of scored) {
-    if (pickedSet.has(row.ticker)) continue;
-    if ((kindCount[row.kind] || 0) >= 2) continue;
+  const take = (row) => {
+    if (pickedSet.has(row.ticker) || picked.length >= limit) return;
     kindCount[row.kind] = (kindCount[row.kind] || 0) + 1;
     pickedSet.add(row.ticker);
     picked.push({ ...row.card, ticker: row.ticker, story: row.story });
-    if (picked.length >= limit) break;
+  };
+  for (const row of scored) {
+    if ((kindCount[row.kind] || 0) >= 1) continue;
+    take(row);
+  }
+  for (const row of scored) {
+    if ((kindCount[row.kind] || 0) >= 2) continue;
+    take(row);
   }
   if (picked.length < limit) {
     for (const promo of promotions || []) {
@@ -548,6 +557,7 @@ export function pickFeaturedSetups(cards = [], { promotions = [], limit = FEATUR
 
 export function pickAlsoOnTape(cards = [], featured = [], { limit = ALSO_TAPE_LIMIT } = {}) {
   const used = new Set((featured || []).map((c) => String(c.ticker || "").toUpperCase()));
+  const featuredKinds = new Set((featured || []).map((c) => c.story?.kind).filter(Boolean));
   const scored = [];
   for (const card of cards || []) {
     const ticker = String(card?.ticker || "").toUpperCase();
@@ -556,8 +566,13 @@ export function pickAlsoOnTape(cards = [], featured = [], { limit = ALSO_TAPE_LI
     used.add(ticker);
     scored.push({ ...card, ticker });
   }
-  scored.sort((a, b) => (STORY_KIND_RANK[b.story?.kind] || 0) - (STORY_KIND_RANK[a.story?.kind] || 0)
-    || (b.score || 0) - (a.score || 0));
+  scored.sort((a, b) => {
+    const aNew = featuredKinds.has(a.story?.kind) ? 0 : 1;
+    const bNew = featuredKinds.has(b.story?.kind) ? 0 : 1;
+    return bNew - aNew
+      || (STORY_KIND_RANK[b.story?.kind] || 0) - (STORY_KIND_RANK[a.story?.kind] || 0)
+      || (b.score || 0) - (a.score || 0);
+  });
   return scored.slice(0, limit).map((card) => ({
     ticker: card.ticker,
     story: card.story,
