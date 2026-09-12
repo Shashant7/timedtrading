@@ -56,6 +56,25 @@ describe("loadCandleTfCounts", () => {
     expect(prepares()).toBe(1);
   });
 
+  it("returns d1_failed without throwing when the scan errors", async () => {
+    const env = {
+      DB: {
+        prepare() {
+          return {
+            async all() { throw new Error("D1_ERROR"); },
+          };
+        },
+      },
+      KV_TIMED: {
+        async get() { return null; },
+        async put() {},
+        async delete() {},
+      },
+    };
+    const res = await loadCandleTfCounts(env);
+    expect(res).toEqual({ byTicker: {}, source: "d1_failed" });
+  });
+
   it("rescans after TTL and after an explicit bust", async () => {
     const { env, prepares } = makeEnv({
       rows: [{ ticker: "SPY", tf: "D", cnt: 400 }],
