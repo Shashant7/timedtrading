@@ -287,6 +287,10 @@ import {
   // 2026-05-29 — used to attach themes per ticker in /timed/all so the
   // Right Rail header can render theme chips client-side.
   getThemesForTicker as _getThemesForTicker,
+  pickTickerSector,
+  stampResolvedSector,
+  normalizeSectorLabel,
+  isUnknownSector,
 } from "./sector-mapping.js";
 import {
   getEffectiveSectorRating,
@@ -4579,16 +4583,17 @@ async function etfAutoAddTickers(env, tickers, weightMap, ctx) {
     if (SECTOR_MAP[ticker]) { added.push(ticker); continue; } // already in core
 
     try {
-      // Derive sector from ETF holdings data if available
-      const weights = weightMap?.[ticker];
-      let sector = "Unknown";
-      // The holdings HTML includes sector info — stored in the full holdings KV
-      // For now, default to Unknown; the scoring pipeline enriches via Finnhub context later.
-      SECTOR_MAP[ticker] = sector;
-      await KV.put(`timed:sector_map:${ticker}`, sector);
+      // Holdings HTML includes GICS; applyHoldingsToMaps stores it on weightMap._sectors.
+      // Never persist Unknown — that freezes the name as untyped across KV + scoring.
+      const holdingsSector = normalizeSectorLabel(weightMap?._sectors?.[ticker]);
+      const sector = holdingsSector || pickTickerSector(ticker);
+      if (sector) {
+        SECTOR_MAP[ticker] = sector;
+        await KV.put(`timed:sector_map:${ticker}`, sector);
+      }
       await ensureTickerIndex(KV, ticker);
       added.push(ticker);
-      console.log(`[ETF AUTO-ADD] Added ${ticker} to system (sector: ${sector})`);
+      console.log(`[ETF AUTO-ADD] Added ${ticker} to system (sector: ${sector || "pending"})`);
     } catch (e) {
       console.warn(`[ETF AUTO-ADD] Failed to add ${ticker}:`, String(e?.message || e).slice(0, 150));
     }
@@ -4977,9 +4982,7 @@ async function forceRescoreSingleTicker(env, ticker) {
   tickerData.rank = computeRank(tickerData);
   tickerData.score = tickerData.rank;
   const sym = String(ticker || "").toUpperCase();
-  if (!tickerData.sector) {
-    tickerData.sector = getSector(sym) || SECTOR_MAP[sym] || "Unknown";
-  }
+  stampRuntimeSector(sym, tickerData);
   delete tickerData._scoring_skip_reason;
   delete tickerData._scoring_degraded;
   // Harmonic Wave — stamp on admin rescore too (OOH scoring cron is skipped).
@@ -5097,29 +5100,13 @@ async function hydrateTickerLayers(env, ticker) {
 async function rebuildTimedAllSnapshotFromLatest(env) {
   const KV = env?.KV_TIMED;
   if (!KV) return { ok: false, error: "kv_missing" };
-  const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
-  const _userAdded = await d1GetActiveUserTickersCached(env).catch(() => []);
-  const activeSyms = [...new Set([...Object.keys(SECTOR_MAP || {}), ..._userAdded])]
-    .map((t) => String(t || "").toUpperCase())
-    .filter((t) => t && !removedSet.has(t));
-  try {
-    const watchRaw = await KV.get("timed:tickers");
-    if (watchRaw) {
-      const parsed = JSON.parse(watchRaw);
-      const arr = Array.isArray(parsed) ? parsed : (parsed?.tickers || []);
-      for (const t of arr) {
-        const sym = String(t || "").toUpperCase();
-        if (sym && !removedSet.has(sym)) activeSyms.push(sym);
-      }
-    }
-  } catch (_) {}
-  const uniq = [...new Set(activeSyms)].sort();
+  const uniq = await resolveRegistryUniverseTickers(env);
   const snapshot = {};
   let merged = 0;
   for (const sym of uniq) {
     const payload = await kvGetJSON(KV, `timed:latest:${sym}`).catch(() => null);
     if (payload && typeof payload === "object") {
-      snapshot[sym] = payload;
+      snapshot[sym] = stampRuntimeSector(sym, payload);
       merged++;
     }
   }
@@ -40295,8 +40282,8 @@ async function ensureTickerUniverseAndOnboard(env, ticker, ctx, opts = {}) {
 
   await ensureTickerIndex(KV, sym);
 
-  const sector = opts.sector || SECTOR_MAP[sym] || "Unknown";
-  if (!SECTOR_MAP[sym]) {
+  const sector = normalizeSectorLabel(opts.sector) || pickTickerSector(sym);
+  if (sector && (isUnknownSector(SECTOR_MAP[sym]) || !SECTOR_MAP[sym])) {
     try {
       await KV.put(`timed:sector_map:${sym}`, sector);
       SECTOR_MAP[sym] = sector;
@@ -48980,7 +48967,13 @@ const SECTOR_RATINGS = {
 };
 
 function getSector(ticker) {
-  return SECTOR_MAP[ticker?.toUpperCase()] || null;
+  const t = ticker?.toUpperCase();
+  return pickTickerSector(t, { mapSector: t ? SECTOR_MAP[t] : null });
+}
+
+function stampRuntimeSector(ticker, obj, hints = {}) {
+  const t = String(ticker || "").toUpperCase();
+  return stampResolvedSector(t, obj, { ...hints, mapSector: t ? SECTOR_MAP[t] : null });
 }
 
 // Load sector mappings from KV (called on startup)
@@ -49019,14 +49012,13 @@ async function loadSectorMappingsFromKV(KV) {
         return { tickerUpper, sector };
       }));
       for (const { tickerUpper, sector } of results) {
-        if (sector && sector.trim() !== "") {
-          SECTOR_MAP[tickerUpper] = sector.trim();
-          loadedCount++;
-        } else {
-          // Ticker is in watchlist but has no sector mapping — add as Unknown
-          SECTOR_MAP[tickerUpper] = "Unknown";
+        const normalized = normalizeSectorLabel(sector) || pickTickerSector(tickerUpper);
+        if (normalized) {
+          SECTOR_MAP[tickerUpper] = normalized;
           loadedCount++;
         }
+        // Do not stamp Unknown. An untyped KV overlay would freeze the
+        // name and block a later GICS fill from the file map / holdings.
       }
     }
 
@@ -59651,10 +59643,14 @@ export default {
           for (const tickerUpper of added) {
             try {
               const existing = await KV.get(`timed:sector_map:${tickerUpper}`, "text");
-              if (!existing || existing.trim() === "") {
-                await KV.put(`timed:sector_map:${tickerUpper}`, "Unknown");
-                SECTOR_MAP[tickerUpper] = "Unknown";
+              const resolved = pickTickerSector(tickerUpper, { kvSector: existing });
+              if (resolved) {
+                await KV.put(`timed:sector_map:${tickerUpper}`, resolved);
+                SECTOR_MAP[tickerUpper] = resolved;
+              } else if (existing && !isUnknownSector(existing)) {
+                SECTOR_MAP[tickerUpper] = existing.trim();
               }
+              // Leave unmapped rather than persist Unknown.
             } catch (_) { /* best-effort */ }
           }
 
@@ -61350,8 +61346,7 @@ export default {
         try {
           const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
           _removedTickersCache = removedSet;
-          const _userAddedRebuild = await d1GetActiveUserTickersCached(env);
-          const activeSyms = [...new Set([...Object.keys(SECTOR_MAP), ..._userAddedRebuild])].filter(t => !removedSet.has(t));
+          const activeSyms = await resolveRegistryUniverseTickers(env);
 
           // Start from current snapshot (if exists) to preserve existing data
           const currentSnapshot = await kvGetJSON(KV, "timed:all:snapshot");
@@ -78771,9 +78766,10 @@ export default {
               const merged = { ...(existing || {}), ...enrichment };
               await kvPutJSON(KV, `timed:context:${sym}`, merged, 90 * 24 * 60 * 60); // 90-day TTL
               // Also update SECTOR_MAP in memory if sector provided and ticker is in universe with "Unknown" sector
-              if (enrichment.sector && SECTOR_MAP[sym] && SECTOR_MAP[sym] === "Unknown") {
-                SECTOR_MAP[sym] = enrichment.sector;
-                await KV.put(`timed:sector_map:${sym}`, enrichment.sector);
+              const _enrSector = normalizeSectorLabel(enrichment.sector);
+              if (_enrSector && (isUnknownSector(SECTOR_MAP[sym]) || !SECTOR_MAP[sym])) {
+                SECTOR_MAP[sym] = _enrSector;
+                await KV.put(`timed:sector_map:${sym}`, _enrSector);
               }
               // Patch D1 ticker_latest payload_json so context appears in /timed/all without extra KV reads
               try {
@@ -93396,7 +93392,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           if (!rawTicker || !/^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(rawTicker)) {
             return sendJSON({ ok: false, error: "invalid_ticker", detail: "Must be 1-5 uppercase letters (e.g. PLTR, BRK-B)" }, 400, corsHeaders(env, req));
           }
-          const sector = String(body?.sector || "Unknown").trim() || "Unknown";
+          const sector = normalizeSectorLabel(body?.sector) || pickTickerSector(rawTicker);
 
           // Already in canonical SECTOR_MAP → no-op success with hint.
           if (SECTOR_MAP[rawTicker]) {
@@ -93427,6 +93423,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
           if (!quoteSnap && validationError) {
             return sendJSON({ ok: false, error: "ticker_not_found", ticker: rawTicker, detail: validationError }, 400, corsHeaders(env, req));
+          }
+          if (!sector) {
+            return sendJSON({
+              ok: false,
+              error: "sector_required",
+              ticker: rawTicker,
+              detail: "Pass a GICS sector. Do not persist Unknown — that freezes scoring type.",
+            }, 400, corsHeaders(env, req));
           }
 
           // Persist to KV overlay
@@ -108835,6 +108839,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // A4 — pass the cron's dynamic-calendar market-open answer so the
             // freshness SLO selection can never disagree with the feed gate.
             const result = await computeServerSideScores(ticker, _scoreGetCandles, env, existWithWeights, { marketOpen: stdCronMarketOpen });
+            if (result && typeof result === "object") stampRuntimeSector(ticker, result);
             if (!result) {
               freshnessDegraded++;
               const now = Date.now();
@@ -109217,7 +109222,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             } catch (_) { /* lifecycle stamp must never break scoring */ }
 
             // Inject adaptive config + VIX + golden profiles + three-tier regime for qualifiesForEnter
-            const tickerSector = SECTOR_MAP[ticker] || "Unknown";
+            const tickerSector = pickTickerSector(ticker, {
+              mapSector: SECTOR_MAP[ticker],
+              payloadSector: result?.sector,
+            }) || "Unknown";
             result._env = {
               ...(result._env || {}),
               _isReplay: env._isReplay || false,
@@ -110186,12 +110194,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // for the most-hit endpoint.
         ctx.waitUntil((async () => {
           try {
-            const activeSyms = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedTickers])];
+            const activeSyms = allTickers;
             const snapshot = {};
             for (const sym of activeSyms) {
               const payload = await kvGetJSON(KV, `timed:latest:${sym}`);
               if (payload && typeof payload === "object") {
-                snapshot[sym] = payload;
+                snapshot[sym] = stampRuntimeSector(sym, payload);
               }
             }
 

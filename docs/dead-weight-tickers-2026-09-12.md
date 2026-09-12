@@ -33,9 +33,16 @@ Newton `TT_SELECTED` (28) are KEEP.
 | WATCH | 51 | In the core map, onboarded and scored, but no live trade in 365d (or never). Theme coverage — review one-by-one. |
 | DEAD | 55 | Not structural, never a live trade. Mostly unused screener/admin adds. |
 
+Classifier update (same day, later PR): a **healthy scored** registry
+name is WATCH (`registry_never_traded`), not DEAD unused_add, even
+when it is missing from the static map. Live Upticks are KEEP
+(`upticks_overlay`). The unused-add list below is the original
+snapshot — those names are now first-class in `SECTOR_MAP`.
+
 ### DEAD — unused adds (clearest dead weight)
 
-Scored every cycle, never a live trade, not in the core map:
+Original snapshot. Scored every cycle, never a live trade, not then
+in the core map. Do not treat this as a delete list:
 
 `AAOI`, `AG`, `ALAB`, `ALNT`, `AMKR`, `CBRS`, `CFR`, `CIEN`, `CIFR`, `DDOG`, `DKS`, `DUOL`, `ECHO`, `ENPH`, `ERAS`, `ESTC`, `FCX`, `FORM`, `FSLY`, `FTNT`, `IDYA`, `IRDM`, `LEU`, `LMT`, `LUNR`, `MKSI`, `MRVL`, `NBIX`, `NET`, `NTRA`, `NVT`, `NXE`, `OKLO`, `OKTA`, `P`, `PGEN`, `RBRK`, `RKT`, `RMBS`, `SEDG`, `SMR`, `SOC`, `SRAD`, `TEAM`, `TENB`, `TTMI`, `VICR`, `VRT`, `WULF`, `ZETA`, `ZM`, `ZS`
 

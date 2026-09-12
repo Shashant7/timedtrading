@@ -60,13 +60,14 @@ Single reference for agents. Read this first to avoid context overload.
   `_news_summary` from D1 `ticker_news` (one batch read; replay skips).
   Do not fit weights or enable `conviction_fusion`. Playbook:
   `skills/rank-driver-audit.md`.
-- **Upticks Sep 2026 consistency (2026-09-12):** pub `1555299` synced
-  KV (`DDOG`/`LITE`/`NVDA` on, `IRM`/`MAR`/`VLO`/`VST` off) and hit
-  the Research Desk, but `TT_SELECTED_DEFAULT` stayed August and
-  DDOG/TEAM were theme-only (no `SECTOR_MAP`). D1 scores for DDOG/
-  TEAM/LITE froze 2026-08-27. Deleted names still got +15. One list
-  (`TT_SELECTED_DEFAULT`); adds need a GICS row. Playbook:
-  `skills/upticks-monthly.md`.
+- **Upticks Sep 2026 + registry first-class (2026-09-12):** pub
+  `1555299` synced KV (`DDOG`/`LITE`/`NVDA` on) but `TT_SELECTED_DEFAULT`
+  stayed August and many registry names (DDOG/TEAM/ALL/DAL plus ~70
+  others) had no GICS row — theme-only or ETF auto-add `Unknown`.
+  Snapshot rebuild used `SECTOR_MAP ∪ user` so KV scores never reached
+  D1/`/timed/all`. TT Selected is a sentiment overlay; every
+  `ticker_index` name must have sector + candles + a live score.
+  Playbook: `skills/upticks-monthly.md`, `skills/ticker-registry.md`.
 - **Setup grade (2026-09-10):** fail-closed 0–10 (floor 6) on new core
   **and** paper-family entries (Cloud Pivot / confirm-stack /
   continuation). Index/day-trade stay exempt. Support Bounce is catalog

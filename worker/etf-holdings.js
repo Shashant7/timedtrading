@@ -2,6 +2,7 @@
 // stores in KV, detects rebalances, and provides weight data for scoring.
 
 import { kvGetJSON, kvPutJSON } from "./storage.js";
+import { normalizeSectorLabel } from "./sector-mapping.js";
 
 // ═══════════════════════════════════════════════════════════════════════
 // ETF Configuration
@@ -283,15 +284,24 @@ function buildRebalanceEmbed(etfSymbol, diff) {
   };
 }
 
-function applyHoldingsToMaps(holdings, symbol, weightMap) {
+export function applyHoldingsToMaps(holdings, symbol, weightMap) {
   const tickers = [];
+  if (!weightMap._sectors) weightMap._sectors = {};
   for (const h of holdings || []) {
     if (!h?.ticker) continue;
     tickers.push(h.ticker);
     if (!weightMap[h.ticker]) weightMap[h.ticker] = {};
     weightMap[h.ticker][symbol] = h.weight;
+    const sector = normalizeSectorLabel(h.sector);
+    if (sector) weightMap._sectors[h.ticker] = sector;
   }
   return tickers;
+}
+
+/** Test/helper: GICS from a Granny holdings row, or null if unusable. */
+export function holdingsSectorForTicker(weightMap, ticker) {
+  const t = String(ticker || "").toUpperCase();
+  return normalizeSectorLabel(weightMap?._sectors?.[t] || weightMap?.[t]?._sector);
 }
 
 /**

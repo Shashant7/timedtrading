@@ -60,7 +60,10 @@ done
 
 If a name is missing from `SECTOR_MAP`, add the GICS sector in
 `worker/sector-mapping.js` in the same PR (do not leave KV as
-"Technology Services" / Bloomberg-style labels).
+"Technology Services" / Bloomberg-style labels). Sep 2026: `ALL` /
+`DAL` were live Upticks with no map row; `DBA` was also missing from
+D1 `ticker_index`. Adding the GICS row puts the name in the core
+scoring universe.
 
 ## Fast-track weighting
 
