@@ -6,6 +6,31 @@
 
 ---
 
+## Breakouts include trendline breaks — watch, then look for entry [2026-09-12]
+
+**Symptom:** Ripster-style daily charts mark Support / Risk / Breakout
+Zone plus a descending trendline. The book already had
+`detectBreakout()` (swing / ATR / EMA stack) and a
+`qualifiesForEnter` breakout path, but a trendline break was
+right-rail overlay math only. Nothing promoted the name to "look for
+a good entry."
+
+**Cause:** Client `_rrFitTrendline` never ran on the worker. Kanban
+setup needed corridor+PULLBACK, flip_watch, or a high-confidence
+pattern match.
+
+**Fix:** `worker/breakout-watch.js` ports the rail swing+regression
+line. A this-bar close through descending resistance (LONG) or
+ascending support (SHORT) — or an existing `detectBreakout()` hit —
+stamps `_breakout_watch` and promotes kanban to `setup`. Approaching
+the line stays `watch`. Entry-explain surfaces the stamp.
+
+**Do not:** Add `tt_trendline_breakout` or a new SuperTrend ENTRY buy
+path. Skip setup grade. Auto-place on the trendline print. Treat
+Ripster EMA clouds as this overlay.
+
+---
+
 ## Upticks on the Desk is not the same as scored [2026-09-12]
 
 **Symptom:** DDOG was on the dead-weight unused-add list after

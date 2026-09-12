@@ -287,6 +287,11 @@ import {
 } from "./focus-tier.js";
 import { attachNewsSummary } from "./discovery/news-tracker.js";
 import {
+  breakoutWatchLookForEntryCopy,
+  breakoutWatchSetupReason,
+  shouldPromoteBreakoutWatchToSetup,
+} from "./breakout-watch.js";
+import {
   getTickerType as getTickerTypeForFocus,
   SECTOR_MAP as SECTOR_MAP_FILE,
   // 2026-05-29 — used to attach themes per ticker in /timed/all so the
@@ -13940,6 +13945,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       return "setup";
     }
   }
+
+  // SETUP: Level or trendline breakout fired — look for a good entry.
+  // Watch / setup only. Does not skip setup grade or add a buy path.
+  if (shouldPromoteBreakoutWatchToSetup(tickerData)) {
+    tickerData.__setup_reason = breakoutWatchSetupReason(tickerData);
+    return "setup";
+  }
   
   // WATCH: Valid data, monitoring pool
   const hasValidData =
@@ -14095,6 +14107,16 @@ function deriveKanbanMeta(tickerData, stage) {
         reason: `Model: ${(pm?.direction === "BEARISH" ? pm?.bestBear?.name : pm?.bestBull?.name) || "pattern match"}`,
         reasons: ["pattern_model", ...(pm?.matched?.map(m => m.id) || [])],
         patternMatch: pm,
+      };
+    }
+    if (tickerData?.__setup_reason?.startsWith("breakout_watch:")) {
+      const watch = tickerData?._breakout_watch || tickerData?.breakout_watch || {};
+      return {
+        bucket: "breakout_watch",
+        emoji: "🎯",
+        reason: breakoutWatchLookForEntryCopy(watch) || "look_for_entry",
+        reasons: ["breakout_watch", watch.kind, watch.dir].filter(Boolean),
+        breakoutWatch: watch,
       };
     }
     if (flags.flip_watch) {
@@ -52027,6 +52049,37 @@ export default {
               await kvPutText(KV, prevFlipWatchKey, "false", 7 * 24 * 60 * 60);
             }
 
+            // Level / trendline breakout watch — activity tape only.
+            // Discord stays on the setup lane (same as flip_watch).
+            const prevBreakoutWatchKey = `timed:prev_breakout_watch:${ticker}`;
+            const prevBreakoutWatch = await KV.get(prevBreakoutWatchKey);
+            const nowBreakoutWatch = !!flags.breakout_watch;
+            if (nowBreakoutWatch && prevBreakoutWatch !== "true") {
+              const watch = payload._breakout_watch || payload.breakout_watch || {};
+              await appendActivity(KV, {
+                type: "breakout_watch",
+                ticker,
+                side: watch.dir || side,
+                price: payload.price,
+                state: payload.state,
+                rank: payload.rank,
+                setup_reason: payload.__setup_reason || breakoutWatchSetupReason(payload),
+                breakout_watch_kind: watch.kind || null,
+                breakout_watch_dir: watch.dir || null,
+                sl: payload.sl,
+                tp: payload.tp,
+                rr: payload.rr,
+                phase_pct: payload.phase_pct,
+                completion: payload.completion,
+              });
+              console.log(
+                `[BREAKOUT WATCH] ${ticker} ${watch.kind || "unknown"} ${watch.dir || ""} (setup — look for a good entry)`,
+              );
+              await kvPutText(KV, prevBreakoutWatchKey, "true", 7 * 24 * 60 * 60);
+            } else if (!nowBreakoutWatch && prevBreakoutWatch === "true") {
+              await kvPutText(KV, prevBreakoutWatchKey, "false", 7 * 24 * 60 * 60);
+            }
+
             // Track state change to aligned
             if (enteredAligned) {
               if (!actionableOnly) {
@@ -67821,6 +67874,9 @@ export default {
               loop1_enabled: String(env._deepAuditConfig?.loop1_specialization_enabled ?? "false"),
               loop1_combos_with_opinion: Object.keys(env._loop1AdvisoryByCombo || {}).length,
               loop2_paused: env._loop2Pause?.paused === true,
+              breakout: result.breakout || null,
+              breakout_watch: result._breakout_watch || result.breakout_watch || null,
+              setup_reason: result.__setup_reason || null,
               portfolio_block_new_entries: env._portfolioRiskPause?.block_new_entries === true,
               regime_shock_active: !!env._regimeShockDirective,
               focus_min_entry_conviction: env._deepAuditConfig?.deep_audit_focus_min_entry_conviction ?? null,

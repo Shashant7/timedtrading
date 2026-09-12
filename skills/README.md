@@ -56,6 +56,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | **Self-learning loops / why WR is bad while flags are ON / learning_proposals queue / CIO desk** | [learning-loops.md](learning-loops.md) |
 | **Audit or change rank formula / driver weights / false bonuses / rank traces** | [rank-driver-audit.md](rank-driver-audit.md) |
 | **0–10 setup grade / why a core entry was blocked / Ticker Grader comparison** | [setup-grade.md](setup-grade.md) |
+| **Level / trendline breakout watch / why a name is in Setup without a new buy** | [breakout-watch.md](breakout-watch.md) |
 
 ## When to ADD a new skill
 
