@@ -77,7 +77,11 @@ actual magnet shelf). Call a far opposite-side SuperTrend shelf
 "the magnet target" on a long (AMAT $320 under a $460 long).
 Leave daily chart-image undeduped — `ticker_candles` D/W can carry
 both 00:00 UTC and 04:00 UTC stamps of the same session (AMAT
-June/July 2026), which draws each candle twice.
+June/July 2026), which draws each candle twice. Snap D/W writes
+through `canonicalDailyTs` and delete the sibling stamp. Keep a
+90-day daily window on AMAT (June $739 spike squishes the $456
+tape). Print 10R when the stop is a tight invalidation. Use a
+weekly series for a SuperTrend magnet (GOLD).
 
 ---
 
