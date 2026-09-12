@@ -1,14 +1,20 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   judgePassCondition,
   buildReviewFromInputs,
   renderReviewHtml,
+  renderReviewText,
   runWeeklyExecutionReview,
+  overlayLiveCoverage,
   PASS_CONDITION,
   EXECUTION_CHANGES_TS,
   REVIEW_KV_LATEST,
   REVIEW_KV_HISTORY,
 } from "./execution-review.js";
+import { COVERAGE_SNAPSHOT_KEY } from "./mirror-coverage.js";
 
 const H = 3600000;
 // 2026-09-08 14:00Z = 10:00 ET Monday, the first session after the changes.
@@ -71,7 +77,17 @@ describe("buildReviewFromInputs", () => {
     expect(review.options_desk.mirror.reason).toBe("graded_2_of_20");
     expect(review.broker_intents.placed).toBe(3);
     expect(review.knobs.deep_audit_max_daily_entries).toBe("6");
+    expect(review.broker_coverage).toBe(null);
     expect(EXECUTION_CHANGES_TS).toBe(Date.UTC(2026, 8, 4, 4, 0, 0));
+  });
+
+  it("carries the coverage desk snapshot through", () => {
+    const review = buildReviewFromInputs({
+      now: MON,
+      broker_coverage: { actions: 4, mirrored: 4, unmatched: 0, pending_intent: 0, rejected_terminal: 0, fails: 0, healthy: true, quiet: false, sample: [] },
+    });
+    expect(review.broker_coverage.healthy).toBe(true);
+    expect(review.broker_coverage.actions).toBe(4);
   });
 
   it("includes Sep 4 RTH entries in the since-changes cohort", () => {
@@ -99,13 +115,33 @@ describe("buildReviewFromInputs", () => {
 });
 
 describe("renderReviewHtml", () => {
-  it("renders the verdict badge, every check, and the licensing line without second person", () => {
-    const review = buildReviewFromInputs({ now: MON, sinceRows: coreSet(36, (i) => (i % 2 ? 1.5 : -0.6)), knobs: { k: "1" } });
+  it("uses the dark branded emailLayout with coverage and no second person", () => {
+    const review = buildReviewFromInputs({
+      now: MON,
+      sinceRows: coreSet(36, (i) => (i % 2 ? 1.5 : -0.6)),
+      knobs: { k: "1" },
+      broker_coverage: {
+        actions: 3, mirrored: 2, unmatched: 1, pending_intent: 0, rejected_terminal: 0,
+        fails: 1, healthy: false, quiet: false,
+        sample: [{ ticker: "TWLO", lane: "trader", event: "ENTRY", reason: "never_attempted" }],
+      },
+    });
     const html = renderReviewHtml(review);
+    expect(html).toContain("logo-discord.png");
+    expect(html).toContain("#0b0e11");
+    expect(html).toContain("Georgia");
     expect(html).toContain("PASS");
     expect(html).toContain("core win rate");
+    expect(html).toContain("Model vs broker");
+    expect(html).toContain("TWLO");
+    expect(html).toContain("never_attempted");
+    expect(html).toContain("Open Execution Review");
     expect(html).toContain("Market data powered by Twelve Data");
+    expect(html).not.toContain("font-family:Inter,Arial");
     expect(html).not.toMatch(/\byou\b|\byour\b/i);
+    const text = renderReviewText(review);
+    expect(text).toContain("Broker coverage:");
+    expect(text).toContain("TWLO");
   });
 });
 
@@ -159,6 +195,21 @@ describe("runWeeklyExecutionReview", () => {
     expect(sent[0].category).toBe("execution_review");
     expect(embeds).toHaveLength(1);
     expect(embeds[0].title).toContain("EXECUTION REVIEW");
+    expect(embeds[0].description).toMatch(/Broker:/);
+    expect(sent[0].html).toContain("logo-discord.png");
+    expect(sent[0].text).toContain("Broker coverage:");
+  });
+
+  it("overlayLiveCoverage stamps the latest snapshot onto a stored review", async () => {
+    const { env } = fakeEnv([]);
+    await env.KV_TIMED.put(COVERAGE_SNAPSHOT_KEY, JSON.stringify({
+      ts: MON,
+      summary: { actions: 2, mirrored: 2, unmatched: 0, pending_intent: 0, rejected_terminal: 0, fails: 0 },
+      anomalies: [],
+    }));
+    const over = await overlayLiveCoverage(env, { ok: true, label: "stored" });
+    expect(over.broker_coverage.healthy).toBe(true);
+    expect(over.broker_coverage.actions).toBe(2);
   });
 
   it("reports a missing operator address instead of throwing", async () => {
@@ -176,5 +227,14 @@ describe("runWeeklyExecutionReview", () => {
     const hist = JSON.parse(kv.get(REVIEW_KV_HISTORY));
     expect(hist).toHaveLength(12);
     expect(hist[0].generated_at).toBeGreaterThan(hist[1].generated_at);
+  });
+});
+
+describe("execution-review page", () => {
+  it("renders a Model vs broker card from the live snapshot", () => {
+    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../react-app/execution-review.html"), "utf8");
+    expect(src).toContain("Model vs broker");
+    expect(src).toContain("broker_coverage");
+    expect(src).toContain("one clean confirmation per NY day");
   });
 });

@@ -106,7 +106,11 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   trims/exits (100/2 then 100/2, never 100/100).
 >   Read: `GET /timed/admin/broker/coverage?hours=48` (`requireKeyOrAdmin`).
 >   Watch: sanity `model_broker_coverage` (fast 15 min) + `*/5` snapshot
->   at `timed:mirror-coverage:latest` (Discord when the fail set changes).
+>   at `timed:mirror-coverage:latest` (Discord when the fail set changes,
+>   plus one `BROKER COVERAGE · clean` per NY day when healthy).
+>   Inbox: Friday Execution Review and the operator Account-today digest
+>   carry the same desk block; `/execution-review.html` overlays the
+>   live snapshot. Do not attach house coverage to partner digests.
 >   Heal stays on existing lanes (investor catch-up, trader EXIT catch-up,
 >   index-trend entry/close, intent drain). Unmatched Short Term ENTRIES
 >   page only — they must re-qualify, not chase. Do not backfill leftover

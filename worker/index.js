@@ -84437,15 +84437,37 @@ export default {
             } catch (_) { /* prefs check is best-effort */ }
             // Re-render with branded emailLayout + unsubscribe when the
             // bridge queued a structured digest_summary (preferred path).
+            // House coverage belongs on the operator digest only — partner
+            // Account-today mail is that account's fills, not the model book.
             if (item?.digest_summary && typeof buildDailyOwnerDigestEmail === "function") {
               try {
                 const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
                 const unsub = (typeof buildUnsubscribeUrl === "function" && env?.EMAIL_HMAC_SECRET)
                   ? await buildUnsubscribeUrl(baseUrl, to, "broker_daily_digest", env.EMAIL_HMAC_SECRET)
                   : null;
+                const coverageOpts = {};
+                const admin = String(env?.ADMIN_EMAIL || "").toLowerCase().trim();
+                if (admin && to === admin) {
+                  try {
+                    const {
+                      COVERAGE_SNAPSHOT_KEY,
+                      summarizeCoverageForDesk,
+                      renderCoverageEmailBlock,
+                      coverageDeskPlainLines,
+                    } = await import("./mirror-coverage.js");
+                    const snap = await env?.KV_TIMED?.get(COVERAGE_SNAPSHOT_KEY, "json").catch(() => null);
+                    const desk = summarizeCoverageForDesk(snap);
+                    coverageOpts.coverageHtml = renderCoverageEmailBlock(desk, {
+                      href: `${baseUrl.replace(/\/$/, "")}/execution-review.html`,
+                      linkLabel: "Open Execution Review →",
+                    });
+                    coverageOpts.coverageText = coverageDeskPlainLines(desk);
+                  } catch (_) { /* coverage is best-effort */ }
+                }
                 const rendered = buildDailyOwnerDigestEmail(item.digest_summary, {
                   baseUrl,
                   unsubscribeUrl: unsub,
+                  ...coverageOpts,
                 });
                 if (rendered?.subject) content = rendered;
               } catch (e) {
@@ -84800,7 +84822,7 @@ export default {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         try {
-          const { REVIEW_KV_LATEST, REVIEW_KV_HISTORY, buildWeeklyExecutionReview } = await import("./execution-review.js");
+          const { REVIEW_KV_LATEST, REVIEW_KV_HISTORY, buildWeeklyExecutionReview, overlayLiveCoverage } = await import("./execution-review.js");
           if (String(url.searchParams.get("history") || "0") === "1") {
             const hist = await env.KV_TIMED.get(REVIEW_KV_HISTORY, "json").catch(() => null);
             return sendJSON({ ok: true, history: Array.isArray(hist) ? hist : [] }, 200, corsHeaders(env, req));
@@ -84811,6 +84833,7 @@ export default {
             review = await buildWeeklyExecutionReview(env);
             source = "fresh";
           }
+          review = await overlayLiveCoverage(env, review);
           return sendJSON({ ...review, source }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
@@ -105303,7 +105326,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     //
     // 2026-09-11 — Fail-closed join of every model lane against the
     // client ring + intents. Pages Discord when the unmatched set
-    // changes. Does not place orders; existing lane heals own that.
+    // changes, plus one clean confirmation per NY day when the
+    // contract is healthy. Does not place orders; existing lane
+    // heals own that.
     if (!_isDedicatedEngine && _isEvery5Min && env?.BROKER_BRIDGE_URL) {
       ctx.waitUntil((async () => {
         try {
@@ -105311,10 +105336,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const out = await snapshotMirrorCoverage(env, {
             notify: (embed) => notifyDiscord(env, embed, "system"),
           });
-          if (out?.summary?.fails > 0 || out?.paged) {
+          if (out?.summary?.fails > 0 || out?.paged || out?.paged_clean) {
             console.log(
               `[MIRROR COVERAGE] actions=${out.summary.actions} fails=${out.summary.fails}`
-              + ` unmatched=${out.summary.unmatched} paged=${!!out.paged}`,
+              + ` unmatched=${out.summary.unmatched} paged=${!!out.paged} paged_clean=${!!out.paged_clean}`,
             );
           }
         } catch (e) {

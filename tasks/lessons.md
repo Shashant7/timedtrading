@@ -6,6 +6,28 @@
 
 ---
 
+## Execution Review email must match the other templates [2026-09-11]
+
+**Symptom:** Friday review mail was a one-off Inter/white body. After
+the coverage contract merged, nothing emailed or Discord'd that the
+mirror was healthy — only new fail sets. TWLO 10:04 ET was a real
+model ENTRY the broker never placed.
+
+**Cause:** `renderReviewHtml` did not use `emailLayout`. Coverage
+snapshot paged Discord only when the unmatched set changed.
+
+**Fix:** Execution Review uses the shared dark layout (logo, Georgia,
+Twelve Data footer). Coverage desk block on the Friday mail, the
+operator Account-today digest, and `/execution-review.html` (GET
+overlays the live snapshot). Discord `BROKER COVERAGE · clean` once
+per NY day when actions > 0 and fails = 0.
+
+**Do not:** Import `mirror-coverage.js` from `email.js` (cycle).
+Attach house coverage to partner Account-today mail. Chase TWLO
+after the unmatched ST ENTRY. Invent a new ST ENTRY buy path.
+
+---
+
 ## Model vs broker must be one fail-closed join [2026-09-11]
 
 **Symptom:** Daily mirror misses (TNA W37 never-attempted BUY, PLTR
