@@ -54,6 +54,25 @@ or forced. Force-sends stamp `timed:weekend-desk:sent:<Saturday>`.
 
 ---
 
+## Weekend TT Setups stay admin-only until the copy is locked [2026-09-12]
+
+**Symptom:** Early weekend sends went to every opted-in member while
+the copy still said "the line", reused operator examples, and used
+close-line charts that hide gaps.
+
+**Fix:** `sendWeekendDeskEmails` delivers only to `ADMIN_EMAIL` unless
+`WEEKEND_DESK_BROADCAST` is `1`/`true`. Stories name the level by role
+(support / resistance), use daily-brief tone + ticker chips, and add
+personality / psych / earnings only when the payload has them. Charts
+are candles; a called-out trendline is drawn on the SVG.
+
+**Do not:** Force-send the six-person list to "test." Call every
+structure "the line." Paste operator examples as subscriber copy.
+Invent gap-fill rates. Change the default chart-svg style (trade
+alerts stay line charts).
+
+---
+
 ## Breakout watch: retest is the entry, EMA-stack is not Setup [2026-09-12]
 
 **Symptom:** First watch treated every `detectBreakout()` hit (including

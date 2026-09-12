@@ -19,9 +19,16 @@ Saturday, then compose **TT Setups** from the stamps the book
 already knows.
 
 TT Setups are a **short unique list** (3–4 names). Each name is a
-story: why it is interesting (plain English), a Daily / 4H / Weekly
-chart, and what the model is watching for. Volume is a first-class
-CMT input. Indicator tags stay off the subscriber email.
+structure story: named **support** or **resistance** (not "the
+line"), daily-brief tone + ticker chips, and **daily candles** so
+gaps stay visible. If the setup is a trendline, the chart draws it.
+Personality, psych handles, and earnings appear only when the
+payload already has them. Volume is a first-class CMT input.
+Indicator tags stay off the subscriber email.
+
+**Email is admin-only** until `WEEKEND_DESK_BROADCAST=1` is set on
+the worker. Cron and `force=1` still send, but only to
+`ADMIN_EMAIL`. Do not blast members while the copy is being locked.
 
 Admin GET still keeps the internal buckets for ops.
 
@@ -31,7 +38,7 @@ Admin GET still keeps the internal buckets for ops.
 |---|---|
 | Sat 10:00 | Start paged universe rescore + compose |
 | Sat 11:00–16:00 | Continue rescore pages if a cursor remains |
-| Last rescore page | Compose + one TT Setups email (Pro/VIP/Admin, `weekend_desk` pref) |
+| Last rescore page | Compose + one TT Setups email to `ADMIN_EMAIL` (members only after `WEEKEND_DESK_BROADCAST=1`) |
 | Sun 10:00 | Recompose from Saturday stamps; email only if Saturday did not send |
 
 ## Commands
@@ -47,10 +54,14 @@ curl -s -A "Mozilla/5.0" -X GET "${LIVE}/timed/admin/weekend-desk?fresh=1" \
 curl -s -A "Mozilla/5.0" -X POST "${LIVE}/timed/admin/weekend-desk?rescore=1&email=1&notify=1" \
   -H "X-API-Key: ${TIMED_API_KEY}" -H "content-type: application/json" -d '{}'
 
-# Email immediately from current stamps (do not wait for rescore)
+# Admin-only preview from current stamps (do not wait for rescore)
 curl -s -A "Mozilla/5.0" -X POST "${LIVE}/timed/admin/weekend-desk?phase=refresh&email=1&force=1" \
   -H "X-API-Key: ${TIMED_API_KEY}" -H "content-type: application/json" -d '{}'
 ```
+
+Until `WEEKEND_DESK_BROADCAST=1`, that send goes only to `ADMIN_EMAIL`
+even with `force=1`. Expect `email.recipients === 1` and
+`email.preview === true`.
 
 Pro/VIP/Admin: `GET /timed/weekend-desk` (KV latest). Members/anon get
 `error_kind: "tier_required"`.
@@ -71,7 +82,7 @@ Pro/VIP/Admin: `GET /timed/weekend-desk` (KV latest). Members/anon get
 ## Verify
 
 1. `GET /timed/admin/weekend-desk` returns `featured` (unique tickers) + `story` on each card.
-2. Email copy says **TT Setups**, has `/timed/chart-image`, no `st_magnet` / `ema_short` tags, no repeated tickers.
+2. Email copy says **TT Setups**, uses ticker chips + Georgia "Weekend watch", `/timed/chart-image?style=candles`, named support/resistance (no "the line"), no `st_magnet` / `ema_short` tags, no repeated tickers.
 3. Email copy has no second person ("the trader" / "the book" / "the model").
 4. `/timed/health` `operatingHours` may be false — that is expected.
 5. Do **not** treat a TT Setup as an entry. Setup grade still applies Monday.
