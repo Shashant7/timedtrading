@@ -85,11 +85,11 @@ is the check. Adds also need a GICS row in `worker/sector-mapping.js`
 
 ```bash
 curl -s "${LIVE}/timed/admin/upticks" -H "X-API-Key: ${TIMED_API_KEY}" | jq .
-curl -s -X POST "${LIVE}/timed/admin/rescore-ticker?ticker=VLO" \
+curl -s -X POST "${LIVE}/timed/admin/rescore-ticker?ticker=DDOG" \
   -H "X-API-Key: ${TIMED_API_KEY}" -H 'content-type: application/json' -d '{}' | jq .
-# expect has_W/has_M true, sector Energy, non-null rank
+# expect sector Information Technology, non-null rank, fresh ts
 
-curl -s "${LIVE}/timed/admin/entry-explain?ticker=VLO" \
+curl -s "${LIVE}/timed/admin/entry-explain?ticker=DDOG" \
   -H "X-API-Key: ${TIMED_API_KEY}" | jq '.diag|{conviction,tier,focus_bonuses,in_upticks,in_tt_selected}'
 # expect upticks:10, tt_selected:15, in_upticks/in_tt_selected true
 ```
