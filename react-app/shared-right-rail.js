@@ -13339,6 +13339,16 @@
                       const badges = [];
                       if (isPrimeBubble(ticker)) badges.push({ icon: "💎", label: "Prime", tip: "Prime: Top-ranked setup with high conviction" });
                       if (flags.flip_watch) badges.push({ icon: "🎯", label: "Entry Zone", tip: "Entry Zone: Price is near optimal entry level" });
+                      (() => {
+                        const bw = ticker?._breakout_watch || ticker?.breakout_watch || {};
+                        if (flags.breakout_retest || bw.retest) {
+                          badges.push({ icon: "🎯", label: "Retest", tip: "Broken trendline retest — look for a good entry" });
+                        } else if (flags.breakout_watch) {
+                          badges.push({ icon: "🎯", label: "Breakout", tip: "Level or trendline breakout — look for a good entry" });
+                        } else if (flags.breakout_approaching || bw.approaching) {
+                          badges.push({ icon: "🎯", label: "TL Watch", tip: "Trendline nearby — watching for a break" });
+                        }
+                      })();
                       if (flags.momentum_elite) badges.push({ icon: "🔥", label: "MoElite", tip: "MoElite: Elite momentum alignment across timeframes" });
                       if (flags.sq30_on && !flags.sq30_release) badges.push({ icon: "🧨", label: "Squeeze", tip: "Squeeze: Bollinger Band squeeze detected — volatility expansion expected" });
                       if (flags.sq30_release) badges.push({ icon: "⚡", label: "Release", tip: "Release: Squeeze has fired — momentum breakout in progress" });

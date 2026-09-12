@@ -6749,6 +6749,27 @@ function viewportActionChips(t) {
       title: "Long Term — queued for next rebalance."
     });
   }
+  const bw = t?._breakout_watch || t?.breakout_watch || {};
+  const flags = t?.flags || {};
+  if (flags.breakout_retest || bw.retest) {
+    chips.push({
+      label: "Retest",
+      cls: "ds-chip--accent",
+      title: "Broken trendline retest — look for a good entry"
+    });
+  } else if (flags.breakout_watch) {
+    chips.push({
+      label: "Breakout",
+      cls: "ds-chip--up",
+      title: "Level or trendline breakout — look for a good entry"
+    });
+  } else if (flags.breakout_approaching || bw.approaching) {
+    chips.push({
+      label: "TL Watch",
+      cls: "",
+      title: "Trendline nearby — watching for a break"
+    });
+  }
   if (isTraderModelEntry(t)) {
     chips.push({
       label: "ENTER",
@@ -9687,6 +9708,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1789100836832:476162604
+// cache-bust:1789244206254:157764095
 
-// cache-bust:1789100836832:476162604
+// cache-bust:1789244206254:157764095
