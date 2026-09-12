@@ -67,6 +67,12 @@ Single reference for agents. Read this first to avoid context overload.
   Snapshot rebuild used `SECTOR_MAP ∪ user` so KV scores never reached
   D1/`/timed/all`. TT Selected is a sentiment overlay; every
   `ticker_index` name must have sector + candles + a live score.
+  Follow-up: `POST /timed/admin/universe` lifts `timed:removed` even
+  when the name is already in `SECTOR_MAP` (DBA). Watchlist add skips
+  TwelveData stock-list validation for mapped / Selected / live
+  Upticks. Admin rescore + entry-explain recompute conviction overlays.
+  Runtime `SECTOR_MAP` is the file map. Hourly
+  `registry_alignment` sweep + `GET /timed/admin/registry-alignment`.
   Playbook: `skills/upticks-monthly.md`, `skills/ticker-registry.md`.
 - **Setup grade (2026-09-10):** fail-closed 0–10 (floor 6) on new core
   **and** paper-family entries (Cloud Pivot / confirm-stack /

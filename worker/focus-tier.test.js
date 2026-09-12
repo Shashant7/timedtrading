@@ -4,7 +4,12 @@
 // instead of silently scoring neutral, and the env-backed ctx.sectorRating
 // fallback must be honored.
 import { describe, it, expect } from "vitest";
-import { computeConvictionScore } from "./focus-tier.js";
+import {
+  computeConvictionScore,
+  attachFocusListEnv,
+  stampFocusConvictionFields,
+  TT_SELECTED_DEFAULT,
+} from "./focus-tier.js";
 
 function baseTicker(overrides = {}) {
   return {
@@ -78,6 +83,43 @@ describe("conviction context overlay", () => {
     expect(conv.breakdown.context.pts).toBe(18);
     expect(conv.breakdown.context.parts.quality).toBe(8);
     expect(conv.breakdown.context.parts.theme_member).toBe(4);
+  });
+});
+
+describe("conviction overlay lists", () => {
+  it("adds +15 curated and +10 live Upticks when lists are attached", () => {
+    const conv = computeConvictionScore({
+      tickerData: baseTicker({ ticker: "DDOG" }),
+      ctx: {},
+      historyStats: null,
+      ttSelected: TT_SELECTED_DEFAULT,
+      currentGrannyEtfHoldings: new Set(["NVDA"]),
+      currentUpticks: new Set(["DDOG"]),
+    });
+    expect(conv.breakdown.bonuses.tt_selected).toBe(15);
+    expect(conv.breakdown.bonuses.upticks).toBe(10);
+    expect(conv.breakdown.bonuses.granny_etf).toBe(0);
+  });
+
+  it("stamps public + internal focus fields after attachFocusListEnv", () => {
+    const row = baseTicker({ ticker: "DDOG" });
+    attachFocusListEnv(row, {
+      _currentUpticks: new Set(["DDOG"]),
+      _currentGrannyHoldings: new Set(),
+    });
+    expect(row._env._currentUpticks.has("DDOG")).toBe(true);
+    const conv = computeConvictionScore({
+      tickerData: row,
+      ctx: {},
+      historyStats: null,
+      ttSelected: TT_SELECTED_DEFAULT,
+      currentGrannyEtfHoldings: row._env._currentGrannyHoldings,
+      currentUpticks: row._env._currentUpticks,
+    });
+    stampFocusConvictionFields(row, conv);
+    expect(row.focus_conviction_score).toBe(conv.score);
+    expect(row.__focus_conviction_breakdown.bonuses.upticks).toBe(10);
+    expect(row.__focus_tier).toBe(conv.tier);
   });
 });
 

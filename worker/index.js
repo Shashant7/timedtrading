@@ -279,7 +279,12 @@ else apikeyInput.addEventListener('change', startPolling, { once:true });
 </script>
 
 </body></html>`;
-import { computeConvictionScore, TT_SELECTED_DEFAULT } from "./focus-tier.js";
+import {
+  computeConvictionScore,
+  TT_SELECTED_DEFAULT,
+  attachFocusListEnv,
+  stampFocusConvictionFields,
+} from "./focus-tier.js";
 import { attachNewsSummary } from "./discovery/news-tracker.js";
 import {
   getTickerType as getTickerTypeForFocus,
@@ -1090,7 +1095,11 @@ import {
 } from "./investor.js";
 import { shallowBreachScoreHold } from "./investor-autopsy-gates.js";
 import { enrichInvestorDayState } from "./seed-investor-daystate.js";
-import { resolveScoringUniverse } from "./universe.js";
+import { resolveScoringUniverse, planRegistryReactivation } from "./universe.js";
+import {
+  shouldSkipSymbolValidation,
+  runRegistryAlignment,
+} from "./registry-alignment.js";
 import { loadCandleTfCounts, bustCandleTfCountsCache } from "./candle-tf-counts.js";
 import {
   BROAD_INDEX_TICKERS,
@@ -2373,6 +2382,7 @@ const ROUTES = [
   // ── Admin: Core Universe management (KV overlay on SECTOR_MAP) ──
   ["GET", "/timed/admin/universe", "GET /timed/admin/universe"],
   ["GET", "/timed/admin/universe-audit", "GET /timed/admin/universe-audit"],
+  ["GET", "/timed/admin/registry-alignment", "GET /timed/admin/registry-alignment"],
   ["POST", "/timed/admin/universe", "POST /timed/admin/universe"],
   ["DELETE", (p) => /^\/timed\/admin\/universe\/[A-Z0-9.!-]+$/i.test(p), "DELETE /timed/admin/universe/:ticker"],
   // ── ETF Holdings Sync ──
@@ -4947,17 +4957,42 @@ function classifyScoreStaleness(latest, { nowMs, marketCloseMs, forcePostClose =
   return null;
 }
 
-async function forceRescoreSingleTicker(env, ticker) {
-  // Match the */5 cron: without this stamp, computeConvictionScore
-  // cannot apply the live Upticks +10 (DDOG Sep 2026).
+async function loadFocusListEnv(env) {
+  const kv = env?.KV_TIMED || env?.KV;
   try {
     if (!env._currentUpticks) {
-      const upticksList = await kvGetJSON(env.KV_TIMED, "timed:admin:upticks");
+      const upticksList = await kvGetJSON(kv, "timed:admin:upticks");
       env._currentUpticks = new Set(
         (Array.isArray(upticksList) ? upticksList : []).map((t) => String(t || "").toUpperCase()).filter(Boolean),
       );
     }
   } catch (_) { env._currentUpticks = env._currentUpticks || null; }
+  try {
+    if (!env._currentGrannyHoldings) {
+      const { loadETFWeightMap } = await import("./etf-holdings.js");
+      const wm = await loadETFWeightMap(env).catch(() => null);
+      if (wm && typeof wm === "object") {
+        env._currentGrannyHoldings = new Set(Object.keys(wm).map((t) => String(t).toUpperCase()));
+      }
+    }
+  } catch (_) { /* optional */ }
+  return env;
+}
+
+function stampFocusConvictionOnTicker(tickerData, env) {
+  if (!tickerData) return null;
+  attachFocusListEnv(tickerData, env);
+  try {
+    return stampFocusConvictionFields(tickerData, computeConvictionScoreForD(tickerData));
+  } catch (_) {
+    return tickerData;
+  }
+}
+
+async function forceRescoreSingleTicker(env, ticker) {
+  // Match the */5 cron: without these lists, computeConvictionScore
+  // cannot apply live Upticks +10 / Granny +10 (DDOG Sep 2026).
+  await loadFocusListEnv(env);
   const candleCache = await d1GetCandlesAllTfs(env, ticker, RESCORE_TF_CONFIGS);
   const getCandlesCached = async (_env, _ticker, tf, _limit) => {
     const tfKey = normalizeTfKey(tf);
@@ -4983,6 +5018,7 @@ async function forceRescoreSingleTicker(env, ticker) {
   tickerData.score = tickerData.rank;
   const sym = String(ticker || "").toUpperCase();
   stampRuntimeSector(sym, tickerData);
+  stampFocusConvictionOnTicker(tickerData, env);
   delete tickerData._scoring_skip_reason;
   delete tickerData._scoring_degraded;
   // Harmonic Wave — stamp on admin rescore too (OOH scoring cron is skipped).
@@ -48598,323 +48634,27 @@ function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null, ope
 // ─────────────────────────────────────────────────────────────
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SECTOR_MAP — Active Ticker Universe (230 tickers)
-// Core universe: GRNY/GRNI, GRNJ, Newton Upticks, TT Selected, rotated picks
-// Structural: S&P Sector ETFs, Commodity ETFs, Crypto, Futures, Indices
+// SECTOR_MAP — one runtime object (the file map).
+// KV hydrate mutates this same object so pickTickerSector / getSector
+// see admin overlays. The previous inline copy was a 230-key subset and
+// drifted from worker/sector-mapping.js.
+// Pulse futures stay watch-only (WATCH_ONLY) and are stamped here so
+// getSector("ES1!") still resolves. They are not listed in the file map
+// so file-only imports stay equity/ETF.
 // ═══════════════════════════════════════════════════════════════════════════
-const SECTOR_MAP = {
-  // ── Consumer Discretionary ──
-  AMZN: "Consumer Discretionary",
-  TSLA: "Consumer Discretionary",
-  TJX: "Consumer Discretionary",
-  BABA: "Consumer Discretionary",
-  ULTA: "Consumer Discretionary",
-  APP: "Consumer Discretionary",
-  DPZ: "Consumer Discretionary",
-  H: "Consumer Discretionary",
-  LRN: "Consumer Discretionary",
-  NKE: "Consumer Discretionary",
-  MCD: "Consumer Discretionary",
-  EXPE: "Consumer Discretionary",
-  RBLX: "Consumer Discretionary",
-  LULU: "Consumer Discretionary",
-  DKNG: "Consumer Discretionary",
-  CVNA: "Consumer Discretionary",
-  SWK: "Consumer Discretionary",
-  JD: "Consumer Discretionary",
-  KWEB: "Consumer Discretionary",
-  XYZ: "Consumer Discretionary",
-  GRNY: "Consumer Discretionary",
-  // ── Consumer Staples ──
-  KO: "Consumer Staples",
-  WMT: "Consumer Staples",
-  COST: "Consumer Staples",
-  MNST: "Consumer Staples",
-  ELF: "Consumer Staples",
-  CELH: "Consumer Staples",
-  BG: "Consumer Staples",              // Bunge Global
-  // ── Industrials ──
-  CAT: "Industrials",
-  GE: "Industrials",
-  ETN: "Industrials",
-  DE: "Industrials",
-  PH: "Industrials",
-  CSX: "Industrials",
-  HII: "Industrials",
-  GEV: "Industrials",
-  TT: "Industrials",
-  PWR: "Industrials",
-  AWI: "Industrials",
-  WTS: "Industrials",
-  DY: "Industrials",
-  FIX: "Industrials",
-  ITT: "Industrials",
-  STRL: "Industrials",
-  JCI: "Industrials",
-  IBP: "Industrials",
-  DCI: "Industrials",
-  IESC: "Industrials",
-  BWXT: "Industrials",
-  BE: "Industrials",
-  AVAV: "Industrials",
-  AXON: "Industrials",
-  MLI: "Industrials",
-  NXT: "Industrials",
-  SGI: "Industrials",
-  CARR: "Industrials",
-  CW: "Industrials",
-  FLR: "Industrials",
-  J: "Industrials",
-  VMI: "Industrials",
-  UNP: "Industrials",
-  ARRY: "Industrials",
-  BA: "Industrials",
-  RTX: "Industrials",
-  EMR: "Industrials",
-  UPS: "Industrials",
-  EME: "Industrials",
-  MTZ: "Industrials",
-  B: "Industrials",
-  JOBY: "Industrials",
-  ASTS: "Industrials",
-  AYI: "Industrials",
-  WM: "Industrials",
-  QXO: "Industrials",                  // QXO Inc (building products)
-  ACN: "Information Technology",        // Accenture
-  // ── Information Technology ──
-  AAPL: "Information Technology",
-  MSFT: "Information Technology",
-  NVDA: "Information Technology",
-  AVGO: "Information Technology",
-  AMD: "Information Technology",
-  ORCL: "Information Technology",
-  KLAC: "Information Technology",
-  ANET: "Information Technology",
-  CDNS: "Information Technology",
-  PANW: "Information Technology",
-  PLTR: "Information Technology",
-  MDB: "Information Technology",
-  PATH: "Information Technology",
-  SMCI: "Information Technology",
-  SNOW: "Information Technology",
-  ADBE: "Information Technology",
-  CLS: "Information Technology",
-  CRS: "Information Technology",
-  SANM: "Information Technology",
-  IONQ: "Information Technology",
-  LITE: "Information Technology",
-  ON: "Information Technology",
-  KTOS: "Information Technology",
-  MSTR: "Information Technology",
-  LSCC: "Information Technology",
-  FN: "Information Technology",
-  SHOP: "Information Technology",
-  CRM: "Information Technology",
-  INTC: "Information Technology",
-  CSCO: "Information Technology",
-  LRCX: "Information Technology",
-  CRWD: "Information Technology",
-  QLYS: "Information Technology",
-  PEGA: "Information Technology",
-  IOT: "Information Technology",
-  MU: "Information Technology",
-  APLD: "Information Technology",
-  ARM: "Information Technology",
-  TSM: "Information Technology",
-  HUBS: "Information Technology",
-  INTU: "Information Technology",
-  STX: "Information Technology",
-  WDC: "Information Technology",
-  AGYS: "Information Technology",
-  IREN: "Information Technology",
-  PI: "Information Technology",
-  AEHR: "Information Technology",
-  SNDK: "Information Technology",       // Sandisk (Western Digital spin-off)
-  // ── Communication Services ──
-  META: "Communication Services",
-  GOOGL: "Communication Services",
-  NFLX: "Communication Services",
-  RDDT: "Communication Services",
-  SATS: "Communication Services",
-  TWLO: "Communication Services",
-  SPOT: "Communication Services",
-  U: "Communication Services",
-  // ── Basic Materials ──
-  ALB: "Basic Materials",
-  MP: "Basic Materials",
-  CCJ: "Basic Materials",
-  RGLD: "Basic Materials",
-  SN: "Basic Materials",
-  AU: "Basic Materials",
-  APD: "Basic Materials",
-  PKG: "Basic Materials",
-  PPG: "Basic Materials",
-  NEU: "Basic Materials",
-  AA: "Basic Materials",               // Alcoa (Aluminum)
-  GOLD: "Basic Materials",             // Barrick Gold
-  // ── Energy ──
-  VST: "Energy",
-  FSLR: "Energy",
-  TLN: "Energy",
-  WFRD: "Energy",
-  ENS: "Energy",
-  CVX: "Energy",
-  UUUU: "Energy",
-  DINO: "Energy",
-  DTM: "Energy",
-  OKE: "Energy",
-  TPL: "Energy",
-  AR: "Energy",
-  XOM: "Energy",
-  // ── Financials ──
-  JPM: "Financials",
-  GS: "Financials",
-  AXP: "Financials",
-  SPGI: "Financials",
-  PNC: "Financials",
-  ALLY: "Financials",
-  EWBC: "Financials",
-  WAL: "Financials",
-  SOFI: "Financials",
-  HOOD: "Financials",
-  MTB: "Financials",
-  "BRK-B": "Financials",
-  COIN: "Financials",
-  LMND: "Financials",
-  // ── Health Care ──
-  AMGN: "Health Care",
-  GILD: "Health Care",
-  UTHR: "Health Care",
-  NBIS: "Information Technology", // 2026-06-01 — Fix: NBIS (Nebius Group) is AI infra / cloud compute, NOT Health Care. Was wrong sector → wrong sector-rotation tilt + theme misalignment → lower investor score → kept out of Accumulate despite strong momentum. Matches sector-mapping.js.
-  EXEL: "Health Care",
-  HALO: "Health Care",
-  UHS: "Health Care",
-  VRTX: "Health Care",
-  ISRG: "Health Care",
-  UNH: "Health Care",
-  LLY: "Health Care",
-  MRK: "Health Care",
-  ABT: "Health Care",
-  HIMS: "Health Care",
-  TEM: "Health Care",
-  BMNR: "Health Care",
-  CRWV: "Health Care",
-  // ── Aerospace & Defense ──
-  RKLB: "Aerospace & Defense",
-  NOC: "Aerospace & Defense",
-  // ── Crypto-Related ──
-  BTCUSD: "Crypto",
-  ETHUSD: "Crypto",
-  GLXY: "Crypto",
-  RIOT: "Crypto",
-  ETHA: "Crypto",
-  // ── Precious Metals ──
-  GDX: "Precious Metals",
-  IAU: "Precious Metals",
-  AGQ: "Precious Metals",
-  HL: "Precious Metals",
-  // ── Leveraged / Thematic ETFs ──
-  SOXL: "Index ETF",                   // 3x semis — leveraged, behaves like index ETF
-  TNA: "Index ETF",                    // 3x small caps — leveraged, behaves like index ETF
-  XHB: "Sector ETF",                   // SPDR Homebuilders ETF
-  IBB:  "Thematic ETF",                // iShares Biotech ETF
-  INFL: "Thematic ETF",                // Horizon Kinetics Inflation Beneficiaries
-  LIT:  "Thematic ETF",                // Global X Lithium & Battery Tech
-  RPG:  "Index ETF",                   // Invesco S&P 500 Pure Growth (broad equity)
-  SPHB: "Index ETF",                   // Invesco S&P 500 High Beta (broad equity)
-  GRNJ: "Thematic ETF",                // Fundstrat Granny Shots Small-Mid Cap
-  GRNI: "Thematic ETF",                // Fundstrat Granny Shots Large Cap & Income
-  SPCX: "Thematic ETF",                // 2026-06-12 — SPAC & New Issue ETF (thin history)
-  // ── S&P Sector ETFs (tradeable) ──
-  XLB: "Sector ETF",
-  XLC: "Sector ETF",
-  XLE: "Sector ETF",
-  XLF: "Sector ETF",
-  XLI: "Sector ETF",
-  XLK: "Sector ETF",
-  XLP: "Sector ETF",
-  XLRE: "Sector ETF",
-  XLU: "Sector ETF",
-  XLV: "Sector ETF",
-  XLY: "Sector ETF",
-  // ── Commodity & Volatility ETFs (non-admin equivalents of futures) ──
-  GLD: "Commodity ETF",
-  SLV: "Commodity ETF",
-  USO: "Commodity ETF",
-  VIXY: "Commodity ETF",
-  // P0.7.133 — UNG (NG1! proxy) + CPER (HG1! proxy). Required so the
-  // futures-proxy fallback (worker/futures-proxy.js) has TD-served
-  // backup data when TradingView alerts pause for natural-gas /
-  // copper futures.
-  UNG: "Commodity ETF",
-  CPER: "Commodity ETF",
-  // ── Index ETFs (broad-market, tradeable as of Phase-E) ──
-  // Each is its OWN risk vehicle — SPY ≠ QQQ ≠ IWM ≠ DIA from a
-  // concentration standpoint. They are NOT the same "sector" as the
-  // sector-decomposition ETFs (XL*) which DO overlap with their
-  // underlying single-name sector positions.
-  DIA: "Index ETF",
-  SPY: "Index ETF",
-  RSP: "Index ETF",
-  QQQ: "Index ETF",
-  IWM: "Index ETF",
-  // ── Futures (watch-only — scored but not traded) ──
+const MARKET_PULSE_FUTURES_SECTORS = {
   "ES1!": "Futures",
   "NQ1!": "Futures",
   "GC1!": "Futures",
   "SI1!": "Futures",
   "VX1!": "Futures",
   "CL1!": "Futures",
-  "RTY1!": "Futures",                   // Russell 2000 futures
-  "YM1!": "Futures",                    // Dow Jones futures
+  "RTY1!": "Futures",
+  "YM1!": "Futures",
 };
-
-// 2026-05-28 — Unify with sector-mapping.js (THE actual systemic fix for
-// the recurring SECTOR_MAP staleness pattern).
-//
-// Background: this file used to define SECTOR_MAP inline (above), AND
-// `worker/sector-mapping.js` also defined a SECTOR_MAP. The two were
-// added independently and drifted over time — PRs #254 (CF/NOW/PM),
-// #265 (DELL), #287 (IBM) only touched the FILE map but never the
-// inline one. The runtime always used the inline map, so every one of
-// those PRs silently failed for the affected tickers.
-//
-// State at the time this merge shipped (audited via
-// `node -e "import('./sector-mapping.js')..."`):
-//   - 5 tickers in file but missing from inline: CF, DELL, IBM, NOW, PM
-//   - 5 sector mismatches between the two maps:
-//       NOC   file=Industrials              inline=Aerospace & Defense
-//       RKLB  file=Industrials              inline=Aerospace & Defense
-//       NBIS  file=Information Technology   inline=Health Care
-//       UUUU  file=Basic Materials          inline=Energy
-//       DBA   file=Thematic ETF             inline=Commodity ETF
-//
-// Fix: at module load, merge every file-map entry into the inline map
-// (file map wins on conflict — it's the human-edited source most PRs
-// touch). New SECTOR_MAP additions in either file then automatically
-// flow through to the runtime.
-//
-// To prevent future drift we also surface a `__sector_map_audit`
-// snapshot for the operator (added/overridden) and log it on cold
-// start so any silent divergence shows up in the worker logs.
-const __sectorMapAudit = { added: [], overridden: [] };
-try {
-  if (SECTOR_MAP_FILE && typeof SECTOR_MAP_FILE === "object") {
-    for (const [sym, sector] of Object.entries(SECTOR_MAP_FILE)) {
-      if (!(sym in SECTOR_MAP)) {
-        SECTOR_MAP[sym] = sector;
-        __sectorMapAudit.added.push(sym);
-      } else if (SECTOR_MAP[sym] !== sector) {
-        __sectorMapAudit.overridden.push({ sym, from: SECTOR_MAP[sym], to: sector });
-        SECTOR_MAP[sym] = sector;
-      }
-    }
-    if (__sectorMapAudit.added.length > 0 || __sectorMapAudit.overridden.length > 0) {
-      console.log(`[SECTOR_MAP MERGE] added=${__sectorMapAudit.added.length} (${__sectorMapAudit.added.join(",")}) overridden=${__sectorMapAudit.overridden.length}`);
-    }
-  }
-} catch (e) {
-  console.error("[SECTOR_MAP MERGE] failed to unify sector maps:", String(e?.message || e).slice(0, 200));
+const SECTOR_MAP = SECTOR_MAP_FILE;
+for (const [sym, sector] of Object.entries(MARKET_PULSE_FUTURES_SECTORS)) {
+  if (!SECTOR_MAP[sym]) SECTOR_MAP[sym] = sector;
 }
 
 // Tickers that go through full scoring + kanban lanes but do NOT generate trades.
@@ -49012,6 +48752,10 @@ async function loadSectorMappingsFromKV(KV) {
         return { tickerUpper, sector };
       }));
       for (const { tickerUpper, sector } of results) {
+        if (isUnknownSector(sector)) {
+          try { await KV.delete(`timed:sector_map:${tickerUpper}`); } catch (_) { /* best-effort */ }
+          continue;
+        }
         const normalized = normalizeSectorLabel(sector) || pickTickerSector(tickerUpper);
         if (normalized) {
           SECTOR_MAP[tickerUpper] = normalized;
@@ -49021,6 +48765,21 @@ async function loadSectorMappingsFromKV(KV) {
         // name and block a later GICS fill from the file map / holdings.
       }
     }
+
+    try {
+      const { getFsdGicsSectorMap } = await import("./cro/fsd-gics-sectors.js");
+      const fsd = await getFsdGicsSectorMap({ KV_TIMED: KV, KV });
+      const fsdMap = fsd?.tickerToSector || {};
+      for (const ticker of tickersList) {
+        const tickerUpper = String(ticker).toUpperCase();
+        if (removedSet.has(tickerUpper) || SECTOR_MAP[tickerUpper]) continue;
+        const normalized = normalizeSectorLabel(fsdMap[tickerUpper]);
+        if (normalized) {
+          SECTOR_MAP[tickerUpper] = normalized;
+          loadedCount++;
+        }
+      }
+    } catch (_) { /* FSD GICS is a fill, not a hard dependency */ }
 
     if (loadedCount > 0) {
       console.log(
@@ -59571,8 +59330,16 @@ export default {
             );
           }
 
-          // Validate equity symbols against data provider (skip futures 1!, crypto, etc.)
-          const toValidate = normalized.filter(t => !t.endsWith("1!"));
+          // Validate unknown equities only. Registry / Selected / live
+          // Upticks (incl. commodity ETFs like DBA) skip the TwelveData
+          // US-stocks list — that list rejects ETFs as symbol_not_found.
+          let liveUpticks = [];
+          try { liveUpticks = (await kvGetJSON(KV, "timed:admin:upticks")) || []; } catch (_) {}
+          const toValidate = normalized.filter((t) => !shouldSkipSymbolValidation(t, {
+            sectorMap: SECTOR_MAP,
+            ttSelected: TT_SELECTED_DEFAULT,
+            liveUpticks,
+          }));
           if (toValidate.length > 0) {
             let validationResult = null;
             if (_usesTwelveData(env) && env.TWELVEDATA_API_KEY) {
@@ -67994,23 +67761,7 @@ export default {
           // 5) Attach the gating _env exactly like the */5 cron (index.js ~92911).
           // Include live Upticks / granny holdings so focus-tier +10/+10 bonuses
           // match production scoring (otherwise entry-explain understates conviction).
-          try {
-            if (!env._currentUpticks) {
-              const upticksList = await kvGetJSON(_kv, "timed:admin:upticks");
-              env._currentUpticks = new Set(
-                (Array.isArray(upticksList) ? upticksList : []).map((t) => String(t || "").toUpperCase()).filter(Boolean),
-              );
-            }
-          } catch (_) { env._currentUpticks = env._currentUpticks || null; }
-          try {
-            if (!env._currentGrannyHoldings) {
-              const { loadETFWeightMap } = await import("./etf-holdings.js");
-              const wm = await loadETFWeightMap(env).catch(() => null);
-              if (wm && typeof wm === "object") {
-                env._currentGrannyHoldings = new Set(Object.keys(wm).map((t) => String(t).toUpperCase()));
-              }
-            }
-          } catch (_) { /* optional */ }
+          await loadFocusListEnv(env);
           const tickerSector = SECTOR_MAP[ticker] || "Unknown";
           result._env = {
             ...(result._env || {}),
@@ -68027,6 +67778,7 @@ export default {
             _currentUpticks: env._currentUpticks || null,
             _currentGrannyHoldings: env._currentGrannyHoldings || null,
           };
+          stampFocusConvictionOnTicker(result, env);
 
           // 6) Run the gate + the stage classifier (same calls as the cron).
           const q = qualifiesForEnter(result) || {};
@@ -74025,9 +73777,7 @@ export default {
       // replay-stub auto-heals and stale-stub auto-heals. Lightweight
       // probe — just a KV read.
       //
-      // Also surfaces __sectorMapAudit (the module-load merge from
-      // sector-mapping.js → inline SECTOR_MAP) so the operator can
-      // verify the two maps are in sync at runtime, not just on file.
+      // Runtime SECTOR_MAP is the file map (plus watch-only pulse futures).
       if (routeKey === "GET /timed/admin/sector-map-health") {
         const _smAuthFail = await requireKeyOrAdmin(req, env);
         if (_smAuthFail) return _smAuthFail;
@@ -74036,11 +73786,14 @@ export default {
         try {
           const blob = await kvGetJSON(KV, "timed:sector_map_health");
           const merge_audit = {
-            added: __sectorMapAudit.added,
-            added_count: __sectorMapAudit.added.length,
-            overridden: __sectorMapAudit.overridden,
-            overridden_count: __sectorMapAudit.overridden.length,
-            note: "Tickers in sector-mapping.js that were missing from index.js inline SECTOR_MAP, auto-merged at module load.",
+            unified: true,
+            same_object: SECTOR_MAP === SECTOR_MAP_FILE,
+            pulse_futures: Object.keys(MARKET_PULSE_FUTURES_SECTORS),
+            added: [],
+            added_count: 0,
+            overridden: [],
+            overridden_count: 0,
+            note: "Runtime SECTOR_MAP is worker/sector-mapping.js. Pulse futures are overlaid watch-only.",
           };
           const universe_size_runtime = Object.keys(SECTOR_MAP || {}).length;
           if (!blob) {
@@ -93383,6 +93136,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       }
 
+      if (routeKey === "GET /timed/admin/registry-alignment") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const report = await runRegistryAlignment(env, { healUnknown: false });
+          return sendJSON({ ok: true, ...report }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "POST /timed/admin/universe") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -93394,14 +93158,41 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
           const sector = normalizeSectorLabel(body?.sector) || pickTickerSector(rawTicker);
 
-          // Already in canonical SECTOR_MAP → no-op success with hint.
+          // Already in SECTOR_MAP — still lift timed:removed and ensure
+          // timed:tickers + ticker_index (DBA Sep 2026 stayed blind).
           if (SECTOR_MAP[rawTicker]) {
+            const tickersList = (await kvGetJSON(KV, "timed:tickers")) || [];
+            const removedList = (await kvGetJSON(KV, "timed:removed")) || [];
+            const plan = planRegistryReactivation({
+              ticker: rawTicker,
+              inSectorMap: true,
+              removed: Array.isArray(removedList) ? removedList : [],
+              kvTickers: Array.isArray(tickersList) ? tickersList : [],
+            });
+            if (plan.lifted_removed) {
+              await kvPutJSON(KV, "timed:removed", plan.nextRemoved);
+            }
+            if (plan.ensure_kv_tickers) {
+              await kvPutJSON(KV, "timed:tickers", plan.nextTickers);
+            }
+            try { await ensureTickerIndex(KV, rawTicker); } catch (_) { /* best-effort */ }
+            try { await d1UpsertTickerIndex(env, rawTicker, Date.now()); } catch (_) { /* best-effort */ }
+            const coreSector = SECTOR_MAP[rawTicker];
+            if (plan.shouldOnboard) {
+              await KV.put("timed:universe:version", String(Date.now()));
+              await ensureTickerUniverseAndOnboard(env, rawTicker, ctx, { sinceDays: 730, sector: coreSector });
+            }
             return sendJSON({
               ok: true,
               ticker: rawTicker,
               already_in_core: true,
-              sector: SECTOR_MAP[rawTicker],
-              detail: `${rawTicker} is already part of the hardcoded core universe.`,
+              lifted_removed: plan.lifted_removed,
+              ensured_tickers: plan.ensure_kv_tickers,
+              sector: coreSector,
+              onboarding: plan.shouldOnboard ? "started" : "skipped",
+              detail: plan.lifted_removed
+                ? `${rawTicker} is in the core map and was lifted from timed:removed.`
+                : `${rawTicker} is already part of the hardcoded core universe.`,
             }, 200, corsHeaders(env, req));
           }
 

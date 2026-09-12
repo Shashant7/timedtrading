@@ -116,3 +116,30 @@ export async function loadScoringUniverse(env, deps = {}) {
     removed: removed || [],
   });
 }
+
+/**
+ * A name already in SECTOR_MAP must still lift timed:removed and land
+ * on timed:tickers + ticker_index. POST /timed/admin/universe used to
+ * return already_in_core and leave DBA (Sep 2026 live Uptick) blind.
+ */
+export function planRegistryReactivation({
+  ticker,
+  inSectorMap = false,
+  removed = [],
+  kvTickers = [],
+} = {}) {
+  const t = _up(ticker);
+  const removedArr = (removed || []).map(_up).filter(Boolean);
+  const tickersArr = (kvTickers || []).map(_up).filter(Boolean);
+  const lifted_removed = !!t && removedArr.includes(t);
+  const ensure_kv_tickers = !!t && !tickersArr.includes(t);
+  return {
+    ticker: t,
+    already_in_core: !!inSectorMap,
+    lifted_removed,
+    ensure_kv_tickers,
+    nextRemoved: lifted_removed ? removedArr.filter((x) => x !== t) : removedArr,
+    nextTickers: ensure_kv_tickers ? [...tickersArr, t].sort() : [...tickersArr].sort(),
+    shouldOnboard: !!(t && inSectorMap && (lifted_removed || ensure_kv_tickers)),
+  };
+}

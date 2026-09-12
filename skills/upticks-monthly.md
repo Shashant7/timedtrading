@@ -62,8 +62,14 @@ If a name is missing from `SECTOR_MAP`, add the GICS sector in
 `worker/sector-mapping.js` in the same PR (do not leave KV as
 "Technology Services" / Bloomberg-style labels). Sep 2026: `ALL` /
 `DAL` were live Upticks with no map row; `DBA` was also missing from
-D1 `ticker_index`. Adding the GICS row puts the name in the core
-scoring universe.
+D1 `ticker_index` **and** left on `timed:removed`. Adding the GICS
+row is not enough — `POST /timed/admin/universe` must lift the
+blocklist, and watchlist add must not reject ETFs via the TwelveData
+stock list.
+
+`GET /timed/admin/registry-alignment` (and the hourly
+`registry_alignment` sweep) flags live Upticks on `timed:removed`,
+missing GICS, and live-vs-`TT_SELECTED_DEFAULT` drift.
 
 ## Fast-track weighting
 
@@ -95,6 +101,11 @@ curl -s -X POST "${LIVE}/timed/admin/rescore-ticker?ticker=DDOG" \
 curl -s "${LIVE}/timed/admin/entry-explain?ticker=DDOG" \
   -H "X-API-Key: ${TIMED_API_KEY}" | jq '.diag|{conviction,tier,focus_bonuses,in_upticks,in_tt_selected}'
 # expect upticks:10, tt_selected:15, in_upticks/in_tt_selected true
+
+curl -s "${LIVE}/timed/admin/registry-alignment" \
+  -H "X-API-Key: ${TIMED_API_KEY}" | jq '{ok,upticks_on_removed,live_not_in_selected,selected_not_live}'
+# expect ok:true, empty drift lists. If DBA is on timed:removed:
+# POST /timed/admin/universe {"ticker":"DBA"}
 ```
 
 ## Macro Minute note
