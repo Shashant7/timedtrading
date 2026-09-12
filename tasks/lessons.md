@@ -41,6 +41,19 @@ is a first-class CMT input. Admin GET may still keep internal buckets.
 
 ---
 
+## Weekend refresh must not email unless asked [2026-09-12]
+
+**Symptom:** `POST /timed/admin/weekend-desk?phase=refresh` (no
+`email=1`) still sent the Saturday list. Force-sends also skipped the
+weekend lock, so a later refresh could send again.
+
+**Fix:** `weekendDeskShouldEmail` is true only when email is requested
+or forced. Force-sends stamp `timed:weekend-desk:sent:<Saturday>`.
+
+**Do not:** Treat `action === "refresh"` as an implicit send.
+
+---
+
 ## Breakout watch: retest is the entry, EMA-stack is not Setup [2026-09-12]
 
 **Symptom:** First watch treated every `detectBreakout()` hit (including
