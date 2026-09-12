@@ -6,6 +6,25 @@
 
 ---
 
+## Weekend CMT work does not wait for Monday open [2026-09-12]
+
+**Symptom:** After Friday close, `minutesSinceScoring` ages all weekend
+because the `*/5` cron returns at `!isWithinOperatingHours()`. Breakout
+watch, ST magnets, and news stamps stay on Friday's payload until
+Monday. Users get no weekend prep email.
+
+**Fix:** `worker/weekend-desk.js` pages `rescoreStaleUniverse({ all })`
+on Saturday, composes Timed Upticks from existing CMT stamps, and
+emails the `weekend_desk` pref (paid default on). Screener
+`needs_review` / `ready_to_add` names that are not in the book stay on
+the same desk.
+
+**Do not:** Invent `tt_weekend_upticks`. Treat Timed Upticks as
+Newton's list. Auto-buy from the weekend email. Unpause Support Bounce
+to "use" the weekend pass.
+
+---
+
 ## Breakout watch: retest is the entry, EMA-stack is not Setup [2026-09-12]
 
 **Symptom:** First watch treated every `detectBreakout()` hit (including

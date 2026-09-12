@@ -26,6 +26,10 @@ const PREF_DEFS = [{
   title: "Broker account digest",
   desc: "End-of-day Account today email for connected brokerage accounts (fills, syncs, P&L)."
 }, {
+  key: "weekend_desk",
+  title: "Weekend Desk",
+  desc: "Saturday CMT pass — Timed Upticks, trendlines, SuperTrend magnets, and screener names outside the book."
+}, {
   key: "weekly_digest",
   title: "Weekly digest",
   desc: "Weekly summary of model performance and open exposure."

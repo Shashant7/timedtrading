@@ -13,6 +13,7 @@ Single reference for agents. Read this first to avoid context overload.
   Discovery Moves and multi-timeframe candles first; a report's export cap or
   a small fixture sample is not the available history. No arbitrary new 30-day
   wait before retrospective testing. Plan: `tasks/2026-09-09-historical-calibration.md`.
+- **Weekend CMT Desk / Timed Upticks (2026-09-12):** `*/5` scoring skips outside OH. Saturday 10:00 ET (tt-research hourly) pages a full-universe rescore, then emails Pro/VIP/Admin a CMT pass — trendlines, EMA, ST magnets, FVG, news, Momentum Elite, screener names outside the book. Timed Upticks = confluence, not Newton's monthly list, not a buy path. Playbook: `skills/weekend-desk.md`.
 - **Breakout + trendline watch (2026-09-12):** Setup only on a 2–3 touch trendline (RVOL ≥ 1.15) or daily-level break, plus the pullback retest. Approaching is visible on the desk. ATR / EMA-stack do not flood Setup. Not a new ST ENTRY / `tt_*` buy path. Playbook: `skills/breakout-watch.md`.
 - **Ranking work (2026-09-09, PR #1442):** validate each input's semantics,
   direction, duplicate contributions and missing-data behavior. Aggregate

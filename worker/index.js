@@ -2545,6 +2545,9 @@ const ROUTES = [
   ["GET",  "/timed/admin/execution/report-card",         "GET /timed/admin/execution/report-card"],
   ["GET",  "/timed/admin/execution/review",              "GET /timed/admin/execution/review"],
   ["POST", "/timed/admin/execution/review",              "POST /timed/admin/execution/review"],
+  ["GET",  "/timed/weekend-desk",                        "GET /timed/weekend-desk"],
+  ["GET",  "/timed/admin/weekend-desk",                  "GET /timed/admin/weekend-desk"],
+  ["POST", "/timed/admin/weekend-desk",                  "POST /timed/admin/weekend-desk"],
   ["POST", "/timed/admin/convexity-tickets/mark",        "POST /timed/admin/convexity-tickets/mark"],
   ["GET",  "/timed/broker/positions",                    "GET /timed/broker/positions"],
   // 2026-08-13 — Day timeline (model actions × mirror outcomes) + scoped
@@ -79989,6 +79992,7 @@ export default {
               prefs.re_engagement = false;
               prefs.investor_alerts = false;
               prefs.broker_daily_digest = false;
+              prefs.weekend_desk = false;
             } else {
               prefs[pref] = false;
             }
@@ -80032,6 +80036,7 @@ export default {
             "re_engagement",
             "investor_alerts",
             "broker_daily_digest",
+            "weekend_desk",
           ]);
           const current = getUserEmailPrefs(user);
           for (const [k, v] of Object.entries(updates)) {
@@ -80310,6 +80315,7 @@ export default {
             weekly_digest:       !!(mailable && prefs?.weekly_digest),
             re_engagement:       !!(mailable && prefs?.re_engagement),
             investor_alerts:     !!(mailable && prefs?.investor_alerts),
+            weekend_desk:        !!(mailable && prefs?.weekend_desk),
           };
 
           // Last brief send snapshots — written by daily-brief.js.
@@ -81293,13 +81299,14 @@ export default {
                   prefs.daily_brief_evening = false;
                   prefs.trade_alerts = false;
                   prefs.weekly_digest = false;
+                  prefs.weekend_desk = false;
                   // Strip legacy key if present so getUserEmailPrefs doesn't
                   // carry forward a meaningless value.
                   if ("daily_brief" in prefs) delete prefs.daily_brief;
                   if (prefs.marketing === undefined) prefs.marketing = true;
                   await db.prepare(`UPDATE users SET email_preferences = ?1 WHERE email = ?2`)
                     .bind(JSON.stringify(prefs), userRow.email).run();
-                  console.log(`[STRIPE] Downgraded email prefs for ${userRow.email}: brief=off (morning+evening), trade_alerts=off, weekly_digest=off`);
+                  console.log(`[STRIPE] Downgraded email prefs for ${userRow.email}: brief=off (morning+evening), trade_alerts=off, weekly_digest=off, weekend_desk=off`);
                 } catch (e) {
                   console.warn("[STRIPE] Email pref downgrade failed:", String(e?.message || e).slice(0, 100));
                 }
@@ -84666,6 +84673,82 @@ export default {
             emailTo: url.searchParams.get("to") || null,
           });
           return sendJSON({ ok: true, stored: out.stored, email: out.email, verdict: out.review?.verdict, label: out.review?.label }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/weekend-desk") {
+        const [user, authErr] = await requireUser(req, env);
+        if (authErr) return authErr;
+        const _wdTier = computeUserDataTier(user, env);
+        if (!canAccessLivePrices(_wdTier)) {
+          return sendJSON({ ok: true, error_kind: "tier_required", desk: null }, 200, corsHeaders(env, req));
+        }
+        try {
+          const { loadWeekendDesk } = await import("./weekend-desk.js");
+          const desk = await loadWeekendDesk(env);
+          return sendJSON({ ok: true, desk }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/admin/weekend-desk") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { loadWeekendDesk, composeWeekendDeskFromEnv, WEEKEND_DESK_CURSOR_KV } = await import("./weekend-desk.js");
+          let desk = await loadWeekendDesk(env);
+          let source = "kv";
+          if (!desk || String(url.searchParams.get("fresh") || "0") === "1") {
+            desk = await composeWeekendDeskFromEnv(env);
+            source = "fresh";
+          }
+          const cursor = await env.KV_TIMED.get(WEEKEND_DESK_CURSOR_KV, "json").catch(() => null);
+          return sendJSON({ ok: true, source, desk, cursor }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/weekend-desk") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { runWeekendDesk } = await import("./weekend-desk.js");
+          const body = await req.json().catch(() => ({}));
+          const phase = String(url.searchParams.get("phase") || body?.phase || "full");
+          const wantEmail = String(url.searchParams.get("email") ?? body?.email ?? "0") === "1";
+          const wantNotify = String(url.searchParams.get("notify") ?? body?.notify ?? "0") === "1";
+          const wantRescore = String(url.searchParams.get("rescore") ?? body?.rescore ?? "0") === "1"
+            || phase === "rescore" || phase === "full";
+          const forceEmail = String(url.searchParams.get("force") ?? body?.force ?? "0") === "1";
+          const offset = Number(url.searchParams.get("offset") || body?.offset || 0);
+          const limit = Number(url.searchParams.get("limit") || body?.limit || 20);
+          const action = phase === "rescore" ? "rescore_continue"
+            : (phase === "refresh" ? "refresh" : "full");
+          const out = await runWeekendDesk(env, {
+            action,
+            rescore: wantRescore,
+            email: wantEmail,
+            forceEmail,
+            compose: phase !== "rescore",
+            continueRescore: phase !== "rescore",
+            rescoreOffset: offset,
+            rescoreLimit: limit,
+            rescorePage: wantRescore ? (o) => rescoreStaleUniverse(env, o) : null,
+            sendFn: sendEmail,
+            notify: wantNotify ? ((embed) => notifyDiscord(env, embed, "system")) : null,
+          });
+          return sendJSON({
+            ok: true,
+            action: out.action,
+            stored: out.stored,
+            email: out.email,
+            rescore: out.rescore,
+            counts: out.desk?.counts || null,
+            weekend_key: out.desk?.weekend_key || null,
+            label: out.desk?.label || null,
+            timed_upticks: (out.desk?.timed_upticks || []).map((c) => c.ticker),
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -106967,6 +107050,38 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[EXEC REVIEW] cron failed:", String(e?.message || e).slice(0, 200));
           recordCronFailure(env, {
             op: "execution_review_weekly",
+            error: String(e?.message || e).slice(0, 200),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
+      // 2026-09-12 — Weekend CMT Desk. RTH scoring is skipped outside
+      // operating hours; Saturday/Sunday 10:00 ET is the universe pass
+      // (trendlines, EMA, ST magnets, imbalance, news, Momentum Elite,
+      // screener promotions) plus one Timed Upticks email.
+      ctx.waitUntil((async () => {
+        try {
+          const { weekendDeskSlot, runWeekendDesk } = await import("./weekend-desk.js");
+          const slot = weekendDeskSlot();
+          if (!slot.fire) return;
+          let cursor = null;
+          try { cursor = await env.KV_TIMED.get("timed:weekend-desk:rescore-cursor", "json"); } catch (_) {}
+          if (slot.action === "rescore_continue" && !(Number(cursor?.remaining) > 0)) return;
+          const out = await runWeekendDesk(env, {
+            action: slot.action,
+            rescore: slot.action === "full" || slot.action === "rescore_continue",
+            email: slot.action === "full" || slot.action === "refresh",
+            rescoreOffset: slot.action === "rescore_continue" ? (Number(cursor?.offset) || 0) : 0,
+            rescorePage: (o) => rescoreStaleUniverse(env, o),
+            sendFn: sendEmail,
+            notify: (embed) => notifyDiscord(env, embed, "system"),
+          });
+          console.log(`[WEEKEND DESK] ${slot.action} stored=${out.stored} email=${JSON.stringify(out.email)} remaining=${out.rescore?.remaining ?? "n/a"}`);
+          recordCronSuccess(env, "weekend_desk").catch(() => {});
+        } catch (e) {
+          console.warn("[WEEKEND DESK] cron failed:", String(e?.message || e).slice(0, 200));
+          recordCronFailure(env, {
+            op: "weekend_desk",
             error: String(e?.message || e).slice(0, 200),
             caller: "scheduled_event",
           }).catch(() => {});
