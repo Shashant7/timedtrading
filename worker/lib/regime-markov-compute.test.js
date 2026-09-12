@@ -98,11 +98,12 @@ function makeRows() {
   // returns (alias max_completion over the real completion column).
   const rows = [];
   const states = ["HTF_BULL_LTF_BULL", "HTF_BULL_LTF_PULLBACK", "HTF_BULL_LTF_BULL", "HTF_BEAR_LTF_BEAR"];
+  const t0 = Date.now() - 40 * 300_000;
   for (const ticker of ["AAA", "BBB"]) {
     for (let i = 0; i < 40; i++) {
       rows.push({
         ticker,
-        bucket_ts: 1_700_000_000_000 + i * 300_000,
+        bucket_ts: t0 + i * 300_000,
         state: states[i % states.length],
         max_completion: 0.1 + (i % 9) * 0.1,
       });
