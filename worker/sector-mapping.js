@@ -145,6 +145,13 @@ const SECTOR_MAP = {
   'CSCO': 'Information Technology',
   'LRCX': 'Information Technology',
   'CRWD': 'Information Technology',
+  // 2026-09-12 — Datadog added to Newton Upticks (Sep 2026). Was theme-only
+  // (ai_software), so scoring treated it as Unknown / dead-weight unused_add
+  // and D1 ticker_latest froze on 2026-08-27.
+  'DDOG': 'Information Technology',
+  // 2026-09-12 — Atlassian. Same theme-only hole; live gate could see it
+  // but sector/type stayed unknown.
+  'TEAM': 'Information Technology',
   'QLYS': 'Information Technology',
   'PEGA': 'Information Technology',
   'IOT': 'Information Technology',
@@ -594,7 +601,8 @@ const TICKER_TYPE_MAP = {
   'RBLX': 'growth', 'IONQ': 'growth', 'APP': 'growth', 'HIMS': 'growth',
   'SOFI': 'growth', 'RDDT': 'growth', 'CVNA': 'growth', 'JOBY': 'growth',
   'RKLB': 'growth', 'NBIS': 'growth', 'IREN': 'growth', 'APLD': 'growth',
-  'CRWD': 'growth', 'PANW': 'growth', 'MDB': 'growth', 'PATH': 'growth',
+  'CRWD': 'growth', 'DDOG': 'growth', 'TEAM': 'growth',
+  'PANW': 'growth', 'MDB': 'growth', 'PATH': 'growth',
   'NFLX': 'growth', 'AVGO': 'growth', 'ANET': 'growth', 'META': 'growth',
   'TWLO': 'growth', 'FSLR': 'growth', 'BE': 'growth',
 

@@ -6,6 +6,31 @@
 
 ---
 
+## Upticks on the Desk is not the same as scored [2026-09-12]
+
+**Symptom:** DDOG was on the dead-weight unused-add list after
+Upticks – September 2026 was ingested and shown on the Research
+Desk. TEAM (big mover) never became a live trade.
+
+**Cause:** Three lists drifted. KV `timed:admin:upticks` had DDOG/
+LITE/NVDA. `TT_SELECTED_DEFAULT` was still August (VLO/VST/IRM/MAR
+kept +15; DDOG +0 curated). DDOG/TEAM were theme-only — not in
+`SECTOR_MAP` — so sector/type scored Unknown and D1 `ticker_latest`
+froze on 2026-08-27. TEAM's live gate was `h3_long_blocked_in_downtrend`
+(cycle downtrend, rank 83 < 98), not "we do not see the name."
+
+**Fix:** One curated set (`TT_SELECTED_DEFAULT`; index.js aliases it).
+Add GICS rows for DDOG/TEAM. Admin rescore loads live Upticks onto
+`env._currentUpticks`. Alignment helper: `diffUpticksAlignment`.
+Every registry ticker is first-class for sector/candles/score;
+TT Selected is a sentiment overlay, not the only scored set.
+
+**Do not:** Treat Research Desk presentation as proof the scoring
+book rotated. Classify dead weight from hardcoded TT_SELECTED only.
+Force-buy DDOG or TEAM. Leave theme-only names as Unknown.
+
+---
+
 ## D1 overage is two queries; dead weight is a review list [2026-09-12]
 
 **Symptom:** Cloudflare 20B rows-read threshold email. Feeling that a

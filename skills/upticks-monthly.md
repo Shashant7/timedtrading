@@ -70,8 +70,16 @@ Conviction uses:
   scoring cron from `timed:admin:upticks`)
 - `+15` when in `TT_SELECTED` / `TT_SELECTED_DEFAULT`
 
-After a monthly rotation, update **both** hardcoded sets to match the
-live KV list so cold isolates and backtest-safe defaults stay aligned.
+After a monthly rotation, update **`TT_SELECTED_DEFAULT`** in
+`worker/focus-tier.js` (index.js aliases it — do not fork a second
+Set). Then rescore every add. A KV-only sync without the code list
+leaves new names at +0 curated / frozen D1 scores (DDOG Sep 2026:
+on the live list, last `ticker_latest.ts` 2026-08-27, dead-weight
+classified it as an unused add).
+
+`worker/upticks-alignment.js` `diffUpticksAlignment(live, hardcoded)`
+is the check. Adds also need a GICS row in `worker/sector-mapping.js`
+— theme membership is not enough (DDOG/TEAM were `ai_software` only).
 
 ## Verify
 

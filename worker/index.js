@@ -4943,6 +4943,16 @@ function classifyScoreStaleness(latest, { nowMs, marketCloseMs, forcePostClose =
 }
 
 async function forceRescoreSingleTicker(env, ticker) {
+  // Match the */5 cron: without this stamp, computeConvictionScore
+  // cannot apply the live Upticks +10 (DDOG Sep 2026).
+  try {
+    if (!env._currentUpticks) {
+      const upticksList = await kvGetJSON(env.KV_TIMED, "timed:admin:upticks");
+      env._currentUpticks = new Set(
+        (Array.isArray(upticksList) ? upticksList : []).map((t) => String(t || "").toUpperCase()).filter(Boolean),
+      );
+    }
+  } catch (_) { env._currentUpticks = env._currentUpticks || null; }
   const candleCache = await d1GetCandlesAllTfs(env, ticker, RESCORE_TF_CONFIGS);
   const getCandlesCached = async (_env, _ticker, tf, _limit) => {
     const tfKey = normalizeTfKey(tf);
@@ -48931,23 +48941,10 @@ const WATCH_ONLY = new Set([
   "ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "CL1!", "RTY1!", "YM1!",
 ]);
 
-// Current Newton Upticks — priority picks tagged as "TT Selected".
-// Aligned with the live KV upticks list at timed:admin:upticks (PUT
-// /timed/admin/upticks is the source of truth). This hardcoded Set is a
-// fallback for dev/offline contexts; runtime merges KV on top so the
-// live list always wins.
-//
-// Historical note: DELL was previously removed from this list when it
-// fell out of SECTOR_MAP. PR #265 (2026-05-22) put DELL back in
-// SECTOR_MAP; whether to re-add it as a TT_SELECTED pick is an
-// editorial call separate from the universe membership.
-const TT_SELECTED = new Set([
-  // Keep aligned with timed:admin:upticks (Aug 2026 Newton list).
-  // Adds: GOOGL, BA, VLO, CVX. Removals: MTB, TT, CLS.
-  "ALL", "AMGN", "AMZN", "APLD", "BA", "BABA", "BG", "BRK-B", "CRS", "CRWV",
-  "CSX", "CVX", "DAL", "DBA", "ETHA", "GEV", "GOOGL", "GS", "IRM", "JCI",
-  "MAR", "MRK", "PH", "PWR", "TSLA", "VLO", "VST", "WMT",
-]);
+// Current Newton Upticks / TT Selected. One curated set:
+// TT_SELECTED_DEFAULT in focus-tier.js. KV timed:admin:upticks is the
+// live +10 list. After a monthly rotation those two must match.
+const TT_SELECTED = TT_SELECTED_DEFAULT;
 
 // Canonical universe: snapshot of hardcoded SECTOR_MAP before runtime KV expansion
 const CANONICAL_UNIVERSE = new Set(Object.keys(SECTOR_MAP));

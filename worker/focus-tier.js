@@ -38,11 +38,12 @@ import { resolvePlaySide } from "./ranking/play-side.js";
 // Hard-coded curated set — user-maintained, backtest-safe (no lookahead).
 // Keep aligned with TT_SELECTED in worker/index.js:~31461.
 export const TT_SELECTED_DEFAULT = new Set([
-  // Keep aligned with timed:admin:upticks + TT_SELECTED in worker/index.js.
-  // Aug 2026: +GOOGL +BA +VLO +CVX; -MTB -TT -CLS.
+  // Keep equal to KV timed:admin:upticks after every Newton monthly rotation.
+  // Sep 2026: +DDOG +LITE +NVDA; -IRM -MAR -VLO -VST.
+  // worker/index.js TT_SELECTED is this same Set (do not fork another list).
   "ALL","AMGN","AMZN","APLD","BA","BABA","BG","BRK-B","CRS","CRWV","CSX",
-  "CVX","DAL","DBA","ETHA","GEV","GOOGL","GS","IRM","JCI","MAR","MRK","PH",
-  "PWR","TSLA","VLO","VST","WMT",
+  "CVX","DAL","DBA","DDOG","ETHA","GEV","GOOGL","GS","JCI","LITE","MRK",
+  "NVDA","PH","PWR","TSLA","WMT",
 ]);
 
 function _f(v, d = 0) {
