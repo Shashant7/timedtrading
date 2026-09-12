@@ -961,6 +961,18 @@ export function weekendDeskHasYouYour(htmlOrText) {
   return /\b(you|your|you're|you've|you'll)\b/i.test(String(htmlOrText || ""));
 }
 
+/** Email only when asked (or forced). Refresh with email=0 must not send. */
+export function weekendDeskShouldEmail({
+  composeNow = true,
+  rescoreDone = true,
+  wantEmail = false,
+  forceEmail = false,
+} = {}) {
+  if (!composeNow) return false;
+  if (forceEmail) return true;
+  return !!(rescoreDone && wantEmail);
+}
+
 export async function loadUniversePayloads(env) {
   const db = env?.DB;
   if (!db) return [];
@@ -1241,14 +1253,16 @@ export async function runWeekendDesk(env, opts = {}) {
   }
 
   let email = { sent: 0, failed: 0, recipients: 0, skipped: "not_requested" };
-  const shouldEmail = !!(desk && composeNow && (
-    forceEmail
-    || (rescoreDone && (wantEmail || action === "full" || action === "refresh" || action === "rescore_continue"))
-  ));
+  const shouldEmail = !!(desk && weekendDeskShouldEmail({
+    composeNow,
+    rescoreDone,
+    wantEmail,
+    forceEmail,
+  }));
   if (shouldEmail) {
     const weekendKey = desk.weekend_key || weekendDeskKey(now);
     const lock = forceEmail
-      ? { ok: true, weekendKey }
+      ? { ok: true, weekendKey, lockKey: `${WEEKEND_DESK_SENT_PREFIX}${weekendKey}` }
       : await claimWeekendSendLock(env, weekendKey);
     if (!lock.ok && !forceEmail) {
       email = { sent: 0, failed: 0, recipients: 0, skipped: lock.reason };

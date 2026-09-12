@@ -14,6 +14,7 @@ import {
   weekendDeskHasYouYour,
   weekendDeskKey,
   weekendDeskLabel,
+  weekendDeskShouldEmail,
   weekendDeskSlot,
   weekendSetupChartUrl,
 } from "./weekend-desk.js";
@@ -43,6 +44,27 @@ describe("weekend desk calendar", () => {
 
   it("labels the NY calendar day", () => {
     expect(weekendDeskLabel(SAT_10_ET)).toBe("Sat Sep 12");
+  });
+
+  it("does not email on refresh when email is off", () => {
+    expect(weekendDeskShouldEmail({
+      composeNow: true,
+      rescoreDone: true,
+      wantEmail: false,
+      forceEmail: false,
+    })).toBe(false);
+    expect(weekendDeskShouldEmail({
+      composeNow: true,
+      rescoreDone: true,
+      wantEmail: true,
+      forceEmail: false,
+    })).toBe(true);
+    expect(weekendDeskShouldEmail({
+      composeNow: true,
+      rescoreDone: true,
+      wantEmail: false,
+      forceEmail: true,
+    })).toBe(true);
   });
 });
 
