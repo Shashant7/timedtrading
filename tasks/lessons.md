@@ -69,7 +69,9 @@ are candles; a called-out trendline is drawn on the SVG.
 **Do not:** Force-send the six-person list to "test." Call every
 structure "the line." Paste operator examples as subscriber copy.
 Invent gap-fill rates. Change the default chart-svg style (trade
-alerts stay line charts).
+alerts stay line charts). Leave Also-on-the-tape names without
+charts. Pad the list with leftover shorts when longs already exist.
+Name a magnet without its price.
 
 ---
 
