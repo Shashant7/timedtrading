@@ -6,6 +6,30 @@
 
 ---
 
+## D1 overage is two queries; dead weight is a review list [2026-09-12]
+
+**Symptom:** Cloudflare 20B rows-read threshold email. Feeling that a
+smaller ticker list would both cut D1 and pick better.
+
+**Cause:** `d1FindTickersNeedingOnboard` scanned all of `ticker_candles`
+(`GROUP BY ticker, tf`) on every hard + soft + heal call (~6.3B reads /
+7d). Markov paged `trail_5m_facts` with OFFSET (~5.4B). Per-ticker
+scoring SELECTs were only 0.46B. Cutting 331→150 without deleting old
+rows would not move the first two. Small replay pools look cleaner
+because candidate density is ~8× lower, not because the extra names
+are the D1 problem.
+
+**Fix:** Cache candle TF counts in KV for 1h; bust next to
+ingestion-status. Keyset-paginate Markov on `(ticker, bucket_ts)`.
+Dead-weight report (`worker/dead-weight-tickers.js`) classifies KEEP /
+WATCH / DEAD from cheap tables only.
+
+**Do not:** Auto-REMOVE from the registry. `COUNT(*)` / `GROUP BY`
+`ticker_candles` "just to check." Implement a scoring two-tier in the
+same change. Treat the 20B email as 20 million.
+
+---
+
 ## Execution Review email must match the other templates [2026-09-11]
 
 **Symptom:** Friday review mail was a one-off Inter/white body. After

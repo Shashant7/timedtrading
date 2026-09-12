@@ -15,7 +15,7 @@
 // the read path, this suite fails the same way prod did.
 
 import { describe, it, expect } from "vitest";
-import { computeAndPersistRegimeMatrix } from "./regime-markov-compute.js";
+import { computeAndPersistRegimeMatrix, trailFactsKeysetSql } from "./regime-markov-compute.js";
 
 // Production schema of trail_5m_facts (pragma_table_info, 2026-06-10).
 const TRAIL_5M_FACTS_COLUMNS = new Set([
@@ -161,5 +161,51 @@ describe("computeAndPersistRegimeMatrix — trail_5m_facts read path", () => {
     expect(res.error).toBeUndefined();
     expect(res.ok).toBe(true);
     expect(res.rows_read).toBe(40);
+  });
+
+  it("pages with a keyset, not OFFSET, and does not skip or duplicate rows", async () => {
+    expect(trailFactsKeysetSql({ tickerInCount: 0 })).not.toMatch(/OFFSET/i);
+    expect(trailFactsKeysetSql({ tickerInCount: 2 })).toMatch(/ticker IN \(\?2,\?3\)/);
+    expect(trailFactsKeysetSql({ tickerInCount: 0 })).toMatch(/ticker > \?2/);
+
+    const all = makeRows();
+    const sqls = [];
+    const seen = [];
+    const db = {
+      prepare(sql) {
+        assertSelectColumnsExist(sql);
+        expect(sql).not.toMatch(/OFFSET/i);
+        return {
+          bind(...binds) {
+            return {
+              async all() {
+                sqls.push({ sql, binds });
+                const cutoff = binds[0];
+                const afterTicker = binds[binds.length - 2];
+                const afterTs = binds[binds.length - 1];
+                const page = all
+                  .filter((r) => Number(r.bucket_ts) >= cutoff)
+                  .filter((r) => r.ticker > afterTicker || (r.ticker === afterTicker && r.bucket_ts > afterTs))
+                  .sort((a, b) => a.ticker.localeCompare(b.ticker) || a.bucket_ts - b.bucket_ts)
+                  .slice(0, 25);
+                seen.push(...page);
+                return { results: page };
+              },
+            };
+          },
+        };
+      },
+    };
+    const kv = makeStubKv();
+    const res = await computeAndPersistRegimeMatrix(
+      { DB: db, KV_TIMED: kv },
+      { windowDays: 90, minObs: 1, pageSize: 25 },
+    );
+    expect(res.ok).toBe(true);
+    expect(res.rows_read).toBe(80);
+    expect(sqls.length).toBe(4);
+    expect(seen).toHaveLength(80);
+    const keys = seen.map((r) => `${r.ticker}:${r.bucket_ts}`);
+    expect(new Set(keys).size).toBe(80);
   });
 });

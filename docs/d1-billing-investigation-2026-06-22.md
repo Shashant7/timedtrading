@@ -124,8 +124,42 @@ Does not reduce past billing; reduces table bloat and read amplification.
 
 ---
 
+## Follow-up (2026-09-12) — 20B rows-read threshold again
+
+Cloudflare email is the **20 billion** monthly rows-read threshold (same class as 2026-07-09), not 20 million.
+
+`wrangler d1 info timed-trading-ledger --env production` on 2026-09-12:
+
+| Metric | Value |
+|---|---|
+| Size | 4.82 GB / 103 tables |
+| 24h rows read | 1.85B |
+| 24h rows written | 2.0M |
+| Implied monthly reads | ~55B vs 25B included |
+
+7-day `wrangler d1 insights --sort-by reads` (the actual bill):
+
+| 7d rows | Query | Cause |
+|---|---:|---|
+| **6.28B** | `SELECT ticker, tf, COUNT(*) FROM ticker_candles GROUP BY ticker, tf` | `d1FindTickersNeedingOnboard`. Full ~6M-row scan. Orphan snapshot called it twice; hourly heal called it again. |
+| **5.35B** | `trail_5m_facts … LIMIT ? OFFSET ?` | Markov compute. OFFSET re-reads every prior page. |
+| 0.46B | per-ticker `ticker_candles WHERE ticker=? AND tf=? LIMIT ?` | Real scoring. Efficiency 1.0. **This** is what scales with ticker count. |
+
+**Do not trim the universe to cut this bill.** The first two queries are ~92% of expensive reads. Cutting 331→150 without deleting old candle rows barely moves them.
+
+Fix (this change):
+
+1. Cache the GROUP BY in KV `timed:cache:candle-tf-counts` for 1h (`worker/candle-tf-counts.js`). Hard + soft + heal callers share one blob. Bust next to `timed:cache:ingestion-status`.
+2. Keyset-paginate Markov on `(ticker, bucket_ts)` (`trailFactsKeysetSql`). Do not use OFFSET.
+
+Dead-weight names are a **separate** product question. Report only — see `docs/dead-weight-tickers-2026-09-12.md`. Do not `COUNT(*)` / `GROUP BY` `ticker_candles` to build that list.
+
+---
+
 ## Related docs
 
-- `skills/d1-debugging.md` — query recipes
+- `skills/d1-debugging.md` — query recipes (prod DB name is `timed-trading-ledger`)
+- `skills/ticker-registry.md` — one registry; dead-weight is report-only
 - `skills/worker-topology.md` — ENGINE_EXTERNAL / ENGINE_ENABLED cutover
 - `docs/weekend-readiness-juneteenth-2026.md` — setup_events prod hygiene
+- `docs/dead-weight-tickers-2026-09-12.md` — KEEP / WATCH / DEAD snapshot
