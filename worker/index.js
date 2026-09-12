@@ -1087,6 +1087,7 @@ import {
 import { shallowBreachScoreHold } from "./investor-autopsy-gates.js";
 import { enrichInvestorDayState } from "./seed-investor-daystate.js";
 import { resolveScoringUniverse } from "./universe.js";
+import { loadCandleTfCounts, bustCandleTfCountsCache } from "./candle-tf-counts.js";
 import {
   BROAD_INDEX_TICKERS,
   computeTimingOverlay,
@@ -5077,6 +5078,7 @@ async function hydrateTickerLayers(env, ticker) {
   }
 
   try { await KV?.delete("timed:cache:ingestion-status"); } catch (_) {}
+  await bustCandleTfCountsCache(env);
   console.log(`[HYDRATE] ${sym}:`, JSON.stringify(steps));
   return { ok: true, ticker: sym, steps };
 }
@@ -40009,17 +40011,13 @@ async function d1FindTickersNeedingOnboard(env, opts = {}) {
 
   const expected = { "10": 500, "30": 300, "60": 300, "240": 300, "D": 250, "W": 200, "M": 60 };
   const tfs = ["M", "W", "D", "240", "60", "30", "10"];
-  const byTicker = {};
-  try {
-    const rows = (await db.prepare(
-      "SELECT ticker, tf, COUNT(*) as cnt FROM ticker_candles GROUP BY ticker, tf"
-    ).all())?.results || [];
-    for (const r of rows) {
-      const sym = String(r.ticker || "").toUpperCase();
-      if (!byTicker[sym]) byTicker[sym] = {};
-      byTicker[sym][r.tf] = Number(r.cnt) || 0;
-    }
-  } catch (_) { return []; }
+  const counts = await loadCandleTfCounts(env);
+  if (counts.source === "d1_failed" || counts.source === "none") {
+    // Same as the old inline GROUP BY catch: do not invent 300 orphans
+    // and do not retry the 6M-row scan on the soft/heal caller.
+    return [];
+  }
+  const byTicker = counts.byTicker || {};
 
   let profileSet = new Set();
   try {
@@ -40206,6 +40204,7 @@ async function kickOnboardGapsHeal(env, ctx, opts = {}) {
         }
       }
       try { await KV.delete("timed:cache:ingestion-status"); } catch (_) {}
+      await bustCandleTfCountsCache(env);
       try {
         const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
         const _hdrs = env?.TIMED_API_KEY ? { "X-API-Key": env.TIMED_API_KEY } : {};
@@ -40299,6 +40298,7 @@ async function ensureTickerUniverseAndOnboard(env, ticker, ctx, opts = {}) {
   } catch (_) { /* best-effort */ }
 
   try { await KV.delete("timed:cache:ingestion-status"); } catch (_) {}
+  await bustCandleTfCountsCache(env);
 
   const runOnboard = async () => {
     try {
@@ -57934,6 +57934,7 @@ export default {
                 await new Promise((r) => setTimeout(r, 2000));
               }
               try { await KV.delete("timed:cache:ingestion-status"); } catch (_) {}
+              await bustCandleTfCountsCache(env);
               console.log(`[META hydrate bg] hydrated=${totalHydrated} remaining~=${remaining}`);
             })());
             return sendJSON({ ok: true, status: "queued", max, onlyMissing }, 202, corsHeaders(env, req));
@@ -59647,6 +59648,7 @@ export default {
           await kvPutJSON(KV, "timed:tickers", currentTickers);
           await kvPutJSON(KV, "timed:removed", [...blocklist]);
           try { await KV.delete("timed:cache:ingestion-status"); } catch (_) {}
+          await bustCandleTfCountsCache(env);
 
           // Ensure new tickers have a sector_map entry so ingestion-status and SECTOR_MAP show them
           for (const tickerUpper of added) {
