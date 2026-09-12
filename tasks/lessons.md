@@ -34,6 +34,32 @@ Leave theme-only names as Unknown.
 
 ---
 
+## Live Uptick on timed:removed stays blind after a map add [2026-09-12]
+
+**Symptom:** DBA was a Sep 2026 live Uptick with a GICS row
+(`Commodity ETF`) but `/timed/all` had no row. Onboard returned
+`removed`. Watchlist add returned `symbol_not_found`. Admin universe
+returned `already_in_core` and never lifted the blocklist.
+
+**Cause:** `POST /timed/admin/universe` short-circuited when
+`SECTOR_MAP[ticker]` was set. Watchlist `validateSymbols` uses the
+TwelveData US **stocks** list, which rejects commodity ETFs. Admin
+rescore loaded Upticks onto `env` but never attached `tickerData._env`
+or recomputed conviction, so entry-explain showed `upticks: 0`.
+
+**Fix:** Already-in-core still lifts `timed:removed` and ensures
+`timed:tickers` + `ticker_index`. Watchlist skips vendor stock-list
+validation for mapped / Selected / live Upticks. Force-rescore and
+entry-explain attach lists and stamp `__focus_conviction_*`. Runtime
+`SECTOR_MAP` aliases the file map. Hourly `registry_alignment` pages
+Upticks-on-removed and live-vs-code drift.
+
+**Do not:** Treat `already_in_core` as "nothing to do." Validate ETFs
+only against the US common-stock list. Trust stored conviction bonuses
+on entry-explain.
+
+---
+
 ## D1 overage is two queries; dead weight is a review list [2026-09-12]
 
 **Symptom:** Cloudflare 20B rows-read threshold email. Feeling that a

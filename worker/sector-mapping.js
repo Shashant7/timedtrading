@@ -27,7 +27,6 @@ const SECTOR_MAP = {
   'CVNA': 'Consumer Discretionary',
   'SWK': 'Consumer Discretionary',
   'JD': 'Consumer Discretionary',
-  'KWEB': 'Consumer Discretionary',
   'XYZ': 'Consumer Discretionary',
   'GRNY': 'Consumer Discretionary',
   'ABNB': 'Consumer Discretionary',

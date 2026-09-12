@@ -975,6 +975,28 @@ export function computeConvictionScore({
   };
 }
 
+/** Attach live Upticks / Granny lists so computeConvictionScoreForD sees them. */
+export function attachFocusListEnv(tickerData, env) {
+  if (!tickerData) return tickerData;
+  tickerData._env = {
+    ...(tickerData._env || {}),
+    _currentUpticks: env?._currentUpticks ?? tickerData._env?._currentUpticks ?? null,
+    _currentGrannyHoldings: env?._currentGrannyHoldings ?? tickerData._env?._currentGrannyHoldings ?? null,
+  };
+  return tickerData;
+}
+
+/** Persist focus-tier fields the scoring cron stamps onto timed:latest. */
+export function stampFocusConvictionFields(tickerData, conviction) {
+  if (!tickerData || !conviction) return tickerData;
+  tickerData.__focus_tier = conviction.tier;
+  tickerData.__focus_conviction_score = conviction.score;
+  tickerData.__focus_conviction_breakdown = conviction.breakdown;
+  tickerData.focus_tier = conviction.tier;
+  tickerData.focus_conviction_score = conviction.score;
+  return tickerData;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // History stats builder — call once per run at startup.
 //

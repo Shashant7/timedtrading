@@ -22,6 +22,7 @@
 //  10. nav_script_coverage         user-facing html missing tt-bottom-nav.js
 //  15. broker_bridge_bindings      URL set but HMAC/service-binding missing
 //  16. worker_role_split           dual scoring heartbeats / RESEARCH_EXTERNAL typo
+//  19. registry_alignment          live Upticks vs TT_SELECTED vs GICS vs removed
 //
 // SEVERITY:
 //   fail  — caller should treat as outage. Page on-call. Discord ⛔.
@@ -55,6 +56,13 @@ import {
   evaluateModelBrokerCoverage,
   loadMirrorCoverage,
 } from "./mirror-coverage.js";
+import { SECTOR_MAP } from "./sector-mapping.js";
+import { TT_SELECTED_DEFAULT } from "./focus-tier.js";
+import {
+  diffRegistryAlignment,
+  evaluateRegistryAlignment,
+  healUnknownSectorMapKeys,
+} from "./registry-alignment.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -1126,6 +1134,47 @@ const checkModelBrokerCoverage = timed(async function checkModelBrokerCoverage(e
   );
 });
 
+// ── Check 19: registry_alignment ────────────────────────────────────────
+//
+// 2026-09-12 — Live Upticks vs TT_SELECTED_DEFAULT vs SECTOR_MAP vs
+// ticker_index vs timed:removed. Cheap KV/D1 reads only (no candles).
+const checkRegistryAlignment = timed(async function checkRegistryAlignment(env) {
+  const anomalies = [];
+  try {
+    const kv = env?.KV_TIMED;
+    const liveUpticks = (await kv?.get("timed:admin:upticks", "json")) || [];
+    const removed = (await kv?.get("timed:removed", "json")) || [];
+    const kvTickers = (await kv?.get("timed:tickers", "json")) || [];
+    let indexTickers = Array.isArray(kvTickers) ? kvTickers : [];
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT ticker FROM ticker_index ORDER BY ticker ASC`,
+      ).all();
+      if (results?.length) indexTickers = results.map((r) => r.ticker);
+    } catch (_) { /* cheap table; tolerate miss */ }
+    const healed = kv
+      ? await healUnknownSectorMapKeys(kv, Array.isArray(kvTickers) ? kvTickers : [])
+      : [];
+    const diff = diffRegistryAlignment({
+      liveUpticks: Array.isArray(liveUpticks) ? liveUpticks : [],
+      ttSelected: [...TT_SELECTED_DEFAULT],
+      sectorMapKeys: Object.keys(SECTOR_MAP),
+      indexTickers,
+      removed: Array.isArray(removed) ? removed : [],
+    });
+    anomalies.push(...evaluateRegistryAlignment(diff, { unknownHealed: healed }));
+  } catch (e) {
+    anomalies.push({ detail: `check failed: ${String(e?.message || e).slice(0, 200)}`, severity: "warn" });
+  }
+  return envelope(
+    "registry_alignment",
+    "Registry, Upticks, and GICS stay aligned",
+    anomalies,
+    "Lift live Upticks from timed:removed via POST /timed/admin/universe. Add missing GICS in worker/sector-mapping.js. Keep TT_SELECTED_DEFAULT equal to timed:admin:upticks. Inspect GET /timed/admin/registry-alignment.",
+    "would have caught: DBA live Uptick left on timed:removed (Sep 2026); DDOG KV-only rotation while TT_SELECTED stayed August; TEAM/ALL/DAL theme-only with no GICS row.",
+  );
+});
+
 // ── Master sweep ────────────────────────────────────────────────────────
 
 const CHECKS = [
@@ -1155,6 +1204,9 @@ const CHECKS = [
   // 2026-09-11 — All-lane model vs broker (ST / Long Term / index-trend
   // / index DT / convexity) + relative qty. Fast-pathed below.
   checkModelBrokerCoverage,
+  // 2026-09-12 — Hourly only. Live Upticks vs curated set vs GICS vs
+  // ticker_index vs timed:removed. Heals Unknown sector_map overlays.
+  checkRegistryAlignment,
 ];
 
 // Critical-path subset that runs every 15min instead of hourly. These

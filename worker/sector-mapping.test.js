@@ -48,6 +48,13 @@ describe("registry first-class sectors", () => {
     expect(SECTOR_MAP.ALL).toBe("Financials");
   });
 
+  it("keeps a single KWEB key on the Thematic ETF sleeve", () => {
+    const keys = Object.keys(SECTOR_MAP).filter((k) => k === "KWEB");
+    expect(keys).toEqual(["KWEB"]);
+    expect(SECTOR_MAP.KWEB).toBe("Thematic ETF");
+  });
+
+
   it("does not treat a map miss as a type of Unknown", () => {
     expect(getSector("ZZZZNOPE")).toBeNull();
     expect(getTickerType("FTNT")).toBe("growth");
