@@ -25,6 +25,7 @@ import {
 import { synthesizeNineHourBars, synthesizeRthSessionBars } from "./session-tfs.js";
 import { resolveFormingPair } from "./mtf-forming.js";
 import { computeTdBoostForSide } from "./td-sequential-boost.js";
+import { evaluateBreakoutWatch } from "./breakout-watch.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
@@ -5169,6 +5170,19 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   // ── Breakout Detection (daily level, ATR-relative, EMA stack) ──
   const rawDailyBars = rawBarsEarly?.D || rawBarsEarly?.daily || [];
   const breakout = detectBreakout(bD, regime, price, rawDailyBars);
+  // Trendline + level watch. Fired → kanban setup ("look for a good
+  // entry"). Not a new qualifiesForEnter path.
+  const breakoutWatch = evaluateBreakoutWatch({
+    dailyBars: rawDailyBars,
+    price,
+    existingBreakout: breakout,
+    atr14: bD?.atr14,
+  });
+  if (breakoutWatch?.active) {
+    flags.breakout_watch = true;
+    flags.breakout_watch_dir = breakoutWatch.dir;
+    flags.breakout_watch_kind = breakoutWatch.kind;
+  }
 
   // ── Opening Range Breakout (ORB) ──
   const orbIntradayBars = rawBarsEarly?.["10"] || rawBarsEarly?.["15"] || rawBarsEarly?.["5"] || [];
@@ -5308,6 +5322,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     market_internals: marketInternals || regimeClass.market_internals || undefined,
     execution_profile: executionProfile || undefined,
     breakout: breakout || undefined,           // breakout detection result
+    breakout_watch: breakoutWatch || undefined,
+    _breakout_watch: breakoutWatch || undefined,
     overnight_gap: overnightGap || undefined,  // prior-close vs open gap context
     orb: orb || undefined,                     // Opening Range Breakout levels + signals
     data_source: "alpaca",

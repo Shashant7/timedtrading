@@ -78,6 +78,9 @@ describe("redactTickerSnapshot — tier-aware price vs model gating", () => {
       __rank_trace: { rawScore: 124 },
       __setup_evaluation: { result: "qualified" },
       __setup_grade: { score: 8, allow: true },
+      breakout: { type: "daily_level", dir: "LONG" },
+      breakout_watch: { active: true, kind: "trendline", dir: "LONG" },
+      _breakout_watch: { active: true, kind: "trendline", dir: "LONG" },
       _news_summary: { has_data: true, dominant_sentiment: "bullish" } };
     for (const tier of ["anon", "free"]) {
       expect(redactTickerSnapshot(ranked, tier)).toEqual({ ticker: "QQQ", _redacted: true });

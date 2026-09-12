@@ -13,6 +13,7 @@ Single reference for agents. Read this first to avoid context overload.
   Discovery Moves and multi-timeframe candles first; a report's export cap or
   a small fixture sample is not the available history. No arbitrary new 30-day
   wait before retrospective testing. Plan: `tasks/2026-09-09-historical-calibration.md`.
+- **Breakout + trendline watch (2026-09-12):** the model watches swing/ATR/EMA breaks **and** a daily trendline close-through. Fired is a Setup signal to look for a good entry — not a new ST ENTRY / `tt_*` buy path. Playbook: `skills/breakout-watch.md`.
 - **Ranking work (2026-09-09, PR #1442):** validate each input's semantics,
   direction, duplicate contributions and missing-data behavior. Aggregate
   rank correlation or sorting fixes do not establish that its ingredients
@@ -1216,6 +1217,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - Entry path `breakout_{type}_{long/short}` in `qualifiesForEnter` — bypasses rank/completion gates
 - Rank boost in `computeRank` (`worker/ranking/technical-rank.js`): +20 daily_level / +15 ATR / +12 EMA stack **only when type and `breakout.dir` match the candidate side** (PR #1442; weights still unvalidated)
 - Config: `deep_audit_breakout_{daily_level|atr_breakout|ema_stack}_enabled`, `_min_rr`, `_min_entry_quality`
+- **Breakout watch (2026-09-12):** level breaks plus a descending-resistance / ascending-support trendline close-through (`worker/breakout-watch.js`) stamp `_breakout_watch`. Fired → kanban `setup` ("look for a good entry"). Approaching stays `watch`. Not a new auto-buy path. Playbook: `skills/breakout-watch.md`.
 
 **Ticker Learning System**
 - `scripts/build-ticker-learning.js` — discovers moves from daily candles (2020+), enriches with 30m signals, classifies personality, writes to `ticker_moves` + `ticker_move_signals` D1 tables
