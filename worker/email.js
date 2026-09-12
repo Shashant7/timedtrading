@@ -82,9 +82,9 @@ const BRAND = {
 // - Editorial: Georgia is available on ~100% of mail clients and matches
 //   Instrument Serif closely enough in tone.
 // - Mono/num: Menlo / Consolas / Courier New for data.
-const EMAIL_FONT_UI = "'Helvetica Neue',Arial,sans-serif";
-const EMAIL_FONT_EDITORIAL = "Georgia,'Iowan Old Style','Palatino Linotype',Palatino,serif";
-const EMAIL_FONT_MONO = "'SF Mono',Menlo,Consolas,'Courier New',monospace";
+export const EMAIL_FONT_UI = "'Helvetica Neue',Arial,sans-serif";
+export const EMAIL_FONT_EDITORIAL = "Georgia,'Iowan Old Style','Palatino Linotype',Palatino,serif";
+export const EMAIL_FONT_MONO = "'SF Mono',Menlo,Consolas,'Courier New',monospace";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Brief Infographic → Email HTML
@@ -995,7 +995,7 @@ function _emailBriefDayPctLabel(pct) {
   return `(${_emailBriefPct(v, 2)} today)`;
 }
 
-function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
+export function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
   const SYM = String(sym || "").toUpperCase();
   if (!SYM) return "";
   const logo = `${baseUrl}/timed/logo/${encodeURIComponent(SYM)}.png`;

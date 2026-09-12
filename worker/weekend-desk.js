@@ -10,7 +10,15 @@
  * `tt_weekend_upticks`. Setup grade and qualifiesForEnter stay unchanged.
  */
 
-import { emailLayout, buildUnsubscribeUrl, getEmailOptedInUsers, sendEmail } from "./email.js";
+import {
+  emailLayout,
+  buildUnsubscribeUrl,
+  getEmailOptedInUsers,
+  sendEmail,
+  buildEmailBriefTickerChip,
+  EMAIL_FONT_UI,
+  EMAIL_FONT_EDITORIAL,
+} from "./email.js";
 import {
   readBreakoutWatch,
   watchPromotesToSetup,
@@ -52,6 +60,20 @@ const STORY_KIND_RANK = {
   news_structure: 44,
   outside: 30,
 };
+
+const STORY_KIND_LABEL = {
+  retest: "Retest",
+  quiet_pierce: "Quiet probe",
+  fired: "Break",
+  approaching: "Approaching",
+  magnet: "Magnet",
+  stretch: "Extended",
+  imbalance: "Gap",
+  news_structure: "Tape + news",
+  outside: "Outside the book",
+};
+
+const PSYCH_HANDLES = [50, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000];
 
 function _n(v) {
   if (v == null || v === "") return null;
@@ -145,6 +167,21 @@ export function weekendDeskLabel(nowMs = Date.now()) {
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const mon = months[Number(p.month) - 1] || p.month;
   return `${p.weekday} ${mon} ${Number(p.day)}`;
+}
+
+/** Daily-brief style date for the email H1 kicker row. */
+export function weekendDeskLongLabel(nowMs = Date.now()) {
+  const key = weekendDeskKey(nowMs);
+  try {
+    return new Date(`${key}T12:00:00Z`).toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+  } catch {
+    return weekendDeskLabel(nowMs);
+  }
 }
 
 function holdTimeframes(flags = {}) {
@@ -274,27 +311,158 @@ export function readWeekendVolume(td, watch = null) {
   return { rvolWatch, rvolD, rvolW, rvolBest, quietPierce, confirmedBreak, heavy, dry };
 }
 
-function volumeSentences(vol, kind) {
+function volumeSentences(vol, kind, role) {
   if (!vol) return [];
-  if (kind === "quiet_pierce" || vol.quietPierce && kind === "quiet_pierce") {
+  const shelf = role === "support" ? "support" : role === "resistance" ? "resistance" : "level";
+  if (kind === "quiet_pierce" || (vol.quietPierce && kind === "quiet_pierce")) {
     return [];
   }
   if (vol.quietPierce && kind !== "quiet_pierce") {
-    return ["Price poked through that line on light volume. The model does not treat a quiet poke as a confirmed break."];
+    return [`Price poked through that ${shelf} on light volume. The model does not treat a quiet poke as a confirmed break.`];
   }
   if (vol.confirmedBreak && (kind === "fired" || kind === "retest")) {
-    return ["Volume expanded through the line, which is the participation the model wants before treating the break as real."];
+    return [`Volume expanded through the ${shelf}, which is the participation the model wants before treating the break as accepted.`];
   }
   if (vol.heavy && kind === "retest") {
-    return ["Volume expanded as price came back to the line."];
+    return [`Volume expanded as price came back to that ${shelf}.`];
   }
   if (vol.dry && (kind === "retest" || kind === "approaching" || kind === "magnet")) {
-    return ["Volume has stayed light. A quiet hold can be the better window; a loud spike through the level is usually the chase."];
+    return [`Volume has stayed light. A quiet hold at that ${shelf} can be the better window; a loud spike through it is usually the chase.`];
   }
   if (vol.heavy) {
     return ["Volume expanded on the last session — participation showed up."];
   }
   return [];
+}
+
+function weekendDeskDayPct(td) {
+  return _n(td?.day_change_pct ?? td?.dailyChgPct ?? td?.dp ?? td?.day_pct);
+}
+
+function resolvePersonality(td) {
+  const raw = td?.execution_profile?.personality
+    || td?.ticker_character?.learned_profile?.personality
+    || td?.ticker_character?.personality
+    || td?._ticker_profile?.behavior_type
+    || "";
+  const p = String(raw).toUpperCase().replace(/\s+/g, "_");
+  if (p === "VOLATILE_RUNNER" || p === "MEAN_REVERT" || p === "PULLBACK_PLAYER" || p === "SLOW_GRINDER") {
+    return p;
+  }
+  return null;
+}
+
+function nearPsychHandle(price, pctTolerance = 0.012) {
+  const px = Number(price);
+  if (!Number.isFinite(px) || px <= 0) return null;
+  for (const lvl of PSYCH_HANDLES) {
+    if (Math.abs(px - lvl) / lvl <= pctTolerance) return lvl;
+  }
+  return null;
+}
+
+function setupLevelRole({ kind, dir, watchKind } = {}) {
+  const d = String(dir || "").toUpperCase();
+  const wk = String(watchKind || "").toLowerCase();
+  if (kind === "retest") return d === "SHORT" ? "resistance" : "support";
+  if (kind === "imbalance") return "support";
+  if (kind === "magnet" || kind === "stretch") {
+    return d === "SHORT" ? "resistance" : "support";
+  }
+  if (wk.includes("daily_level") || wk.includes("horiz")) {
+    return d === "SHORT" ? "support" : "resistance";
+  }
+  return d === "SHORT" ? "support" : "resistance";
+}
+
+export function describeSetupLevel({ kind, dir, line, role, watchKind } = {}) {
+  const lv = Number.isFinite(line) && line > 0 ? ` at $${Number(line).toFixed(2)}` : "";
+  const daily = String(watchKind || "").toLowerCase().includes("daily_level");
+  const d = String(dir || "").toUpperCase();
+  if (kind === "retest") {
+    if (daily) {
+      return role === "support"
+        ? `Former resistance, now support${lv}`
+        : `Former support, now resistance${lv}`;
+    }
+    return role === "support"
+      ? `Broken falling resistance, now support${lv}`
+      : `Broken rising support, now resistance${lv}`;
+  }
+  if (kind === "imbalance") return `Unfilled gap as support${lv}`;
+  if (kind === "magnet") return `Flat trend shelf${lv}`;
+  if (kind === "stretch") return `Extended away from the trend shelf${lv}`;
+  if (daily) return role === "support" ? `Horizontal support${lv}` : `Horizontal resistance${lv}`;
+  if (d === "SHORT") return `Rising support${lv}`;
+  return `Falling resistance${lv}`;
+}
+
+function personalityVoice(personality, kind) {
+  if (personality === "MEAN_REVERT" && (kind === "retest" || kind === "imbalance" || kind === "quiet_pierce")) {
+    return "This name has a mean-revert habit — unfinished structure often gets revisited rather than left behind.";
+  }
+  if (personality === "VOLATILE_RUNNER" && (kind === "quiet_pierce" || kind === "fired" || kind === "approaching")) {
+    return "As a runner, first pokes of a barrier are often quiet; the real tell is whether the second attempt brings volume.";
+  }
+  if (personality === "PULLBACK_PLAYER" && (kind === "retest" || kind === "approaching")) {
+    return "Pullbacks to broken structure are the usual window in this name — not the first thrust through it.";
+  }
+  if (personality === "SLOW_GRINDER" && (kind === "retest" || kind === "approaching")) {
+    return "This name tends to grind along structure rather than gap through it, so a hold at the shelf is the more typical path.";
+  }
+  return "";
+}
+
+function gapNote(td, role, personality, kind) {
+  if (kind === "imbalance") return "";
+  const fvg = td?.fvg_imbalance_D || td?.fvg_imbalance || {};
+  const unfilled = _n(fvg.unfilled_below);
+  if (!(unfilled > 0) || role === "resistance") return "";
+  if (personality === "MEAN_REVERT") {
+    return "An unfilled daily gap still sits underneath; this name has tended to revisit unfinished business rather than leave it.";
+  }
+  if (personality === "VOLATILE_RUNNER") {
+    return "An unfilled daily gap still sits underneath — runners in this book often leave those gaps behind unless the tape fails.";
+  }
+  return "An unfilled daily gap still sits underneath as a possible support pocket.";
+}
+
+function psychNote(px, line) {
+  const handle = nearPsychHandle(px) || nearPsychHandle(line);
+  if (!handle) return "";
+  return `The ${handle} handle is also in play — a round number the tape often treats as a decision point.`;
+}
+
+function earningsNote(td) {
+  const days = _n(td?.days_to_earnings ?? td?.daysToEarnings);
+  const e = td?.fundamentals?.earnings || {};
+  const beat = _n(e.beat_rate_pct);
+  const surprise = _n(e.avg_surprise_pct);
+  const hist = Array.isArray(e.history) ? e.history : [];
+  const lastResult = String(hist[0]?.result || "").toLowerCase();
+  const parts = [];
+  if (days != null && days >= 0 && days <= 14) {
+    parts.push(days === 0
+      ? "Earnings print this session."
+      : `Earnings are ${days} session${days === 1 ? "" : "s"} out.`);
+    if (beat != null) {
+      const surpriseBit = surprise != null
+        ? `, average surprise ${surprise >= 0 ? "+" : ""}${surprise.toFixed(1)}%`
+        : "";
+      parts.push(`Recent prints have a ${Math.round(beat)}% beat rate${surpriseBit}.`);
+    }
+    if (lastResult === "beat" || lastResult === "miss") {
+      parts.push(`The last report was a ${lastResult}.`);
+    }
+  }
+  return parts.join(" ");
+}
+
+function distancePhrase(px, level) {
+  if (px == null || level == null || !(level > 0)) return "";
+  const pct = ((px - level) / level) * 100;
+  if (!Number.isFinite(pct)) return "";
+  return `${Math.abs(pct).toFixed(1)}% ${pct >= 0 ? "above" : "below"}`;
 }
 
 function storyChart(kind, flags = {}, magTfs = []) {
@@ -360,8 +528,9 @@ export function inferSetupKind(td, card = {}) {
 }
 
 /**
- * Plain-English setup story. No indicator tags in the copy.
- * Volume is a first-class CMT input even when the operator does not trade it.
+ * Structure-first setup story. Levels are named by role (support /
+ * resistance), not "the line". Personality, psych handles, and
+ * earnings are added only when the payload already has them.
  */
 export function buildSetupStory(td, card = {}) {
   const ticker = String(card.ticker || td?.ticker || "").toUpperCase();
@@ -370,15 +539,22 @@ export function buildSetupStory(td, card = {}) {
     return {
       ticker,
       kind: "outside",
+      kind_label: STORY_KIND_LABEL.outside,
       posture: "should_watch",
       headline: "Not on the book yet",
       why: String(card.thesis || `${ticker} is still outside the universe.`).trim(),
       watching_for: "Whether the next session confirms the move. A name has to earn a slot on the book — this is a look, not an add.",
       dir: null,
       level: null,
+      level_role: null,
+      level_name: null,
+      slope: null,
+      intercept: null,
       chart_tf: "W",
       chart_bars: 60,
+      chart_style: "candles",
       volume: null,
+      day_pct: weekendDeskDayPct(td),
     };
   }
   const watch = readBreakoutWatch(td) || card.watch || {};
@@ -391,54 +567,66 @@ export function buildSetupStory(td, card = {}) {
   const magTfs = magnetTimeframes(flags);
   const chart = storyChart(kind, flags, magTfs);
   const level = storyLevel(watch, td, kind);
-  const volBits = volumeSentences(vol, kind);
+  const role = setupLevelRole({ kind, dir, watchKind });
+  const levelName = describeSetupLevel({ kind, dir, line: level, role, watchKind });
+  const volBits = volumeSentences(vol, kind, role);
   const news = td?._news_summary || card.news || null;
   const newsLean = news?.has_data ? String(news.dominant_sentiment || "") : "";
   const catalyst = news?.top_catalyst?.headline
     ? String(news.top_catalyst.headline).replace(/\s+/g, " ").slice(0, 120)
     : "";
+  const px = _n(td?.price ?? td?.close);
+  const lvTxt = level != null && level > 0 ? `$${Number(level).toFixed(2)}` : "";
+  const dist = distancePhrase(px, level);
+  const personality = resolvePersonality(td);
 
   let headline = "";
   let why = "";
   let watchingFor = "";
 
   if (kind === "retest") {
-    headline = "The line already broke — price came back and held";
+    headline = dir === "SHORT"
+      ? "Broken support is now being tested as resistance"
+      : "Broken resistance is now being tested as support";
     why = dir === "SHORT"
-      ? "The rising line that had been holding this name gave way. Price came back to that same line from the other side and held."
-      : "The falling line that had been capping this name gave way. Price came back to that same line from the other side and held.";
-    watchingFor = "A clean hold on this side of the line on the next session. That is the good-entry window. A gap-through chase is not.";
+      ? `${ticker} already lost ${lvTxt || "the prior support shelf"}. Price is back at that shelf from below — the market is deciding whether failed support now caps the bounce.`
+      : `${ticker} already cleared ${lvTxt || "overhead supply"}. The pullback is sitting on that former ceiling — the classic confirm that the break was accepted, not a fakeout.`;
+    watchingFor = dir === "SHORT"
+      ? `A rejection that leaves a lower high keeps the breakdown intact. A close back through ${lvTxt || "the shelf"} would neutralize this as resistance.`
+      : `A daily hold and turn higher would confirm ${lvTxt || "the shelf"} as support. A close back under it would say the break was not accepted.`;
   } else if (kind === "quiet_pierce") {
-    headline = "Price poked the line, but volume did not confirm";
-    why = "The first poke through the line happened on light volume. Professionals treat that as a probe, not a break.";
-    watchingFor = "A second close through the line with volume expanding. Until that prints, the line is still the level.";
+    headline = dir === "SHORT"
+      ? (watchKind === "daily_level" ? "A probe of horizontal support, not a break" : "A probe of rising support, not a break")
+      : (watchKind === "daily_level" ? "A probe of horizontal resistance, not a break" : "A probe of falling resistance, not a break");
+    why = `${ticker} poked ${lvTxt || levelName.toLowerCase()} on light volume. Until participation shows up, this reads as a test of the barrier rather than a committed break.`;
+    watchingFor = `A second close through ${lvTxt || "that barrier"} with volume expanding would upgrade the tape. A fade back inside the range leaves the barrier intact.`;
   } else if (kind === "fired" && watchKind === "daily_level") {
-    headline = "Price cleared a daily level";
-    why = "A horizontal level that had been in the way gave way on the daily chart.";
-    watchingFor = "A hold above that level. The first close back under it would say the break did not stick.";
+    headline = dir === "SHORT" ? "Horizontal support gave way" : "Horizontal resistance gave way";
+    why = `${ticker} closed through ${lvTxt || "a daily shelf"} that had been containing the range.`;
+    watchingFor = `A hold on this side of ${lvTxt || "the shelf"} keeps the break accepted. The first close back through it would say the move did not stick.`;
   } else if (kind === "fired") {
-    headline = dir === "SHORT" ? "The rising support line just broke" : "The falling resistance line just broke";
-    why = "Price closed through a line that had been in the way.";
-    watchingFor = "Whether the next session holds on this side of the line. A hold keeps the name on the list. A snap back takes the idea off.";
+    headline = dir === "SHORT" ? "Rising support gave way" : "Falling resistance gave way";
+    why = `${ticker} closed through ${lvTxt || levelName.toLowerCase()} with enough participation that the break is live, not just a wick.`;
+    watchingFor = `The first pullback toward ${lvTxt || "that level"} is the confirmation window. Failure to hold the break puts it back in the range.`;
   } else if (kind === "approaching") {
     headline = dir === "SHORT"
-      ? "Price is pressing a rising support line"
-      : "Price is pressing a falling resistance line";
-    why = dir === "SHORT"
-      ? "An upward-sloping line has supported the last several weeks. Price is sitting right on that line."
-      : "A downward-sloping line has capped the last several weeks. Price is sitting right under that line.";
-    watchingFor = "A close through the line, then a hold. That is the start of a potential setup — not a reason to chase the first print.";
+      ? (watchKind === "daily_level" ? "Price is sitting on horizontal support" : "Price is sitting on rising support")
+      : (watchKind === "daily_level" ? "Price is pressing horizontal resistance" : "Price is pressing falling resistance");
+    why = dist && lvTxt
+      ? `${ticker} is ${dist} ${lvTxt}. The next few sessions decide whether this is a pause in front of the barrier or the start of a break.`
+      : `${ticker} is sitting against ${lvTxt || levelName.toLowerCase()}. The next few sessions decide whether this is a pause in front of the barrier or the start of a break.`;
+    watchingFor = `Acceptance through ${lvTxt || "the level"} would open the next leg. A rejection here keeps the prevailing structure.`;
   } else if (kind === "magnet") {
-    headline = "A flat trend line is sitting nearby like a magnet";
-    why = "When the higher-timeframe trend line goes flat, price often gets pulled back to it before the next move.";
-    watchingFor = "A hold at the line as a possible bounce, or a clean break through it. Either outcome is more useful than chasing the stretch away from the line.";
+    headline = "A flat higher-timeframe shelf is acting as a magnet";
+    why = `When the higher-timeframe shelf goes flat, price often gets pulled back to ${lvTxt || "it"} before the next move.`;
+    watchingFor = `A hold at ${lvTxt || "the shelf"} as a possible bounce, or a clean break through it. Either outcome is more useful than chasing the stretch away from the shelf.`;
   } else if (kind === "stretch") {
     headline = "The last flip already ran too far";
     why = "The trend flip is extended. Chasing the stretch is how late entries get trapped.";
-    watchingFor = "A pullback toward the trend line. The interesting setup is the reset, not another push away from the line.";
+    watchingFor = `A pullback toward ${lvTxt || "the trend shelf"}. The interesting setup is the reset, not another push away from the shelf.`;
   } else if (kind === "imbalance") {
-    headline = "An unfilled gap is sitting under price";
-    why = "Unfilled gaps often act as a floor the next time price comes back.";
+    headline = "An unfilled gap is sitting under price as support";
+    why = `Unfilled gaps often act as a floor the next time price comes back${lvTxt ? ` — ${lvTxt} is the pocket` : ""}.`;
     watchingFor = "Whether that gap holds if price revisits it. A hold there is the interesting setup. A slice through it with volume takes the idea off.";
   } else if (kind === "news_structure") {
     headline = "The tape and the headlines are leaning the same way";
@@ -451,34 +639,47 @@ export function buildSetupStory(td, card = {}) {
   }
 
   if (volBits[0]) why = `${why} ${volBits[0]}`;
-  const tags = card.tags || [];
-  const support = [];
-  if (kind !== "magnet" && (flags.st_magnet || tags.includes("st_magnet"))) {
-    support.push("A flat higher-timeframe trend line is also nearby, which can act as a magnet.");
-  }
-  if (kind !== "imbalance" && (tags.includes("imbalance") || tags.includes("fvg_support") || (flags.fvg_in_bull_D || 0) > 0)) {
-    support.push("An unfilled gap sits under price as extra structure.");
-  }
+  const extras = [];
+  const voice = personalityVoice(personality, kind);
+  if (voice) extras.push(voice);
+  const gap = gapNote(td, role, personality, kind);
+  if (gap && personality !== "MEAN_REVERT" && personality !== "VOLATILE_RUNNER") extras.push(gap);
+  else if (gap && !voice) extras.push(gap);
+  const psych = psychNote(px, level);
+  if (psych) extras.push(psych);
+  const earn = earningsNote(td);
+  if (earn) extras.push(earn);
   if (newsLean && kind !== "news_structure" && (newsLean === "bullish" || newsLean === "bearish")) {
     const agree = (dir === "LONG" && newsLean === "bullish") || (dir === "SHORT" && newsLean === "bearish");
-    support.push(agree
+    extras.push(agree
       ? "Recent headlines lean the same way as the chart."
       : "Recent headlines lean the other way — the chart still has to do the work.");
   }
-  if (support[0]) why = `${why} ${support[0]}`;
+  if (kind !== "magnet" && (flags.st_magnet || (card.tags || []).includes("st_magnet"))) {
+    extras.push("A flat higher-timeframe shelf is also nearby, which can act as a magnet.");
+  }
+  if (extras.length) why = `${why} ${extras.slice(0, 3).join(" ")}`;
 
   return {
     ticker,
     kind,
+    kind_label: STORY_KIND_LABEL[kind] || null,
     posture: postureFromTd(td, card),
     headline,
     why: why.trim(),
     watching_for: watchingFor,
     dir,
     level,
+    level_role: role,
+    level_name: levelName,
+    slope: _n(watch.slope),
+    intercept: _n(watch.intercept),
+    watch_kind: watchKind,
     chart_tf: chart.tf,
     chart_bars: chart.bars,
+    chart_style: "candles",
     volume: vol.quietPierce ? "quiet" : vol.heavy ? "expanded" : vol.dry ? "light" : null,
+    day_pct: weekendDeskDayPct(td),
   };
 }
 
@@ -496,10 +697,36 @@ export function weekendSetupChartUrl(story, origin = "https://timed-trading.com"
   const tf = String(story?.chart_tf || "D");
   const tfClean = ["60", "240", "D", "W"].includes(tf) ? tf : "D";
   p.set("tf", tfClean);
-  p.set("bars", String(story?.chart_bars || (tfClean === "W" ? 80 : 90)));
-  if (story?.headline) p.set("subtitle", String(story.headline).slice(0, 80));
+  const bars = Number(story?.chart_bars || (tfClean === "W" ? 80 : 90));
+  p.set("bars", String(bars));
+  p.set("style", "candles");
+  const levelName = String(story?.level_name || "").trim();
+  if (levelName) p.set("subtitle", levelName.slice(0, 80));
+  else if (story?.headline) p.set("subtitle", String(story.headline).slice(0, 80));
   const level = Number(story?.level);
-  if (Number.isFinite(level) && level > 0) p.set("entry", String(level));
+  const slope = Number(story?.slope);
+  const roleLabel = story?.level_role === "support"
+    ? "Support"
+    : story?.level_role === "resistance"
+      ? "Resistance"
+      : "";
+  const canDrawTl = tfClean === "D"
+    && Number.isFinite(slope)
+    && slope !== 0
+    && Number.isFinite(level)
+    && level > 0;
+  if (canDrawTl) {
+    const tl0 = level - slope * (bars - 1);
+    const tl1 = level;
+    if (tl0 > 0 && tl1 > 0) {
+      p.set("tl0", String(Number(tl0.toFixed(4))));
+      p.set("tl1", String(Number(tl1.toFixed(4))));
+      if (roleLabel) p.set("tl_label", roleLabel);
+    }
+  } else if (Number.isFinite(level) && level > 0) {
+    p.set("entry", String(level));
+    if (roleLabel) p.set("level_label", roleLabel);
+  }
   return `${base}/timed/chart-image?${p.toString()}`;
 }
 
@@ -681,12 +908,12 @@ export function analyzeTickerForWeekendDesk(td, extras = {}) {
     score += 8;
     tags.push("quiet_volume");
     families.add("volume");
-    notes.push("Line pierced on light volume — not a confirmed break");
+    notes.push("Level pierced on light volume — not a confirmed break");
   } else if (vol.confirmedBreak) {
     score += 6;
     tags.push("volume_confirm");
     families.add("volume");
-    notes.push("Volume expanded through the line");
+    notes.push("Volume expanded through the level");
   } else if (vol.heavy) {
     score += 4;
     tags.push("volume_expand");
@@ -826,6 +1053,7 @@ export function composeWeekendDesk({
     generated_at: now,
     weekend_key: weekendDeskKey(now),
     label: weekendDeskLabel(now),
+    long_label: weekendDeskLongLabel(now),
     scanned: scanned || clean.length,
     marked: clean.length,
     counts: {
@@ -873,11 +1101,11 @@ export function renderWeekendDeskText(desk) {
   const featured = desk.featured || desk.tt_setups || [];
   const also = desk.also_on_tape || [];
   const lines = [
-    `TT Setups · ${desk.label}`,
+    `TT Setups · Weekend watch · ${desk.long_label || desk.label}`,
     desk.disclaimer,
     "",
     featured.length
-      ? `${featured.length} name${featured.length === 1 ? "" : "s"} the desk is watching into the next session.`
+      ? `${featured.length} name${featured.length === 1 ? "" : "s"} with a defined support or resistance into the next session.`
       : "No clean setups cleared the bar this weekend.",
     "",
   ];
@@ -886,8 +1114,9 @@ export function renderWeekendDeskText(desk) {
     lines.push(`${i + 1}. ${c.ticker}`);
     lines.push(s.posture === "already_watching" ? "Already watching" : "Should be watching");
     lines.push(s.headline || c.headline || "");
-    lines.push(`Why: ${s.why || ""}`);
-    lines.push(`Watching for: ${s.watching_for || ""}`);
+    if (s.level_name) lines.push(s.level_name);
+    lines.push(s.why || "");
+    if (s.watching_for) lines.push(`Watch: ${s.watching_for}`);
     lines.push("");
   });
   if (also.length) {
@@ -906,54 +1135,76 @@ function featuredBlock(card, index, origin) {
   const posture = s.posture === "already_watching" ? "Already watching" : "Should be watching";
   const today = `https://timed-trading.com/today.html?ticker=${encodeURIComponent(ticker)}`;
   const tfLabel = chartTfLabel(s.chart_tf);
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 28px">
-    <tr><td style="padding:0 0 16px;border-bottom:1px solid ${BRAND.border}">
-      <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:${BRAND.textMuted}">${index}. ${_esc(ticker)} · ${_esc(posture)}</div>
-      <div style="font-size:18px;font-weight:700;color:white;line-height:1.3;margin:6px 0 12px">${_esc(s.headline || ticker)}</div>
+  const chip = buildEmailBriefTickerChip(ticker, s.day_pct, null, origin);
+  const kindLabel = s.kind_label || STORY_KIND_LABEL[s.kind] || "";
+  const levelName = s.level_name || "";
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">
+    <tr><td style="padding:${index > 1 ? "28px 0 0" : "0"};${index > 1 ? `border-top:1px solid ${BRAND.border};` : ""}">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="vertical-align:middle">${chip}</td>
+          <td align="right" style="font-family:${EMAIL_FONT_UI};font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">${_esc(kindLabel)}${kindLabel ? " · " : ""}${_esc(posture)}</td>
+        </tr>
+      </table>
+      <div style="font-family:${EMAIL_FONT_EDITORIAL};font-size:22px;line-height:1.25;font-weight:400;color:white;margin:12px 0 8px">${_esc(s.headline || ticker)}</div>
+      ${levelName ? `<div style="font-family:${EMAIL_FONT_UI};font-size:12px;color:${BRAND.textMuted};margin:0 0 10px">${_esc(levelName)}</div>` : ""}
+      <p style="margin:0 0 10px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6;font-family:${EMAIL_FONT_UI}">${_esc(s.why || "")}</p>
+      ${s.watching_for ? `<p style="margin:0 0 14px;font-size:14px;color:${BRAND.textSecondary};line-height:1.55;font-family:${EMAIL_FONT_UI}"><span style="font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.editorial}">Watch</span> ${_esc(s.watching_for)}</p>` : ""}
       <a href="${today}" style="display:block;line-height:0;border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border}">
-        <img src="${_esc(chart)}" alt="${_esc(ticker)} ${tfLabel} chart" width="600" style="display:block;width:100%;max-width:600px;height:auto;border-radius:8px" />
+        <img src="${_esc(chart)}" alt="${_esc(ticker)} ${tfLabel} candles" width="600" style="display:block;width:100%;max-width:600px;height:auto;border-radius:8px" />
       </a>
-      <div style="margin:4px 2px 14px;font-size:10px;color:${BRAND.textMuted}">${_esc(tfLabel)} chart · the line on the chart is the level the model is watching</div>
-      <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${BRAND.editorial}">Why it is interesting</div>
-      <p style="margin:4px 0 12px;font-size:14px;color:${BRAND.textSecondary};line-height:1.55">${_esc(s.why || "")}</p>
-      <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${BRAND.editorial}">What the model is watching for</div>
-      <p style="margin:4px 0 12px;font-size:14px;color:${BRAND.textSecondary};line-height:1.55">${_esc(s.watching_for || "")}</p>
-      <a href="${today}" style="color:${BRAND.green};text-decoration:none;font-size:13px;font-weight:600">Open ${_esc(ticker)} on Today →</a>
+      <div style="margin:6px 2px 12px;font-size:10px;color:${BRAND.textMuted};font-family:${EMAIL_FONT_UI}">${_esc(tfLabel)} candles${levelName ? ` · ${_esc(levelName)}` : ""}</div>
+      <a href="${today}" style="color:${BRAND.green};text-decoration:none;font-size:13px;font-weight:600;font-family:${EMAIL_FONT_UI}">Open ${_esc(ticker)} on Today →</a>
     </td></tr>
   </table>`;
 }
 
-export function renderWeekendDeskHtml(desk, { unsubscribeUrl, origin } = {}) {
+export function renderWeekendDeskHtml(desk, { unsubscribeUrl, origin, preview = false } = {}) {
   const base = String(origin || desk.chart_origin || "https://timed-trading.com").replace(/\/$/, "");
   const featured = desk.featured || desk.tt_setups || [];
   const also = desk.also_on_tape || [];
   const count = featured.length;
   const intro = count
-    ? `${count} name${count === 1 ? "" : "s"} the desk is already watching or should be watching into the next session. Each one has a simple reason, the chart that shows the setup, and what the model is waiting for.`
+    ? `${count} name${count === 1 ? "" : "s"} with a defined support or resistance into the next session. Daily candles keep gaps visible. A hold or rejection at the named level is the tell — not the first print through it.`
     : "No clean setups cleared the bar this weekend. The desk will look again after the next session.";
   const featuredHtml = featured.length
     ? featured.map((c, i) => featuredBlock(c, i + 1, base)).join("")
-    : `<p style="margin:0 0 18px;font-size:14px;color:${BRAND.textMuted}">No clean setups cleared the bar this weekend.</p>`;
+    : `<p style="margin:0 0 18px;font-size:14px;color:${BRAND.textMuted};font-family:${EMAIL_FONT_UI}">No clean setups cleared the bar this weekend.</p>`;
   const alsoHtml = also.length
-    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 18px">
-        <tr><td style="padding:0 0 6px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">Also on the tape</td></tr>
-        ${also.map((c) => `<tr><td style="padding:6px 0;font-size:13px;color:${BRAND.textSecondary}">${_esc(storyLine(c))}</td></tr>`).join("")}
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 18px">
+        <tr><td style="padding:0 0 10px;font-size:10px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:${BRAND.textMuted};font-family:${EMAIL_FONT_UI}">Also on the tape</td></tr>
+        ${also.map((c) => {
+          const chip = buildEmailBriefTickerChip(c.ticker, c.story?.day_pct, null, base);
+          return `<tr><td style="padding:8px 0 12px;border-top:1px solid ${BRAND.border}">
+            <div>${chip}</div>
+            <div style="font-family:${EMAIL_FONT_EDITORIAL};font-size:16px;color:white;margin:6px 0 2px">${_esc(c.story?.headline || c.headline || "")}</div>
+            <div style="font-family:${EMAIL_FONT_UI};font-size:12px;color:${BRAND.textMuted}">${_esc(c.story?.level_name || "")}</div>
+          </td></tr>`;
+        }).join("")}
       </table>`
     : "";
+  const previewNote = preview
+    ? `<p style="margin:0 0 16px;font-size:12px;color:${BRAND.warning};font-family:${EMAIL_FONT_UI};line-height:1.45">Preview — admin only. The list is not going to members until the desk locks the copy.</p>`
+    : "";
+  const longDate = desk.long_label || desk.label;
   const body = `
-    <h1 style="margin:0 0 6px;font-size:22px;font-weight:700;color:white">TT Setups</h1>
-    <p style="margin:0 0 14px;font-size:13px;color:${BRAND.editorial};letter-spacing:0.04em;text-transform:uppercase">Weekend watch · ${_esc(desk.label)}</p>
-    <p style="margin:0 0 22px;font-size:14px;color:${BRAND.textSecondary};line-height:1.55">${intro}</p>
+    <div style="font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:${BRAND.editorial};font-family:${EMAIL_FONT_UI};margin:0 0 6px">TT Setups</div>
+    <h1 style="margin:0 0 8px;font-size:32px;font-weight:400;color:white;font-family:${EMAIL_FONT_EDITORIAL};letter-spacing:-0.015em;line-height:1.1">Weekend watch</h1>
+    <p style="margin:0 0 16px;font-size:13px;color:${BRAND.textMuted};font-family:${EMAIL_FONT_UI}">${_esc(longDate)}</p>
+    ${previewNote}
+    <p style="margin:0 0 22px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6;font-family:${EMAIL_FONT_UI}">${intro}</p>
     ${featuredHtml}
     ${alsoHtml}
-    <p style="margin:8px 0 0;font-size:12px">
-      <a href="${WEEKEND_DESK_PAGE}" style="color:${BRAND.green};text-decoration:none;font-weight:600">Open Today →</a>
-    </p>
-    <p style="margin:14px 0 0;font-size:11px;color:${BRAND.textMuted};line-height:1.45">${_esc(desk.disclaimer)}</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
+      <tr><td style="background:${BRAND.green};border-radius:8px;padding:10px 24px">
+        <a href="${WEEKEND_DESK_PAGE}" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block;font-family:${EMAIL_FONT_UI}">Open Today</a>
+      </td></tr>
+    </table>
+    <p style="margin:14px 0 0;font-size:11px;color:${BRAND.textMuted};line-height:1.45;font-family:${EMAIL_FONT_UI}">${_esc(desk.disclaimer)}</p>
   `;
   return emailLayout(body, {
     unsubscribeUrl,
-    preheader: `TT Setups · ${count} name${count === 1 ? "" : "s"} · ${desk.label}`,
+    preheader: `TT Setups · Weekend watch · ${count} name${count === 1 ? "" : "s"} · ${desk.label}`,
   });
 }
 
@@ -1136,30 +1387,62 @@ async function markWeekendSent(env, lock, result = {}) {
   } catch (_) { /* best-effort */ }
 }
 
-export async function sendWeekendDeskEmails(env, desk, { sendFn = sendEmail } = {}) {
-  const optedRaw = await getEmailOptedInUsers(env, WEEKEND_DESK_PREF).catch(() => []);
+export function weekendDeskBroadcastEnabled(env) {
+  const v = String(env?.WEEKEND_DESK_BROADCAST || "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/** Admin-only until WEEKEND_DESK_BROADCAST is explicitly on. */
+export function weekendDeskEmailRecipients(env, optedUsers = []) {
+  const admin = String(env?.ADMIN_EMAIL || "").trim().toLowerCase();
+  if (!weekendDeskBroadcastEnabled(env)) {
+    return admin ? [{ email: admin, preview: true }] : [];
+  }
   const seen = new Set();
-  const opted = [];
-  for (const u of optedRaw) {
+  const out = [];
+  if (admin) {
+    seen.add(admin);
+    out.push({ email: admin });
+  }
+  for (const u of optedUsers || []) {
     const email = String(u?.email || "").toLowerCase().trim();
     if (!email || seen.has(email)) continue;
     seen.add(email);
-    opted.push(u);
+    out.push({ ...u, email });
   }
-  if (!opted.length) return { sent: 0, failed: 0, recipients: 0 };
+  return out;
+}
+
+export async function sendWeekendDeskEmails(env, desk, { sendFn = sendEmail } = {}) {
+  const optedRaw = await getEmailOptedInUsers(env, WEEKEND_DESK_PREF).catch(() => []);
+  const recipients = weekendDeskEmailRecipients(env, optedRaw);
+  const preview = !weekendDeskBroadcastEnabled(env);
+  if (!recipients.length) {
+    return {
+      sent: 0,
+      failed: 0,
+      recipients: 0,
+      preview,
+      skipped: preview ? "no_admin_email" : "no_recipients",
+      to: [],
+    };
+  }
   const baseUrl = String(env?.WORKER_URL || "https://timed-trading.com").replace(/\/$/, "");
   let sent = 0;
   let failed = 0;
-  for (const u of opted) {
+  const subject = preview
+    ? `TT Setups preview · ${desk.label}`
+    : `TT Setups · ${desk.label}`;
+  for (const u of recipients) {
     const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
       ? await buildUnsubscribeUrl(baseUrl, u.email, WEEKEND_DESK_PREF, env.EMAIL_HMAC_SECRET).catch(() => null)
       : null;
-    const html = renderWeekendDeskHtml(desk, { unsubscribeUrl, origin: baseUrl });
+    const html = renderWeekendDeskHtml(desk, { unsubscribeUrl, origin: baseUrl, preview });
     const text = renderWeekendDeskText(desk);
     try {
       const r = await sendFn(env, {
         to: u.email,
-        subject: `TT Setups · ${desk.label}`,
+        subject,
         html,
         text,
         category: WEEKEND_DESK_PREF,
@@ -1170,7 +1453,14 @@ export async function sendWeekendDeskEmails(env, desk, { sendFn = sendEmail } = 
       failed += 1;
     }
   }
-  return { sent, failed, recipients: opted.length };
+  return {
+    sent,
+    failed,
+    recipients: recipients.length,
+    preview,
+    skipped: null,
+    to: recipients.map((r) => r.email),
+  };
 }
 
 export async function composeWeekendDeskFromEnv(env, { now = Date.now(), rescore = null } = {}) {

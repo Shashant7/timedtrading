@@ -10,7 +10,9 @@ import {
   pickFeaturedSetups,
   renderWeekendDeskHtml,
   renderWeekendDeskText,
+  sendWeekendDeskEmails,
   uniqueEmailTickers,
+  weekendDeskEmailRecipients,
   weekendDeskHasYouYour,
   weekendDeskKey,
   weekendDeskLabel,
@@ -105,9 +107,11 @@ describe("analyzeTickerForWeekendDesk", () => {
     expect(out.families.length).toBeGreaterThanOrEqual(2);
     expect(out.score).toBeGreaterThanOrEqual(36);
     expect(out.story.kind).toBe("retest");
-    expect(out.story.headline).toMatch(/came back and held/i);
-    expect(out.story.watching_for).toMatch(/good-entry window/i);
-    expect(out.story.why).toMatch(/volume|held|line/i);
+    expect(out.story.headline).toMatch(/broken resistance is now being tested as support/i);
+    expect(out.story.level_role).toBe("support");
+    expect(out.story.level_name).toMatch(/support/i);
+    expect(`${out.story.headline} ${out.story.why} ${out.story.watching_for}`).not.toMatch(/\bthe line\b/i);
+    expect(out.story.watching_for).toMatch(/support|accepted/i);
     expect(out.story.why).not.toMatch(/st_magnet|ema_short|RVOL/i);
   });
 
@@ -137,9 +141,12 @@ describe("analyzeTickerForWeekendDesk", () => {
       },
     });
     expect(out.story.kind).toBe("quiet_pierce");
+    expect(out.story.headline).toMatch(/falling resistance/i);
+    expect(out.story.level_role).toBe("resistance");
     expect(out.story.why).toMatch(/light volume/i);
     expect((out.story.why.match(/light volume/gi) || []).length).toBe(1);
     expect(out.story.watching_for).toMatch(/volume expanding/i);
+    expect(`${out.story.headline} ${out.story.why} ${out.story.watching_for}`).not.toMatch(/\bthe line\b/i);
     expect(out.families).toContain("volume");
   });
 
@@ -307,17 +314,90 @@ describe("composeWeekendDesk", () => {
     expect(html).toContain("/timed/chart-image?");
     expect(html).toContain("ticker=CRDO");
     expect(html).toMatch(/tf=D|tf=W|tf=240|tf=60/);
-    expect(html).toContain("Why it is interesting");
-    expect(html).toContain("What the model is watching for");
+    expect(html).toContain("Weekend watch");
+    expect(html).toContain("Georgia");
+    expect(html).toContain("/timed/logo/CRDO.png");
+    expect(html).toContain("style=candles");
+    expect(html).toMatch(/Support|Resistance|support|resistance/);
+    expect(html).not.toContain("Why it is interesting");
+    expect(html).not.toContain("What the model is watching for");
+    expect(html).not.toMatch(/\bthe line\b/i);
     expect(html).toContain("light volume");
     const tickers = uniqueEmailTickers(desk);
     expect(new Set(tickers).size).toBe(tickers.length);
     const story = buildSetupStory({
       ticker: "CRDO",
       flags: { breakout_retest: true },
-      _breakout_watch: { kind: "trendline", dir: "LONG", retest: true, line: 88.2 },
+      _breakout_watch: { kind: "trendline", dir: "LONG", retest: true, line: 88.2, slope: -0.35 },
     }, { ticker: "CRDO", tags: ["retest"], timed_uptick: true });
-    expect(weekendSetupChartUrl(story)).toContain("ticker=CRDO");
-    expect(weekendSetupChartUrl(story)).toContain("tf=D");
+    const chart = weekendSetupChartUrl(story);
+    expect(chart).toContain("ticker=CRDO");
+    expect(chart).toContain("tf=D");
+    expect(chart).toContain("style=candles");
+    expect(chart).toContain("tl0=");
+    expect(chart).toContain("tl1=");
+    expect(chart).toContain("tl_label=Support");
+    expect(chart).toContain("subtitle=");
+    expect(chart).not.toMatch(/the\+line/i);
+  });
+
+  it("names personality, earnings, and psych only when the payload has them", () => {
+    const out = card({
+      ticker: "CRDO",
+      price: 149.4,
+      day_change_pct: 1.2,
+      execution_profile: { personality: "MEAN_REVERT" },
+      days_to_earnings: 6,
+      fundamentals: {
+        earnings: { beat_rate_pct: 80, avg_surprise_pct: 4.2, history: [{ result: "beat" }] },
+      },
+      flags: { breakout_retest: true, breakout_watch_dir: "LONG" },
+      _breakout_watch: { kind: "trendline", dir: "LONG", retest: true, promotes_setup: true, line: 150.2, slope: -0.2 },
+    });
+    expect(out.story.why).toMatch(/mean-revert|unfinished structure/i);
+    expect(out.story.why).toMatch(/earnings/i);
+    expect(out.story.why).toMatch(/80%/);
+    expect(out.story.why).toMatch(/150 handle/);
+    expect(out.story.why).not.toMatch(/\bthe line\b/i);
+  });
+});
+
+describe("weekend desk recipients", () => {
+  it("stays admin-only until WEEKEND_DESK_BROADCAST is on", () => {
+    const opted = [{ email: "member@example.com" }, { email: "shashant@gmail.com" }];
+    expect(weekendDeskEmailRecipients({ ADMIN_EMAIL: "shashant@gmail.com" }, opted).map((u) => u.email))
+      .toEqual(["shashant@gmail.com"]);
+    expect(weekendDeskEmailRecipients({ ADMIN_EMAIL: "shashant@gmail.com", WEEKEND_DESK_BROADCAST: "1" }, opted)
+      .map((u) => u.email)).toEqual(["shashant@gmail.com", "member@example.com"]);
+    expect(weekendDeskEmailRecipients({}, opted)).toEqual([]);
+  });
+
+  it("sends the preview only to the admin address", async () => {
+    const desk = composeWeekendDesk({
+      cards: [
+        card({
+          ticker: "CRDO",
+          flags: { breakout_retest: true, st_magnet: true, st_magnet_D: true, momentum_elite: true },
+          _breakout_watch: { kind: "trendline", dir: "LONG", retest: true, promotes_setup: true, line: 88.2, slope: -0.4 },
+        }),
+      ],
+      now: SAT_10_ET,
+      scanned: 4,
+    });
+    const sent = [];
+    const result = await sendWeekendDeskEmails(
+      { ADMIN_EMAIL: "shashant@gmail.com", WORKER_URL: "https://timed-trading.com" },
+      desk,
+      { sendFn: async (_env, msg) => { sent.push(msg); return { ok: true }; } },
+    );
+    expect(result.preview).toBe(true);
+    expect(result.recipients).toBe(1);
+    expect(result.to).toEqual(["shashant@gmail.com"]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe("shashant@gmail.com");
+    expect(sent[0].subject).toMatch(/preview/i);
+    expect(sent[0].html).toContain("admin only");
+    expect(sent[0].html).toContain("style=candles");
+    expect(weekendDeskHasYouYour(sent[0].html)).toBe(false);
   });
 });
