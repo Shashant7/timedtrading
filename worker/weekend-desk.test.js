@@ -419,7 +419,7 @@ describe("composeWeekendDesk", () => {
     const tsm = card({
       ticker: "TSM",
       price: 398.2,
-      atr: 8.4,
+      atr: 16,
       flags: { st_magnet: true, st_magnet_W: true },
       st_hold_setup: { magnet: { sideLabel: "LONG", magnet: true, stLine: 421.91 } },
     });
@@ -428,12 +428,28 @@ describe("composeWeekendDesk", () => {
     expect(tsm.story.why).toMatch(/\$421\.91/);
     expect(tsm.story.why).toMatch(/magnet target/i);
     expect(tsm.story.rr).toBeGreaterThan(0);
+    expect(tsm.story.chart_tf).toBe("D");
+    expect(tsm.story.chart_bars).toBe(60);
+    const gold = card({
+      ticker: "GOLD",
+      price: 41.8,
+      atr: 1.2,
+      flags: { st_magnet: true, st_magnet_W: true },
+      st_hold_setup: { magnet: { sideLabel: "LONG", magnet: true, stLine: 44.13 } },
+    });
+    expect(gold.story.chart_tf).toBe("D");
+    expect(gold.story.chart_bars).toBe(60);
+    expect(computeSetupRR({
+      entry: 286.4, stop: 283.7, target: 314.55, dir: "LONG",
+    })).toBeNull();
     const obj = resolveSetupObjective({
       st_hold_setup: { magnet: { stLine: 421.91 } },
-      atr: 8.4,
+      atr: 16,
     }, { kind: "magnet", dir: "LONG", level: 421.91, px: 398.2 });
     expect(obj.target).toBe(421.91);
     expect(obj.rr).toBe(computeSetupRR({ entry: 398.2, stop: obj.stop, target: 421.91, dir: "LONG" }));
+    expect(obj.rr).toBeGreaterThan(0);
+    expect(obj.rr).toBeLessThanOrEqual(4);
     const goldFallback = resolveSetupObjective({
       atr: 1.2,
     }, { kind: "magnet", dir: "LONG", level: 44.13, px: 41.8 });

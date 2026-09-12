@@ -48,6 +48,9 @@ const SECTION_LIMIT = 10;
 const UPTICK_LIMIT = 12;
 const FEATURED_LIMIT = 4;
 const ALSO_TAPE_LIMIT = 2;
+const WEEKEND_DAILY_BARS = 60;
+const WEEKEND_CHART_REV = "3";
+const MAX_DISPLAY_RR = 4;
 
 const STORY_KIND_RANK = {
   retest: 100,
@@ -513,7 +516,7 @@ export function computeSetupRR({ entry, stop, target, dir } = {}) {
   const reward = dir === "SHORT" ? (entry - target) : (target - entry);
   if (!(risk > 0) || !(reward > 0)) return null;
   const rr = reward / risk;
-  if (rr < 0.4 || rr > 15) return null;
+  if (rr < 0.4 || rr > MAX_DISPLAY_RR) return null;
   return Number(rr.toFixed(1));
 }
 
@@ -522,7 +525,8 @@ export function computeSetupRR({ entry, stop, target, dir } = {}) {
  * present — including when the shelf was resolved as the story level
  * but `st_hold_setup.magnet.stLine` was missing. Fired setups may use
  * a nearby psych handle. Distant 150/300/500 marks are not first
- * targets. R:R is omitted unless both sides are real.
+ * targets. R:R is omitted unless both sides are real, and omitted
+ * above 4R — a tight invalidation is not a 10R plan.
  */
 export function resolveSetupObjective(td, { kind, dir, level, px } = {}) {
   const magPx = magnetPrice(td);
@@ -585,16 +589,11 @@ function objectiveLine(story) {
   return bits.join("  ·  ");
 }
 
-function storyChart(kind, flags = {}, magTfs = []) {
-  if (kind === "magnet") {
-    if (magTfs.includes("D") || flags.st_magnet_D) return { tf: "D", bars: 90 };
-    if (magTfs.includes("W") || magTfs.includes("M") || flags.st_magnet_W || flags.st_magnet_M) {
-      return { tf: "W", bars: 80 };
-    }
-    if (magTfs.includes("4H") || flags.st_magnet_4h) return { tf: "240", bars: 80 };
-  }
+function storyChart(kind, _flags = {}, _magTfs = []) {
   if (kind === "outside") return { tf: "W", bars: 60 };
-  return { tf: "D", bars: 90 };
+  // Magnets use daily even when the stamp is weekly — W series is too
+  // sparse for email, and the shelf still draws as a horizontal target.
+  return { tf: "D", bars: WEEKEND_DAILY_BARS };
 }
 
 function storyLevel(watch, td, kind) {
@@ -837,10 +836,10 @@ export function weekendSetupChartUrl(story, origin = "https://timed-trading.com"
   const tf = String(story?.chart_tf || "D");
   const tfClean = ["60", "240", "D", "W"].includes(tf) ? tf : "D";
   p.set("tf", tfClean);
-  const bars = Number(story?.chart_bars || (tfClean === "W" ? 80 : 90));
+  const bars = Number(story?.chart_bars || (tfClean === "W" ? 60 : WEEKEND_DAILY_BARS));
   p.set("bars", String(bars));
   p.set("style", "candles");
-  p.set("v", "2");
+  p.set("v", WEEKEND_CHART_REV);
   const levelName = String(story?.level_name || "").trim();
   if (levelName) p.set("subtitle", levelName.slice(0, 80));
   else if (story?.headline) p.set("subtitle", String(story.headline).slice(0, 80));
