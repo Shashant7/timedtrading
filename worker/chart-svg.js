@@ -119,6 +119,8 @@ export function renderChartSvg(opts) {
   const tp = _toPositivePrice(opts?.tp);
   const tl0 = _toPositivePrice(opts?.tl0);
   const tl1 = _toPositivePrice(opts?.tl1);
+  const tlSpanRaw = Number(opts?.tlSpan ?? opts?.tl_span);
+  const tlSpan = Number.isFinite(tlSpanRaw) && tlSpanRaw > 0 ? Math.round(tlSpanRaw) : null;
   const tlLabel = String(opts?.tlLabel || opts?.tl_label || "").slice(0, 24);
   const levelLabel = String(opts?.levelLabel || opts?.level_label || "").slice(0, 24);
   const subtitle = String(opts?.subtitle || "").slice(0, 80);
@@ -226,12 +228,16 @@ export function renderChartSvg(opts) {
     );
   }
   if (tl0 != null && tl1 != null) {
+    const lastIdx = candles.length - 1;
+    const startIdx = tlSpan != null
+      ? Math.max(0, lastIdx - tlSpan)
+      : 0;
     const xA = candleStyle
-      ? PAD_LEFT + (0.5 / candles.length) * PLOT_W
-      : xFor(0);
+      ? PAD_LEFT + ((startIdx + 0.5) / candles.length) * PLOT_W
+      : xFor(startIdx);
     const xB = candleStyle
-      ? PAD_LEFT + ((candles.length - 0.5) / candles.length) * PLOT_W
-      : xFor(candles.length - 1);
+      ? PAD_LEFT + ((lastIdx + 0.5) / candles.length) * PLOT_W
+      : xFor(lastIdx);
     const yA = yFor(tl0);
     const yB = yFor(tl1);
     annotations.push(

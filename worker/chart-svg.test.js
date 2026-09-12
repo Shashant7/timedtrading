@@ -42,6 +42,7 @@ describe("renderChartSvg", () => {
       candles: sampleCandles(12),
       tl0: 102,
       tl1: 108,
+      tlSpan: 6,
       tlLabel: "Resistance",
       subtitle: "Falling resistance at $108.00",
     });

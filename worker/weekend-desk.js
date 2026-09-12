@@ -716,11 +716,15 @@ export function weekendSetupChartUrl(story, origin = "https://timed-trading.com"
     && Number.isFinite(level)
     && level > 0;
   if (canDrawTl) {
-    const tl0 = level - slope * (bars - 1);
+    // Slope is per daily bar of a local fit. Do not project it across
+    // the full 90-bar window or a steep CDNS-style line leaves the tape.
+    const span = Math.min(Math.max(bars - 1, 1), 36);
+    const tl0 = level - slope * span;
     const tl1 = level;
     if (tl0 > 0 && tl1 > 0) {
       p.set("tl0", String(Number(tl0.toFixed(4))));
       p.set("tl1", String(Number(tl1.toFixed(4))));
+      p.set("tl_span", String(span));
       if (roleLabel) p.set("tl_label", roleLabel);
     }
   } else if (Number.isFinite(level) && level > 0) {

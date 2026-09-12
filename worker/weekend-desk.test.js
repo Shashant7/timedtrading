@@ -336,6 +336,7 @@ describe("composeWeekendDesk", () => {
     expect(chart).toContain("style=candles");
     expect(chart).toContain("tl0=");
     expect(chart).toContain("tl1=");
+    expect(chart).toContain("tl_span=36");
     expect(chart).toContain("tl_label=Support");
     expect(chart).toContain("subtitle=");
     expect(chart).not.toMatch(/the\+line/i);

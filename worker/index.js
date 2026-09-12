@@ -88770,6 +88770,7 @@ export default {
           const style = (styleRaw === "candles" || styleRaw === "candle" || styleRaw === "ohlc") ? "candles" : "line";
           const tl0 = Number(url.searchParams.get("tl0")) || null;
           const tl1 = Number(url.searchParams.get("tl1")) || null;
+          const tlSpan = Number(url.searchParams.get("tl_span") || url.searchParams.get("tlSpan")) || null;
           const tlLabel = String(url.searchParams.get("tl_label") || url.searchParams.get("tlLabel") || "").slice(0, 24);
           const levelLabel = String(url.searchParams.get("level_label") || url.searchParams.get("levelLabel") || "").slice(0, 24);
 
@@ -88801,7 +88802,7 @@ export default {
 
           const svg = renderChartSvg({
             candles, ticker, tf: tfClean, entry, sl, tp, subtitle,
-            style, tl0, tl1, tlLabel, levelLabel,
+            style, tl0, tl1, tlSpan, tlLabel, levelLabel,
           });
           return new Response(svg, {
             status: 200,
