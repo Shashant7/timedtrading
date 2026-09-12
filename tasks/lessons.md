@@ -71,7 +71,9 @@ structure "the line." Paste operator examples as subscriber copy.
 Invent gap-fill rates. Change the default chart-svg style (trade
 alerts stay line charts). Leave Also-on-the-tape names without
 charts. Pad the list with leftover shorts when longs already exist.
-Name a magnet without its price.
+Name a magnet without its price. Use a distant 150/300/500 handle
+as the first target (only a nearby handle on a fired break, or the
+actual magnet shelf).
 
 ---
 

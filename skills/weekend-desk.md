@@ -25,8 +25,10 @@ gaps stay visible. Also-on-the-tape names get the same charts.
 Longs lead; a quality short (retest / fired / quiet probe) is added
 only when longs are thin. If the setup fired, or a flat HTF shelf is
 the magnet, the mail names the **target** and the potential R:R when
-both sides are real. Personality, psych handles, and earnings appear
-only when the payload already has them. Volume is a first-class CMT
+both sides are real. Magnet cards always name the shelf price even
+when `stLine` is missing. Distant 150/300/500 handles are not first
+targets — only a nearby handle on a fired break. Personality, psych
+handles, and earnings appear only when the payload already has them. Volume is a first-class CMT
 input. Indicator tags stay off the subscriber email.
 
 **Email is admin-only** until `WEEKEND_DESK_BROADCAST=1` is set on
