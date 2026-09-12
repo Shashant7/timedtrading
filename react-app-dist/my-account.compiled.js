@@ -27,8 +27,8 @@ const PREF_DEFS = [{
   desc: "End-of-day Account today email for connected brokerage accounts (fills, syncs, P&L)."
 }, {
   key: "weekend_desk",
-  title: "Weekend Desk",
-  desc: "Saturday CMT pass — Timed Upticks, trendlines, SuperTrend magnets, and screener names outside the book."
+  title: "TT Setups",
+  desc: "Weekend watch — a short list of names the desk is watching, with the chart and what the model is waiting for."
 }, {
   key: "weekly_digest",
   title: "Weekly digest",

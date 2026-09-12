@@ -14,14 +14,30 @@ watch, ST magnets, and news stamps stay on Friday's payload until
 Monday. Users get no weekend prep email.
 
 **Fix:** `worker/weekend-desk.js` pages `rescoreStaleUniverse({ all })`
-on Saturday, composes Timed Upticks from existing CMT stamps, and
+on Saturday, composes TT Setups from existing CMT stamps, and
 emails the `weekend_desk` pref (paid default on). Screener
 `needs_review` / `ready_to_add` names that are not in the book stay on
 the same desk.
 
-**Do not:** Invent `tt_weekend_upticks`. Treat Timed Upticks as
-Newton's list. Auto-buy from the weekend email. Unpause Support Bounce
+**Do not:** Invent `tt_weekend_upticks`. Call the list Upticks (that
+name is Newton's). Auto-buy from the weekend email. Unpause Support Bounce
 to "use" the weekend pass.
+
+---
+
+## Weekend email is TT Setups, not an indicator dump [2026-09-12]
+
+**Symptom:** First Saturday send listed the same names under Timed
+Upticks, trendlines, SuperTrend, EMA, and Elite. Indicator tags do
+not help members who do not trade indicators.
+
+**Fix:** Subscriber email is **TT Setups** — 3–4 unique stories, each
+with why it is interesting, a Daily / 4H / Weekly chart, and what the
+model is watching for. Volume (quiet pierce vs expanded participation)
+is a first-class CMT input. Admin GET may still keep internal buckets.
+
+**Do not:** Repeat a ticker across sections. Dump `st_magnet` /
+`ema_short`. Use sub-1H charts. Call the list Upticks.
 
 ---
 

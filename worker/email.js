@@ -2072,7 +2072,7 @@ export function unsubscribeConfirmationHtml(email, pref) {
     trade_alerts: "Trade Alert emails",
     re_engagement: "Re-engagement emails",
     weekly_digest: "Weekly Digest emails",
-    weekend_desk: "Weekend Desk emails",
+    weekend_desk: "TT Setups emails",
     investor_alerts: "Long Term Signal emails",
     all: "all emails",
   }[pref] || pref;
@@ -2106,7 +2106,7 @@ const DEFAULT_PREFS_PAID = {
   investor_alerts: true,
   // 2026-08-13 — Broker Connections end-of-day "Account today" digest.
   broker_daily_digest: true,
-  // 2026-09-12 — Saturday CMT / Timed Upticks weekend desk.
+  // 2026-09-12 — Saturday CMT / TT Setups weekend desk.
   weekend_desk: true,
 };
 

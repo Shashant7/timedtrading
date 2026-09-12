@@ -84748,6 +84748,8 @@ export default {
             counts: out.desk?.counts || null,
             weekend_key: out.desk?.weekend_key || null,
             label: out.desk?.label || null,
+            featured: (out.desk?.featured || []).map((c) => c.ticker),
+            tt_setups: (out.desk?.featured || []).map((c) => c.ticker),
             timed_upticks: (out.desk?.timed_upticks || []).map((c) => c.ticker),
           }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -107059,7 +107061,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // 2026-09-12 — Weekend CMT Desk. RTH scoring is skipped outside
       // operating hours; Saturday/Sunday 10:00 ET is the universe pass
       // (trendlines, EMA, ST magnets, imbalance, news, Momentum Elite,
-      // screener promotions) plus one Timed Upticks email.
+      // screener promotions) plus one TT Setups email.
       ctx.waitUntil((async () => {
         try {
           const { weekendDeskSlot, runWeekendDesk } = await import("./weekend-desk.js");

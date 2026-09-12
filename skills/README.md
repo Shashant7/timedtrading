@@ -57,7 +57,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | **Audit or change rank formula / driver weights / false bonuses / rank traces** | [rank-driver-audit.md](rank-driver-audit.md) |
 | **0–10 setup grade / why a core entry was blocked / Ticker Grader comparison** | [setup-grade.md](setup-grade.md) |
 | **Level / trendline breakout watch / why a name is in Setup without a new buy** | [breakout-watch.md](breakout-watch.md) |
-| **Weekend CMT pass / Timed Upticks email / Saturday universe rescore** | [weekend-desk.md](weekend-desk.md) |
+| **Weekend CMT pass / TT Setups email / Saturday universe rescore** | [weekend-desk.md](weekend-desk.md) |
 
 ## When to ADD a new skill
 

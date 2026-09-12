@@ -1,13 +1,13 @@
-# Weekend CMT Desk / Timed Upticks
+# Weekend CMT Desk / TT Setups
 
 **WHEN:** Market is closed (weekend / holiday) and the book needs a
-CMT-style pass across the universe — trendlines, EMA structure,
-SuperTrend magnets, imbalance, news, Momentum Elite, and screener
-names outside the book — plus the Saturday email so traders can
-prepare for the open.
+CMT-style pass across the universe — trendlines, volume, EMA structure,
+SuperTrend magnets, imbalance, news — then a short Saturday email so
+traders can prepare for the open.
 
 This is a **highlight / email** pass. Not a new buy path. Do not add
-`tt_weekend_upticks` or skip setup grade.
+`tt_weekend_upticks` or skip setup grade. Do not call the list
+Upticks — that name is Newton's monthly list.
 
 ## Why it exists
 
@@ -15,12 +15,15 @@ The `*/5` scoring cron **returns early** outside operating hours
 (4 AM–8 PM ET weekdays). Friday close stamps sit unchanged until
 Monday unless something forces `assembleTickerData`. The weekend desk
 is that force: paged `rescoreStaleUniverse({ all: true })` on
-Saturday, then compose Timed Upticks from the stamps the book
+Saturday, then compose **TT Setups** from the stamps the book
 already knows.
 
-Timed Upticks are **Timed's** confluence list (2+ CMT families,
-score ≥ 36). They are not Newton's monthly Upticks. Newton overlap
-is noted, not the definition.
+TT Setups are a **short unique list** (3–4 names). Each name is a
+story: why it is interesting (plain English), a Daily / 4H / Weekly
+chart, and what the model is watching for. Volume is a first-class
+CMT input. Indicator tags stay off the subscriber email.
+
+Admin GET still keeps the internal buckets for ops.
 
 ## Cadence (tt-research hourly)
 
@@ -28,7 +31,7 @@ is noted, not the definition.
 |---|---|
 | Sat 10:00 | Start paged universe rescore + compose |
 | Sat 11:00–16:00 | Continue rescore pages if a cursor remains |
-| Last rescore page | Compose + one Weekend Desk email (Pro/VIP/Admin, `weekend_desk` pref) |
+| Last rescore page | Compose + one TT Setups email (Pro/VIP/Admin, `weekend_desk` pref) |
 | Sun 10:00 | Recompose from Saturday stamps; email only if Saturday did not send |
 
 ## Commands
@@ -57,19 +60,21 @@ Pro/VIP/Admin: `GET /timed/weekend-desk` (KV latest). Members/anon get
 | Stamp | Source |
 |---|---|
 | Trendline / retest / breakout | `_breakout_watch` / `skills/breakout-watch.md` |
+| Volume / quiet pierce | `_breakout_watch.rvol`, `reason=tl_through_low_rvol`, `rvol_map` |
 | SuperTrend hold / flat magnet | `flags.st_hold_*`, `flags.st_magnet_*` |
-| EMA structure | `ema_map`, `ema_regime_daily` |
+| EMA structure | `ema_map`, `ema_regime_daily` (confluence only — not a featured headline) |
 | FVG imbalance | `fvg_imbalance_D` |
-| Momentum Elite | `flags.momentum_elite` |
+| Momentum Elite | `flags.momentum_elite` (confluence only) |
 | News / analyst | `_news_summary`, fundamentals snapshot |
 | Outside-book candidates | `discovery_promotion_queue` (`needs_review` / `ready_to_add`) |
 
 ## Verify
 
-1. `GET /timed/admin/weekend-desk` returns `timed_upticks` + `promotion_candidates`.
-2. Email copy has no second person ("the trader" / "the book").
-3. `/timed/health` `operatingHours` may be false — that is expected.
-4. Do **not** treat a Timed Uptick as an entry. Setup grade still applies Monday.
+1. `GET /timed/admin/weekend-desk` returns `featured` (unique tickers) + `story` on each card.
+2. Email copy says **TT Setups**, has `/timed/chart-image`, no `st_magnet` / `ema_short` tags, no repeated tickers.
+3. Email copy has no second person ("the trader" / "the book" / "the model").
+4. `/timed/health` `operatingHours` may be false — that is expected.
+5. Do **not** treat a TT Setup as an entry. Setup grade still applies Monday.
 
 ## Source
 
