@@ -73,7 +73,11 @@ alerts stay line charts). Leave Also-on-the-tape names without
 charts. Pad the list with leftover shorts when longs already exist.
 Name a magnet without its price. Use a distant 150/300/500 handle
 as the first target (only a nearby handle on a fired break, or the
-actual magnet shelf).
+actual magnet shelf). Call a far opposite-side SuperTrend shelf
+"the magnet target" on a long (AMAT $320 under a $460 long).
+Leave daily chart-image undeduped — `ticker_candles` D/W can carry
+both 00:00 UTC and 04:00 UTC stamps of the same session (AMAT
+June/July 2026), which draws each candle twice.
 
 ---
 
