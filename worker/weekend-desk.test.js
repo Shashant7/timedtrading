@@ -434,6 +434,28 @@ describe("composeWeekendDesk", () => {
     }, { kind: "magnet", dir: "LONG", level: 421.91, px: 398.2 });
     expect(obj.target).toBe(421.91);
     expect(obj.rr).toBe(computeSetupRR({ entry: 398.2, stop: obj.stop, target: 421.91, dir: "LONG" }));
+    const goldFallback = resolveSetupObjective({
+      atr: 1.2,
+    }, { kind: "magnet", dir: "LONG", level: 44.13, px: 41.8 });
+    expect(goldFallback.target).toBe(44.13);
+    expect(goldFallback.target_label).toMatch(/shelf/i);
+    expect(goldFallback.rr).toBeGreaterThan(0);
+    expect(resolveSetupObjective({
+      price: 460.28,
+    }, { kind: "approaching", dir: "LONG", level: 460.28, px: 460.28 }).target).toBeNull();
+    expect(resolveSetupObjective({
+      price: 104.02,
+    }, { kind: "retest", dir: "LONG", level: 104.02, px: 104.5 }).target).toBeNull();
+    const firedNearby = resolveSetupObjective({
+      price: 286.4,
+      atr: 4.2,
+    }, { kind: "fired", dir: "LONG", level: 279.76, px: 286.4 });
+    expect(firedNearby.target).toBe(300);
+    const firedFar = resolveSetupObjective({
+      price: 104.5,
+      atr: 2.1,
+    }, { kind: "fired", dir: "LONG", level: 104.02, px: 104.5 });
+    expect(firedFar.target).toBeNull();
     const desk = composeWeekendDesk({
       cards: [
         card({

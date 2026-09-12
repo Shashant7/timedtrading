@@ -496,6 +496,17 @@ function nextPsychHandle(px, dir) {
   return null;
 }
 
+/** Nearby round number only. A 150 handle 40% away is not a first target. */
+function nearbyPsychHandle(px, dir, atr) {
+  const h = nextPsychHandle(px, dir);
+  if (!h || !(px > 0)) return null;
+  const dist = Math.abs(h - px);
+  const pct = dist / px;
+  const atrCap = atr > 0 ? atr * 2 : px * 0.08;
+  if (pct > 0.08 && dist > atrCap) return null;
+  return h;
+}
+
 export function computeSetupRR({ entry, stop, target, dir } = {}) {
   if (!(entry > 0) || !(stop > 0) || !(target > 0)) return null;
   const risk = dir === "SHORT" ? (stop - entry) : (entry - stop);
@@ -508,18 +519,22 @@ export function computeSetupRR({ entry, stop, target, dir } = {}) {
 
 /**
  * Structural target / invalidation. Magnet shelf is the target when
- * present. Fired / retest risk is a close back through the named level.
- * R:R is omitted unless both sides are real — no invented 2R marks.
+ * present — including when the shelf was resolved as the story level
+ * but `st_hold_setup.magnet.stLine` was missing. Fired setups may use
+ * a nearby psych handle. Distant 150/300/500 marks are not first
+ * targets. R:R is omitted unless both sides are real.
  */
 export function resolveSetupObjective(td, { kind, dir, level, px } = {}) {
   const magPx = magnetPrice(td);
   const atr = readAtr(td);
   const out = { target: null, target_label: null, stop: null, rr: null };
-  if (kind === "magnet" && magPx > 0) {
-    out.target = Number(magPx.toFixed(2));
+  if (kind === "magnet") {
+    const shelf = magPx > 0 ? magPx : (level > 0 ? level : null);
+    if (!(shelf > 0)) return out;
+    out.target = Number(shelf.toFixed(2));
     out.target_label = "flat higher-timeframe shelf";
     if (atr > 0 && px > 0) {
-      const towardLong = px < magPx;
+      const towardLong = px < shelf;
       const stop = towardLong ? px - atr * 0.6 : px + atr * 0.6;
       if (stop > 0) {
         out.stop = Number(stop.toFixed(2));
@@ -543,8 +558,8 @@ export function resolveSetupObjective(td, { kind, dir, level, px } = {}) {
     || (tradeDir === "SHORT" && magPx < Math.min(px, level)))) {
     out.target = Number(magPx.toFixed(2));
     out.target_label = "flat higher-timeframe shelf";
-  } else {
-    const psych = nextPsychHandle(px, tradeDir);
+  } else if (kind === "fired") {
+    const psych = nearbyPsychHandle(px, tradeDir, atr);
     if (psych) {
       out.target = psych;
       out.target_label = `${psych} handle`;
