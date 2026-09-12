@@ -452,18 +452,20 @@ export function buildSetupStory(td, card = {}) {
 
   if (volBits[0]) why = `${why} ${volBits[0]}`;
   const tags = card.tags || [];
+  const support = [];
   if (kind !== "magnet" && (flags.st_magnet || tags.includes("st_magnet"))) {
-    why += " A flat higher-timeframe trend line is also nearby, which can act as a magnet.";
+    support.push("A flat higher-timeframe trend line is also nearby, which can act as a magnet.");
   }
   if (kind !== "imbalance" && (tags.includes("imbalance") || tags.includes("fvg_support") || (flags.fvg_in_bull_D || 0) > 0)) {
-    why += " An unfilled gap sits under price as extra structure.";
+    support.push("An unfilled gap sits under price as extra structure.");
   }
   if (newsLean && kind !== "news_structure" && (newsLean === "bullish" || newsLean === "bearish")) {
     const agree = (dir === "LONG" && newsLean === "bullish") || (dir === "SHORT" && newsLean === "bearish");
-    why += agree
-      ? " Recent headlines lean the same way as the chart."
-      : " Recent headlines lean the other way — the chart still has to do the work.";
+    support.push(agree
+      ? "Recent headlines lean the same way as the chart."
+      : "Recent headlines lean the other way — the chart still has to do the work.");
   }
+  if (support[0]) why = `${why} ${support[0]}`;
 
   return {
     ticker,
