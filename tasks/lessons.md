@@ -6,6 +6,23 @@
 
 ---
 
+## Breakout watch: retest is the entry, EMA-stack is not Setup [2026-09-12]
+
+**Symptom:** First watch treated every `detectBreakout()` hit (including
+`ema_stack`) as Setup, fitted OLS across the last five swings, and
+ignored the pullback to the broken line.
+
+**Fix:** Promote only `trendline` (2–3 touch, non-pierced, RVOL ≥ 1.15)
+and `daily_level`. After a break, a hold on the line is `retest` —
+that is the look-for-entry. Approaching / dead pierce stays Watch with
+a TL Watch badge. ATR / EMA-stack remain on `tickerData.breakout` for
+rank and the existing entry path.
+
+**Do not:** Auto-buy the retest. Fit the line through the breakout bar
+(it rewrites the structure). Promote EMA-stack into Setup.
+
+---
+
 ## Breakouts include trendline breaks — watch, then look for entry [2026-09-12]
 
 **Symptom:** Ripster-style daily charts mark Support / Risk / Breakout

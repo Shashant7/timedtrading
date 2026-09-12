@@ -14128,9 +14128,19 @@ function deriveKanbanMeta(tickerData, stage) {
     return { bucket: "preparing", emoji: "⏳", reason: "pullback_forming", reasons: ["setup"] };
   }
 
-  // WATCH stage: show monitoring
+  // WATCH stage: approaching a trendline is still watch, but visible.
   if (stage === "watch") {
-    return null;  // No special meta for watch
+    const watch = tickerData?._breakout_watch || tickerData?.breakout_watch;
+    if (watch?.approaching || tickerData?.flags?.breakout_approaching) {
+      return {
+        bucket: "breakout_approaching",
+        emoji: "🎯",
+        reason: breakoutWatchLookForEntryCopy(watch) || "watching_for_break",
+        reasons: ["breakout_approaching", watch?.kind, watch?.dir].filter(Boolean),
+        breakoutWatch: watch,
+      };
+    }
+    return null;
   }
 
   return null;
@@ -52073,7 +52083,7 @@ export default {
                 completion: payload.completion,
               });
               console.log(
-                `[BREAKOUT WATCH] ${ticker} ${watch.kind || "unknown"} ${watch.dir || ""} (setup — look for a good entry)`,
+                `[BREAKOUT WATCH] ${ticker} ${watch.retest ? "retest" : (watch.kind || "unknown")} ${watch.dir || ""} (setup — look for a good entry)`,
               );
               await kvPutText(KV, prevBreakoutWatchKey, "true", 7 * 24 * 60 * 60);
             } else if (!nowBreakoutWatch && prevBreakoutWatch === "true") {

@@ -21,11 +21,15 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-- [ ] **Breakout + trendline watch (2026-09-12).** Level breaks already
+- [ ] **Breakout watch upgrades (2026-09-12).** Narrow Setup to
+      trendline + daily-level; 2–3 touch visual line; RVOL on fire;
+      retest = look-for-entry; approaching badge on rail/Today.
+      Branch: `cursor/breakout-watch-upgrades-7ffc`.
+- [x] **Breakout + trendline watch (2026-09-12).** Level breaks already
       exist (`detectBreakout`). Descending/ascending trendline breaks
       were rail-only. Stamp `_breakout_watch`; fired → kanban `setup`
       ("look for a good entry"). Not a new auto-buy path. Branch:
-      `cursor/breakout-trendline-watch-7ffc`.
+      `cursor/breakout-trendline-watch-7ffc`. Merged #1462.
 - [x] **Exit emails missing Signal Quality (2026-09-10).** TQQQ Index Swings
       close showed setup + P&L but no rank/conviction. Template was
       entry-only; paper-lane payload never stamped scores. Branch:

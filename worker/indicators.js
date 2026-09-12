@@ -25,7 +25,7 @@ import {
 import { synthesizeNineHourBars, synthesizeRthSessionBars } from "./session-tfs.js";
 import { resolveFormingPair } from "./mtf-forming.js";
 import { computeTdBoostForSide } from "./td-sequential-boost.js";
-import { evaluateBreakoutWatch } from "./breakout-watch.js";
+import { evaluateBreakoutWatch, stampBreakoutWatchOnTicker } from "./breakout-watch.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
@@ -5172,17 +5172,16 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   const breakout = detectBreakout(bD, regime, price, rawDailyBars);
   // Trendline + level watch. Fired → kanban setup ("look for a good
   // entry"). Not a new qualifiesForEnter path.
+  const bundleRvol = Math.max(bD?.rvolSpike || 0, bD?.rvol5 || 0);
   const breakoutWatch = evaluateBreakoutWatch({
     dailyBars: rawDailyBars,
     price,
     existingBreakout: breakout,
     atr14: bD?.atr14,
+    rvol: bundleRvol > 0 ? bundleRvol : null,
+    priorWatch: existingData?._breakout_watch || existingData?.breakout_watch,
   });
-  if (breakoutWatch?.active) {
-    flags.breakout_watch = true;
-    flags.breakout_watch_dir = breakoutWatch.dir;
-    flags.breakout_watch_kind = breakoutWatch.kind;
-  }
+  if (breakoutWatch) stampBreakoutWatchOnTicker({ flags }, breakoutWatch);
 
   // ── Opening Range Breakout (ORB) ──
   const orbIntradayBars = rawBarsEarly?.["10"] || rawBarsEarly?.["15"] || rawBarsEarly?.["5"] || [];
