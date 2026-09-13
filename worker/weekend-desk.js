@@ -744,10 +744,10 @@ export function buildWeekendReport({
       ? `${name} is being pulled toward ${lvTxt} — that is the magnet target, the flat higher-timeframe shelf.`
       : `When the higher-timeframe shelf goes flat, price often gets pulled back to it before the next move.`;
     if (long) {
-      out.path_up = `A pull into ${shelf}${rrTxt ? ` — about ${rrTxt} if the approach holds` : ""} completes the magnet.`;
+      out.path_up = `A pull into ${shelf} completes the magnet${rrTxt ? ` — about ${rrTxt} if the approach holds` : ""}.`;
       out.path_down = `Another stretch away from the shelf. That is the chase, not the setup.`;
     } else {
-      out.path_down = `A pull into ${shelf}${rrTxt ? ` — about ${rrTxt} if the approach holds` : ""} completes the magnet.`;
+      out.path_down = `A pull into ${shelf} completes the magnet${rrTxt ? ` — about ${rrTxt} if the approach holds` : ""}.`;
       out.path_up = `Another stretch away from the shelf. That is the chase, not the setup.`;
     }
     out.path_sideways = `The stretch stalls and ${shelf} stays unused.`;

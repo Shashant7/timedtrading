@@ -585,6 +585,8 @@ describe("composeWeekendDesk", () => {
     expect(gold.story.path_down).toMatch(/\$44\.13/);
     expect(gold.story.path_up).toMatch(/chase/i);
     expect(gold.story.watching_for).toMatch(/down path/i);
+    expect(gold.story.path_down).toMatch(/completes the magnet/);
+    expect(gold.story.path_down).not.toMatch(/holds completes/);
     const desk = composeWeekendDesk({
       cards: [
         card({
