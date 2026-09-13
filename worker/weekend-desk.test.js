@@ -22,6 +22,7 @@ import {
   computeSetupRR,
   magnetPullDir,
   resolveSetupObjective,
+  buildWeekendReport,
 } from "./weekend-desk.js";
 
 const SAT_10_ET = Date.UTC(2026, 8, 12, 14, 0, 0); // Sat Sep 12 2026 10:00 ET
@@ -115,10 +116,9 @@ describe("analyzeTickerForWeekendDesk", () => {
     expect(out.story.level_name).toMatch(/support/i);
     expect(`${out.story.headline} ${out.story.why} ${out.story.watching_for}`).not.toMatch(/\bthe line\b/i);
     expect(out.story.watching_for).toMatch(/support|accepted/i);
-    expect(out.story.watching_path).toBe("up");
-    expect(out.story.path_up).toMatch(/hold and turn/i);
-    expect(out.story.path_down).toMatch(/not accepted/i);
-    expect(out.story.path_sideways).toMatch(/no confirm/i);
+    expect(out.story.target_copy).toMatch(/hold and turn/i);
+    expect(out.story.invalidation).toMatch(/not accepted/i);
+    expect(out.story.target_copy).not.toBe(out.story.invalidation);
     expect(out.story.why).not.toMatch(/st_magnet|ema_short|RVOL/i);
   });
 
@@ -152,7 +152,9 @@ describe("analyzeTickerForWeekendDesk", () => {
     expect(out.story.level_role).toBe("resistance");
     expect(out.story.why).toMatch(/light volume/i);
     expect((out.story.why.match(/light volume/gi) || []).length).toBe(1);
-    expect(out.story.watching_for).toMatch(/volume expanding/i);
+    expect(out.story.target_copy).toMatch(/volume expanding/i);
+    expect(out.story.invalidation).toMatch(/fade back/i);
+    expect(out.story.watching_for).toMatch(/second close|participation/i);
     expect(`${out.story.headline} ${out.story.why} ${out.story.watching_for}`).not.toMatch(/\bthe line\b/i);
     expect(out.families).toContain("volume");
   });
@@ -329,10 +331,12 @@ describe("composeWeekendDesk", () => {
     expect(html).toContain("ticker=CRDO");
     expect(html).toMatch(/tf=D|tf=W|tf=240|tf=60/);
     expect(html).toContain("Weekend report");
-    expect(html).toContain("Opportunity");
-    expect(html).toMatch(/>Up</);
-    expect(html).toMatch(/>Down</);
-    expect(html).toMatch(/>Sideways</);
+    expect(html).toContain("Target");
+    expect(html).toContain("Invalidation");
+    expect(html).not.toContain("Opportunity");
+    expect(html).not.toMatch(/>Up</);
+    expect(html).not.toMatch(/>Down</);
+    expect(html).not.toMatch(/>Sideways</);
     expect(html).toContain("Georgia");
     expect(html).toContain("/timed/logo/CRDO.png");
     expect(html).toContain("$398.20");
@@ -581,12 +585,13 @@ describe("composeWeekendDesk", () => {
     expect(gold.story.kind).toBe("magnet");
     expect(gold.story.dir).toBe("SHORT");
     expect(gold.story.target).toBe(44.13);
-    expect(gold.story.watching_path).toBe("down");
-    expect(gold.story.path_down).toMatch(/\$44\.13/);
-    expect(gold.story.path_up).toMatch(/chase/i);
-    expect(gold.story.watching_for).toMatch(/down path/i);
-    expect(gold.story.path_down).toMatch(/completes the magnet/);
-    expect(gold.story.path_down).not.toMatch(/holds completes/);
+    expect(gold.story.target_copy).toMatch(/\$44\.13/);
+    expect(gold.story.target_copy).toMatch(/completes the magnet/);
+    expect(gold.story.target_copy).not.toMatch(/holds completes/);
+    expect(gold.story.stop).toBeGreaterThan(48.23);
+    expect(gold.story.invalidation).toMatch(/chase/i);
+    expect(gold.story.invalidation).toContain(`$${gold.story.stop.toFixed(2)}`);
+    expect(gold.story.target_copy).not.toBe(gold.story.invalidation);
     const desk = composeWeekendDesk({
       cards: [
         card({
@@ -655,6 +660,48 @@ describe("weekend desk recipients", () => {
     expect(sent[0].subject).toMatch(/preview/i);
     expect(sent[0].html).toContain("admin only");
     expect(sent[0].html).toContain("style=candles");
+    expect(sent[0].html).toContain("Target");
+    expect(sent[0].html).toContain("Invalidation");
     expect(weekendDeskHasYouYour(sent[0].html)).toBe(false);
+  });
+});
+
+describe("buildWeekendReport", () => {
+  it("structures a magnet as target vs a different invalidation", () => {
+    const gold = buildWeekendReport({
+      kind: "magnet",
+      dir: "SHORT",
+      ticker: "GOLD",
+      lvTxt: "$44.13",
+      tgtTxt: "$44.13",
+      targetLabel: "flat higher-timeframe shelf",
+      rrTxt: "2.1R",
+      stopTxt: "$48.95",
+    });
+    expect(gold.setup).toMatch(/pulled toward \$44\.13/);
+    expect(gold.target).toMatch(/^\$44\.13/);
+    expect(gold.target).toMatch(/completes the magnet/);
+    expect(gold.invalidation).toMatch(/^\$48\.95/);
+    expect(gold.invalidation).toMatch(/chase/i);
+    expect(gold.target).not.toBe(gold.invalidation);
+    expect(gold.watching_for).toMatch(/\$44\.13/);
+  });
+
+  it("names a fired handle as the target and the break level as invalidation", () => {
+    const fired = buildWeekendReport({
+      kind: "fired",
+      dir: "LONG",
+      ticker: "EXPE",
+      lvTxt: "$279.76",
+      watchKind: "daily_level",
+      tgtTxt: "$300",
+      targetLabel: "300 handle",
+      stopTxt: "$279.13",
+    });
+    expect(fired.target).toMatch(/\$300/);
+    expect(fired.target).toMatch(/300 handle/);
+    expect(fired.invalidation).toMatch(/\$279/);
+    expect(fired.invalidation).toMatch(/did not stick/);
+    expect(fired.target).not.toContain("Up");
   });
 });

@@ -35,6 +35,7 @@ export const WEEKEND_DESK_PAGE = "https://timed-trading.com/today.html";
 
 const BRAND = {
   green: "#00c853",
+  textPrimary: "#e8eaed",
   textSecondary: "#9ca3af",
   textMuted: "#6b7280",
   border: "#1e2128",
@@ -540,30 +541,30 @@ export function resolveSetupObjective(td, { kind, dir, level, px } = {}) {
   const magPx = magnetPrice(td);
   const atr = readAtr(td);
   const out = { target: null, target_label: null, stop: null, rr: null };
-  if (kind === "magnet") {
+  if (kind === "magnet" || kind === "stretch") {
     const shelf = magPx > 0 ? magPx : (level > 0 ? level : null);
     if (!(shelf > 0)) return out;
     out.target = Number(shelf.toFixed(2));
     out.target_label = "flat higher-timeframe shelf";
     if (atr > 0 && px > 0) {
-    const pull = magnetPullDir(px, shelf);
-    const stop = pull === "LONG" ? px - atr * 0.6 : px + atr * 0.6;
-    if (stop > 0 && pull) {
-      out.stop = Number(stop.toFixed(2));
-      out.rr = computeSetupRR({
-        entry: px,
-        stop: out.stop,
-        target: out.target,
-        dir: pull,
-      });
-    }
+      const pull = magnetPullDir(px, shelf) || _dir(dir);
+      const stop = pull === "LONG" ? px - atr * 0.6 : px + atr * 0.6;
+      if (stop > 0 && pull) {
+        out.stop = Number(stop.toFixed(2));
+        out.rr = computeSetupRR({
+          entry: px,
+          stop: out.stop,
+          target: out.target,
+          dir: pull,
+        });
+      }
     }
     return out;
   }
   if (!level || !(level > 0) || !(px > 0)) return out;
   const tradeDir = _dir(dir);
   if (!tradeDir) return out;
-  if (!["fired", "retest", "quiet_pierce", "approaching"].includes(kind)) return out;
+  if (!["fired", "retest", "quiet_pierce", "approaching", "imbalance"].includes(kind)) return out;
   const buf = atr > 0 ? atr * 0.15 : level * 0.004;
   out.stop = Number((tradeDir === "SHORT" ? level + buf : level - buf).toFixed(2));
   if (magPx > 0 && ((tradeDir === "LONG" && magPx > Math.max(px, level))
@@ -586,15 +587,6 @@ export function resolveSetupObjective(td, { kind, dir, level, px } = {}) {
 
 function fmtPx(n) {
   return Number.isFinite(n) && n > 0 ? `$${Number(n).toFixed(2)}` : "";
-}
-
-function objectiveLine(story) {
-  const bits = [];
-  if (story?.target) {
-    bits.push(`Target ${fmtPx(story.target)}${story.target_label ? ` · ${story.target_label}` : ""}`);
-  }
-  if (Number.isFinite(story?.rr) && story.rr > 0) bits.push(`${story.rr.toFixed(1)}R`);
-  return bits.join("  ·  ");
 }
 
 function storyChart(kind, _flags = {}, _magTfs = []) {
@@ -654,137 +646,157 @@ export function inferSetupKind(td, card = {}) {
   return null;
 }
 
+function planLead(priceTxt, label, extra) {
+  const bits = [];
+  if (priceTxt) bits.push(priceTxt);
+  if (label) bits.push(label);
+  if (extra) bits.push(extra);
+  return bits.join(" · ");
+}
+
+function planText(lead, sentence) {
+  if (lead && sentence) return `${lead} — ${sentence}`;
+  return lead || sentence || "";
+}
+
 /**
- * Short CMT report: what the setup is, the three paths, and which
- * one is the opportunity. No invented levels.
+ * Short CMT report: what the setup is, the target, and the
+ * invalidation. No invented levels. No up / down / sideways
+ * restatement of the same shelf.
  */
 export function buildWeekendReport({
   kind, dir, ticker, lvTxt, levelName, watchKind, dist,
-  tgtTxt, targetLabel, rrTxt,
+  tgtTxt, targetLabel, rrTxt, stopTxt,
 } = {}) {
   const name = String(ticker || "").toUpperCase();
   const shelf = lvTxt || "the shelf";
   const barrier = lvTxt || "the barrier";
   const daily = String(watchKind || "").toLowerCase().includes("daily_level");
   const long = dir === "LONG";
-  const tgtBit = tgtTxt
-    ? `${tgtTxt}${targetLabel ? ` (${targetLabel})` : ""}${rrTxt ? ` — about ${rrTxt}` : ""}`
-    : "";
+  const tgtLead = planLead(tgtTxt, targetLabel, rrTxt);
+  const stopLead = stopTxt || "";
   const out = {
     setup: "",
-    path_up: "",
-    path_down: "",
-    path_sideways: "",
-    watching_path: "",
+    target: "",
+    invalidation: "",
     watching_for: "",
   };
 
   if (kind === "retest" && long) {
     out.setup = `${name} already cleared ${shelf}. The pullback is sitting on that former ceiling — the confirm that the break was accepted, not a fakeout.`;
-    out.path_up = `A daily hold and turn at ${shelf} confirms support and opens the next leg.`;
-    out.path_down = `A close back under ${shelf} says the break was not accepted.`;
-    out.path_sideways = `Another session on the shelf without a turn. No confirm yet.`;
-    out.watching_path = "up";
-    out.watching_for = `The up path. A quiet hold at ${shelf} as support is the opportunity — not a loud spike through it.`;
+    out.target = planText(
+      tgtLead,
+      tgtLead
+        ? `A hold and turn at ${shelf} as support keeps this first target live.`
+        : `A daily hold and turn at ${shelf} as support. That is the first target condition.`,
+    );
+    out.invalidation = planText(
+      stopLead,
+      `A daily close back under ${shelf} says the break was not accepted.`,
+    );
+    out.watching_for = `Quiet hold at ${shelf} as support. First target ${tgtTxt || "the next leg after that hold"}. Off on a close under ${shelf}.`;
   } else if (kind === "retest") {
     out.setup = `${name} already lost ${shelf}. Price is back at that shelf from below — the market is deciding whether failed support now caps the bounce.`;
-    out.path_down = `A rejection that leaves a lower high keeps the breakdown intact.`;
-    out.path_up = `A close back through ${shelf} would neutralize this as resistance.`;
-    out.path_sideways = `Chop under the shelf with no rejection. The retest is unfinished.`;
-    out.watching_path = "down";
-    out.watching_for = `The down path. A rejection at ${shelf} that leaves a lower high is the opportunity.`;
+    out.target = planText(
+      tgtLead,
+      tgtLead
+        ? `A rejection at ${shelf} that leaves a lower high keeps this first target live.`
+        : `A rejection at ${shelf} that leaves a lower high. That is the first target condition.`,
+    );
+    out.invalidation = planText(
+      stopLead,
+      `A daily close back through ${shelf} would neutralize this as resistance.`,
+    );
+    out.watching_for = `Rejection at ${shelf}. First target ${tgtTxt || "continuation of the breakdown"}. Off on a close back through ${shelf}.`;
   } else if (kind === "quiet_pierce") {
     const what = daily
       ? (long ? "horizontal resistance" : "horizontal support")
       : (long ? "falling resistance" : "rising support");
     out.setup = `${name} poked ${lvTxt || what} on light volume. Until participation shows up, this is a test of the barrier, not a committed break.`;
-    out.path_up = long
-      ? `A second close through ${barrier} with volume expanding upgrades the probe to a break.`
-      : `A fade back inside the range leaves ${barrier} intact.`;
-    out.path_down = long
-      ? `A fade back inside the range leaves ${barrier} intact.`
-      : `A second close through ${barrier} with volume expanding upgrades the probe to a break.`;
-    out.path_sideways = `Another quiet poke. Still a test — not the setup yet.`;
-    out.watching_path = "sideways";
-    out.watching_for = `The sideways path until volume expanding shows up. The opportunity is the second close through ${barrier} with participation — not this first poke.`;
+    out.target = planText(
+      tgtLead,
+      `A second close through ${barrier} with volume expanding. This first poke is not the target.`,
+    );
+    out.invalidation = planText(
+      stopLead,
+      `A fade back inside the range leaves ${barrier} intact.`,
+    );
+    out.watching_for = `Second close through ${barrier} with participation. Off if the poke fades back inside.`;
   } else if (kind === "fired") {
     const what = daily
       ? (long ? "horizontal resistance" : "horizontal support")
       : (long ? "falling resistance" : "rising support");
     out.setup = `${name} closed through ${lvTxt || what} that had been containing the range.`;
-    out.path_up = long
-      ? (tgtBit
-        ? `A hold this side of ${shelf} keeps the break. First target ${tgtBit}.`
-        : `A hold this side of ${shelf} keeps the break accepted.`)
-      : `A close back through ${shelf} says the move did not stick.`;
-    out.path_down = long
-      ? `A close back through ${shelf} says the move did not stick.`
-      : (tgtBit
-        ? `A hold this side of ${shelf} keeps the break. First target ${tgtBit}.`
-        : `A hold this side of ${shelf} keeps the break accepted.`);
-    out.path_sideways = `A digest on this side of ${shelf} without follow-through. The break is live but unconfirmed.`;
-    out.watching_path = long ? "up" : "down";
-    out.watching_for = tgtBit
-      ? `The ${long ? "up" : "down"} path. If the break holds, ${tgtBit} is the first target. That hold is the opportunity.`
-      : `The ${long ? "up" : "down"} path. The first pullback toward ${shelf} is the confirmation window.`;
+    out.target = planText(
+      tgtLead,
+      tgtLead
+        ? `A hold this side of ${shelf} keeps the break and this first target live.`
+        : `A hold this side of ${shelf}. The first pullback toward that shelf is the confirmation window.`,
+    );
+    out.invalidation = planText(
+      stopLead,
+      `A daily close back through ${shelf} says the move did not stick.`,
+    );
+    out.watching_for = `Hold this side of ${shelf}. First target ${tgtTxt || "follow-through after that hold"}. Off on a close back through ${shelf}.`;
   } else if (kind === "approaching") {
     const where = dist && lvTxt ? `${dist} ${lvTxt}` : (lvTxt || levelName || "the barrier");
     out.setup = `${name} is ${where}. The next session decides whether this is a pause in front of the barrier or the start of a break.`;
-    out.path_up = long
-      ? `Acceptance through ${barrier} opens the next leg.`
-      : `A rejection here keeps the prevailing structure.`;
-    out.path_down = long
-      ? `A rejection here keeps the prevailing structure.`
-      : `Acceptance through ${barrier} opens the next leg.`;
-    out.path_sideways = `A pause in front of ${barrier} without a decision.`;
-    out.watching_path = long ? "up" : "down";
-    out.watching_for = `The ${long ? "up" : "down"} path if ${barrier} is accepted. The opportunity is a clean hold or a clean break — not the first loud spike through it.`;
+    out.target = planText(
+      tgtLead,
+      tgtLead
+        ? `Acceptance through ${barrier} opens this first target.`
+        : `Acceptance through ${barrier}. No measured first target until that barrier is taken.`,
+    );
+    out.invalidation = planText(
+      stopLead,
+      `A rejection that leaves ${barrier} intact keeps the prevailing structure.`,
+    );
+    out.watching_for = `Acceptance through ${barrier}. First target ${tgtTxt || "only after that barrier is taken"}. Off on a rejection that leaves it intact.`;
   } else if (kind === "magnet") {
     out.setup = lvTxt
       ? `${name} is being pulled toward ${lvTxt} — that is the magnet target, the flat higher-timeframe shelf.`
       : `When the higher-timeframe shelf goes flat, price often gets pulled back to it before the next move.`;
-    if (long) {
-      out.path_up = `A pull into ${shelf} completes the magnet${rrTxt ? ` — about ${rrTxt} if the approach holds` : ""}.`;
-      out.path_down = `Another stretch away from the shelf. That is the chase, not the setup.`;
-    } else {
-      out.path_down = `A pull into ${shelf} completes the magnet${rrTxt ? ` — about ${rrTxt} if the approach holds` : ""}.`;
-      out.path_up = `Another stretch away from the shelf. That is the chase, not the setup.`;
-    }
-    out.path_sideways = `The stretch stalls and ${shelf} stays unused.`;
-    out.watching_path = long ? "up" : "down";
-    out.watching_for = `The ${long ? "up" : "down"} path into ${shelf}. A hold there is a possible bounce; a clean break through it is the other useful outcome.`;
+    out.target = planText(
+      tgtLead || shelf,
+      `A pull into ${shelf} completes the magnet.`,
+    );
+    out.invalidation = planText(
+      stopLead,
+      `Another stretch away from ${shelf} takes the magnet off. That is the chase.`,
+    );
+    out.watching_for = `Pull into ${shelf}. Off if price stretches through ${stopTxt || "a further extension"} instead.`;
   } else if (kind === "stretch") {
     out.setup = `The last trend flip already ran too far. Chasing the stretch is how late entries get trapped.`;
-    out.path_up = long
-      ? `Another push away from ${shelf}. That is the chase.`
-      : `A reset back toward ${shelf} is the interesting setup.`;
-    out.path_down = long
-      ? `A reset back toward ${shelf} is the interesting setup.`
-      : `Another push away from ${shelf}. That is the chase.`;
-    out.path_sideways = `The stretch stalls without a reset.`;
-    out.watching_path = long ? "down" : "up";
-    out.watching_for = `The ${long ? "down" : "up"} path. The opportunity is the reset toward ${shelf}, not another push away from it.`;
+    out.target = planText(
+      tgtLead || (lvTxt ? shelf : ""),
+      `A reset back toward ${shelf} is the setup.`,
+    );
+    out.invalidation = planText(
+      stopLead,
+      `Another push away from ${shelf} is the chase. That takes the reset off.`,
+    );
+    out.watching_for = `Reset toward ${shelf}. Off on another push away from it.`;
   } else if (kind === "imbalance") {
     out.setup = `An unfilled gap is sitting under price as support${lvTxt ? ` — ${lvTxt} is the pocket` : ""}.`;
-    out.path_up = `A hold if price revisits the gap. That is the interesting setup.`;
-    out.path_down = `A slice through the gap with volume takes the idea off.`;
-    out.path_sideways = `The gap is not revisited. No setup yet.`;
-    out.watching_path = "up";
-    out.watching_for = `The up path if the gap is tested. The opportunity is a hold at that pocket, not a chase while the gap sits unused.`;
+    out.target = planText(
+      tgtLead,
+      `A hold if price revisits the gap${lvTxt ? ` at ${lvTxt}` : ""}.`,
+    );
+    out.invalidation = planText(
+      stopLead,
+      `A slice through the gap with volume takes the idea off.`,
+    );
+    out.watching_for = `Hold at the gap${lvTxt ? ` (${lvTxt})` : ""}. Off on a slice through it with volume.`;
   } else if (kind === "news_structure") {
     out.setup = `The tape and the headlines are leaning the same way. The headline alone is not the setup.`;
-    out.path_up = `The next session agrees with that lean.`;
-    out.path_down = `The next session fades the headline.`;
-    out.path_sideways = `No follow-through. The chart still has to confirm.`;
-    out.watching_path = "sideways";
-    out.watching_for = `Whether the next session agrees with that lean. The chart still has to confirm.`;
+    out.target = `The next session confirms that lean on the chart.`;
+    out.invalidation = `The next session fades the headline. The chart still has to confirm.`;
+    out.watching_for = `Next session confirms the lean. Off if the headline is faded.`;
   } else if (kind === "outside") {
     out.setup = `${name} is still outside the universe.`;
-    out.path_up = `The next session continues the move.`;
-    out.path_down = `The next session fades it.`;
-    out.path_sideways = `No follow-through.`;
-    out.watching_path = "sideways";
-    out.watching_for = `Whether the next session confirms the move. A name has to earn a slot on the book — this is a look, not an add.`;
+    out.target = `The next session confirms the move. A name has to earn a slot on the book.`;
+    out.invalidation = `The next session fades it. This is a look, not an add.`;
+    out.watching_for = `Next session confirms the move. Off if it fades — this is a look, not an add.`;
   }
   return out;
 }
@@ -810,10 +822,8 @@ export function buildSetupStory(td, card = {}) {
       why: thesis,
       watching_for: report.watching_for,
       setup: report.setup,
-      path_up: report.path_up,
-      path_down: report.path_down,
-      path_sideways: report.path_sideways,
-      watching_path: report.watching_path,
+      target_copy: report.target,
+      invalidation: report.invalidation,
       dir: null,
       level: null,
       level_role: null,
@@ -859,6 +869,7 @@ export function buildSetupStory(td, card = {}) {
   const report = buildWeekendReport({
     kind, dir, ticker, lvTxt, levelName, watchKind, dist,
     tgtTxt, targetLabel: objective.target_label, rrTxt,
+    stopTxt: fmtPx(objective.stop),
   });
   if (!report.setup) return null;
 
@@ -935,10 +946,8 @@ export function buildSetupStory(td, card = {}) {
     why: why.trim(),
     watching_for: watchingFor,
     setup: report.setup,
-    path_up: report.path_up,
-    path_down: report.path_down,
-    path_sideways: report.path_sideways,
-    watching_path: report.watching_path,
+    target_copy: report.target,
+    invalidation: report.invalidation,
     dir,
     level,
     level_role: role,
@@ -1392,7 +1401,7 @@ export function composeWeekendDesk({
     news,
     promotion_candidates: promo,
     rescore: rescore || null,
-    disclaimer: "TT Setups are names the desk is already watching or should be watching. Each card is a short report — the setup, the three paths, and the opportunity. This is not Newton's monthly Upticks list, and not a buy list. Look for a good entry. Monday still has to grade the setup.",
+    disclaimer: "TT Setups are names the desk is already watching or should be watching. Each card is a short report — the setup, the target, and the invalidation. This is not Newton's monthly Upticks list, and not a buy list. Look for a good entry. Monday still has to grade the setup.",
   };
 }
 
@@ -1411,7 +1420,7 @@ export function renderWeekendDeskText(desk) {
     desk.disclaimer,
     "",
     featured.length
-      ? `${featured.length} name${featured.length === 1 ? "" : "s"} with a defined level into the next session. Each card is the setup, the up / down / sideways paths, and the opportunity the desk is watching.`
+      ? `${featured.length} name${featured.length === 1 ? "" : "s"} with a defined level into the next session. Each card is the setup, the target, and the invalidation.`
       : "No clean setups cleared the bar this weekend.",
     "",
   ];
@@ -1424,31 +1433,23 @@ export function renderWeekendDeskText(desk) {
     lines.push(s.posture === "already_watching" ? "Already watching" : "Should be watching");
     lines.push(s.headline || c.headline || "");
     if (s.level_name) lines.push(s.level_name);
-    const obj = objectiveLine(s);
-    if (obj) lines.push(obj);
     lines.push(s.why || "");
     if (s.setup) lines.push(`Setup: ${s.setup}`);
-    if (s.path_up) lines.push(`Up: ${s.path_up}`);
-    if (s.path_down) lines.push(`Down: ${s.path_down}`);
-    if (s.path_sideways) lines.push(`Sideways: ${s.path_sideways}`);
-    if (s.watching_for) lines.push(`Opportunity: ${s.watching_for}`);
+    if (s.target_copy) lines.push(`Target: ${s.target_copy}`);
+    if (s.invalidation) lines.push(`Invalidation: ${s.invalidation}`);
     lines.push("");
   });
   if (also.length) {
     lines.push("ALSO ON THE TAPE");
     for (const c of also) {
       const s = c.story || {};
-      const obj = objectiveLine(s);
       const alsoBits = [c.ticker];
       if (s.price > 0) alsoBits.push(fmtPx(s.price));
       if (s.dir === "LONG" || s.dir === "SHORT") alsoBits.push(s.dir);
       lines.push(`- ${alsoBits.join(" ")} — ${s.headline || c.headline || "setup"}`);
       if (s.level_name) lines.push(`  ${s.level_name}`);
-      if (obj) lines.push(`  ${obj}`);
-      if (s.path_up) lines.push(`  Up: ${s.path_up}`);
-      if (s.path_down) lines.push(`  Down: ${s.path_down}`);
-      if (s.path_sideways) lines.push(`  Sideways: ${s.path_sideways}`);
-      if (s.watching_for) lines.push(`  Opportunity: ${s.watching_for}`);
+      if (s.target_copy) lines.push(`  Target: ${s.target_copy}`);
+      if (s.invalidation) lines.push(`  Invalidation: ${s.invalidation}`);
     }
     lines.push("");
   }
@@ -1456,32 +1457,29 @@ export function renderWeekendDeskText(desk) {
   return lines.join("\n");
 }
 
-function pathRow(label, text, { emphasis = false } = {}) {
+function planRow(label, text, { tone = "muted" } = {}) {
   if (!text) return "";
-  const labelColor = emphasis ? BRAND.green : BRAND.textMuted;
-  const bodyColor = emphasis ? BRAND.textPrimary : BRAND.textSecondary;
+  const labelColor = tone === "target" ? BRAND.green : tone === "invalidation" ? BRAND.warning : BRAND.textMuted;
+  const bodyColor = tone === "target" ? BRAND.textPrimary : BRAND.textSecondary;
   return `<tr>
-    <td style="width:84px;padding:4px 10px 4px 0;vertical-align:top;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${labelColor};font-family:${EMAIL_FONT_UI};white-space:nowrap">${_esc(label)}</td>
+    <td style="width:108px;padding:4px 10px 4px 0;vertical-align:top;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${labelColor};font-family:${EMAIL_FONT_UI};white-space:nowrap">${_esc(label)}</td>
     <td style="padding:4px 0;font-size:14px;line-height:1.45;color:${bodyColor};font-family:${EMAIL_FONT_UI}">${_esc(text)}</td>
   </tr>`;
 }
 
 function setupReportHtml(story) {
   const s = story || {};
-  const watch = String(s.watching_path || "").toLowerCase();
   const setup = s.setup || s.why || "";
   const extra = s.why && s.setup && s.why !== s.setup
     ? s.why.replace(s.setup, "").trim()
     : "";
   const rows = [
-    pathRow("Up", s.path_up, { emphasis: watch === "up" }),
-    pathRow("Down", s.path_down, { emphasis: watch === "down" }),
-    pathRow("Sideways", s.path_sideways, { emphasis: watch === "sideways" }),
+    planRow("Target", s.target_copy, { tone: "target" }),
+    planRow("Invalidation", s.invalidation, { tone: "invalidation" }),
   ].join("");
   return `
       ${setup ? `<p style="margin:0 0 12px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6;font-family:${EMAIL_FONT_UI}">${_esc(setup)}${extra ? ` ${_esc(extra)}` : ""}</p>` : ""}
-      ${rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">${rows}</table>` : ""}
-      ${s.watching_for ? `<p style="margin:0 0 14px;font-size:14px;color:${BRAND.textPrimary};line-height:1.55;font-family:${EMAIL_FONT_UI}"><span style="font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.green}">Opportunity</span> ${_esc(s.watching_for)}</p>` : ""}`;
+      ${rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px">${rows}</table>` : ""}`;
 }
 
 function featuredBlock(card, index, origin, { compact = false } = {}) {
@@ -1497,7 +1495,6 @@ function featuredBlock(card, index, origin, { compact = false } = {}) {
   });
   const kindLabel = s.kind_label || STORY_KIND_LABEL[s.kind] || "";
   const levelName = s.level_name || "";
-  const obj = objectiveLine(s);
   const headlineSize = compact ? 18 : 22;
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">
     <tr><td style="padding:${index > 1 ? "28px 0 0" : "0"};${index > 1 ? `border-top:1px solid ${BRAND.border};` : ""}">
@@ -1509,7 +1506,6 @@ function featuredBlock(card, index, origin, { compact = false } = {}) {
       </table>
       <div style="font-family:${EMAIL_FONT_EDITORIAL};font-size:${headlineSize}px;line-height:1.25;font-weight:400;color:white;margin:12px 0 8px">${_esc(s.headline || ticker)}</div>
       ${levelName ? `<div style="font-family:${EMAIL_FONT_UI};font-size:12px;color:${BRAND.textMuted};margin:0 0 6px">${_esc(levelName)}</div>` : ""}
-      ${obj ? `<div style="font-family:${EMAIL_FONT_UI};font-size:13px;color:${BRAND.editorial};margin:0 0 10px">${_esc(obj)}</div>` : ""}
       ${setupReportHtml(s)}
       <a href="${today}" style="display:block;line-height:0;border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border}">
         <img src="${_esc(chart)}" alt="${_esc(ticker)} ${tfLabel} candles" width="600" style="display:block;width:100%;max-width:600px;height:auto;border-radius:8px" />
@@ -1526,7 +1522,7 @@ export function renderWeekendDeskHtml(desk, { unsubscribeUrl, origin, preview = 
   const also = desk.also_on_tape || [];
   const count = featured.length;
   const intro = count
-    ? `${count} name${count === 1 ? "" : "s"} with a defined level into the next session. Each card is a short report: the setup, the up / down / sideways paths, and the opportunity the desk is watching. Daily candles keep gaps visible. This is not a buy list — Monday still has to grade the setup.`
+    ? `${count} name${count === 1 ? "" : "s"} with a defined level into the next session. Each card is a short report: the setup, the target, and the invalidation. Daily candles keep gaps visible. This is not a buy list — Monday still has to grade the setup.`
     : "No clean setups cleared the bar this weekend. The desk will look again after the next session.";
   const featuredHtml = featured.length
     ? featured.map((c, i) => featuredBlock(c, i + 1, base)).join("")
