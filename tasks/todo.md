@@ -21,10 +21,9 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-- [ ] **TT Setups report + opportunity (2026-09-13).** Each card
+- [x] **TT Setups report + opportunity (2026-09-13).** Each card
       states the setup, up/down/sideways paths, and the path the
-      desk is watching. More report, more opportunity. Branch:
-      `cursor/weekend-setup-report-7ffc`.
+      desk is watching. Branch: `cursor/weekend-setup-report-7ffc`.
 - [x] **TT Setups magnet dir vs pull (2026-09-13).** GOLD chip said
       LONG while copy pulled price down to $44. Magnet dir now
       follows price vs shelf. Branch:
