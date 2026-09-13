@@ -54326,24 +54326,6 @@
         "sector_reaction_pct": null
       },
       {
-        "date": "2026-09-13",
-        "event_type": "macro",
-        "event_name": "FOMC rate decision",
-        "impact": "high",
-        "surprise_pct": null,
-        "spy_reaction_pct": 0.83,
-        "sector_reaction_pct": null
-      },
-      {
-        "date": "2026-09-15",
-        "event_type": "macro",
-        "event_name": "FOMC rate decision",
-        "impact": "high",
-        "surprise_pct": null,
-        "spy_reaction_pct": 0.83,
-        "sector_reaction_pct": null
-      },
-      {
         "date": "2026-09-15",
         "event_type": "macro",
         "event_name": "Sep Empire Manufacturing Survey",
@@ -54459,14 +54441,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 68.0497
+        "sql_duration_ms": 71.5085
       },
-      "duration": 68.0497,
+      "duration": 71.5085,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4588179456,
-      "rows_read": 6050,
+      "size_after": 4588523520,
+      "rows_read": 6048,
       "rows_written": 0,
       "total_attempts": 1
     }
