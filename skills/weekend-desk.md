@@ -34,9 +34,9 @@ targets — only a nearby handle on a fired break. Personality, psych
 handles, and earnings appear only when the payload already has them. Volume is a first-class CMT
 input. Indicator tags stay off the subscriber email.
 
-**Email is admin-only** until `WEEKEND_DESK_BROADCAST=1` is set on
-the worker. Cron and `force=1` still send, but only to
-`ADMIN_EMAIL`. Do not blast members while the copy is being locked.
+**Email is live.** `WEEKEND_DESK_BROADCAST=1` on ingest + tt-research
+sends to opted-in Pro / VIP / Admin (pref `weekend_desk`, default on
+for paid). Set the var to `0` to revert to `ADMIN_EMAIL` preview.
 
 Admin GET still keeps the internal buckets for ops.
 
@@ -46,7 +46,7 @@ Admin GET still keeps the internal buckets for ops.
 |---|---|
 | Sat 10:00 | Start paged universe rescore + compose |
 | Sat 11:00–16:00 | Continue rescore pages if a cursor remains |
-| Last rescore page | Compose + one TT Setups email to `ADMIN_EMAIL` (members only after `WEEKEND_DESK_BROADCAST=1`) |
+| Last rescore page | Compose + one TT Setups email to opted-in Pro/VIP/Admin |
 | Sun 10:00 | Recompose from Saturday stamps; email only if Saturday did not send |
 
 ## Commands
@@ -67,9 +67,9 @@ curl -s -A "Mozilla/5.0" -X POST "${LIVE}/timed/admin/weekend-desk?phase=refresh
   -H "X-API-Key: ${TIMED_API_KEY}" -H "content-type: application/json" -d '{}'
 ```
 
-Until `WEEKEND_DESK_BROADCAST=1`, that send goes only to `ADMIN_EMAIL`
-even with `force=1`. Expect `email.recipients === 1` and
-`email.preview === true`.
+Broadcast is on. Expect `email.preview === false` and
+`email.recipients` equal to the opted-in paid list (admin included).
+Set `WEEKEND_DESK_BROADCAST=0` to send preview-only to `ADMIN_EMAIL`.
 
 Pro/VIP/Admin: `GET /timed/weekend-desk` (KV latest). Members/anon get
 `error_kind: "tier_required"`.
@@ -94,6 +94,7 @@ Pro/VIP/Admin: `GET /timed/weekend-desk` (KV latest). Members/anon get
 3. Email copy has no second person ("the trader" / "the book" / "the model").
 4. `/timed/health` `operatingHours` may be false — that is expected.
 5. Do **not** treat a TT Setup as an entry. Setup grade still applies Monday.
+6. Live send: `email.preview === false` and recipients are opted-in Pro/VIP/Admin. Revert with `WEEKEND_DESK_BROADCAST=0`.
 
 ## Source
 
