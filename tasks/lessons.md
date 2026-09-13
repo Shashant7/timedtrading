@@ -6,6 +6,20 @@
 
 ---
 
+## TT Setups cards are a report, not a paragraph [2026-09-13]
+
+**Symptom:** After chips and magnet-dir landed, cards still buried the
+setup in one why-block. Up / down / sideways were not named, so GOLD
+"pulled to $44" and a LONG chip read as the same idea.
+
+**Fix:** Each card states the setup, the three paths, and the
+**opportunity** (the path the desk is watching). H1 is Weekend report.
+
+**Do not:** Collapse back to a single Watch sentence. Invent a fourth
+path. Treat the opportunity line as a buy.
+
+---
+
 ## Weekend CMT work does not wait for Monday open [2026-09-12]
 
 **Symptom:** After Friday close, `minutesSinceScoring` ages all weekend
