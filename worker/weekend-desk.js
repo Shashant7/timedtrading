@@ -510,6 +510,14 @@ function nearbyPsychHandle(px, dir, atr) {
   return h;
 }
 
+/** Magnet/stretch trade dir is the pull toward the shelf, not ST color. */
+export function magnetPullDir(px, shelf) {
+  if (!(px > 0) || !(shelf > 0)) return null;
+  if (px < shelf) return "LONG";
+  if (px > shelf) return "SHORT";
+  return null;
+}
+
 export function computeSetupRR({ entry, stop, target, dir } = {}) {
   if (!(entry > 0) || !(stop > 0) || !(target > 0)) return null;
   const risk = dir === "SHORT" ? (stop - entry) : (entry - stop);
@@ -538,17 +546,17 @@ export function resolveSetupObjective(td, { kind, dir, level, px } = {}) {
     out.target = Number(shelf.toFixed(2));
     out.target_label = "flat higher-timeframe shelf";
     if (atr > 0 && px > 0) {
-      const towardLong = px < shelf;
-      const stop = towardLong ? px - atr * 0.6 : px + atr * 0.6;
-      if (stop > 0) {
-        out.stop = Number(stop.toFixed(2));
-        out.rr = computeSetupRR({
-          entry: px,
-          stop: out.stop,
-          target: out.target,
-          dir: towardLong ? "LONG" : "SHORT",
-        });
-      }
+    const pull = magnetPullDir(px, shelf);
+    const stop = pull === "LONG" ? px - atr * 0.6 : px + atr * 0.6;
+    if (stop > 0 && pull) {
+      out.stop = Number(stop.toFixed(2));
+      out.rr = computeSetupRR({
+        entry: px,
+        stop: out.stop,
+        target: out.target,
+        dir: pull,
+      });
+    }
     }
     return out;
   }
@@ -683,11 +691,14 @@ export function buildSetupStory(td, card = {}) {
   const kind = inferSetupKind(td, card);
   if (!kind) return null;
   const mag = td?.st_hold_setup?.magnet || {};
-  const dir = _dir(watch.dir || card.dir || flags.breakout_watch_dir || mag.sideLabel);
   const watchKind = String(watch.kind || flags.breakout_watch_kind || "trendline");
   const magTfs = magnetTimeframes(flags);
   const chart = storyChart(kind, flags, magTfs);
   const level = storyLevel(watch, td, kind);
+  const px = _n(td?.price ?? td?.close);
+  const stampDir = _dir(watch.dir || card.dir || flags.breakout_watch_dir || mag.sideLabel);
+  const pullDir = (kind === "magnet" || kind === "stretch") ? magnetPullDir(px, level) : null;
+  const dir = pullDir || stampDir;
   const role = setupLevelRole({ kind, dir, watchKind });
   const levelName = describeSetupLevel({ kind, dir, line: level, role, watchKind });
   const volBits = volumeSentences(vol, kind, role);
@@ -696,7 +707,6 @@ export function buildSetupStory(td, card = {}) {
   const catalyst = news?.top_catalyst?.headline
     ? String(news.top_catalyst.headline).replace(/\s+/g, " ").slice(0, 120)
     : "";
-  const px = _n(td?.price ?? td?.close);
   const lvTxt = level != null && level > 0 ? `$${Number(level).toFixed(2)}` : "";
   const dist = distancePhrase(px, level);
   const personality = resolvePersonality(td);
@@ -966,7 +976,7 @@ export function pickAlsoOnTape(cards = [], featured = [], { limit = ALSO_TAPE_LI
     used.add(ticker);
     scored.push({ ...card, ticker });
   }
-  const QUALITY_SHORT = new Set(["retest", "fired", "quiet_pierce"]);
+  const QUALITY_SHORT = new Set(["retest", "fired", "quiet_pierce", "magnet"]);
   const rankAlso = (a, b) => {
     const aNew = featuredKinds.has(a.story?.kind) ? 0 : 1;
     const bNew = featuredKinds.has(b.story?.kind) ? 0 : 1;

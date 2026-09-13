@@ -81,7 +81,10 @@ June/July 2026), which draws each candle twice. Snap D/W writes
 through `canonicalDailyTs` and delete the sibling stamp. Keep a
 90-day daily window on AMAT (June $739 spike squishes the $456
 tape). Print 10R when the stop is a tight invalidation. Use a
-weekly series for a SuperTrend magnet (GOLD).
+weekly series for a SuperTrend magnet (GOLD). Stamp magnet
+`sideLabel` on the chip when price is on the other side of the
+shelf (GOLD $48.23 LONG chip while copy pulled down to $44.13).
+Magnet / stretch dir is the pull toward the shelf.
 
 ---
 
