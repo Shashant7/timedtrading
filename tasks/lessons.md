@@ -6,17 +6,33 @@
 
 ---
 
+## TT Setups cards name target and invalidation [2026-09-13]
+
+**Symptom:** Up / down / sideways on each card just restated the same
+shelf three ways. GOLD $48→$44 named $44 on every path. That is not a
+plan.
+
+**Fix:** Each card is the setup, the **target** (price + what has to
+hold), and the **invalidation** (the kill price / close through the
+level). No third path. H1 stays Weekend report.
+
+**Do not:** Bring back up / down / sideways. Invent a first target
+when the book does not have one. Treat the target line as a buy.
+
+---
+
 ## TT Setups cards are a report, not a paragraph [2026-09-13]
 
 **Symptom:** After chips and magnet-dir landed, cards still buried the
 setup in one why-block. Up / down / sideways were not named, so GOLD
 "pulled to $44" and a LONG chip read as the same idea.
 
-**Fix:** Each card states the setup, the three paths, and the
-**opportunity** (the path the desk is watching). H1 is Weekend report.
+**Fix:** Each card states the setup, then a structured plan. Superceded
+by the target / invalidation lesson above — three same-level paths
+were not enough.
 
-**Do not:** Collapse back to a single Watch sentence. Invent a fourth
-path. Treat the opportunity line as a buy.
+**Do not:** Collapse back to a single Watch sentence. Invent levels.
+Treat the target line as a buy.
 
 ---
 

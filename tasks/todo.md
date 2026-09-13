@@ -21,6 +21,10 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **TT Setups target + invalidation (2026-09-13).** Drop the
+      up/down/sideways block — it restated the same level. Each
+      card is setup, **target**, and **invalidation**. Branch:
+      `cursor/weekend-target-invalidation-7ffc`.
 - [x] **TT Setups report + opportunity (2026-09-13).** Each card
       states the setup, up/down/sideways paths, and the path the
       desk is watching. Branch: `cursor/weekend-setup-report-7ffc`.

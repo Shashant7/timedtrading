@@ -20,8 +20,7 @@ already knows.
 
 TT Setups are a **short unique list** (3–4 names). Each name is a
 short report: named **support** or **resistance** (not "the
-line"), the setup, the **up / down / sideways** paths, and the
-**opportunity** the desk is watching. Daily-brief tone + ticker
+line"), the setup, the **target**, and the **invalidation**. Daily-brief tone + ticker
 chips (last price + LONG/SHORT + day %), and **daily candles** so
 gaps stay visible. Also-on-the-tape names get the same charts.
 Longs lead; a quality short (retest / fired / quiet probe) is added
@@ -91,7 +90,7 @@ Pro/VIP/Admin: `GET /timed/weekend-desk` (KV latest). Members/anon get
 ## Verify
 
 1. `GET /timed/admin/weekend-desk` returns `featured` (unique tickers) + `story` on each card.
-2. Email copy says **TT Setups**, uses ticker chips (last price + LONG/SHORT + day %) + Georgia "Weekend report", `/timed/chart-image?style=candles`, named support/resistance (no "the line"), no `st_magnet` / `ema_short` tags, no repeated tickers. Each card has Setup + Up/Down/Sideways + Opportunity. Daily candles are 60 unique sessions (one bar per day). D/W writes snap to 00:00 UTC and drop sibling 04:00 stamps. Displayed R:R caps at 4. Magnet stories use a daily chart. Magnet dir matches the pull toward the shelf. Opposite-side magnets that sit far away are not called the target.
+2. Email copy says **TT Setups**, uses ticker chips (last price + LONG/SHORT + day %) + Georgia "Weekend report", `/timed/chart-image?style=candles`, named support/resistance (no "the line"), no `st_magnet` / `ema_short` tags, no repeated tickers. Each card has Setup + Target + Invalidation (no up/down/sideways restating the same level). Daily candles are 60 unique sessions (one bar per day). D/W writes snap to 00:00 UTC and drop sibling 04:00 stamps. Displayed R:R caps at 4. Magnet stories use a daily chart. Magnet dir matches the pull toward the shelf. Opposite-side magnets that sit far away are not called the target.
 3. Email copy has no second person ("the trader" / "the book" / "the model").
 4. `/timed/health` `operatingHours` may be false — that is expected.
 5. Do **not** treat a TT Setup as an entry. Setup grade still applies Monday.
