@@ -21,6 +21,10 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **TT Setups magnet dir vs pull (2026-09-13).** GOLD chip said
+      LONG while copy pulled price down to $44. Magnet dir must
+      follow price vs shelf, not SuperTrend `sideLabel`. Branch:
+      `cursor/weekend-magnet-dir-7ffc`.
 - [x] **TT Setups chips: last price + LONG/SHORT (2026-09-13).**
       Weekend email ticker chips show last price, setup direction,
       and day %. Branch: `cursor/weekend-cmt-prep-7ffc`. Admin

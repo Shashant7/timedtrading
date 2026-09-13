@@ -20,6 +20,7 @@ import {
   weekendDeskSlot,
   weekendSetupChartUrl,
   computeSetupRR,
+  magnetPullDir,
   resolveSetupObjective,
 } from "./weekend-desk.js";
 
@@ -426,6 +427,7 @@ describe("composeWeekendDesk", () => {
       st_hold_setup: { magnet: { sideLabel: "LONG", magnet: true, stLine: 421.91 } },
     });
     expect(tsm.story.kind).toBe("magnet");
+    expect(tsm.story.dir).toBe("LONG");
     expect(tsm.story.target).toBe(421.91);
     expect(tsm.story.why).toMatch(/\$421\.91/);
     expect(tsm.story.why).toMatch(/magnet target/i);
@@ -439,6 +441,7 @@ describe("composeWeekendDesk", () => {
       flags: { st_magnet: true, st_magnet_W: true },
       st_hold_setup: { magnet: { sideLabel: "LONG", magnet: true, stLine: 44.13 } },
     });
+    expect(gold.story.dir).toBe("LONG");
     expect(gold.story.chart_tf).toBe("D");
     expect(gold.story.chart_bars).toBe(60);
     expect(computeSetupRR({
@@ -553,6 +556,52 @@ describe("composeWeekendDesk", () => {
     expect(html).toMatch(/ALB[\s\S]{0,500}SHORT/);
     expect(text).toMatch(/EXPE \$280\.80 LONG/);
     expect(text).toMatch(/ALB \$92\.15 SHORT/);
+  });
+
+  it("magnet dir follows the pull toward the shelf, not SuperTrend sideLabel", () => {
+    expect(magnetPullDir(48.23, 44.13)).toBe("SHORT");
+    expect(magnetPullDir(398.2, 421.91)).toBe("LONG");
+    expect(magnetPullDir(44.13, 44.13)).toBeNull();
+    const gold = card({
+      ticker: "GOLD",
+      price: 48.23,
+      atr: 1.2,
+      day_change_pct: 5.1,
+      flags: { st_magnet: true, st_magnet_W: true },
+      st_hold_setup: { magnet: { sideLabel: "LONG", magnet: true, stLine: 44.13 } },
+    });
+    expect(gold.story.kind).toBe("magnet");
+    expect(gold.story.dir).toBe("SHORT");
+    expect(gold.story.target).toBe(44.13);
+    const desk = composeWeekendDesk({
+      cards: [
+        card({
+          ticker: "CRDO",
+          flags: { breakout_retest: true, breakout_watch_dir: "LONG" },
+          _breakout_watch: { kind: "trendline", dir: "LONG", retest: true, promotes_setup: true, line: 88.2, rvol: 1.6 },
+        }),
+        card({
+          ticker: "CDNS",
+          flags: { breakout_approaching: true, breakout_watch_dir: "LONG" },
+          _breakout_watch: { kind: "trendline", dir: "LONG", approaching: true, line: 312.4 },
+        }),
+        card({
+          ticker: "EXPE",
+          price: 280.8,
+          flags: { breakout_watch: true, breakout_watch_dir: "LONG" },
+          _breakout_watch: { kind: "daily_level", dir: "LONG", promotes_setup: true, line: 279.76, rvol: 1.4 },
+        }),
+        gold,
+      ],
+      now: SAT_10_ET,
+      scanned: 8,
+    });
+    expect(desk.featured.every((c) => c.ticker !== "GOLD")).toBe(true);
+    expect(desk.also_on_tape.map((c) => c.ticker)).toContain("GOLD");
+    const html = renderWeekendDeskHtml(desk, { origin: "https://timed-trading.com" });
+    expect(html).toContain("$48.23");
+    expect(html).toMatch(/GOLD[\s\S]{0,500}SHORT/);
+    expect(html).not.toMatch(/GOLD[\s\S]{0,220}>LONG</);
   });
 });
 
