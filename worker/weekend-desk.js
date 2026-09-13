@@ -674,6 +674,7 @@ export function buildSetupStory(td, card = {}) {
       chart_style: "candles",
       volume: null,
       day_pct: weekendDeskDayPct(td),
+      price: _n(td?.price ?? td?.close),
     };
   }
   const watch = readBreakoutWatch(td) || card.watch || {};
@@ -1280,7 +1281,10 @@ export function renderWeekendDeskText(desk) {
   ];
   featured.forEach((c, i) => {
     const s = c.story || {};
-    lines.push(`${i + 1}. ${c.ticker}`);
+    const chipBits = [c.ticker];
+    if (s.price > 0) chipBits.push(fmtPx(s.price));
+    if (s.dir === "LONG" || s.dir === "SHORT") chipBits.push(s.dir);
+    lines.push(`${i + 1}. ${chipBits.join(" ")}`);
     lines.push(s.posture === "already_watching" ? "Already watching" : "Should be watching");
     lines.push(s.headline || c.headline || "");
     if (s.level_name) lines.push(s.level_name);
@@ -1295,7 +1299,10 @@ export function renderWeekendDeskText(desk) {
     for (const c of also) {
       const s = c.story || {};
       const obj = objectiveLine(s);
-      lines.push(`- ${c.ticker} — ${s.headline || c.headline || "setup"}`);
+      const alsoBits = [c.ticker];
+      if (s.price > 0) alsoBits.push(fmtPx(s.price));
+      if (s.dir === "LONG" || s.dir === "SHORT") alsoBits.push(s.dir);
+      lines.push(`- ${alsoBits.join(" ")} — ${s.headline || c.headline || "setup"}`);
       if (s.level_name) lines.push(`  ${s.level_name}`);
       if (obj) lines.push(`  ${obj}`);
     }
@@ -1312,7 +1319,10 @@ function featuredBlock(card, index, origin, { compact = false } = {}) {
   const posture = s.posture === "already_watching" ? "Already watching" : "Should be watching";
   const today = `https://timed-trading.com/today.html?ticker=${encodeURIComponent(ticker)}`;
   const tfLabel = chartTfLabel(s.chart_tf);
-  const chip = buildEmailBriefTickerChip(ticker, s.day_pct, null, origin);
+  const chip = buildEmailBriefTickerChip(ticker, s.day_pct, null, origin, null, {
+    price: s.price,
+    dir: s.dir,
+  });
   const kindLabel = s.kind_label || STORY_KIND_LABEL[s.kind] || "";
   const levelName = s.level_name || "";
   const obj = objectiveLine(s);

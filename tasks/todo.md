@@ -21,6 +21,10 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **TT Setups chips: last price + LONG/SHORT (2026-09-13).**
+      Weekend email ticker chips currently show symbol + day %. Add
+      last price and setup direction. Branch:
+      `cursor/weekend-cmt-prep-7ffc`.
 - [x] **TT Setups email polish (2026-09-12).** 60-day daily window;
       snap D/W writes to `canonicalDailyTs` and drop 00:00/04:00
       siblings; cap displayed R:R at 4; magnet charts on daily

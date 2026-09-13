@@ -326,6 +326,8 @@ describe("composeWeekendDesk", () => {
     expect(html).toContain("Weekend watch");
     expect(html).toContain("Georgia");
     expect(html).toContain("/timed/logo/CRDO.png");
+    expect(html).toContain("$398.20");
+    expect(html).toMatch(/TSM[\s\S]{0,400}LONG/);
     expect(html).toContain("style=candles");
     expect(html).toMatch(/Support|Resistance|support|resistance/);
     expect(html).not.toContain("Why it is interesting");
@@ -514,6 +516,43 @@ describe("composeWeekendDesk", () => {
     expect(html).toContain("ticker=TSM");
     expect(html).toContain("style=candles");
     expect(html).toContain("level_label=Target");
+  });
+
+  it("ticker chips show last price and setup direction", () => {
+    const desk = composeWeekendDesk({
+      cards: [
+        card({
+          ticker: "EXPE",
+          price: 280.8,
+          day_change_pct: 1.4,
+          flags: { breakout_watch: true, breakout_watch_dir: "LONG" },
+          _breakout_watch: {
+            kind: "daily_level", dir: "LONG", promotes_setup: true, line: 279.76, rvol: 1.4,
+          },
+        }),
+        card({
+          ticker: "ALB",
+          price: 92.15,
+          day_change_pct: -0.8,
+          flags: { breakout_retest: true, breakout_watch_dir: "SHORT" },
+          _breakout_watch: {
+            kind: "trendline", dir: "SHORT", retest: true, promotes_setup: true, line: 94.2,
+          },
+        }),
+      ],
+      now: SAT_10_ET,
+      scanned: 6,
+    });
+    const html = renderWeekendDeskHtml(desk, { origin: "https://timed-trading.com" });
+    const text = renderWeekendDeskText(desk);
+    expect(html).toContain("$280.80");
+    expect(html).toContain("+1.4%");
+    expect(html).toMatch(/EXPE[\s\S]{0,500}LONG/);
+    expect(html).toContain("$92.15");
+    expect(html).toContain("-0.8%");
+    expect(html).toMatch(/ALB[\s\S]{0,500}SHORT/);
+    expect(text).toMatch(/EXPE \$280\.80 LONG/);
+    expect(text).toMatch(/ALB \$92\.15 SHORT/);
   });
 });
 
