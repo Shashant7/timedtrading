@@ -1742,7 +1742,7 @@ export function weekendDeskBroadcastEnabled(env) {
   return v === "1" || v === "true" || v === "yes";
 }
 
-/** Admin-only until WEEKEND_DESK_BROADCAST is explicitly on. */
+/** Admin-only unless WEEKEND_DESK_BROADCAST is 1/true/yes. Production default is on. */
 export function weekendDeskEmailRecipients(env, optedUsers = []) {
   const admin = String(env?.ADMIN_EMAIL || "").trim().toLowerCase();
   if (!weekendDeskBroadcastEnabled(env)) {

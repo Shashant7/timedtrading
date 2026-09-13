@@ -21,6 +21,10 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **TT Setups broadcast live (2026-09-13).** Copy is locked.
+      `WEEKEND_DESK_BROADCAST=1` on ingest + tt-research. Live send
+      2026-09-13: 6/6, preview false. Branch:
+      `cursor/weekend-desk-live-7ffc`.
 - [x] **TT Setups target + invalidation (2026-09-13).** Drop the
       up/down/sideways block — it restated the same level. Each
       card is setup, **target**, and **invalidation**. Branch:

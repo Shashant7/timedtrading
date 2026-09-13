@@ -91,10 +91,12 @@ the copy still said "the line", reused operator examples, and used
 close-line charts that hide gaps.
 
 **Fix:** `sendWeekendDeskEmails` delivers only to `ADMIN_EMAIL` unless
-`WEEKEND_DESK_BROADCAST` is `1`/`true`. Stories name the level by role
-(support / resistance), use daily-brief tone + ticker chips, and add
-personality / psych / earnings only when the payload has them. Charts
-are candles; a called-out trendline is drawn on the SVG.
+`WEEKEND_DESK_BROADCAST` is `1`/`true`. Copy locked 2026-09-13
+(target + invalidation). Broadcast is now on in wrangler vars.
+Stories name the level by role (support / resistance), use
+daily-brief tone + ticker chips, and add personality / psych /
+earnings only when the payload has them. Charts are candles; a
+called-out trendline is drawn on the SVG.
 
 **Do not:** Force-send the six-person list to "test." Call every
 structure "the line." Paste operator examples as subscriber copy.
