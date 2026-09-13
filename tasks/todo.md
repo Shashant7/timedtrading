@@ -21,6 +21,12 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **FOMC Today label (2026-09-13).** Sunday Today strip said
+      TODAY · FOMC rate decision. Published decision is Wed Sep 16.
+      Friday brief (`daily_brief_econ`) persisted FOMC on Sep 13/15.
+      Snap FOMC decisions to the curated Fed calendar; drop weekend
+      decision dates; purge upcoming uncurated FOMC rows. Branch:
+      `cursor/fomc-today-label-7ffc`.
 - [x] **TT Setups broadcast live (2026-09-13).** Copy is locked.
       `WEEKEND_DESK_BROADCAST=1` on ingest + tt-research. Live send
       2026-09-13: 6/6, preview false. Branch:

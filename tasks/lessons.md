@@ -6,6 +6,24 @@
 
 ---
 
+## Sunday is not FOMC decision day [2026-09-13]
+
+**Symptom:** Today MACRO EVENTS labeled TODAY · FOMC rate decision on
+Sunday Sep 13, 2026. Published Fed decision is Wednesday Sep 16 2:00 PM
+ET. D1 `market_events` had `2026-09-13:FOMC_rate_decision` and a Sep 15
+row from Friday's `daily_brief_econ` persist (`e.date || data.today`).
+
+**Fix:** Snap FOMC *decision* names onto `CURATED_UPCOMING_MACRO` (10-day
+window). Do not remap FOMC Minutes. Drop weekend decisions with no
+nearby curated day. Persist and FSD extract use the same helper. Purge
+upcoming uncurated FOMC rows so PRE_FOMC risk does not treat Sunday as
+decision day. Today `is_today` stays `date === nyDateStr()`.
+
+**Do not:** Trust Finnhub/LLM week-ahead dates for FOMC. Treat "FOMC" in
+the name as minutes. Use UTC midnight weekday for NY weekend checks.
+
+---
+
 ## TT Setups cards name target and invalidation [2026-09-13]
 
 **Symptom:** Up / down / sideways on each card just restated the same
