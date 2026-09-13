@@ -9,6 +9,7 @@ Single reference for agents. Read this first to avoid context overload.
 
 ## Workflow
 
+- **FOMC date snap (2026-09-13):** Today `is_today` is NY calendar day. Vendor/LLM/`daily_brief_econ` dated Sep FOMC as Sunday Sep 13 (and meeting-day-1 Sep 15). Snap FOMC *decisions* (not minutes) onto `CURATED_UPCOMING_MACRO`; drop weekend decisions with no nearby Fed day. Persist + FSD extract use the same snap; purge upcoming uncurated FOMC from `market_events` so PRE_FOMC does not fire on Sunday.
 - **Historical calibration corpus (2026-09-09):** use the complete ledger,
   Discovery Moves and multi-timeframe candles first; a report's export cap or
   a small fixture sample is not the available history. No arbitrary new 30-day

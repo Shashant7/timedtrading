@@ -30,6 +30,7 @@ import {
   buildOvernightDayTradeGamePlan,
 } from "./day-trade-game-plan.js";
 import { resolveOwnedInvestorKanbanStage } from "./investor.js";
+import { purgeUncuratedUpcomingFomc, resolveMacroPersistDate, snapKnownMacroDate } from "./macro-events-calendar.js";
 
 import {
   quoteReceiptTimestamp,
@@ -578,9 +579,10 @@ export async function persistMarketEvents(env, data, priceFeed) {
   ].filter(e => e.impact === "high" || e.impact === "medium");
   const econById = new Map();
   for (const e of econEvents) {
-    const dateKey = String(e?.date || data.today).slice(0, 10);
     const name = (e.event || "").trim();
     if (!name) continue;
+    const dateKey = resolveMacroPersistDate({ ...e, event: name }, data.today);
+    if (!dateKey) continue;
     const id = `${dateKey}:${name.replace(/\s+/g, "_").slice(0, 40)}`;
     econById.set(id, { ...(econById.get(id) || {}), ...e, _dateKey: dateKey, _name: name });
   }
@@ -672,13 +674,17 @@ export async function persistMarketEvents(env, data, priceFeed) {
     );
   }
 
-  if (stmts.length === 0) return;
+  if (stmts.length === 0) {
+    try { await purgeUncuratedUpcomingFomc({ DB: db }, data.today); } catch (_) { /* best-effort */ }
+    return;
+  }
   try {
     await db.batch(stmts);
     console.log(`[DAILY BRIEF] Persisted ${stmts.length} market events for ${data.today}`);
   } catch (e) {
     console.warn("[DAILY BRIEF] Failed to persist market events:", String(e).slice(0, 200));
   }
+  try { await purgeUncuratedUpcomingFomc({ DB: db }, data.today); } catch (_) { /* best-effort */ }
 }
 
 const MACRO_EVENT_DEFAULT_TIME_ET = {
@@ -2715,9 +2721,15 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   // Strategy: use Finnhub as source of truth for WHICH events happened today;
   // supplement with ForexFactory actuals only when the event name matches.
   const econWeek = Array.isArray(econWeekRaw?.events) ? econWeekRaw.events : (Array.isArray(econWeekRaw) ? econWeekRaw : []);
-  const usEcon = econWeek.filter(e =>
-    e.country === "US" && (e.impact === "high" || e.impact === "medium")
-  );
+  const usEcon = econWeek
+    .filter(e => e.country === "US" && (e.impact === "high" || e.impact === "medium"))
+    .map((e) => {
+      const raw = String(e.date || "");
+      const snapped = snapKnownMacroDate({ date: raw.slice(0, 10), name: e.event || e.name });
+      if (!snapped) return null;
+      return { ...e, date: snapped.date + raw.slice(10) };
+    })
+    .filter(Boolean);
   const dateOf = (e) => (e.date || "").slice(0, 10);
 
   // Finnhub events for today, yesterday, and rest of week
