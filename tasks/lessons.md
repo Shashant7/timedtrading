@@ -6,6 +6,85 @@
 
 ---
 
+## Weekend CMT work does not wait for Monday open [2026-09-12]
+
+**Symptom:** After Friday close, `minutesSinceScoring` ages all weekend
+because the `*/5` cron returns at `!isWithinOperatingHours()`. Breakout
+watch, ST magnets, and news stamps stay on Friday's payload until
+Monday. Users get no weekend prep email.
+
+**Fix:** `worker/weekend-desk.js` pages `rescoreStaleUniverse({ all })`
+on Saturday, composes TT Setups from existing CMT stamps, and
+emails the `weekend_desk` pref (paid default on). Screener
+`needs_review` / `ready_to_add` names that are not in the book stay on
+the same desk.
+
+**Do not:** Invent `tt_weekend_upticks`. Call the list Upticks (that
+name is Newton's). Auto-buy from the weekend email. Unpause Support Bounce
+to "use" the weekend pass.
+
+---
+
+## Weekend email is TT Setups, not an indicator dump [2026-09-12]
+
+**Symptom:** First Saturday send listed the same names under Timed
+Upticks, trendlines, SuperTrend, EMA, and Elite. Indicator tags do
+not help members who do not trade indicators.
+
+**Fix:** Subscriber email is **TT Setups** — 3–4 unique stories, each
+with why it is interesting, a Daily / 4H / Weekly chart, and what the
+model is watching for. Volume (quiet pierce vs expanded participation)
+is a first-class CMT input. Admin GET may still keep internal buckets.
+
+**Do not:** Repeat a ticker across sections. Dump `st_magnet` /
+`ema_short`. Use sub-1H charts. Call the list Upticks.
+
+---
+
+## Weekend refresh must not email unless asked [2026-09-12]
+
+**Symptom:** `POST /timed/admin/weekend-desk?phase=refresh` (no
+`email=1`) still sent the Saturday list. Force-sends also skipped the
+weekend lock, so a later refresh could send again.
+
+**Fix:** `weekendDeskShouldEmail` is true only when email is requested
+or forced. Force-sends stamp `timed:weekend-desk:sent:<Saturday>`.
+
+**Do not:** Treat `action === "refresh"` as an implicit send.
+
+---
+
+## Weekend TT Setups stay admin-only until the copy is locked [2026-09-12]
+
+**Symptom:** Early weekend sends went to every opted-in member while
+the copy still said "the line", reused operator examples, and used
+close-line charts that hide gaps.
+
+**Fix:** `sendWeekendDeskEmails` delivers only to `ADMIN_EMAIL` unless
+`WEEKEND_DESK_BROADCAST` is `1`/`true`. Stories name the level by role
+(support / resistance), use daily-brief tone + ticker chips, and add
+personality / psych / earnings only when the payload has them. Charts
+are candles; a called-out trendline is drawn on the SVG.
+
+**Do not:** Force-send the six-person list to "test." Call every
+structure "the line." Paste operator examples as subscriber copy.
+Invent gap-fill rates. Change the default chart-svg style (trade
+alerts stay line charts). Leave Also-on-the-tape names without
+charts. Pad the list with leftover shorts when longs already exist.
+Name a magnet without its price. Use a distant 150/300/500 handle
+as the first target (only a nearby handle on a fired break, or the
+actual magnet shelf). Call a far opposite-side SuperTrend shelf
+"the magnet target" on a long (AMAT $320 under a $460 long).
+Leave daily chart-image undeduped — `ticker_candles` D/W can carry
+both 00:00 UTC and 04:00 UTC stamps of the same session (AMAT
+June/July 2026), which draws each candle twice. Snap D/W writes
+through `canonicalDailyTs` and delete the sibling stamp. Keep a
+90-day daily window on AMAT (June $739 spike squishes the $456
+tape). Print 10R when the stop is a tight invalidation. Use a
+weekly series for a SuperTrend magnet (GOLD).
+
+---
+
 ## Breakout watch: retest is the entry, EMA-stack is not Setup [2026-09-12]
 
 **Symptom:** First watch treated every `detectBreakout()` hit (including

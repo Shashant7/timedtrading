@@ -319,6 +319,7 @@ export { BacktestRunner } from "./backtest-runner-do.js";
 export { CandleChainShard } from "./foundation/candle-chain-do.js";
 export { DeltaOneStream } from "./discovery/delta-one-stream.js";
 import { candleShardStub as _candleShardStub } from "./foundation/candle-chain-do.js";
+import { prepareHtCandleWrite as _prepareHtCandleWrite } from "./foundation/candle-chain.js";
 // Phase 2 seam: chain-backed getCandles for shadow scoring (live-vs-chain diff).
 import { makeChainGetCandles as _makeChainGetCandles, getSeriesFromBases as _getSeriesFromBases, makeHybridGetCandles as _makeHybridGetCandles, HYBRID_CHAIN_TFS as _HYBRID_CHAIN_TFS, resolveScoreGetCandles as _resolveScoreGetCandles } from "./foundation/chain-series-adapter.js";
 // Market cycle (replay-parity) + per-index benchmark mapping + breadth-aware backdrop.
@@ -2545,6 +2546,9 @@ const ROUTES = [
   ["GET",  "/timed/admin/execution/report-card",         "GET /timed/admin/execution/report-card"],
   ["GET",  "/timed/admin/execution/review",              "GET /timed/admin/execution/review"],
   ["POST", "/timed/admin/execution/review",              "POST /timed/admin/execution/review"],
+  ["GET",  "/timed/weekend-desk",                        "GET /timed/weekend-desk"],
+  ["GET",  "/timed/admin/weekend-desk",                  "GET /timed/admin/weekend-desk"],
+  ["POST", "/timed/admin/weekend-desk",                  "POST /timed/admin/weekend-desk"],
   ["POST", "/timed/admin/convexity-tickets/mark",        "POST /timed/admin/convexity-tickets/mark"],
   ["GET",  "/timed/broker/positions",                    "GET /timed/broker/positions"],
   // 2026-08-13 — Day timeline (model actions × mirror outcomes) + scoped
@@ -40683,8 +40687,10 @@ async function d1UpsertCandle(env, ticker, tf, candle) {
   const tfKey = normalizeTfKey(tf);
   if (!sym || !tfKey) return { ok: false, error: "bad_params" };
 
-  const ts = Number(candle?.ts);
-  if (!Number.isFinite(ts)) return { ok: false, error: "bad_ts" };
+  const rawTs = Number(candle?.ts);
+  if (!Number.isFinite(rawTs)) return { ok: false, error: "bad_ts" };
+  const write = _prepareHtCandleWrite(tfKey, rawTs);
+  const ts = write.ts;
   const o = Number(candle?.o);
   const h = Number(candle?.h);
   const l = Number(candle?.l);
@@ -40726,6 +40732,12 @@ async function d1UpsertCandle(env, ticker, tf, candle) {
         throw sessionErr;
       }
     }
+    if (write.siblingFrom != null) {
+      await db.prepare(
+        `DELETE FROM ticker_candles
+          WHERE ticker = ?1 AND tf = ?2 AND ts >= ?3 AND ts < ?4 AND ts != ?5`,
+      ).bind(sym, tfKey, write.siblingFrom, write.siblingTo, ts).run().catch(() => {});
+    }
     return { ok: true };
   } catch (err) {
     console.error(`[D1 CANDLES] Upsert failed for ${sym} ${tfKey}:`, err);
@@ -40754,6 +40766,8 @@ async function d1UpsertIngestCandle(env, ticker, tf, price, tsMs) {
   if (!sym || !tfKey || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tsMs)) return { ok: false };
   try {
     await d1EnsureCandleSchema(env);
+    const write = _prepareHtCandleWrite(tfKey, tsMs);
+    const snapped = write.ts;
     await db.prepare(
       `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8)
@@ -40762,7 +40776,13 @@ async function d1UpsertIngestCandle(env, ticker, tf, price, tsMs) {
          l = MIN(ticker_candles.l, excluded.l),
          c = excluded.c,
          updated_at = excluded.updated_at`
-    ).bind(sym, tfKey, tsMs, price, price, price, price, Date.now()).run();
+    ).bind(sym, tfKey, snapped, price, price, price, price, Date.now()).run();
+    if (write.siblingFrom != null) {
+      await db.prepare(
+        `DELETE FROM ticker_candles
+          WHERE ticker = ?1 AND tf = ?2 AND ts >= ?3 AND ts < ?4 AND ts != ?5`,
+      ).bind(sym, tfKey, write.siblingFrom, write.siblingTo, snapped).run().catch(() => {});
+    }
     return { ok: true };
   } catch (err) {
     console.warn(`[INGEST CANDLE] ${sym} ${tfKey} upsert failed:`, String(err).slice(0, 100));
@@ -54120,16 +54140,18 @@ export default {
               : [candleOrArray];
             for (const candle of candles) {
               if (!candle || typeof candle !== "object") continue;
-              const ts = Number(candle.ts);
+              const rawTs = Number(candle.ts);
               const o = Number(candle.o);
               const h = Number(candle.h);
               const l = Number(candle.l);
               const c = Number(candle.c);
               const v = candle.v != null ? Number(candle.v) : null;
-              if (!Number.isFinite(ts) || ![o, h, l, c].every(x => Number.isFinite(x))) {
+              if (!Number.isFinite(rawTs) || ![o, h, l, c].every(x => Number.isFinite(x))) {
                 errCount++;
                 continue;
               }
+              const write = _prepareHtCandleWrite(tfKey, rawTs);
+              const ts = write.ts;
               stmts.push(
                 db.prepare(
                   `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
@@ -54139,6 +54161,14 @@ export default {
                      updated_at=excluded.updated_at`
                 ).bind(ticker, tfKey, ts, o, h, l, c, v, updatedAt)
               );
+              if (write.siblingFrom != null) {
+                stmts.push(
+                  db.prepare(
+                    `DELETE FROM ticker_candles
+                      WHERE ticker = ?1 AND tf = ?2 AND ts >= ?3 AND ts < ?4 AND ts != ?5`,
+                  ).bind(ticker, tfKey, write.siblingFrom, write.siblingTo, ts)
+                );
+              }
             }
           }
 
@@ -79989,6 +80019,7 @@ export default {
               prefs.re_engagement = false;
               prefs.investor_alerts = false;
               prefs.broker_daily_digest = false;
+              prefs.weekend_desk = false;
             } else {
               prefs[pref] = false;
             }
@@ -80032,6 +80063,7 @@ export default {
             "re_engagement",
             "investor_alerts",
             "broker_daily_digest",
+            "weekend_desk",
           ]);
           const current = getUserEmailPrefs(user);
           for (const [k, v] of Object.entries(updates)) {
@@ -80310,6 +80342,7 @@ export default {
             weekly_digest:       !!(mailable && prefs?.weekly_digest),
             re_engagement:       !!(mailable && prefs?.re_engagement),
             investor_alerts:     !!(mailable && prefs?.investor_alerts),
+            weekend_desk:        !!(mailable && prefs?.weekend_desk),
           };
 
           // Last brief send snapshots — written by daily-brief.js.
@@ -81293,13 +81326,14 @@ export default {
                   prefs.daily_brief_evening = false;
                   prefs.trade_alerts = false;
                   prefs.weekly_digest = false;
+                  prefs.weekend_desk = false;
                   // Strip legacy key if present so getUserEmailPrefs doesn't
                   // carry forward a meaningless value.
                   if ("daily_brief" in prefs) delete prefs.daily_brief;
                   if (prefs.marketing === undefined) prefs.marketing = true;
                   await db.prepare(`UPDATE users SET email_preferences = ?1 WHERE email = ?2`)
                     .bind(JSON.stringify(prefs), userRow.email).run();
-                  console.log(`[STRIPE] Downgraded email prefs for ${userRow.email}: brief=off (morning+evening), trade_alerts=off, weekly_digest=off`);
+                  console.log(`[STRIPE] Downgraded email prefs for ${userRow.email}: brief=off (morning+evening), trade_alerts=off, weekly_digest=off, weekend_desk=off`);
                 } catch (e) {
                   console.warn("[STRIPE] Email pref downgrade failed:", String(e?.message || e).slice(0, 100));
                 }
@@ -84666,6 +84700,85 @@ export default {
             emailTo: url.searchParams.get("to") || null,
           });
           return sendJSON({ ok: true, stored: out.stored, email: out.email, verdict: out.review?.verdict, label: out.review?.label }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/weekend-desk") {
+        const [user, authErr] = await requireUser(req, env);
+        if (authErr) return authErr;
+        const _wdTier = computeUserDataTier(user, env);
+        if (!canAccessLivePrices(_wdTier)) {
+          return sendJSON({ ok: true, error_kind: "tier_required", desk: null }, 200, corsHeaders(env, req));
+        }
+        try {
+          const { loadWeekendDesk } = await import("./weekend-desk.js");
+          const desk = await loadWeekendDesk(env);
+          return sendJSON({ ok: true, desk }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/admin/weekend-desk") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { loadWeekendDesk, composeWeekendDeskFromEnv, WEEKEND_DESK_CURSOR_KV } = await import("./weekend-desk.js");
+          let desk = await loadWeekendDesk(env);
+          let source = "kv";
+          if (!desk || String(url.searchParams.get("fresh") || "0") === "1") {
+            desk = await composeWeekendDeskFromEnv(env);
+            source = "fresh";
+          }
+          const cursor = await env.KV_TIMED.get(WEEKEND_DESK_CURSOR_KV, "json").catch(() => null);
+          return sendJSON({ ok: true, source, desk, cursor }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/weekend-desk") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { runWeekendDesk } = await import("./weekend-desk.js");
+          const body = await req.json().catch(() => ({}));
+          const phase = String(url.searchParams.get("phase") || body?.phase || "full");
+          const wantEmail = String(url.searchParams.get("email") ?? body?.email ?? "0") === "1";
+          const wantNotify = String(url.searchParams.get("notify") ?? body?.notify ?? "0") === "1";
+          const wantRescore = String(url.searchParams.get("rescore") ?? body?.rescore ?? "0") === "1"
+            || phase === "rescore" || phase === "full";
+          const forceEmail = String(url.searchParams.get("force") ?? body?.force ?? "0") === "1";
+          const offset = Number(url.searchParams.get("offset") || body?.offset || 0);
+          const limit = Number(url.searchParams.get("limit") || body?.limit || 20);
+          const action = phase === "rescore" ? "rescore_continue"
+            : (phase === "refresh" ? "refresh" : "full");
+          const out = await runWeekendDesk(env, {
+            action,
+            rescore: wantRescore,
+            email: wantEmail,
+            forceEmail,
+            compose: phase !== "rescore",
+            continueRescore: String(url.searchParams.get("continue") || body?.continue || "0") === "1"
+              || phase === "full",
+            rescoreOffset: offset,
+            rescoreLimit: limit,
+            rescorePage: wantRescore ? (o) => rescoreStaleUniverse(env, o) : null,
+            sendFn: sendEmail,
+            notify: wantNotify ? ((embed) => notifyDiscord(env, embed, "system")) : null,
+          });
+          return sendJSON({
+            ok: true,
+            action: out.action,
+            stored: out.stored,
+            email: out.email,
+            rescore: out.rescore,
+            counts: out.desk?.counts || null,
+            weekend_key: out.desk?.weekend_key || null,
+            label: out.desk?.label || null,
+            featured: (out.desk?.featured || []).map((c) => c.ticker),
+            tt_setups: (out.desk?.featured || []).map((c) => c.ticker),
+            timed_upticks: (out.desk?.timed_upticks || []).map((c) => c.ticker),
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -88680,19 +88793,29 @@ export default {
           const sl = Number(url.searchParams.get("sl")) || null;
           const tp = Number(url.searchParams.get("tp")) || null;
           const subtitle = String(url.searchParams.get("subtitle") || "").slice(0, 80);
+          const styleRaw = String(url.searchParams.get("style") || "line").toLowerCase();
+          const style = (styleRaw === "candles" || styleRaw === "candle" || styleRaw === "ohlc") ? "candles" : "line";
+          const tl0 = Number(url.searchParams.get("tl0")) || null;
+          const tl1 = Number(url.searchParams.get("tl1")) || null;
+          const tlSpan = Number(url.searchParams.get("tl_span") || url.searchParams.get("tlSpan")) || null;
+          const tlLabel = String(url.searchParams.get("tl_label") || url.searchParams.get("tlLabel") || "").slice(0, 24);
+          const levelLabel = String(url.searchParams.get("level_label") || url.searchParams.get("levelLabel") || "").slice(0, 24);
 
           // Pull candles from D1 ticker_candles (cached by 5-min CF
           // cache header below). Latest N bars sorted ASC for the
           // chart renderer's left-to-right plot.
-          const { renderChartSvg } = await import("./chart-svg.js");
+          const { renderChartSvg, collapseChartCandles } = await import("./chart-svg.js");
           let candles = [];
           try {
+            const overfetch = (tfClean === "D" || tfClean === "W")
+              ? Math.min(200, Math.max(bars * 2, bars + 40))
+              : bars;
             const rows = await env.DB.prepare(
               `SELECT ts, o, h, l, c, v FROM ticker_candles
                  WHERE ticker = ?1 AND tf = ?2
                  ORDER BY ts DESC LIMIT ?3`
-            ).bind(ticker, tfClean, bars).all().catch(() => ({ results: [] }));
-            candles = (rows?.results || [])
+            ).bind(ticker, tfClean, overfetch).all().catch(() => ({ results: [] }));
+            candles = collapseChartCandles((rows?.results || [])
               .map(r => ({
                 ts: Number(r.ts) || 0,
                 o: Number(r.o) || null,
@@ -88702,13 +88825,14 @@ export default {
                 v: Number(r.v) || null,
               }))
               .filter(c => Number.isFinite(c.c))
-              .reverse(); // ASC for the chart
+              .reverse(), tfClean).slice(-bars);
           } catch (e) {
             console.warn(`[CHART_IMG] D1 read failed for ${ticker}/${tfClean}:`, String(e?.message || e).slice(0, 200));
           }
 
           const svg = renderChartSvg({
             candles, ticker, tf: tfClean, entry, sl, tp, subtitle,
+            style, tl0, tl1, tlSpan, tlLabel, levelLabel,
           });
           return new Response(svg, {
             status: 200,
@@ -106967,6 +107091,38 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           console.warn("[EXEC REVIEW] cron failed:", String(e?.message || e).slice(0, 200));
           recordCronFailure(env, {
             op: "execution_review_weekly",
+            error: String(e?.message || e).slice(0, 200),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
+      // 2026-09-12 — Weekend CMT Desk. RTH scoring is skipped outside
+      // operating hours; Saturday/Sunday 10:00 ET is the universe pass
+      // (trendlines, EMA, ST magnets, imbalance, news, Momentum Elite,
+      // screener promotions) plus one TT Setups email.
+      ctx.waitUntil((async () => {
+        try {
+          const { weekendDeskSlot, runWeekendDesk } = await import("./weekend-desk.js");
+          const slot = weekendDeskSlot();
+          if (!slot.fire) return;
+          let cursor = null;
+          try { cursor = await env.KV_TIMED.get("timed:weekend-desk:rescore-cursor", "json"); } catch (_) {}
+          if (slot.action === "rescore_continue" && !(Number(cursor?.remaining) > 0)) return;
+          const out = await runWeekendDesk(env, {
+            action: slot.action,
+            rescore: slot.action === "full" || slot.action === "rescore_continue",
+            email: slot.action === "full" || slot.action === "refresh",
+            rescoreOffset: slot.action === "rescore_continue" ? (Number(cursor?.offset) || 0) : 0,
+            rescorePage: (o) => rescoreStaleUniverse(env, o),
+            sendFn: sendEmail,
+            notify: (embed) => notifyDiscord(env, embed, "system"),
+          });
+          console.log(`[WEEKEND DESK] ${slot.action} stored=${out.stored} email=${JSON.stringify(out.email)} remaining=${out.rescore?.remaining ?? "n/a"}`);
+          recordCronSuccess(env, "weekend_desk").catch(() => {});
+        } catch (e) {
+          console.warn("[WEEKEND DESK] cron failed:", String(e?.message || e).slice(0, 200));
+          recordCronFailure(env, {
+            op: "weekend_desk",
             error: String(e?.message || e).slice(0, 200),
             caller: "scheduled_event",
           }).catch(() => {});

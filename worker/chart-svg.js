@@ -45,6 +45,7 @@ const COLORS = {
   entryLine: "#ffffff",
   slLine: "#f43f5e",
   tpLine: "#00c853",
+  trendLine: "#a78bfa",
 };
 
 function _fmtPrice(n) {
@@ -70,6 +71,73 @@ function _fmtDateMMDD(ts) {
   } catch (_) { return ""; }
 }
 
+function _isDayWeekMonth(tf) {
+  const t = String(tf || "").toUpperCase();
+  return t === "D" || t === "1D" || t === "W" || t === "1W" || t === "M" || t === "1M";
+}
+
+function _utcDayKey(ts) {
+  const d = new Date(Number(ts));
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+function _nyDayKey(ts) {
+  try {
+    return new Date(Number(ts)).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  } catch (_) {
+    return "";
+  }
+}
+
+function _preferLaterBar(prev, next) {
+  if (!prev) return next;
+  const prevTs = Number(prev.ts) || 0;
+  const nextTs = Number(next.ts) || 0;
+  const prevV = Number(prev.v) || 0;
+  const nextV = Number(next.v) || 0;
+  if (nextTs > prevTs || (nextTs === prevTs && nextV > prevV)) return next;
+  return prev;
+}
+
+/**
+ * Daily/weekly D1 rows sometimes carry two stamps for the same
+ * session (00:00 UTC and 04:00 UTC) with the same OHLC. AMAT's
+ * weekend chart drew each June/July day twice. Collapse to one
+ * bar per UTC day; prefer the later stamp / higher volume.
+ */
+export function collapseChartCandles(candles, tf) {
+  const list = Array.isArray(candles) ? candles.filter((c) => c && Number.isFinite(Number(c.c))) : [];
+  if (list.length < 2) return list;
+  if (!_isDayWeekMonth(tf)) {
+    const seen = new Set();
+    const out = [];
+    for (const c of list) {
+      const ts = Number(c.ts) || 0;
+      if (seen.has(ts)) continue;
+      seen.add(ts);
+      out.push(c);
+    }
+    return out;
+  }
+  const byUtc = new Map();
+  for (const c of list) {
+    const key = _utcDayKey(c.ts);
+    if (!key) continue;
+    byUtc.set(key, _preferLaterBar(byUtc.get(key), c));
+  }
+  const mid = [...byUtc.values()].sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+  const out = [];
+  for (const c of mid) {
+    const prev = out[out.length - 1];
+    const sameNy = prev && _nyDayKey(prev.ts) && _nyDayKey(prev.ts) === _nyDayKey(c.ts);
+    const closeInTime = prev && Math.abs(Number(c.ts) - Number(prev.ts)) <= 12 * 3600000;
+    if (prev && sameNy && closeInTime) out[out.length - 1] = _preferLaterBar(prev, c);
+    else out.push(c);
+  }
+  return out;
+}
+
 /**
  * Render an SVG chart for an array of candles. Returns the SVG string.
  *
@@ -81,12 +149,22 @@ function _fmtDateMMDD(ts) {
  * @param {number} [opts.sl]        Stop-loss annotation (red dashed)
  * @param {number} [opts.tp]        Take-profit annotation (green dashed)
  * @param {string} [opts.subtitle]  Small label below ticker (e.g. "Entry +1.4% · 14:22 ET")
+ * @param {string} [opts.style="line"]  `line` (trade alerts) or `candles` (gaps / weekend desk)
+ * @param {number} [opts.tl0]       Trendline price at the first visible bar
+ * @param {number} [opts.tl1]       Trendline price at the last visible bar
+ * @param {string} [opts.tlLabel]   Trendline role ("Support" / "Resistance")
+ * @param {string} [opts.levelLabel] Horizontal level role instead of "E"
  * @returns {string} SVG string
  */
 export function renderChartSvg(opts) {
-  const candles = Array.isArray(opts?.candles) ? opts.candles.filter(c => c && Number.isFinite(Number(c.c))) : [];
+  const candles = collapseChartCandles(
+    Array.isArray(opts?.candles) ? opts.candles : [],
+    opts?.tf,
+  );
   const ticker = String(opts?.ticker || "").toUpperCase();
   const tfLabel = _formatTfLabel(opts?.tf);
+  const styleRaw = String(opts?.style || "line").toLowerCase();
+  const candleStyle = styleRaw === "candles" || styleRaw === "candle" || styleRaw === "ohlc";
   /* 2026-06-01 — Strict positive-price guard for annotations.
 
      The DIA EXIT email rendered a flat-line chart with y-axis -25.69 to
@@ -109,6 +187,12 @@ export function renderChartSvg(opts) {
   const entry = _toPositivePrice(opts?.entry);
   const sl = _toPositivePrice(opts?.sl);
   const tp = _toPositivePrice(opts?.tp);
+  const tl0 = _toPositivePrice(opts?.tl0);
+  const tl1 = _toPositivePrice(opts?.tl1);
+  const tlSpanRaw = Number(opts?.tlSpan ?? opts?.tl_span);
+  const tlSpan = Number.isFinite(tlSpanRaw) && tlSpanRaw > 0 ? Math.round(tlSpanRaw) : null;
+  const tlLabel = String(opts?.tlLabel || opts?.tl_label || "").slice(0, 24);
+  const levelLabel = String(opts?.levelLabel || opts?.level_label || "").slice(0, 24);
   const subtitle = String(opts?.subtitle || "").slice(0, 80);
 
   // ── Empty-state ─────────────────────────────────────────────────────
@@ -136,7 +220,7 @@ export function renderChartSvg(opts) {
   const _maxAnnotDist = Math.max(_priceMid * 0.30, (priceMax - priceMin) * 4);
   const _annotIncluded = [];
   const _annotExcluded = [];
-  for (const [label, v] of [["entry", entry], ["sl", sl], ["tp", tp]]) {
+  for (const [label, v] of [["entry", entry], ["sl", sl], ["tp", tp], ["tl0", tl0], ["tl1", tl1]]) {
     if (v == null) continue;
     if (Math.abs(v - _priceMid) > _maxAnnotDist) {
       _annotExcluded.push({ label, value: v });
@@ -193,9 +277,10 @@ export function renderChartSvg(opts) {
   const annotations = [];
   if (_annotByLabel.entry != null) {
     const y = yFor(_annotByLabel.entry).toFixed(1);
+    const eLabel = levelLabel || "E";
     annotations.push(
       `<line x1="${PAD_LEFT}" x2="${PAD_LEFT + PLOT_W}" y1="${y}" y2="${y}" stroke="${COLORS.entryLine}" stroke-width="1.2" />`,
-      `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.entryLine}" text-anchor="end">E ${_fmtPrice(_annotByLabel.entry)}</text>`,
+      `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.entryLine}" text-anchor="end">${_escape(eLabel)} ${_fmtPrice(_annotByLabel.entry)}</text>`,
     );
   }
   if (_annotByLabel.sl != null) {
@@ -212,6 +297,28 @@ export function renderChartSvg(opts) {
       `<text x="${PAD_LEFT + PLOT_W - 4}" y="${Number(y) - 4}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.tpLine}" text-anchor="end">TP ${_fmtPrice(_annotByLabel.tp)}</text>`,
     );
   }
+  if (tl0 != null && tl1 != null) {
+    const lastIdx = candles.length - 1;
+    const startIdx = tlSpan != null
+      ? Math.max(0, lastIdx - tlSpan)
+      : 0;
+    const xA = candleStyle
+      ? PAD_LEFT + ((startIdx + 0.5) / candles.length) * PLOT_W
+      : xFor(startIdx);
+    const xB = candleStyle
+      ? PAD_LEFT + ((lastIdx + 0.5) / candles.length) * PLOT_W
+      : xFor(lastIdx);
+    const yA = yFor(tl0);
+    const yB = yFor(tl1);
+    annotations.push(
+      `<line x1="${xA.toFixed(1)}" y1="${yA.toFixed(1)}" x2="${xB.toFixed(1)}" y2="${yB.toFixed(1)}" stroke="${COLORS.trendLine}" stroke-width="1.6" />`,
+    );
+    if (tlLabel) {
+      annotations.push(
+        `<text x="${(xB - 4).toFixed(1)}" y="${(yB - 5).toFixed(1)}" font-family="Menlo,Monaco,monospace" font-size="9" fill="${COLORS.trendLine}" text-anchor="end">${_escape(tlLabel)} ${_fmtPrice(tl1)}</text>`,
+      );
+    }
+  }
 
   // ── Y-axis labels (top + bottom) ────────────────────────────────────
   const yLabelTop = `<text x="${PAD_LEFT - 6}" y="${PAD_TOP + 4}" font-family="Menlo,Monaco,monospace" font-size="10" fill="${COLORS.textFaint}" text-anchor="end">${_fmtPrice(yMax)}</text>`;
@@ -220,8 +327,14 @@ export function renderChartSvg(opts) {
   // ── X-axis labels (first + last timestamp) ─────────────────────────
   const firstTs = Number(candles[0].ts);
   const lastTs = Number(candles[candles.length - 1].ts);
-  const xLabelLeft = `<text x="${PAD_LEFT}" y="${PANEL_H - 8}" font-family="Inter,Arial,sans-serif" font-size="10" fill="${COLORS.textFaint}">${_fmtDateMMDD(firstTs)} ${_fmtTimeHHMM(firstTs)}</text>`;
-  const xLabelRight = `<text x="${PAD_LEFT + PLOT_W}" y="${PANEL_H - 8}" font-family="Inter,Arial,sans-serif" font-size="10" fill="${COLORS.textFaint}" text-anchor="end">${_fmtDateMMDD(lastTs)} ${_fmtTimeHHMM(lastTs)}</text>`;
+  const xLeft = _isDayWeekMonth(opts?.tf)
+    ? _fmtDateMMDD(firstTs)
+    : `${_fmtDateMMDD(firstTs)} ${_fmtTimeHHMM(firstTs)}`.trim();
+  const xRight = _isDayWeekMonth(opts?.tf)
+    ? _fmtDateMMDD(lastTs)
+    : `${_fmtDateMMDD(lastTs)} ${_fmtTimeHHMM(lastTs)}`.trim();
+  const xLabelLeft = `<text x="${PAD_LEFT}" y="${PANEL_H - 8}" font-family="Inter,Arial,sans-serif" font-size="10" fill="${COLORS.textFaint}">${xLeft}</text>`;
+  const xLabelRight = `<text x="${PAD_LEFT + PLOT_W}" y="${PANEL_H - 8}" font-family="Inter,Arial,sans-serif" font-size="10" fill="${COLORS.textFaint}" text-anchor="end">${xRight}</text>`;
 
   // ── Header row ─────────────────────────────────────────────────────
   const lastPriceFmt = _fmtPrice(lastClose);
@@ -246,14 +359,44 @@ export function renderChartSvg(opts) {
   ${header}
   ${subtitleEl}
   ${gridLines}
-  <path d="${areaPath}" fill="${lineColor}" opacity="0.10" />
-  <polyline points="${linePoints}" fill="none" stroke="${lineColor}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" />
+  ${candleStyle ? _renderCandleBodies(candles, xFor, yFor, PLOT_W) : `<path d="${areaPath}" fill="${lineColor}" opacity="0.10" /><polyline points="${linePoints}" fill="none" stroke="${lineColor}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" />`}
   ${annotations.join("")}
   ${yLabelTop}
   ${yLabelBot}
   ${xLabelLeft}
   ${xLabelRight}
 </svg>`;
+}
+
+function _ohlcOf(c) {
+  const close = Number(c?.c);
+  if (!Number.isFinite(close)) return null;
+  const open = Number.isFinite(Number(c.o)) ? Number(c.o) : close;
+  const high = Number.isFinite(Number(c.h)) ? Number(c.h) : Math.max(open, close);
+  const low = Number.isFinite(Number(c.l)) ? Number(c.l) : Math.min(open, close);
+  return { o: open, h: high, l: low, c: close };
+}
+
+function _renderCandleBodies(candles, _xFor, yFor, plotW) {
+  const n = candles.length;
+  const slot = plotW / Math.max(n, 1);
+  const bodyW = Math.max(1.2, Math.min(6.5, slot * 0.62));
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const bar = _ohlcOf(candles[i]);
+    if (!bar) continue;
+    const x = PAD_LEFT + (i + 0.5) * slot;
+    const yH = yFor(bar.h);
+    const yL = yFor(bar.l);
+    const yO = yFor(bar.o);
+    const yC = yFor(bar.c);
+    const color = bar.c >= bar.o ? COLORS.upColor : COLORS.downColor;
+    parts.push(
+      `<line x1="${x.toFixed(1)}" y1="${yH.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yL.toFixed(1)}" stroke="${color}" stroke-width="1"/>`,
+      `<rect x="${(x - bodyW / 2).toFixed(1)}" y="${Math.min(yO, yC).toFixed(1)}" width="${bodyW.toFixed(1)}" height="${Math.max(1, Math.abs(yC - yO)).toFixed(1)}" fill="${color}"/>`,
+    );
+  }
+  return parts.join("");
 }
 
 function _formatTfLabel(tf) {

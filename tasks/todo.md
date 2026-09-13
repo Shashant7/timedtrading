@@ -21,6 +21,15 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **TT Setups chips: last price + LONG/SHORT (2026-09-13).**
+      Weekend email ticker chips show last price, setup direction,
+      and day %. Branch: `cursor/weekend-cmt-prep-7ffc`. Admin
+      preview resent 2026-09-13.
+- [x] **TT Setups email polish (2026-09-12).** 60-day daily window;
+      snap D/W writes to `canonicalDailyTs` and drop 00:00/04:00
+      siblings; cap displayed R:R at 4; magnet charts on daily
+      (GOLD). Branch: `cursor/weekend-cmt-prep-7ffc`. Admin preview
+      sent 2026-09-12 (AU/CDNS/EXPE/AMAT featured; TSM/GOLD on tape).
 - [ ] **Breakout watch upgrades (2026-09-12).** Narrow Setup to
       trendline + daily-level; 2–3 touch visual line; RVOL on fire;
       retest = look-for-entry; approaching badge on rail/Today.

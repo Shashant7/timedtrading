@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   ingestBase, checkBaseIntegrity, deriveTimeframe, deriveAllTimeframes,
   nextExpectedBucketMs, hotWindowStartMs, DERIVED_INTRADAY_TFS,
-  canonicalDailyTs, normalizeDailyBars,
+  canonicalDailyTs, normalizeDailyBars, prepareHtCandleWrite,
 } from "./candle-chain.js";
 import { expectedIntradayBuckets, sessionBoundsUtc } from "./trading-calendar.js";
 
@@ -41,6 +41,15 @@ describe("candle-chain: canonical daily anchor + dedup", () => {
     expect(out.length).toBe(2);
     expect(out[0].ts).toBe(day);
     expect(out[0].c).toBe(2);
+  });
+  it("prepareHtCandleWrite snaps D/W and names the sibling window", () => {
+    const fourAm = day + 4 * 3600000;
+    expect(prepareHtCandleWrite("D", fourAm)).toEqual({
+      ts: day, siblingFrom: day, siblingTo: day + 86400000,
+    });
+    expect(prepareHtCandleWrite("W", fourAm).ts).toBe(day);
+    expect(prepareHtCandleWrite("60", fourAm).ts).toBe(fourAm);
+    expect(prepareHtCandleWrite("60", fourAm).siblingFrom).toBeNull();
   });
 });
 

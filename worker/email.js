@@ -82,9 +82,9 @@ const BRAND = {
 // - Editorial: Georgia is available on ~100% of mail clients and matches
 //   Instrument Serif closely enough in tone.
 // - Mono/num: Menlo / Consolas / Courier New for data.
-const EMAIL_FONT_UI = "'Helvetica Neue',Arial,sans-serif";
-const EMAIL_FONT_EDITORIAL = "Georgia,'Iowan Old Style','Palatino Linotype',Palatino,serif";
-const EMAIL_FONT_MONO = "'SF Mono',Menlo,Consolas,'Courier New',monospace";
+export const EMAIL_FONT_UI = "'Helvetica Neue',Arial,sans-serif";
+export const EMAIL_FONT_EDITORIAL = "Georgia,'Iowan Old Style','Palatino Linotype',Palatino,serif";
+export const EMAIL_FONT_MONO = "'SF Mono',Menlo,Consolas,'Courier New',monospace";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Brief Infographic → Email HTML
@@ -995,7 +995,18 @@ function _emailBriefDayPctLabel(pct) {
   return `(${_emailBriefPct(v, 2)} today)`;
 }
 
-function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
+function _emailBriefPrice(px) {
+  const n = Number(px);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return `$${n.toFixed(2)}`;
+}
+
+function _emailBriefDir(dir) {
+  const d = String(dir || "").toUpperCase();
+  return d === "LONG" || d === "SHORT" ? d : "";
+}
+
+export function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2, extras) {
   const SYM = String(sym || "").toUpperCase();
   if (!SYM) return "";
   const logo = `${baseUrl}/timed/logo/${encodeURIComponent(SYM)}.png`;
@@ -1007,6 +1018,10 @@ function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
     primary = dayPct;
     dayPct = null;
   }
+  const extra = extras && typeof extras === "object" && !Array.isArray(extras) ? extras : {};
+  const priceStr = _emailBriefPrice(extra.price);
+  const dirStr = _emailBriefDir(extra.dir);
+  const dirColor = dirStr === "SHORT" ? "#fb7185" : BRAND.green;
   const pctStr = _emailBriefPct(primary);
   const dayLabel = _emailBriefDayPctLabel(dayPct);
   const primaryNum = (primary == null || primary === "") ? NaN : Number(primary);
@@ -1014,6 +1029,8 @@ function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
   return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;margin:0 6px 6px 0;border-radius:999px;border:1px solid ${BRAND.border};background:rgba(255,255,255,0.04);vertical-align:middle">
     <img src="${logo}" alt="" width="18" height="18" style="border-radius:50%;background:#fff;object-fit:cover" />
     <span style="font-family:ui-monospace,monospace;font-weight:700;color:${BRAND.textPrimary};font-size:12px">${_esc(SYM)}</span>
+    ${priceStr ? `<span style="font-family:ui-monospace,monospace;font-weight:600;color:${BRAND.textPrimary};font-size:11px">${_esc(priceStr)}</span>` : ""}
+    ${dirStr ? `<span style="font-family:ui-monospace,monospace;font-weight:700;color:${dirColor};font-size:10px">${_esc(dirStr)}</span>` : ""}
     ${sub ? `<span style="font-size:10px;color:${BRAND.textMuted}">${_esc(sub)}</span>` : ""}
     ${pctStr ? `<span style="font-family:ui-monospace,monospace;font-weight:700;color:${color};font-size:11px">${pctStr}</span>` : ""}
     ${dayLabel ? `<span style="font-family:ui-monospace,monospace;font-size:10px;color:${BRAND.textMuted}">${dayLabel}</span>` : ""}
@@ -2072,6 +2089,7 @@ export function unsubscribeConfirmationHtml(email, pref) {
     trade_alerts: "Trade Alert emails",
     re_engagement: "Re-engagement emails",
     weekly_digest: "Weekly Digest emails",
+    weekend_desk: "TT Setups emails",
     investor_alerts: "Long Term Signal emails",
     all: "all emails",
   }[pref] || pref;
@@ -2105,6 +2123,8 @@ const DEFAULT_PREFS_PAID = {
   investor_alerts: true,
   // 2026-08-13 — Broker Connections end-of-day "Account today" digest.
   broker_daily_digest: true,
+  // 2026-09-12 — Saturday CMT / TT Setups weekend desk.
+  weekend_desk: true,
 };
 
 const DEFAULT_PREFS_FREE = {
@@ -2115,6 +2135,7 @@ const DEFAULT_PREFS_FREE = {
   re_engagement: true,
   investor_alerts: false,
   broker_daily_digest: false,
+  weekend_desk: false,
 };
 
 export function getUserEmailPrefs(user) {

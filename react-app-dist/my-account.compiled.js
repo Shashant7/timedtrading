@@ -26,6 +26,10 @@ const PREF_DEFS = [{
   title: "Broker account digest",
   desc: "End-of-day Account today email for connected brokerage accounts (fills, syncs, P&L)."
 }, {
+  key: "weekend_desk",
+  title: "TT Setups",
+  desc: "Weekend watch — a short list of names the desk is watching, with the chart and what the model is waiting for."
+}, {
   key: "weekly_digest",
   title: "Weekly digest",
   desc: "Weekly summary of model performance and open exposure."
