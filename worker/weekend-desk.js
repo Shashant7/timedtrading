@@ -655,6 +655,141 @@ export function inferSetupKind(td, card = {}) {
 }
 
 /**
+ * Short CMT report: what the setup is, the three paths, and which
+ * one is the opportunity. No invented levels.
+ */
+export function buildWeekendReport({
+  kind, dir, ticker, lvTxt, levelName, watchKind, dist,
+  tgtTxt, targetLabel, rrTxt,
+} = {}) {
+  const name = String(ticker || "").toUpperCase();
+  const shelf = lvTxt || "the shelf";
+  const barrier = lvTxt || "the barrier";
+  const daily = String(watchKind || "").toLowerCase().includes("daily_level");
+  const long = dir === "LONG";
+  const tgtBit = tgtTxt
+    ? `${tgtTxt}${targetLabel ? ` (${targetLabel})` : ""}${rrTxt ? ` — about ${rrTxt}` : ""}`
+    : "";
+  const out = {
+    setup: "",
+    path_up: "",
+    path_down: "",
+    path_sideways: "",
+    watching_path: "",
+    watching_for: "",
+  };
+
+  if (kind === "retest" && long) {
+    out.setup = `${name} already cleared ${shelf}. The pullback is sitting on that former ceiling — the confirm that the break was accepted, not a fakeout.`;
+    out.path_up = `A daily hold and turn at ${shelf} confirms support and opens the next leg.`;
+    out.path_down = `A close back under ${shelf} says the break was not accepted.`;
+    out.path_sideways = `Another session on the shelf without a turn. No confirm yet.`;
+    out.watching_path = "up";
+    out.watching_for = `The up path. A quiet hold at ${shelf} as support is the opportunity — not a loud spike through it.`;
+  } else if (kind === "retest") {
+    out.setup = `${name} already lost ${shelf}. Price is back at that shelf from below — the market is deciding whether failed support now caps the bounce.`;
+    out.path_down = `A rejection that leaves a lower high keeps the breakdown intact.`;
+    out.path_up = `A close back through ${shelf} would neutralize this as resistance.`;
+    out.path_sideways = `Chop under the shelf with no rejection. The retest is unfinished.`;
+    out.watching_path = "down";
+    out.watching_for = `The down path. A rejection at ${shelf} that leaves a lower high is the opportunity.`;
+  } else if (kind === "quiet_pierce") {
+    const what = daily
+      ? (long ? "horizontal resistance" : "horizontal support")
+      : (long ? "falling resistance" : "rising support");
+    out.setup = `${name} poked ${lvTxt || what} on light volume. Until participation shows up, this is a test of the barrier, not a committed break.`;
+    out.path_up = long
+      ? `A second close through ${barrier} with volume expanding upgrades the probe to a break.`
+      : `A fade back inside the range leaves ${barrier} intact.`;
+    out.path_down = long
+      ? `A fade back inside the range leaves ${barrier} intact.`
+      : `A second close through ${barrier} with volume expanding upgrades the probe to a break.`;
+    out.path_sideways = `Another quiet poke. Still a test — not the setup yet.`;
+    out.watching_path = "sideways";
+    out.watching_for = `The sideways path until volume expanding shows up. The opportunity is the second close through ${barrier} with participation — not this first poke.`;
+  } else if (kind === "fired") {
+    const what = daily
+      ? (long ? "horizontal resistance" : "horizontal support")
+      : (long ? "falling resistance" : "rising support");
+    out.setup = `${name} closed through ${lvTxt || what} that had been containing the range.`;
+    out.path_up = long
+      ? (tgtBit
+        ? `A hold this side of ${shelf} keeps the break. First target ${tgtBit}.`
+        : `A hold this side of ${shelf} keeps the break accepted.`)
+      : `A close back through ${shelf} says the move did not stick.`;
+    out.path_down = long
+      ? `A close back through ${shelf} says the move did not stick.`
+      : (tgtBit
+        ? `A hold this side of ${shelf} keeps the break. First target ${tgtBit}.`
+        : `A hold this side of ${shelf} keeps the break accepted.`);
+    out.path_sideways = `A digest on this side of ${shelf} without follow-through. The break is live but unconfirmed.`;
+    out.watching_path = long ? "up" : "down";
+    out.watching_for = tgtBit
+      ? `The ${long ? "up" : "down"} path. If the break holds, ${tgtBit} is the first target. That hold is the opportunity.`
+      : `The ${long ? "up" : "down"} path. The first pullback toward ${shelf} is the confirmation window.`;
+  } else if (kind === "approaching") {
+    const where = dist && lvTxt ? `${dist} ${lvTxt}` : (lvTxt || levelName || "the barrier");
+    out.setup = `${name} is ${where}. The next session decides whether this is a pause in front of the barrier or the start of a break.`;
+    out.path_up = long
+      ? `Acceptance through ${barrier} opens the next leg.`
+      : `A rejection here keeps the prevailing structure.`;
+    out.path_down = long
+      ? `A rejection here keeps the prevailing structure.`
+      : `Acceptance through ${barrier} opens the next leg.`;
+    out.path_sideways = `A pause in front of ${barrier} without a decision.`;
+    out.watching_path = long ? "up" : "down";
+    out.watching_for = `The ${long ? "up" : "down"} path if ${barrier} is accepted. The opportunity is a clean hold or a clean break — not the first loud spike through it.`;
+  } else if (kind === "magnet") {
+    out.setup = lvTxt
+      ? `${name} is being pulled toward ${lvTxt} — that is the magnet target, the flat higher-timeframe shelf.`
+      : `When the higher-timeframe shelf goes flat, price often gets pulled back to it before the next move.`;
+    if (long) {
+      out.path_up = `A pull into ${shelf}${rrTxt ? ` — about ${rrTxt} if the approach holds` : ""} completes the magnet.`;
+      out.path_down = `Another stretch away from the shelf. That is the chase, not the setup.`;
+    } else {
+      out.path_down = `A pull into ${shelf}${rrTxt ? ` — about ${rrTxt} if the approach holds` : ""} completes the magnet.`;
+      out.path_up = `Another stretch away from the shelf. That is the chase, not the setup.`;
+    }
+    out.path_sideways = `The stretch stalls and ${shelf} stays unused.`;
+    out.watching_path = long ? "up" : "down";
+    out.watching_for = `The ${long ? "up" : "down"} path into ${shelf}. A hold there is a possible bounce; a clean break through it is the other useful outcome.`;
+  } else if (kind === "stretch") {
+    out.setup = `The last trend flip already ran too far. Chasing the stretch is how late entries get trapped.`;
+    out.path_up = long
+      ? `Another push away from ${shelf}. That is the chase.`
+      : `A reset back toward ${shelf} is the interesting setup.`;
+    out.path_down = long
+      ? `A reset back toward ${shelf} is the interesting setup.`
+      : `Another push away from ${shelf}. That is the chase.`;
+    out.path_sideways = `The stretch stalls without a reset.`;
+    out.watching_path = long ? "down" : "up";
+    out.watching_for = `The ${long ? "down" : "up"} path. The opportunity is the reset toward ${shelf}, not another push away from it.`;
+  } else if (kind === "imbalance") {
+    out.setup = `An unfilled gap is sitting under price as support${lvTxt ? ` — ${lvTxt} is the pocket` : ""}.`;
+    out.path_up = `A hold if price revisits the gap. That is the interesting setup.`;
+    out.path_down = `A slice through the gap with volume takes the idea off.`;
+    out.path_sideways = `The gap is not revisited. No setup yet.`;
+    out.watching_path = "up";
+    out.watching_for = `The up path if the gap is tested. The opportunity is a hold at that pocket, not a chase while the gap sits unused.`;
+  } else if (kind === "news_structure") {
+    out.setup = `The tape and the headlines are leaning the same way. The headline alone is not the setup.`;
+    out.path_up = `The next session agrees with that lean.`;
+    out.path_down = `The next session fades the headline.`;
+    out.path_sideways = `No follow-through. The chart still has to confirm.`;
+    out.watching_path = "sideways";
+    out.watching_for = `Whether the next session agrees with that lean. The chart still has to confirm.`;
+  } else if (kind === "outside") {
+    out.setup = `${name} is still outside the universe.`;
+    out.path_up = `The next session continues the move.`;
+    out.path_down = `The next session fades it.`;
+    out.path_sideways = `No follow-through.`;
+    out.watching_path = "sideways";
+    out.watching_for = `Whether the next session confirms the move. A name has to earn a slot on the book — this is a look, not an add.`;
+  }
+  return out;
+}
+
+/**
  * Structure-first setup story. Levels are named by role (support /
  * resistance), not "the line". Personality, psych handles, and
  * earnings are added only when the payload already has them.
@@ -663,14 +798,22 @@ export function buildSetupStory(td, card = {}) {
   const ticker = String(card.ticker || td?.ticker || "").toUpperCase();
   if (!ticker) return null;
   if (card.kind === "outside" || (!td && card.thesis)) {
+    const thesis = String(card.thesis || `${ticker} is still outside the universe.`).trim();
+    const report = buildWeekendReport({ kind: "outside", ticker });
+    report.setup = thesis;
     return {
       ticker,
       kind: "outside",
       kind_label: STORY_KIND_LABEL.outside,
       posture: "should_watch",
       headline: "Not on the book yet",
-      why: String(card.thesis || `${ticker} is still outside the universe.`).trim(),
-      watching_for: "Whether the next session confirms the move. A name has to earn a slot on the book — this is a look, not an add.",
+      why: thesis,
+      watching_for: report.watching_for,
+      setup: report.setup,
+      path_up: report.path_up,
+      path_down: report.path_down,
+      path_sideways: report.path_sideways,
+      watching_path: report.watching_path,
       dir: null,
       level: null,
       level_role: null,
@@ -713,70 +856,48 @@ export function buildSetupStory(td, card = {}) {
   const objective = resolveSetupObjective(td, { kind, dir, level, px });
   const tgtTxt = fmtPx(objective.target);
   const rrTxt = Number.isFinite(objective.rr) && objective.rr > 0 ? `${objective.rr.toFixed(1)}R` : "";
+  const report = buildWeekendReport({
+    kind, dir, ticker, lvTxt, levelName, watchKind, dist,
+    tgtTxt, targetLabel: objective.target_label, rrTxt,
+  });
+  if (!report.setup) return null;
 
   let headline = "";
-  let why = "";
-  let watchingFor = "";
-
   if (kind === "retest") {
     headline = dir === "SHORT"
       ? "Broken support is now being tested as resistance"
       : "Broken resistance is now being tested as support";
-    why = dir === "SHORT"
-      ? `${ticker} already lost ${lvTxt || "the prior support shelf"}. Price is back at that shelf from below — the market is deciding whether failed support now caps the bounce.`
-      : `${ticker} already cleared ${lvTxt || "overhead supply"}. The pullback is sitting on that former ceiling — the classic confirm that the break was accepted, not a fakeout.`;
-    watchingFor = dir === "SHORT"
-      ? `A rejection that leaves a lower high keeps the breakdown intact. A close back through ${lvTxt || "the shelf"} would neutralize this as resistance.`
-      : `A daily hold and turn higher would confirm ${lvTxt || "the shelf"} as support. A close back under it would say the break was not accepted.`;
   } else if (kind === "quiet_pierce") {
     headline = dir === "SHORT"
       ? (watchKind === "daily_level" ? "A probe of horizontal support, not a break" : "A probe of rising support, not a break")
       : (watchKind === "daily_level" ? "A probe of horizontal resistance, not a break" : "A probe of falling resistance, not a break");
-    why = `${ticker} poked ${lvTxt || levelName.toLowerCase()} on light volume. Until participation shows up, this reads as a test of the barrier rather than a committed break.`;
-    watchingFor = `A second close through ${lvTxt || "that barrier"} with volume expanding would upgrade the tape. A fade back inside the range leaves the barrier intact.`;
   } else if (kind === "fired" && watchKind === "daily_level") {
     headline = dir === "SHORT" ? "Horizontal support gave way" : "Horizontal resistance gave way";
-    why = `${ticker} closed through ${lvTxt || "a daily shelf"} that had been containing the range.`;
-    watchingFor = tgtTxt
-      ? `If the break holds, the first target is ${tgtTxt}${objective.target_label ? ` (${objective.target_label})` : ""}${rrTxt ? ` — about ${rrTxt}` : ""}. A close back through ${lvTxt || "the shelf"} would say the move did not stick.`
-      : `A hold on this side of ${lvTxt || "the shelf"} keeps the break accepted. The first close back through it would say the move did not stick.`;
   } else if (kind === "fired") {
     headline = dir === "SHORT" ? "Rising support gave way" : "Falling resistance gave way";
-    why = `${ticker} closed through ${lvTxt || levelName.toLowerCase()} with enough participation that the break is live, not just a wick.`;
-    watchingFor = tgtTxt
-      ? `If the break holds, the first target is ${tgtTxt}${objective.target_label ? ` (${objective.target_label})` : ""}${rrTxt ? ` — about ${rrTxt} from here` : ""}. Failure to hold ${lvTxt || "the break"} puts it back in the range.`
-      : `The first pullback toward ${lvTxt || "that level"} is the confirmation window. Failure to hold the break puts it back in the range.`;
   } else if (kind === "approaching") {
     headline = dir === "SHORT"
       ? (watchKind === "daily_level" ? "Price is sitting on horizontal support" : "Price is sitting on rising support")
       : (watchKind === "daily_level" ? "Price is pressing horizontal resistance" : "Price is pressing falling resistance");
-    why = dist && lvTxt
-      ? `${ticker} is ${dist} ${lvTxt}. The next few sessions decide whether this is a pause in front of the barrier or the start of a break.`
-      : `${ticker} is sitting against ${lvTxt || levelName.toLowerCase()}. The next few sessions decide whether this is a pause in front of the barrier or the start of a break.`;
-    watchingFor = `Acceptance through ${lvTxt || "the level"} would open the next leg. A rejection here keeps the prevailing structure.`;
   } else if (kind === "magnet") {
     headline = "A flat higher-timeframe shelf is acting as a magnet";
-    why = lvTxt
-      ? `${ticker} is being pulled toward ${lvTxt} — that is the magnet target, the flat higher-timeframe shelf.${rrTxt ? ` About ${rrTxt} if the pull completes before a failed approach.` : ""}`
-      : `When the higher-timeframe shelf goes flat, price often gets pulled back to it before the next move.`;
-    watchingFor = `A hold at ${lvTxt || "the shelf"} as a possible bounce, or a clean break through it. Either outcome is more useful than chasing the stretch away from the shelf.`;
   } else if (kind === "stretch") {
     headline = "The last flip already ran too far";
-    why = "The trend flip is extended. Chasing the stretch is how late entries get trapped.";
-    watchingFor = `A pullback toward ${lvTxt || "the trend shelf"}. The interesting setup is the reset, not another push away from the shelf.`;
   } else if (kind === "imbalance") {
     headline = "An unfilled gap is sitting under price as support";
-    why = `Unfilled gaps often act as a floor the next time price comes back${lvTxt ? ` — ${lvTxt} is the pocket` : ""}.`;
-    watchingFor = "Whether that gap holds if price revisits it. A hold there is the interesting setup. A slice through it with volume takes the idea off.";
   } else if (kind === "news_structure") {
     headline = "The tape and the headlines are leaning the same way";
-    why = catalyst
-      ? `Recent news is ${newsLean || "active"} — ${catalyst}. The chart already has structure behind it.`
-      : `Recent news is leaning ${newsLean || "with the chart"}. The headline alone is not the setup.`;
-    watchingFor = "Whether the next session agrees with that lean. The chart still has to confirm.";
+    if (catalyst) {
+      report.setup = `Recent news is ${newsLean || "active"} — ${catalyst}. The chart already has structure behind it.`;
+    } else if (newsLean) {
+      report.setup = `Recent news is leaning ${newsLean}. The headline alone is not the setup.`;
+    }
   } else {
     return null;
   }
+
+  let why = report.setup;
+  let watchingFor = report.watching_for;
 
   if (volBits[0]) why = `${why} ${volBits[0]}`;
   const extras = [];
@@ -813,6 +934,11 @@ export function buildSetupStory(td, card = {}) {
     headline,
     why: why.trim(),
     watching_for: watchingFor,
+    setup: report.setup,
+    path_up: report.path_up,
+    path_down: report.path_down,
+    path_sideways: report.path_sideways,
+    watching_path: report.watching_path,
     dir,
     level,
     level_role: role,
@@ -1266,7 +1392,7 @@ export function composeWeekendDesk({
     news,
     promotion_candidates: promo,
     rescore: rescore || null,
-    disclaimer: "TT Setups are names the desk is already watching or should be watching. This is not Newton's monthly Upticks list, and not a buy list. Look for a good entry. Monday still has to grade the setup.",
+    disclaimer: "TT Setups are names the desk is already watching or should be watching. Each card is a short report — the setup, the three paths, and the opportunity. This is not Newton's monthly Upticks list, and not a buy list. Look for a good entry. Monday still has to grade the setup.",
   };
 }
 
@@ -1281,11 +1407,11 @@ export function renderWeekendDeskText(desk) {
   const featured = desk.featured || desk.tt_setups || [];
   const also = desk.also_on_tape || [];
   const lines = [
-    `TT Setups · Weekend watch · ${desk.long_label || desk.label}`,
+    `TT Setups · Weekend report · ${desk.long_label || desk.label}`,
     desk.disclaimer,
     "",
     featured.length
-      ? `${featured.length} name${featured.length === 1 ? "" : "s"} with a defined support or resistance into the next session.`
+      ? `${featured.length} name${featured.length === 1 ? "" : "s"} with a defined level into the next session. Each card is the setup, the up / down / sideways paths, and the opportunity the desk is watching.`
       : "No clean setups cleared the bar this weekend.",
     "",
   ];
@@ -1301,7 +1427,11 @@ export function renderWeekendDeskText(desk) {
     const obj = objectiveLine(s);
     if (obj) lines.push(obj);
     lines.push(s.why || "");
-    if (s.watching_for) lines.push(`Watch: ${s.watching_for}`);
+    if (s.setup) lines.push(`Setup: ${s.setup}`);
+    if (s.path_up) lines.push(`Up: ${s.path_up}`);
+    if (s.path_down) lines.push(`Down: ${s.path_down}`);
+    if (s.path_sideways) lines.push(`Sideways: ${s.path_sideways}`);
+    if (s.watching_for) lines.push(`Opportunity: ${s.watching_for}`);
     lines.push("");
   });
   if (also.length) {
@@ -1315,11 +1445,43 @@ export function renderWeekendDeskText(desk) {
       lines.push(`- ${alsoBits.join(" ")} — ${s.headline || c.headline || "setup"}`);
       if (s.level_name) lines.push(`  ${s.level_name}`);
       if (obj) lines.push(`  ${obj}`);
+      if (s.path_up) lines.push(`  Up: ${s.path_up}`);
+      if (s.path_down) lines.push(`  Down: ${s.path_down}`);
+      if (s.path_sideways) lines.push(`  Sideways: ${s.path_sideways}`);
+      if (s.watching_for) lines.push(`  Opportunity: ${s.watching_for}`);
     }
     lines.push("");
   }
   lines.push(`Open Today: ${WEEKEND_DESK_PAGE}`);
   return lines.join("\n");
+}
+
+function pathRow(label, text, { emphasis = false } = {}) {
+  if (!text) return "";
+  const labelColor = emphasis ? BRAND.green : BRAND.textMuted;
+  const bodyColor = emphasis ? BRAND.textPrimary : BRAND.textSecondary;
+  return `<tr>
+    <td style="width:84px;padding:4px 10px 4px 0;vertical-align:top;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${labelColor};font-family:${EMAIL_FONT_UI};white-space:nowrap">${_esc(label)}</td>
+    <td style="padding:4px 0;font-size:14px;line-height:1.45;color:${bodyColor};font-family:${EMAIL_FONT_UI}">${_esc(text)}</td>
+  </tr>`;
+}
+
+function setupReportHtml(story) {
+  const s = story || {};
+  const watch = String(s.watching_path || "").toLowerCase();
+  const setup = s.setup || s.why || "";
+  const extra = s.why && s.setup && s.why !== s.setup
+    ? s.why.replace(s.setup, "").trim()
+    : "";
+  const rows = [
+    pathRow("Up", s.path_up, { emphasis: watch === "up" }),
+    pathRow("Down", s.path_down, { emphasis: watch === "down" }),
+    pathRow("Sideways", s.path_sideways, { emphasis: watch === "sideways" }),
+  ].join("");
+  return `
+      ${setup ? `<p style="margin:0 0 12px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6;font-family:${EMAIL_FONT_UI}">${_esc(setup)}${extra ? ` ${_esc(extra)}` : ""}</p>` : ""}
+      ${rows ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">${rows}</table>` : ""}
+      ${s.watching_for ? `<p style="margin:0 0 14px;font-size:14px;color:${BRAND.textPrimary};line-height:1.55;font-family:${EMAIL_FONT_UI}"><span style="font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.green}">Opportunity</span> ${_esc(s.watching_for)}</p>` : ""}`;
 }
 
 function featuredBlock(card, index, origin, { compact = false } = {}) {
@@ -1348,8 +1510,7 @@ function featuredBlock(card, index, origin, { compact = false } = {}) {
       <div style="font-family:${EMAIL_FONT_EDITORIAL};font-size:${headlineSize}px;line-height:1.25;font-weight:400;color:white;margin:12px 0 8px">${_esc(s.headline || ticker)}</div>
       ${levelName ? `<div style="font-family:${EMAIL_FONT_UI};font-size:12px;color:${BRAND.textMuted};margin:0 0 6px">${_esc(levelName)}</div>` : ""}
       ${obj ? `<div style="font-family:${EMAIL_FONT_UI};font-size:13px;color:${BRAND.editorial};margin:0 0 10px">${_esc(obj)}</div>` : ""}
-      <p style="margin:0 0 10px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6;font-family:${EMAIL_FONT_UI}">${_esc(s.why || "")}</p>
-      ${s.watching_for ? `<p style="margin:0 0 14px;font-size:14px;color:${BRAND.textSecondary};line-height:1.55;font-family:${EMAIL_FONT_UI}"><span style="font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.editorial}">Watch</span> ${_esc(s.watching_for)}</p>` : ""}
+      ${setupReportHtml(s)}
       <a href="${today}" style="display:block;line-height:0;border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border}">
         <img src="${_esc(chart)}" alt="${_esc(ticker)} ${tfLabel} candles" width="600" style="display:block;width:100%;max-width:600px;height:auto;border-radius:8px" />
       </a>
@@ -1365,7 +1526,7 @@ export function renderWeekendDeskHtml(desk, { unsubscribeUrl, origin, preview = 
   const also = desk.also_on_tape || [];
   const count = featured.length;
   const intro = count
-    ? `${count} name${count === 1 ? "" : "s"} with a defined support or resistance into the next session. Daily candles keep gaps visible. A hold or rejection at the named level is the tell — not the first print through it.`
+    ? `${count} name${count === 1 ? "" : "s"} with a defined level into the next session. Each card is a short report: the setup, the up / down / sideways paths, and the opportunity the desk is watching. Daily candles keep gaps visible. This is not a buy list — Monday still has to grade the setup.`
     : "No clean setups cleared the bar this weekend. The desk will look again after the next session.";
   const featuredHtml = featured.length
     ? featured.map((c, i) => featuredBlock(c, i + 1, base)).join("")
@@ -1382,7 +1543,7 @@ export function renderWeekendDeskHtml(desk, { unsubscribeUrl, origin, preview = 
   const longDate = desk.long_label || desk.label;
   const body = `
     <div style="font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:${BRAND.editorial};font-family:${EMAIL_FONT_UI};margin:0 0 6px">TT Setups</div>
-    <h1 style="margin:0 0 8px;font-size:32px;font-weight:400;color:white;font-family:${EMAIL_FONT_EDITORIAL};letter-spacing:-0.015em;line-height:1.1">Weekend watch</h1>
+    <h1 style="margin:0 0 8px;font-size:32px;font-weight:400;color:white;font-family:${EMAIL_FONT_EDITORIAL};letter-spacing:-0.015em;line-height:1.1">Weekend report</h1>
     <p style="margin:0 0 16px;font-size:13px;color:${BRAND.textMuted};font-family:${EMAIL_FONT_UI}">${_esc(longDate)}</p>
     ${previewNote}
     <p style="margin:0 0 22px;font-size:15px;color:${BRAND.textSecondary};line-height:1.6;font-family:${EMAIL_FONT_UI}">${intro}</p>
@@ -1397,7 +1558,7 @@ export function renderWeekendDeskHtml(desk, { unsubscribeUrl, origin, preview = 
   `;
   return emailLayout(body, {
     unsubscribeUrl,
-    preheader: `TT Setups · Weekend watch · ${count} name${count === 1 ? "" : "s"} · ${desk.label}`,
+    preheader: `TT Setups · Weekend report · ${count} name${count === 1 ? "" : "s"} · ${desk.label}`,
   });
 }
 

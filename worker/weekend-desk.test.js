@@ -115,6 +115,10 @@ describe("analyzeTickerForWeekendDesk", () => {
     expect(out.story.level_name).toMatch(/support/i);
     expect(`${out.story.headline} ${out.story.why} ${out.story.watching_for}`).not.toMatch(/\bthe line\b/i);
     expect(out.story.watching_for).toMatch(/support|accepted/i);
+    expect(out.story.watching_path).toBe("up");
+    expect(out.story.path_up).toMatch(/hold and turn/i);
+    expect(out.story.path_down).toMatch(/not accepted/i);
+    expect(out.story.path_sideways).toMatch(/no confirm/i);
     expect(out.story.why).not.toMatch(/st_magnet|ema_short|RVOL/i);
   });
 
@@ -324,7 +328,11 @@ describe("composeWeekendDesk", () => {
     expect(html).toContain("/timed/chart-image?");
     expect(html).toContain("ticker=CRDO");
     expect(html).toMatch(/tf=D|tf=W|tf=240|tf=60/);
-    expect(html).toContain("Weekend watch");
+    expect(html).toContain("Weekend report");
+    expect(html).toContain("Opportunity");
+    expect(html).toMatch(/>Up</);
+    expect(html).toMatch(/>Down</);
+    expect(html).toMatch(/>Sideways</);
     expect(html).toContain("Georgia");
     expect(html).toContain("/timed/logo/CRDO.png");
     expect(html).toContain("$398.20");
@@ -573,6 +581,10 @@ describe("composeWeekendDesk", () => {
     expect(gold.story.kind).toBe("magnet");
     expect(gold.story.dir).toBe("SHORT");
     expect(gold.story.target).toBe(44.13);
+    expect(gold.story.watching_path).toBe("down");
+    expect(gold.story.path_down).toMatch(/\$44\.13/);
+    expect(gold.story.path_up).toMatch(/chase/i);
+    expect(gold.story.watching_for).toMatch(/down path/i);
     const desk = composeWeekendDesk({
       cards: [
         card({
