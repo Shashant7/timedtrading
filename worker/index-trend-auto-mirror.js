@@ -268,6 +268,7 @@ export async function healMissedIndexTrendEntries(env, { now = Date.now(), limit
     out.reason = "outside_rth";
     return out;
   }
+  const candidates = [];
   for (const letf of INDEX_TREND_CARRY_LETFS) {
     const loaded = await loadIndexTrendBook(env, { letf_ticker: letf });
     const book = loaded?.book;
@@ -275,14 +276,33 @@ export async function healMissedIndexTrendEntries(env, { now = Date.now(), limit
     if (!sid || !book || !indexTrendBookIsLive(book)) continue;
     out.scanned += 1;
     if (!(await indexTrendShouldCatchUpOpenEntry(env, { signalId: sid, book, now }))) continue;
+    const existing = await loadMirror(env, sid);
+    const px = Number(book.last_letf_price) || Number(book.entry_letf_price) || 0;
+    const shares = Number(book.shares) || 0;
+    candidates.push({
+      letf,
+      sid,
+      book,
+      loaded,
+      neverAttempted: !indexTrendMirrorLooksAttempted(existing),
+      notional: px > 0 && shares > 0 ? px * shares : Number.MAX_SAFE_INTEGER,
+    });
+  }
+  // Never-attempted new sleeves that still fit the $2000 book (UDOW W38)
+  // before leftover books that grew past the cap (TNA W37 after paper DCA).
+  candidates.sort((a, b) => {
+    if (a.neverAttempted !== b.neverAttempted) return Number(b.neverAttempted) - Number(a.neverAttempted);
+    return a.notional - b.notional;
+  });
+  for (const row of candidates) {
     const result = await maybeAutoMirrorIndexTrendEvent(env, {
       event: "BUY",
       catch_up: true,
-      signal_id: sid,
-      underlying: book.underlying || loaded.underlying,
-      letf_ticker: letf,
-      letf_price: Number(book.last_letf_price) || Number(book.entry_letf_price) || 0,
-      book,
+      signal_id: row.sid,
+      underlying: row.book.underlying || row.loaded.underlying,
+      letf_ticker: row.letf,
+      letf_price: Number(row.book.last_letf_price) || Number(row.book.entry_letf_price) || 0,
+      book: row.book,
       now,
     });
     out.attempted += 1;
@@ -290,8 +310,8 @@ export async function healMissedIndexTrendEntries(env, { now = Date.now(), limit
     if (placed) out.filled += 1;
     else out.skipped += 1;
     out.results.push({
-      signal_id: sid,
-      ticker: letf,
+      signal_id: row.sid,
+      ticker: row.letf,
       placed,
       qty: result?.qty ?? null,
       reason: result?.reason || extractIndexTrendRejectReason(result?.fired) || null,
@@ -407,18 +427,27 @@ async function releaseEntryCounters(env, operatorEmail, reservation) {
   await Promise.all(releases);
 }
 
-function planEntryQty({ vehicleRow, letfPrice, book, size }) {
+/**
+ * Size a BUY to the vehicle sleeve. Paper books can grow past
+ * max_per_order_usd (TNA W37 DCA 30→46 sh = $2975 vs $2000). Skipping
+ * the whole catch-up left Discord-only signals. Cash-scale down to
+ * the cap — same math as a fresh paper open.
+ */
+export function planEntryQty({ vehicleRow, letfPrice, book, size } = {}) {
   const px = Number(letfPrice);
   const maxUsd = Number(vehicleRow?.max_per_order_usd) || 2000;
   const fromBook = Number(book?.shares) || Number(size?.shares);
-  const qty = Number.isFinite(fromBook) && fromBook > 0
+  const rawQty = Number.isFinite(fromBook) && fromBook > 0
     ? Math.round(fromBook)
     : defaultIndexTrendPaperShares(px, maxUsd);
-  const notional = px > 0 ? px * qty : 0;
-  if (maxUsd > 0 && notional > maxUsd * 1.05) {
-    return { ok: false, reason: `notional_${Math.round(notional)}_exceeds_cap_${maxUsd}` };
+  let qty = rawQty;
+  let scaled = false;
+  if (px > 0 && maxUsd > 0 && qty * px > maxUsd * 1.05) {
+    qty = defaultIndexTrendPaperShares(px, maxUsd);
+    scaled = qty !== rawQty;
   }
-  return { ok: true, qty: Math.max(1, qty) };
+  if (!(qty > 0)) return { ok: false, reason: "zero_qty" };
+  return { ok: true, qty: Math.max(1, qty), scaled, raw_qty: rawQty };
 }
 
 function closeQty(event, book, mirror) {
@@ -451,7 +480,7 @@ export async function maybeAutoMirrorIndexTrendEvent(env, ctx = {}) {
 }
 
 async function runIndexTrendMirror(env, ctx = {}) {
-  const event = String(ctx.event || "BUY").toUpperCase();
+  let event = String(ctx.event || "BUY").toUpperCase();
   const signalId = String(ctx.signal_id || "").trim();
   const gate = await gateMirror(env, ctx);
   if (!gate.ok) return gate;
@@ -466,6 +495,12 @@ async function runIndexTrendMirror(env, ctx = {}) {
     if (!ctx.catch_up && !isNyBuyWindow(ctx.now)) {
       return { skipped: true, reason: "outside_rth_buy_window" };
     }
+  }
+
+  // Paper DCA on a sleeve that never filled is an entry, not an add.
+  if (event === "DCA_ADD" && signalId) {
+    const existing = await loadMirror(env, signalId);
+    if (!existing?.entry_fired) event = "BUY";
   }
 
   if (event === "BUY") {

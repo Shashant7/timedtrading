@@ -395,25 +395,27 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
 
   const nextBook = decision.nextBook || book;
 
+  const actionRow = {
+    ts: now,
+    event: ev,
+    underlying: payload.underlying || payload.ticker,
+    letf_ticker: payload.letf_ticker,
+    signal_id: persistSignalId,
+    shares: indexTrendActionShares(decision, {
+      nextBook,
+      priorBook: book,
+      fallbackShares: payload.shares ?? defaultIndexTrendPaperShares(payload.letf_price),
+    }),
+    letf_price: payload.letf_price,
+    reason: decision.reason || null,
+  };
+
   // STOP/EXIT: persist pending_close + action tape, then the caller mirrors.
   // Discord waits until finalizeIndexTrendPaperClose after /bridge/order.
   // Isolate death after this persist still retries — book stays live.
   if (isClose) {
     if (!alreadyPending) {
-      await recordIndexTrendAction(env, {
-        ts: now,
-        event: ev,
-        underlying: payload.underlying || payload.ticker,
-        letf_ticker: payload.letf_ticker,
-        signal_id: persistSignalId,
-        shares: indexTrendActionShares(decision, {
-          nextBook,
-          priorBook: book,
-          fallbackShares: payload.shares ?? defaultIndexTrendPaperShares(payload.letf_price),
-        }),
-        letf_price: payload.letf_price,
-        reason: decision.reason || null,
-      }).catch(() => {});
+      await recordIndexTrendAction(env, actionRow).catch(() => {});
     }
     return {
       ok: true,
@@ -427,6 +429,10 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     };
   }
 
+  // Tape before Discord/email so isolate death after notify still leaves
+  // a model action for coverage + heal (TNA/UDOW 2026-09-14).
+  await recordIndexTrendAction(env, actionRow).catch(() => {});
+
   const broadcast = await broadcastIndexTrendEvent(env, {
     payload: { ...payload, now },
     decision,
@@ -434,21 +440,6 @@ export async function maybeNotifyIndexTrendPaperEvent(env, payload = {}) {
     persistSignalId,
     priorBook: book,
   });
-
-  await recordIndexTrendAction(env, {
-    ts: now,
-    event: ev,
-    underlying: payload.underlying || payload.ticker,
-    letf_ticker: payload.letf_ticker,
-    signal_id: persistSignalId,
-    shares: indexTrendActionShares(decision, {
-      nextBook,
-      priorBook: book,
-      fallbackShares: payload.shares ?? defaultIndexTrendPaperShares(payload.letf_price),
-    }),
-    letf_price: payload.letf_price,
-    reason: decision.reason || null,
-  }).catch(() => {});
 
   return {
     ok: !!broadcast.discord?.ok,

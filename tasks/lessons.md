@@ -6,6 +6,31 @@
 
 ---
 
+## Index Swings Discord is not a broker fill [2026-09-14]
+
+**Symptom:** #trade-signals posted TNA LONG DCA_ADD (11:30 ET, 46 sh)
+and UDOW LONG BUY (12:01 ET, 28 sh). Roth had neither. Coverage did
+not list the actions — `timed:idx-trend-actions` still ended Sep 11.
+
+**Cause:** Discord/email fire from the paper book. TNA is leftover
+W37 (never-attempted BUY Sep 11). Today's paper DCA grew 30→46 sh
+($2975). Catch-up sent `event=BUY` of the full book and skipped
+`notional_2975_exceeds_cap_2000`. Vehicle `index_trend_letf` cap 2
+was already reserved (SPYU 60 pending, no order id). UDOW W38 is
+under the $2000 sleeve but `/bridge/order` never ran (no mirror
+row, no log line). Heal kept retrying SPYU/TNA first.
+
+**Fix:** Cash-scale BUY qty to `max_per_order_usd`. Paper DCA on a
+never-filled sleeve is an entry catch-up. Heal never-attempted
+books before leftover oversized books. Write the action tape before
+Discord so isolate death still leaves a model row.
+
+**Do not:** Backfill leftover ENTRIES that already tried a place.
+Treat Discord as a fill. Invent a new ST ENTRY buy path. Heal-sell
+TQQQ W36.
+
+---
+
 ## Sunday is not FOMC decision day [2026-09-13]
 
 **Symptom:** Today MACRO EVENTS labeled TODAY · FOMC rate decision on

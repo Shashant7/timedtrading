@@ -9,6 +9,7 @@ Single reference for agents. Read this first to avoid context overload.
 
 ## Workflow
 
+- **Index Swings Discord is not a fill (2026-09-14):** #trade-signals TNA DCA_ADD / UDOW BUY wrote the paper book first. TNA W37 never filled; paper grew to 46 sh ($2975) and catch-up skipped `notional_*_exceeds_cap_2000` instead of scaling to the $2000 sleeve. Vehicle cap 2/2 was already reserved (SPYU 60 pending, no order id). UDOW W38 never hit `/bridge/order`. Scale BUY qty; DCA on a never-filled sleeve is entry catch-up; heal never-attempted books first. Do not chase leftover books that already tried a place.
 - **FOMC date snap (2026-09-13):** Today `is_today` is NY calendar day. Vendor/LLM/`daily_brief_econ` dated Sep FOMC as Sunday Sep 13 (and meeting-day-1 Sep 15). Snap FOMC *decisions* (not minutes) onto `CURATED_UPCOMING_MACRO`; drop weekend decisions with no nearby Fed day. Persist + FSD extract use the same snap; purge upcoming uncurated FOMC from `market_events` so PRE_FOMC does not fire on Sunday.
 - **Historical calibration corpus (2026-09-09):** use the complete ledger,
   Discovery Moves and multi-timeframe candles first; a report's export cap or
