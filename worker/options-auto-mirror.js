@@ -354,53 +354,16 @@ export function decideAutoMirror(ctx, prefs, profile = "speculator") {
   };
 }
 
-/**
- * Check + bump the GLOBAL daily counter. Returns { allowed, current, cap }.
- * Used for the legacy aggregate cap (covers operator total across all
- * vehicles). Per-vehicle caps are enforced via checkAndBumpVehicleCounter.
- */
-export async function checkAndBumpDailyCounter(env, userEmail, cap = 5) {
-  const date = new Date().toISOString().slice(0, 10);
-  const key = DAILY_COUNTER_KEY(userEmail, date);
-  const current = Number(await env.KV_TIMED.get(key)) || 0;
-  if (current >= cap) return { allowed: false, current, cap };
-  await env.KV_TIMED.put(key, String(current + 1), { expirationTtl: 86400 * 2 });
-  return { allowed: true, current: current + 1, cap };
-}
-
-/**
- * Check + bump the PER-VEHICLE daily counter. Returns { allowed, current, cap }.
- * Two-phase so the caller can validate eligibility before committing
- * the bump (we don't bump on a rejected order).
- */
-export async function checkAndBumpVehicleCounter(env, userEmail, vehicle, cap) {
-  const date = new Date().toISOString().slice(0, 10);
-  const key = DAILY_VEHICLE_COUNTER_KEY(userEmail, vehicle, date);
-  const current = Number(await env.KV_TIMED.get(key)) || 0;
-  if (current >= cap) return { allowed: false, current, cap, vehicle };
-  await env.KV_TIMED.put(key, String(current + 1), { expirationTtl: 86400 * 2 });
-  return { allowed: true, current: current + 1, cap, vehicle };
-}
-
-async function releaseCounter(env, key) {
-  if (!env?.KV_TIMED || !key) return 0;
-  const current = Number(await env.KV_TIMED.get(key)) || 0;
-  const next = Math.max(0, current - 1);
-  await env.KV_TIMED.put(key, String(next), { expirationTtl: 86400 * 2 });
-  return next;
-}
-
-/** Release a reserved global slot after an order rejects or fails to dispatch. */
-export async function releaseDailyCounter(env, userEmail) {
-  const date = new Date().toISOString().slice(0, 10);
-  return releaseCounter(env, DAILY_COUNTER_KEY(userEmail, date));
-}
-
-/** Release a reserved vehicle slot after an order rejects or fails to dispatch. */
-export async function releaseVehicleCounter(env, userEmail, vehicle) {
-  const date = new Date().toISOString().slice(0, 10);
-  return releaseCounter(env, DAILY_VEHICLE_COUNTER_KEY(userEmail, vehicle, date));
-}
+// The reserve-then-release helpers that used to live here
+// (`checkAndBumpDailyCounter`, `checkAndBumpVehicleCounter`,
+// `releaseDailyCounter`, `releaseVehicleCounter`) are DELETED, not kept for
+// a caller that might come back. They bumped on intent and released on a
+// non-place, so isolate death between the two ran neither branch and wedged
+// `index_trend_letf` at 2/2 with zero orders placed — SPYU, TNA and UDOW
+// each skipped `vehicle_daily_cap_2_reached` every five minutes for a full
+// session. They also keyed the day off wall clock, ignoring the caller's
+// `now`, so a reconcile and a cap check read different days. Use the
+// read-only check plus commit-on-place below.
 
 /**
  * Read-only cap check. Pair with `commitEntryCounters` AFTER the bridge
