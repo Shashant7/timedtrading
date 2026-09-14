@@ -121,7 +121,10 @@ jobs:
         run: |
           sleep 5
           for BASE in "https://timed-trading-ingest.shashant.workers.dev" "https://timed-trading.com"; do
-            HEALTH=$(curl -s -m 20 "$BASE/timed/health" || echo "{}")
+            # Cache-bust: /timed/health ships `Cache-Control: max-age=60`, so
+            # a plain probe can be answered from the edge by the PREVIOUS
+            # version and make the sha assertion below flap.
+            HEALTH=$(curl -s -m 20 -H 'Cache-Control: no-cache' "$BASE/timed/health?cb=${GITHUB_SHA:0:8}" || echo "{}")
             # 2026-06-10 — same non-JSON guard as watchdog.yml: the custom
             # domain can serve a Cloudflare bot challenge to CI curl, which
             # previously crashed jq (exit 5 under bash -e) and failed the
@@ -137,9 +140,24 @@ jobs:
             OK=$(echo "$HEALTH" | jq -r '.ok // false')
             TICK=$(echo "$HEALTH" | jq -r '.cronTickAgeMin // "null"')
             FAILS=$(echo "$HEALTH" | jq -r '.cronFailures.count // "null"')
-            echo "$BASE → ok=$OK cronTickAgeMin=$TICK activeCronFailures=$FAILS"
+            SHA=$(echo "$HEALTH" | jq -r '.deployedSha // "unset"')
+            echo "$BASE → ok=$OK deployedSha=$SHA cronTickAgeMin=$TICK activeCronFailures=$FAILS"
             if [ "$OK" != "true" ]; then
               echo "::error::$BASE/timed/health did not return ok:true after deploy"
+              exit 1
+            fi
+            # ok:true is what a STALE worker answers too — that is exactly
+            # how eleven days of green runs told the operator nothing. The
+            # live commit must be the one this run just built. Retry: a new
+            # version can take a few seconds to reach every colo.
+            for ATTEMPT in 1 2 3 4 5; do
+              [ "$SHA" = "${GITHUB_SHA:0:8}" ] && break
+              sleep 10
+              SHA=$(curl -s -m 20 -H 'Cache-Control: no-cache' "$BASE/timed/health?cb=${GITHUB_SHA:0:8}-$ATTEMPT" | jq -r '.deployedSha // "unset"')
+              echo "$BASE → retry $ATTEMPT deployedSha=$SHA"
+            done
+            if [ "$SHA" != "${GITHUB_SHA:0:8}" ]; then
+              echo "::error::$BASE is serving deployedSha=$SHA but this run deployed ${GITHUB_SHA:0:8} — the upload did not take effect"
               exit 1
             fi
           done

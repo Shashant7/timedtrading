@@ -74,7 +74,7 @@ since. The date alone is not the finding; the date against the source is.
 
 | What you changed | What to deploy |
 |---|---|
-| `worker/*.js`, `worker/wrangler.toml`, `worker/*.sql` | **Worker, BOTH envs** (default + production) |
+| `worker/*.js`, `worker/wrangler.toml`, `worker/*.sql` | **Worker, BOTH envs** (default + production) **AND tt-engine + tt-research** — both bundle `../worker/index.js`, so a monolith-only deploy leaves every `*/5` and hourly cron running the old code |
 | `worker/feed/**` (price feed, merge, stream helpers) | **tt-feed too** (`worker-feed/`) — after cutover the */1 heal/merge cron runs there, not on the monolith |
 | `react-app/shared-right-rail.js` (the right-rail React source) | **Rail compile + frontend build + git push** |
 | `react-app/*.html` (any page using JSX/React) | **Frontend build + git push** |
@@ -95,12 +95,41 @@ cd /workspace/worker
 
 Both must succeed. The deploy is fast (~5s each).
 
+### That was one of three. Now the cron workers.
+
+`tt-engine` and `tt-research` set `main = "../worker/index.js"` — they are
+the SAME bundle, role-gated at runtime. A change in `worker/` is not live
+on the crons until they are redeployed too, and the crons are where the
+`*/5` mirror lanes, the hourly research slots and the Daily Brief run.
+Deploying only the monolith is how a fix can look shipped while the lane
+that needs it keeps running week-old code.
+
+```bash
+cd /workspace
+npm run deploy:crons     # engine + research, both single-env
+# or individually: npm run deploy:engine / npm run deploy:research
+```
+
+`npm run deploy:all` = frontend + monolith (both envs) + both crons.
+Before 2026-09-14 `deploy:all` stopped after the monolith and there was
+no script for the crons at all, so the broken workflow's own recovery
+notice ("run `npm run deploy:worker`") would have left two of the three
+stale.
+
 ### Verify
 
 ```bash
-curl -s https://timed-trading-ingest.shashant.workers.dev/timed/health | python3 -m json.tool | head -10
-# Expect: ok=true, dataVersion matches expectedVersion
+curl -s https://timed-trading-ingest.shashant.workers.dev/timed/health | python3 -m json.tool | head -14
+# Expect: ok=true, dataVersion matches expectedVersion, and
+# deployedSha == the commit you just shipped (CI stamps ENGINE_GIT_SHA;
+# a hand-run `wrangler deploy` without --var leaves it "unset").
 ```
+
+`deployedSha` is the answer to "is prod actually current?" — `ok:true`
+is what a stale worker answers too, which is why eleven days of green
+runs and healthy probes told the operator nothing. CI's post-deploy
+smoke now asserts the live sha equals the sha it just built, so a skipped
+or no-op upload fails the run.
 
 ---
 
