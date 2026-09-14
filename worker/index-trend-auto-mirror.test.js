@@ -11,6 +11,7 @@ import {
   extractIndexTrendRejectReason,
   indexTrendShouldCatchUpOpenEntry,
   indexTrendMirrorLooksAttempted,
+  planEntryQty,
   INDEX_TREND_MIRROR_LOG_KEY,
 } from "./index-trend-auto-mirror.js";
 import { forwardOrderToBridge } from "./broker-bridge-client.js";
@@ -366,6 +367,79 @@ describe("index-trend-auto-mirror", () => {
     const again = await healStrandedIndexTrendCloses(env, { now: RTH_TS + 60_000 });
     expect(again.attempted).toBe(0);
     expect(forwardOrderToBridge).not.toHaveBeenCalled();
+  });
+
+  it("cash-scales a paper book that grew past the $2000 sleeve", () => {
+    const sized = planEntryQty({
+      vehicleRow: { max_per_order_usd: 2000 },
+      letfPrice: 64.67,
+      book: { shares: 46 },
+    });
+    expect(sized.ok).toBe(true);
+    expect(sized.scaled).toBe(true);
+    expect(sized.raw_qty).toBe(46);
+    expect(sized.qty).toBe(30);
+    expect(sized.qty * 64.67).toBeLessThanOrEqual(2000 * 1.05);
+  });
+
+  it("treats paper DCA on a never-filled sleeve as an entry BUY", async () => {
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+    });
+    const r = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "DCA_ADD",
+      signal_id: "it:IWM:TNA:LONG:2026-W37",
+      underlying: "IWM",
+      letf_ticker: "TNA",
+      letf_price: 64.67,
+      book: { shares: 46, status: "open" },
+      now: RTH_TS,
+    });
+    expect(r.skipped).toBe(false);
+    expect(forwardOrderToBridge).toHaveBeenCalledWith(env, expect.objectContaining({
+      ticker: "TNA",
+      side: "buy",
+      qty: 30,
+      trade_id: "it:IWM:TNA:LONG:2026-W37",
+    }));
+  });
+
+  it("heals a never-attempted UDOW before an oversized leftover TNA", async () => {
+    const now = Date.UTC(2026, 8, 14, 16, 5, 0);
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      "timed:idx-trend-carry:TNA": JSON.stringify({
+        signal_id: "it:IWM:TNA:LONG:2026-W37",
+        book: {
+          status: "open",
+          shares: 46,
+          entry_ts: now - 3 * 86400 * 1000,
+          underlying: "IWM",
+          letf_ticker: "TNA",
+          last_letf_price: 64.67,
+        },
+      }),
+      "timed:idx-trend-carry:UDOW": JSON.stringify({
+        signal_id: "it:DIA:UDOW:LONG:2026-W38",
+        book: {
+          status: "open",
+          shares: 28,
+          entry_ts: now - 4 * 60 * 1000,
+          underlying: "DIA",
+          letf_ticker: "UDOW",
+          last_letf_price: 69.36,
+        },
+      }),
+    });
+    const heal = await healMissedIndexTrendEntries(env, { now, limit: 1 });
+    expect(heal.attempted).toBe(1);
+    expect(heal.filled).toBe(1);
+    expect(forwardOrderToBridge).toHaveBeenCalledWith(env, expect.objectContaining({
+      ticker: "UDOW",
+      side: "buy",
+      qty: 28,
+      trade_id: "it:DIA:UDOW:LONG:2026-W38",
+    }));
   });
 
   it("catches up a never-attempted same-session BUY past 15 minutes during RTH", async () => {

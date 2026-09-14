@@ -80,7 +80,11 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   place (UDOW/TQQQ/TJX 2026-09-03). Index-trend same-tick heal stays
 >   under 15 minutes; a **never-attempted** BUY (no mirror row) for a
 >   still-open book younger than 4 days may catch up during RTH
->   (`healMissedIndexTrendEntries` on `*/5`, before EXIT heal). Stamp
+>   (`healMissedIndexTrendEntries` on `*/5`, before EXIT heal). Cash-scale
+>   BUY qty to `max_per_order_usd` when the paper book grew past the
+>   sleeve (TNA W37 DCA 46 sh / $2975). Paper DCA on a never-filled
+>   sleeve is an entry catch-up. Heal never-attempted books first.
+>   Discord is not a fill. Stamp
 >   the real bridge reject (fan-out child `reject_reason`), not
 >   `bridge_reject`. Terminal EXIT rejects (`no_broker_position`,
 >   `already_flat`, …) flatten the KV mirror so heal stops looping.
