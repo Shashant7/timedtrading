@@ -577,6 +577,23 @@ describe("source contract — coverage is wired fail-closed", () => {
     expect(coo).toMatch(/model_broker_coverage/);
     expect(coo).toMatch(/_healModelBrokerCoverage/);
   });
+
+  // The healer fans out to five lanes and its verdict decides whether the
+  // check is marked healed and takes a 4h cooldown. `some(row => row.ok)`
+  // was unconditionally true because `broker-intents/drain` answers ok:true
+  // with nothing to drain — so four lanes could throw while the page stayed
+  // suppressed for four hours. That is "the signal never went through and
+  // nothing told the desk", which is the whole point of this contract.
+  it("the coverage healer's verdict requires every lane, not any lane", () => {
+    const coo = readFileSync(join(root, "coo/coo-orchestrator.js"), "utf8");
+    const fn = coo.slice(coo.indexOf("async function _healModelBrokerCoverage"));
+    const body = fn.slice(0, fn.indexOf("\n}"));
+    expect(body).not.toMatch(/\.some\(/);
+    expect(body).toMatch(/failed\.length === 0/);
+    // The failing lanes must be named, or the operator cannot triage.
+    expect(body).toMatch(/failed/);
+    expect(coo).toMatch(/lanes:\$\{action\.failed\.join\(","\)\}/);
+  });
 });
 
 describe("index_trend lane reads the paper book, not just the tape", () => {

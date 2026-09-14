@@ -435,7 +435,9 @@ export async function runSelfHealing(env, options = {}) {
         ? `would_do: ${action.would_do}`
         : action?.ok
           ? `healed: ${JSON.stringify(action).slice(0, 200)}`
-          : `failed: ${action?.error || action?.reason || "unknown"}`,
+          : `failed: ${action?.error
+            || action?.reason
+            || (action?.failed?.length ? `lanes:${action.failed.join(",")}` : "unknown")}`,
     });
 
     if (action?.ok && !action?.dry_run) {
@@ -480,8 +482,17 @@ async function _healModelBrokerCoverage(env) {
   } catch (e) {
     results.intents = { ok: false, error: String(e?.message || e).slice(0, 200) };
   }
-  const ok = Object.values(results).some((row) => row && row.ok);
-  return { ok, results };
+  // EVERY lane, not some. `broker-intents/drain` answers ok:true with
+  // nothing to drain, so `some()` was unconditionally true — the check got
+  // marked healed and took its 4h cooldown while the investor catch-up, the
+  // trader-exit catch-up and both index-trend heals could all have thrown.
+  // That is the exact shape of "the signal never went through and nothing
+  // paged". A lane with a closed window still answers ok:true (`outside_rth`,
+  // `no_bridge_configured`), so this does not false-negative on a skip.
+  const failed = Object.entries(results)
+    .filter(([, row]) => !(row && row.ok))
+    .map(([lane]) => lane);
+  return { ok: failed.length === 0, failed, results };
 }
 
 async function _healInvestorBridgeCatchup(env, baseUrl, adminKey) {
