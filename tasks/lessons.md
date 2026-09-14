@@ -41,6 +41,158 @@ deploy target, and `npm run deploy:worker` moves none of them. Check the
 version list per script and compare against
 `git log --since=<deployed-date> -- <its source paths>`.
 
+**Follow-up (same day):** the reason this took eleven days to notice is
+that nothing observable distinguished a stale worker from a current one.
+`/timed/health` returned `ok:true` throughout and `dataVersion` is a
+hand-bumped schema string. Confirming the recovery deploy required
+fingerprinting the bundle by probing a route that only exists in
+post-blackout code — which is not a control, it is archaeology.
+
+`/timed/health` and `/timed/version` now return `deployedSha` (the
+`ENGINE_GIT_SHA` the workflows already injected but never surfaced) and
+`workerRole`. The post-deploy smoke asserts the live sha equals the sha
+the run just built, with a cache-buster (health ships `max-age=60`, so a
+plain probe can be answered by the previous version) and a retry for
+colo propagation. `deploy-research.yml` was the one workflow that never
+passed `--var ENGINE_GIT_SHA`, so tt-research could not have reported
+its build even if asked.
+
+Also added `deploy:engine`, `deploy:research` and `deploy:crons`.
+`tt-engine` and `tt-research` set `main = "../worker/index.js"` — same
+bundle, role-gated — and had no npm script at all, while `deploy:all`
+stopped after the monolith. The broken workflow's own recovery notice
+said to run `npm run deploy:worker`, which would have left two of the
+three cron workers stale, and the crons are where the `*/5` mirror lanes
+and the Daily Brief run.
+
+---
+
+## A guard that lives in execState dies if the caller only persists a copy [2026-09-14]
+
+**Symptom:** none visible. `[RUNNER_EXT_TRIM]` lines looked correct
+individually, the trims were the right size, and nothing paged. Found by
+auditing PR 1425 against prod rather than by a failure.
+
+**Cause:** `assessRunnerExtensionTrim` enforces once-per-NY-session
+entirely through `execState.extTrimSession` and `extTrimPx` — the module
+is pure, so the caller owns the guard. `processTradeSimulation` built the
+stamped state into a local `_extExec`, persisted THAT to KV, and left the
+`execState` variable pointing at the pre-trim object. Two later blocks in
+the same pass then persisted `execState` over it:
+
+- the runner stale force-close block, via `ratchetRunnerPeak` → `execState = _rsPeak.execState` → `kvPutJSON`;
+- the smart runner exit block, after touching `runnerC512CloseBelowCount`.
+
+Both are gated on `_sreTrimmedPct`, which is a `const` snapshot of
+`trimmedPct` taken at the top of the pass, BEFORE the trim. So a trade's
+first-ever ext-trim survived (snapshot 0, both blocks gated off) and
+every one after it was erased. Worse, `ratchetRunnerPeak` returns
+`updated: true` precisely when the mark is a new peak — the defining
+condition of the extension this rule fires on — so the guard was wiped
+on exactly the ticks that matter. Losing `extTrimPx` also drops the
+"must print a new high to re-fire" requirement, so chop could bleed it.
+Net: a runner already at 25% could reach the 75% cap inside one session
+in two or three 5-minute ticks, instead of once per session as designed.
+
+**Fix:** assign the stamped object back to `execState` so the later
+writes carry it. One line. The regression test models the three-write
+sequence and separately asserts the call site builds the stamp into
+`execState`; both fail against the old ordering.
+
+**Do not:** leave a rule's guard in a local when the same pass persists
+the shared object again. If a module is pure and the caller owns
+persistence, the caller owns the guard's lifetime too — grep for every
+later write to that object before assuming a stamp sticks.
+
+---
+
+## A purge needs a horizon, not just a non-empty list [2026-09-14]
+
+**Symptom:** none yet — this was a dated time bomb, found while auditing
+the FOMC snap fix (#1469).
+
+**Cause:** `purgeUncuratedUpcomingFomc` runs
+`DELETE FROM market_events WHERE event_key='FOMC' AND date >= today AND
+date NOT IN (…curated…)`, guarded only by `if (!keep.length) return`.
+That guards an EMPTY curated list, not an EXPIRED one. The last curated
+decision in `CURATED_UPCOMING_MACRO` is 2026-12-09 and the ±10-day snap
+window cannot reach 2027, so from roughly 2026-12-20 every legitimate
+2027 Fed meeting the vendor published would be deleted on each Daily
+Brief run and the calendar would show no upcoming FOMC at all — the
+opposite failure to the Sunday-FOMC bug the purge was added to fix.
+
+**Fix:** cap the DELETE at `max(curatedFomcDecisionDates())` and no-op
+once today passes it. Past the horizon the vendor is the only source of
+Fed dates we have, so its rows stay.
+
+**Do not:** write a curated-list purge without bounding it to the window
+the list can speak for. "Delete everything not in my list" is only safe
+while the list covers the range being deleted.
+
+---
+
+## A heal that reports success on any lane suppresses the page [2026-09-14]
+
+**Symptom:** `model_broker_coverage` would show as healed and go quiet
+for four hours while sleeves stayed unmirrored.
+
+**Cause:** `_healModelBrokerCoverage` fans out to five lanes (investor
+catch-up, trader-exit catch-up, index-trend heal-entries, heal-closes,
+broker-intents drain) and returned
+`ok: Object.values(results).some((row) => row && row.ok)`.
+`broker-intents/drain` answers `ok:true` even with nothing to drain, so
+that `some()` was effectively always true. `runSelfHealing` then pushed
+the check into `healed` and wrote a 4-hour cooldown key — so the check
+was marked healed and suppressed even when the other four lanes threw.
+The per-lane results were recorded in the action reason but never gated
+the verdict. This is the exact shape of "the signal never went through
+and nothing told the desk".
+
+**Fix:** require every lane and name the failing ones in the action
+reason. Verified against prod that a closed window still answers
+`ok:true` (`outside_rth` on heal-entries, `no_bridge_configured` on a
+worker with no bridge), so the stricter verdict does not false-negative
+on a legitimate skip — all five lanes were green when probed.
+
+**Do not:** aggregate a fan-out healer with `some()`. One lane that
+always succeeds makes the verdict meaningless, and a false heal is worse
+than no heal because it takes the cooldown with it.
+
+---
+
+## Pages and the worker deploy independently [2026-09-14]
+
+**Symptom:** breakout badges rendered blank for two days after PR 1463
+shipped, with no error in the console, in worker logs, or in CI.
+
+**Cause:** Cloudflare Pages serves the committed `react-app-dist/`
+folder straight off `main` via Cloudflare's own Git integration — there
+is no GitHub Actions workflow that deploys Pages. `worker/` ships
+through the wrangler workflows. So the two halves of one PR go live on
+different schedules, and during the CI blackout the worker half did not
+go live at all. `react-app/index-react.source.html` and
+`react-app/today.html` both read `t._breakout_watch`; the
+`stampBreakoutWatchOnTicker` that writes it sat in the undeployed
+bundle. A field that is never stamped reads `undefined`, which every
+badge treats as "nothing to show" — a silent blank, not a failure.
+
+**Fix:** `tests/ui-worker-field-contract.test.js` asserts every
+underscore-prefixed ticker field the UI reads is either known to
+`worker/` or assigned in `react-app/` itself, deriving the client-side
+set from real assignments so it needs no allowlist upkeep.
+
+Sensitivity is deliberate and documented in the test header: the worker
+side accepts any mention, not specifically an assignment. Requiring an
+assignment flags shorthand properties (`{ _stDirD, _stDirW }`) and alias
+reads (`payload._event_risk`) as orphans, and a check needing five
+hand-maintained exceptions is a check nobody keeps. So it catches "the
+UI depends on a field the worker has never heard of" and NOT "the stamp
+was renamed while a reader kept the old name"; the latter is covered by
+a targeted assertion for the field that actually broke.
+
+**Do not:** assume a frontend change and its worker change ship
+together. They are separate deploy paths with no ordering guarantee.
+
 ---
 
 ## The broker holds one position per ticker, not one per sleeve [2026-09-14]

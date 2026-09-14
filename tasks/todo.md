@@ -35,6 +35,37 @@
       lands 2/2. Roth cash is $2213, so the SECOND of the two may come
       back `insufficient_cash` — that is an account limit, not a bug,
       and coverage should say so rather than page `never_attempted`.
+      Re-replayed 09-14 23:54Z against live KV + live `/bridge/positions`
+      on the deployed code: SPYU returns
+      `broker_already_holds_SPYU_9_adopted` with zero orders; with the
+      adoption guard stubbed out the same inputs size a fresh 59-share
+      sleeve (~$1974) on top of the 9 already held. Evidence:
+      `/opt/cursor/artifacts/index-trend-heal-replay.log`.
+- [ ] **Audit follow-ups still open (2026-09-14).** From the merged-PR
+      audit, deliberately not taken this session: `_healModelBrokerCoverage`
+      now fails per-lane but the 4h cooldown is still per-CHECK, so one
+      persistently failing lane delays the other four — per-lane cooldown
+      is the real fix. `lastSessionHint` and
+      `_resetDeskJournalSchemaCache` in `worker/desk-journal.js` are still
+      exported with no caller and no test. `skills/security-auth-patterns.md`
+      should note that a route-table audit must include
+      `worker/trust-spine/routes.js` or it reports four false orphans.
+- [x] **Merged-PR audit + the defects it found (2026-09-14).** 47 of 66
+      PRs merged 09-03 → 09-14 touched `worker/**` and did nothing until
+      the 09-14 manual deploy; 14 of those ran HALF live, because their
+      frontend or bridge half deploys on a different path (PR 1463
+      shipped blank breakout badges for two days). Fixed the three live
+      defects the blackout was hiding: the ext-trim guard was clobbered
+      in the same pass so an already-trimmed runner could reach the 75%
+      cap in one session instead of once per session; the FOMC purge was
+      unbounded and would have deleted every real 2027 Fed meeting from
+      late Dec; `_healModelBrokerCoverage` reported success on any one
+      lane and took a 4h cooldown while four could have thrown. Also
+      deleted the reserve-then-release cap helpers (no callers, and they
+      re-implement the wedge documented directly beneath them), exposed
+      `deployedSha` so a stale worker is distinguishable from a current
+      one, added `deploy:crons`, and added a UI/worker field-contract
+      test.
 - [x] **4 unmatched trader EXITs (2026-09-14).** U and MNST were
       already flat at the broker; DPZ and KO had no manifest sleeve at
       all (their entries never mirrored — the held shares belonged to
