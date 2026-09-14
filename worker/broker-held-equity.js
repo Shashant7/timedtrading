@@ -112,3 +112,64 @@ export function heldQtyFor(held, ticker) {
   const qty = Number(row?.qty);
   return Number.isFinite(qty) ? qty : 0;
 }
+
+/**
+ * Manifest rows: one sleeve per (model trade, broker account). Callers that
+ * need per-account detail use these directly; callers that only need "did
+ * the broker ever hold this trade" use `loadBrokerSleeves`.
+ *
+ * Never filter on `remaining=1`. ULTA 2026-09-10 still held 0.07902 on a
+ * suppressed lot and that filter hid the sleeve from the catch-up.
+ */
+export async function fetchBrokerManifestRows(env, { limit = 400 } = {}) {
+  try {
+    const body = await getBridgeJson(env, `/bridge/manifest?limit=${Number(limit) || 400}`);
+    return Array.isArray(body?.rows) ? body.rows : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function sleeveKey(tradeId) {
+  return String(tradeId || "").trim().replace(/^inv-/, "").toLowerCase();
+}
+
+/**
+ * Per-model-trade broker sleeves, summed across accounts.
+ *
+ * Per-ticker holdings cannot answer "did the broker ever mirror THIS
+ * trade": on 2026-09-14 the Roth held 0.2714 DPZ and 3.55 KO, so the
+ * per-ticker check called the DPZ and KO trader EXITs actionable — but the
+ * holdings belonged to older lots and an investor DCA sleeve, and the
+ * exited trades had no sleeve at all. Their entries never mirrored, so
+ * their exits have nothing to sell and page forever.
+ *
+ * Returns null when the bridge could not be reached.
+ */
+export async function loadBrokerSleeves(env, { limit = 400 } = {}) {
+  const rows = await fetchBrokerManifestRows(env, { limit });
+  if (!rows) return null;
+  const bySleeve = {};
+  for (const row of rows) {
+    const key = sleeveKey(row?.trade_id);
+    if (!key) continue;
+    const prev = bySleeve[key] || { filled: 0, remaining: 0, accounts: 0 };
+    prev.filled += Math.max(0, Number(row?.broker_filled_qty) || 0);
+    prev.remaining += Math.max(0, Number(row?.broker_remaining_qty) || 0);
+    prev.accounts += 1;
+    bySleeve[key] = prev;
+  }
+  return bySleeve;
+}
+
+/**
+ * `{ filled, remaining }` for one model trade, or null when sleeves are
+ * unknown. An absent sleeve in a known map is `{ filled: 0, remaining: 0 }`
+ * — the broker was asked and has never heard of the trade.
+ */
+export function sleeveFor(sleeves, tradeId) {
+  if (!sleeves || typeof sleeves !== "object") return null;
+  const key = sleeveKey(tradeId);
+  if (!key) return null;
+  return sleeves[key] || { filled: 0, remaining: 0, accounts: 0 };
+}

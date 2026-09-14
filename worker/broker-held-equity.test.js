@@ -3,6 +3,8 @@ import {
   heldEquityFromAccounts,
   heldQtyFor,
   loadBrokerHeldEquity,
+  loadBrokerSleeves,
+  sleeveFor,
   HELD_CACHE_TTL_MS,
 } from "./broker-held-equity.js";
 
@@ -130,5 +132,49 @@ describe("loadBrokerHeldEquity", () => {
     });
     expect(later.SPYU.qty).toBe(9);
     expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Manifest rows lifted from the live /bridge/manifest on 2026-09-14.
+describe("loadBrokerSleeves", () => {
+  const ROWS = [
+    { trade_id: "DPZ-1787578665830-9812wt90w", ticker: "DPZ", broker_filled_qty: 0.40942, broker_remaining_qty: 0.2714 },
+    { trade_id: "DPZ-1787578665830-9812wt90w", ticker: "DPZ", broker_filled_qty: 0, broker_remaining_qty: 0 },
+    { trade_id: "XLRE-1786723521379-gan8kwxju", ticker: "XLRE", broker_filled_qty: 10, broker_remaining_qty: 0 },
+    { trade_id: "inv-KO-auto-1782223315559", ticker: "KO", broker_filled_qty: 3.55262, broker_remaining_qty: 3.55262 },
+  ];
+
+  it("sums a trade's sleeves across accounts", async () => {
+    const env = envWithStore();
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true, rows: ROWS })));
+    const sleeves = await loadBrokerSleeves(env);
+    const dpz = sleeveFor(sleeves, "DPZ-1787578665830-9812wt90w");
+    expect(dpz.filled).toBeCloseTo(0.40942, 6);
+    expect(dpz.remaining).toBeCloseTo(0.2714, 6);
+    expect(dpz.accounts).toBe(2);
+  });
+
+  it("keys the investor lane past its inv- prefix", async () => {
+    const env = envWithStore();
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true, rows: ROWS })));
+    const sleeves = await loadBrokerSleeves(env);
+    expect(sleeveFor(sleeves, "inv-KO-auto-1782223315559").filled).toBeCloseTo(3.55262, 6);
+    expect(sleeveFor(sleeves, "KO-auto-1782223315559").filled).toBeCloseTo(3.55262, 6);
+  });
+
+  it("reports a trade the broker never heard of as filled 0, not unknown", async () => {
+    const env = envWithStore();
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true, rows: ROWS })));
+    const sleeves = await loadBrokerSleeves(env);
+    expect(sleeveFor(sleeves, "DPZ-1788548929287-dawpub3rh")).toEqual({
+      filled: 0, remaining: 0, accounts: 0,
+    });
+  });
+
+  it("returns null when the manifest cannot be read", async () => {
+    const env = envWithStore();
+    global.fetch = vi.fn(async () => { throw new Error("unreachable"); });
+    expect(await loadBrokerSleeves(env)).toBe(null);
+    expect(sleeveFor(null, "DPZ-1")).toBe(null);
   });
 });
