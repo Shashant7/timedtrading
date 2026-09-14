@@ -265,6 +265,13 @@ export async function healStrandedIndexTrendCloses(env, { now = Date.now(), limi
  */
 export async function healMissedIndexTrendEntries(env, { now = Date.now(), limit = 4 } = {}) {
   const out = { scanned: 0, attempted: 0, filled: 0, skipped: 0, results: [] };
+  // The */5 lane runs on every non-engine worker, and tt-feed carries no
+  // bridge config. It could never place there, so let it say so instead of
+  // logging a deferral against a sleeve the monolith is about to heal.
+  if (!env?.BROKER_BRIDGE_URL && typeof env?.BROKER_BRIDGE?.fetch !== "function") {
+    out.reason = "no_bridge_configured";
+    return out;
+  }
   if (!isNyRegularMarketOpenStatic(new Date(Number(now) || Date.now()))) {
     out.reason = "outside_rth";
     return out;

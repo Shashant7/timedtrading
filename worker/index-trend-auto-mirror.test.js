@@ -43,6 +43,8 @@ function envWithStore(seed = {}) {
   const store = { ...seed };
   return {
     ADMIN_EMAIL: "op@test.com",
+    // The heal lane refuses to run on a worker with no bridge (tt-feed).
+    BROKER_BRIDGE_URL: "https://bridge.test",
     KV_TIMED: {
       get: async (k) => (store[k] == null ? null : store[k]),
       put: async (k, v) => { store[k] = v; },
@@ -694,6 +696,15 @@ describe("index-trend-auto-mirror", () => {
         side: "buy",
         trade_id: signalId,
       }));
+    });
+
+    it("does not run at all on a worker with no bridge (tt-feed)", async () => {
+      const env = envWithSpyuBook();
+      delete env.BROKER_BRIDGE_URL;
+      const heal = await healMissedIndexTrendEntries(env, { now });
+      expect(heal.reason).toBe("no_bridge_configured");
+      expect(heal.scanned).toBe(0);
+      expect(forwardOrderToBridge).not.toHaveBeenCalled();
     });
 
     it("leaves a fresh (non-catch-up) BUY on the fast path", async () => {
