@@ -26,6 +26,7 @@
 
 import { readClientRing } from "./broker-bridge-client.js";
 import { ringLooksLikeRealPlace } from "./investor-catchup-run.js";
+import { loadBrokerHeldEquity } from "./broker-held-equity.js";
 import {
   isTerminalIndexTrendExitReject,
   indexTrendMirrorKey,
@@ -137,6 +138,22 @@ function rejectText(row) {
   return String(row?.reject_reason || row?.error || row?.reason || row?.skip || row?.last_reason || "");
 }
 
+/** Sub-share dust the broker cannot sell anyway. */
+export const COVERAGE_FLAT_EPSILON = 1e-6;
+
+/**
+ * Shares the broker holds for a ticker, or null when holdings are unknown.
+ * `{}` from a reachable broker legitimately means "flat everywhere"; a null
+ * map means the call failed and nothing may be concluded from it.
+ */
+export function heldCoverageQty(held, ticker) {
+  if (!held || typeof held !== "object") return null;
+  const key = String(ticker || "").toUpperCase().trim();
+  if (!key) return null;
+  const qty = Number(held[key]?.qty);
+  return Number.isFinite(qty) ? qty : 0;
+}
+
 function matchingRingRows(action, ring = []) {
   const fam = actionSideFamily(action.event);
   const ticker = String(action.ticker || "").toUpperCase();
@@ -176,6 +193,7 @@ export function classifyActionCoverage(action, {
   ring = [],
   intents = [],
   mirrorLogs = [],
+  held = null,
   nowMs = Date.now(),
   graceMs = COVERAGE_GRACE_MS,
 } = {}) {
@@ -263,6 +281,23 @@ export function classifyActionCoverage(action, {
 
   if (ageMs >= 0 && ageMs < graceMs) {
     return { status: "in_flight", reason: "grace_window", broker_qty: null, order_id: null };
+  }
+
+  // A reduce nobody can account for, on a ticker the broker is already flat
+  // in, has nothing left to sell. U and MNST paged as unmatched EXITs on
+  // 2026-09-14 while the account held 0 of both; DPZ and KO paged the same
+  // way and were genuinely still held. Only the second pair is actionable,
+  // and a page that cries wolf on the first pair is a page nobody reads.
+  if (isReduceEvent(action.event)) {
+    const heldQty = heldCoverageQty(held, action.ticker);
+    if (heldQty != null && heldQty <= COVERAGE_FLAT_EPSILON) {
+      return {
+        status: "rejected_terminal",
+        reason: "broker_position_already_flat",
+        broker_qty: 0,
+        order_id: null,
+      };
+    }
   }
 
   const falseOk = hits.find((r) => String(r?.status) === "ok" && isOpenEvent(action.event) && !ringLooksLikeRealPlace(r));
@@ -730,7 +765,14 @@ export async function loadMirrorCoverage(env, {
   const dtLog = await kvJson(env, OPT_DT_MIRROR_LOG_KEY);
   const mirrorLogs = [...idxLog, ...dtLog];
 
-  const rows = buildCoverageRows(actions, { ring, intents, mirrorLogs, nowMs, graceMs });
+  // Ground truth for "is there anything left to sell". Cached bridge-side
+  // and worker-side, so the */5 snapshot does not hammer the broker.
+  let held = null;
+  try {
+    held = await loadBrokerHeldEquity(env, { nowMs });
+  } catch (_) { held = null; }
+
+  const rows = buildCoverageRows(actions, { ring, intents, mirrorLogs, held, nowMs, graceMs });
   const anomalies = coverageAnomalies(rows, { nowMs, graceMs });
   const summary = {
     actions: rows.length,

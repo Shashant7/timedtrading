@@ -708,6 +708,68 @@ describe("index_trend lane reads the paper book, not just the tape", () => {
   });
 });
 
+// 2026-09-14 — four trader EXITs paged `unmatched / ring_not_a_place`.
+// The broker held 0 of U and 0 of MNST (nothing left to sell) and still
+// held 0.2714 DPZ and 3.55262 KO (a real miss). A page that fires on all
+// four teaches the desk to ignore it.
+describe("a reduce is settled by what the broker still holds", () => {
+  const exitAction = (ticker) => ({
+    lane: "trader",
+    event: "EXIT",
+    ticker,
+    trade_id: `${ticker}-1789136631694-x`,
+    ts: OLD,
+    qty: 3,
+  });
+
+  const HELD = {
+    DPZ: { qty: 0.2714 },
+    KO: { qty: 3.55262 },
+  };
+
+  it("stops paging an EXIT on a ticker the account is already flat in", () => {
+    for (const ticker of ["U", "MNST"]) {
+      const cov = classifyActionCoverage(exitAction(ticker), {
+        ring: [], intents: [], mirrorLogs: [], held: HELD, nowMs: NOW,
+      });
+      expect(cov.status).toBe("rejected_terminal");
+      expect(cov.reason).toBe("broker_position_already_flat");
+    }
+  });
+
+  it("still pages an EXIT on a position the broker really holds", () => {
+    for (const ticker of ["DPZ", "KO"]) {
+      const cov = classifyActionCoverage(exitAction(ticker), {
+        ring: [], intents: [], mirrorLogs: [], held: HELD, nowMs: NOW,
+      });
+      expect(cov.status).toBe("unmatched");
+      expect(healForCoverageRow({ ...exitAction(ticker), ...cov })).toBe(HEAL_TRADER_EXIT);
+    }
+  });
+
+  it("pages as before when holdings could not be read", () => {
+    const cov = classifyActionCoverage(exitAction("U"), {
+      ring: [], intents: [], mirrorLogs: [], held: null, nowMs: NOW,
+    });
+    expect(cov.status).toBe("unmatched");
+  });
+
+  it("does not silence a missed ENTRY just because the broker is flat", () => {
+    const cov = classifyActionCoverage(
+      { lane: "trader", event: "ENTRY", ticker: "TNA", trade_id: "t-1", ts: OLD, qty: 46 },
+      { ring: [], intents: [], mirrorLogs: [], held: {}, nowMs: NOW },
+    );
+    expect(cov.status).toBe("unmatched");
+  });
+
+  it("treats sub-share dust as flat", () => {
+    const cov = classifyActionCoverage(exitAction("XLRE"), {
+      ring: [], intents: [], mirrorLogs: [], held: { XLRE: { qty: 1e-9 } }, nowMs: NOW,
+    });
+    expect(cov.status).toBe("rejected_terminal");
+  });
+});
+
 describe("snapshotMirrorCoverage", () => {
   it("writes the snapshot and pages only when the fail set changes", async () => {
     const store = new Map();
