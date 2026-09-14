@@ -499,6 +499,7 @@ import {
   buildCloudPivotOptionsFirstPlay,
   evaluateTtCloudPivotExit,
   CLOUD_PIVOT_FAMILY,
+  CLOUD_PIVOT_SESSION_LOCK_START_MIN,
 } from "./foundation/tt-cloud-pivot.js";
 import {
   scopedAutopsyId,
@@ -12652,7 +12653,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         positionAgeMin,
         trimmedPct: currentTrimPct,
         daCfg: tickerData?._env?._deepAuditConfig || {},
-        sessionLock: _cpWin.can_reduce && _cpWin.et_minutes >= 15 * 60 + 40,
+        sessionLock: _cpWin.can_reduce && _cpWin.et_minutes >= CLOUD_PIVOT_SESSION_LOCK_START_MIN,
       });
       if (openPosition?.__tradeRef && typeof openPosition.__tradeRef === "object") {
         if (openPosition.tt_cloud_pivot_pending_5_12 != null) {
@@ -23850,15 +23851,26 @@ async function processTradeSimulation(
           if (_extPlan && _extPlan.action === "trim") {
             console.log(`[RUNNER_EXT_TRIM] ${sym} trim-into-strength pnl=${_extPlan.pnlPct}% ext=${_extPlan.atrExt} ATR → trimmed ${(_extPlan.diag.trimmed_before * 100).toFixed(0)}% → ${(_extPlan.newTargetTrimPct * 100).toFixed(0)}%`);
             await trimTradeToPct(openTrade, _extPlan.newTargetTrimPct, pxNow, "RUNNER_EXTENSION_TRIM");
-            const _extExec = {
+            // Adopt the stamped state locally, not just in KV. The runner
+            // stale block and the smart-runner-exit block both persist
+            // `execState` later in this same pass, and their gate
+            // (`_sreTrimmedPct`) is a snapshot taken BEFORE this trim — so
+            // from the second step onward they wrote the pre-trim object
+            // back over `extTrimSession` / `extTrimPx`. `ratchetRunnerPeak`
+            // reports `updated` exactly on a new peak, which is the defining
+            // condition of the extension this rule fires on, so the
+            // once-per-session guard was erased on precisely the ticks that
+            // matter and a runner could walk 25% -> 50% -> 75% in one
+            // session.
+            execState = {
               ...execState,
               lastTrimMs: now,
               extTrimSession: _extPlan.diag.session,
               extTrimPx: pxNow,
               runnerPeakPrice: Math.max(Number(execState?.runnerPeakPrice) || 0, pxNow),
             };
-            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _extExec);
-            else if (!isReplay) await kvPutJSON(KV, execKey, _extExec);
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, execState);
+            else if (!isReplay) await kvPutJSON(KV, execKey, execState);
           }
         } catch (_extErr) {
           console.warn(`[RUNNER_EXT_TRIM] ${sym} failed:`, String(_extErr?.message || _extErr).slice(0, 150));
@@ -60912,6 +60924,14 @@ export default {
               : 0,
             dataVersion: storedVersion || "none",
             expectedVersion: CURRENT_DATA_VERSION,
+            // The deployed commit. `dataVersion` is a hand-bumped schema
+            // string and says nothing about which code is running, so for
+            // eleven days (2026-09-03 → 09-14) a stale worker answered
+            // ok:true on every probe while CI reported green and shipped
+            // nothing. A stale-but-healthy worker must be distinguishable
+            // from a current one without fingerprinting the bundle.
+            deployedSha: env?.ENGINE_GIT_SHA || "unset",
+            workerRole: env?.WORKER_ROLE || "monolith",
           },
           200,
           { ...corsHeaders(env, req), "Cache-Control": "public, max-age=60" },
@@ -61738,6 +61758,8 @@ export default {
             storedVersion: storedVersion || "none",
             expectedVersion: CURRENT_DATA_VERSION,
             match: storedVersion === CURRENT_DATA_VERSION,
+            deployedSha: env?.ENGINE_GIT_SHA || "unset",
+            workerRole: env?.WORKER_ROLE || "monolith",
           },
           200,
           corsHeaders(env, req),
