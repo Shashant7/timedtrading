@@ -10,10 +10,9 @@ name: Deploy worker
 #   CLOUDFLARE_ACCOUNT_ID  — right sidebar of any Cloudflare dashboard page.
 #                            Or one of the aliases checked below.
 #
-# If the secrets aren't configured the workflow SKIPS the deploy step with
-# a warning (instead of failing). That way merging worker changes doesn't
-# spam failure emails until secrets are configured; once you add them, the
-# next merge auto-deploys.
+# If the secrets aren't configured the workflow FAILS. A merge that ships
+# nothing must not report success — see the note on the "Resolve
+# Cloudflare secrets" step below.
 
 on:
   push:
@@ -60,27 +59,33 @@ jobs:
           node-version: "22"
 
       # Check the standard secret names AND a couple of common aliases.
-      # Sets `secrets-ok=true` on the step output when both a token and
-      # an account ID are found.
+      #
+      # 2026-09-14 — This step's body was overwritten by the npm-install
+      # command in 0f67e7132, so it never wrote `secrets-ok`. Every
+      # deploy step below was gated on that output, so from 2026-09-03 to
+      # 2026-09-14 every `worker/**` merge reported SUCCESS while
+      # deploying nothing: the FOMC snap (#1469) and the Index Swings
+      # sleeve scale (#1470) sat merged-but-unshipped while the operator
+      # kept reporting missed broker fills. Missing secrets now FAIL the
+      # job — a deploy that does not happen must never be green.
       - name: Resolve Cloudflare secrets
-        id: cfsec
         env:
           CF_TOKEN_A: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_TOKEN_B: ${{ secrets.CF_API_TOKEN }}
           CF_TOKEN_C: ${{ secrets.CLOUDFLARE_TOKEN }}
           CF_ACCT_A:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CF_ACCT_B:  ${{ secrets.CF_ACCOUNT_ID }}
-        run: |
-          bash scripts/ci-npm-install.sh --ignore-scripts
+        run: bash scripts/ci-resolve-cf-secrets.sh
+
+      - name: Install root deps
+        run: bash scripts/ci-npm-install.sh --ignore-scripts
 
       # Gate the deploy on the test suite — broken modules must never
       # ship just because they bundle (full-system-review P1.7).
       - name: Run tests
-        if: steps.cfsec.outputs.secrets-ok == 'true'
         run: npm test
 
       - name: Build frontend + embed dashboard
-        if: steps.cfsec.outputs.secrets-ok == 'true'
         run: |
           npm run build:frontend
           node scripts/embed-dashboard.js
@@ -97,14 +102,12 @@ jobs:
       # quotes) — that's a single token and wrangler reads the value as
       # the empty string, selecting the top-level config.
       - name: Deploy worker — default env
-        if: steps.cfsec.outputs.secrets-ok == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
         run: bash scripts/deploy-wrangler-retry.sh worker --env= --var ENGINE_GIT_SHA:${GITHUB_SHA:0:8}
 
       - name: Deploy worker — production env
-        if: steps.cfsec.outputs.secrets-ok == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
@@ -115,7 +118,6 @@ jobs:
       # Catches the "deployed but instantly broken" class (missing
       # secrets in one env, bundle-time import failures).
       - name: Post-deploy smoke
-        if: steps.cfsec.outputs.secrets-ok == 'true'
         run: |
           sleep 5
           for BASE in "https://timed-trading-ingest.shashant.workers.dev" "https://timed-trading.com"; do
@@ -141,10 +143,3 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Deploy skipped notice
-        if: steps.cfsec.outputs.secrets-ok != 'true'
-        run: |
-          echo "Worker auto-deploy SKIPPED (no Cloudflare secrets configured)."
-          echo "Run 'npm run deploy:worker' from the repo root manually,"
-          echo "or configure CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID."

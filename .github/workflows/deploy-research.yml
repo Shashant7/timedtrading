@@ -44,35 +44,32 @@ jobs:
           node-version: "22"
 
       - name: Resolve Cloudflare secrets
-        id: cfsec
         env:
           CF_TOKEN_A: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_TOKEN_B: ${{ secrets.CF_API_TOKEN }}
           CF_TOKEN_C: ${{ secrets.CLOUDFLARE_TOKEN }}
           CF_ACCT_A:  ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CF_ACCT_B:  ${{ secrets.CF_ACCOUNT_ID }}
-        run: |
-          bash scripts/ci-npm-install.sh --ignore-scripts
+        run: bash scripts/ci-resolve-cf-secrets.sh
+
+      - name: Install root deps
+        run: bash scripts/ci-npm-install.sh --ignore-scripts
 
       - name: Run tests
-        if: steps.cfsec.outputs.secrets-ok == 'true'
         run: npm test
 
       - name: Build frontend + embed dashboard
-        if: steps.cfsec.outputs.secrets-ok == 'true'
         run: |
           npm run build:frontend
           node scripts/embed-dashboard.js
 
       - name: Deploy research worker
-        if: steps.cfsec.outputs.secrets-ok == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
         run: bash scripts/deploy-wrangler-retry.sh worker-research
 
       - name: Post-deploy smoke
-        if: steps.cfsec.outputs.secrets-ok == 'true'
         run: |
           sleep 5
           HEALTH=$(curl -s -m 20 "https://tt-research.shashant.workers.dev/timed/health" || echo "{}")
