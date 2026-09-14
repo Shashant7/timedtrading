@@ -105356,11 +105356,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const out = await runTraderExitCatchup(env, {
             dry_run: false,
             hours: 72,
-            max_ops: 8,
+            // 2026-09-14 — 8 was enough only because 21 of the 30 claimed
+            // ops were stale sleeves re-claiming a residual another sleeve
+            // already owned. Those are dropped before the window now, so
+            // the window can cover the real backlog in one pass.
+            max_ops: 12,
             reason: "trader_exit_catchup_auto",
           });
           console.log(
-            `[TRADER EXIT CATCHUP] planned=${out.planned} forwarded=${out.forwarded}`
+            `[TRADER EXIT CATCHUP] claimed=${out.claimed} planned=${out.planned}`
+            + ` flat_dropped=${out.flat_dropped} forwarded=${out.forwarded}`
             + ` results=${(out.results || []).length}`,
           );
           if (out.planned > 0) {
