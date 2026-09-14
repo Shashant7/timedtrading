@@ -26,7 +26,7 @@
 
 import { readClientRing } from "./broker-bridge-client.js";
 import { ringLooksLikeRealPlace } from "./investor-catchup-run.js";
-import { loadBrokerHeldEquity } from "./broker-held-equity.js";
+import { loadBrokerHeldEquity, loadBrokerSleeves, sleeveFor } from "./broker-held-equity.js";
 import {
   isTerminalIndexTrendExitReject,
   indexTrendMirrorKey,
@@ -55,6 +55,9 @@ export const HEAL_TRADER_EXIT = "catchup-trader-exits";
 export const HEAL_INDEX_ENTRY = "heal-index-trend-entries";
 export const HEAL_INDEX_EXIT = "heal-index-trend-closes";
 export const HEAL_INTENT_DRAIN = "drain-broker-intents";
+
+/** Lanes whose reduces are routed by manifest sleeve (trade_id → broker lot). */
+const MANIFEST_ROUTED_LANES = new Set(["trader", "investor"]);
 
 const OPEN_EVENTS = new Set(["ENTRY", "BUY", "DCA_BUY", "DCA_ADD", "ADD", "OPEN"]);
 const REDUCE_EVENTS = new Set(["TRIM", "EXIT", "STOP", "SELL", "CLOSE", "REDUCE"]);
@@ -194,6 +197,7 @@ export function classifyActionCoverage(action, {
   intents = [],
   mirrorLogs = [],
   held = null,
+  sleeves = null,
   nowMs = Date.now(),
   graceMs = COVERAGE_GRACE_MS,
 } = {}) {
@@ -283,12 +287,40 @@ export function classifyActionCoverage(action, {
     return { status: "in_flight", reason: "grace_window", broker_qty: null, order_id: null };
   }
 
-  // A reduce nobody can account for, on a ticker the broker is already flat
-  // in, has nothing left to sell. U and MNST paged as unmatched EXITs on
-  // 2026-09-14 while the account held 0 of both; DPZ and KO paged the same
-  // way and were genuinely still held. Only the second pair is actionable,
-  // and a page that cries wolf on the first pair is a page nobody reads.
+  // A reduce nobody can account for has nothing to sell when the broker
+  // never held the sleeve. Asked in order of how specific the answer is:
+  // this trade's own sleeve first, then the ticker's total position.
+  //
+  // 2026-09-14 — U and MNST paged as unmatched EXITs while the account held
+  // 0 of either, and DPZ and KO paged while the account held 0.2714 and
+  // 3.55. The DPZ shares belonged to two older lots and the KO shares to an
+  // investor DCA sleeve; neither exited trade had a manifest sleeve, so
+  // their entries never mirrored and their exits are un-actionable. A page
+  // that cannot be acted on is a page nobody reads.
   if (isReduceEvent(action.event)) {
+    // Only the manifest-routed lanes. A paper-lane close is dispatched off
+    // its own mirror row, which is how an adopted broker-only sleeve gets
+    // sold (SPYU: 9 shares the manifest has never heard of), so an absent
+    // sleeve there means nothing.
+    const sleeve = MANIFEST_ROUTED_LANES.has(String(action.lane || ""))
+      ? sleeveFor(sleeves, action.trade_id || action.position_id)
+      : null;
+    if (sleeve && sleeve.filled <= COVERAGE_FLAT_EPSILON) {
+      return {
+        status: "rejected_terminal",
+        reason: "broker_never_held_this_trade",
+        broker_qty: 0,
+        order_id: null,
+      };
+    }
+    if (sleeve && sleeve.remaining <= COVERAGE_FLAT_EPSILON) {
+      return {
+        status: "rejected_terminal",
+        reason: "broker_sleeve_already_flat",
+        broker_qty: 0,
+        order_id: null,
+      };
+    }
     const heldQty = heldCoverageQty(held, action.ticker);
     if (heldQty != null && heldQty <= COVERAGE_FLAT_EPSILON) {
       return {
@@ -771,8 +803,12 @@ export async function loadMirrorCoverage(env, {
   try {
     held = await loadBrokerHeldEquity(env, { nowMs });
   } catch (_) { held = null; }
+  let sleeves = null;
+  try {
+    sleeves = await loadBrokerSleeves(env);
+  } catch (_) { sleeves = null; }
 
-  const rows = buildCoverageRows(actions, { ring, intents, mirrorLogs, held, nowMs, graceMs });
+  const rows = buildCoverageRows(actions, { ring, intents, mirrorLogs, held, sleeves, nowMs, graceMs });
   const anomalies = coverageAnomalies(rows, { nowMs, graceMs });
   const summary = {
     actions: rows.length,

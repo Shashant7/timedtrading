@@ -747,6 +747,68 @@ describe("a reduce is settled by what the broker still holds", () => {
     }
   });
 
+  // Same DPZ and KO, one layer deeper. The Roth really held 0.2714 and
+  // 3.55262 — but of two older DPZ lots and an `inv-KO-auto` DCA sleeve.
+  // Neither exited trade had a manifest sleeve, so its entry never
+  // mirrored and its exit has nothing of its own to sell.
+  it("stops paging an EXIT whose sleeve the broker never held", () => {
+    const sleeves = {
+      "dpz-1787578665830-9812wt90w": { filled: 0.40942, remaining: 0.2714, accounts: 1 },
+      "ko-auto-1782223315559": { filled: 3.55262, remaining: 3.55262, accounts: 1 },
+    };
+    for (const ticker of ["DPZ", "KO"]) {
+      const cov = classifyActionCoverage(exitAction(ticker), {
+        ring: [], intents: [], mirrorLogs: [], held: HELD, sleeves, nowMs: NOW,
+      });
+      expect(cov.status).toBe("rejected_terminal");
+      expect(cov.reason).toBe("broker_never_held_this_trade");
+    }
+  });
+
+  it("calls a sleeve the broker already sold down terminal", () => {
+    const action = exitAction("DPZ");
+    const cov = classifyActionCoverage(action, {
+      ring: [],
+      intents: [],
+      mirrorLogs: [],
+      held: HELD,
+      sleeves: { [action.trade_id.toLowerCase()]: { filled: 0.40942, remaining: 0, accounts: 1 } },
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("rejected_terminal");
+    expect(cov.reason).toBe("broker_sleeve_already_flat");
+  });
+
+  it("keeps paging an EXIT whose sleeve still holds shares", () => {
+    const action = exitAction("DPZ");
+    const cov = classifyActionCoverage(action, {
+      ring: [],
+      intents: [],
+      mirrorLogs: [],
+      held: HELD,
+      sleeves: { [action.trade_id.toLowerCase()]: { filled: 0.40942, remaining: 0.2714, accounts: 1 } },
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("unmatched");
+    expect(healForCoverageRow({ ...action, ...cov })).toBe(HEAL_TRADER_EXIT);
+  });
+
+  // SPYU W38 was adopted from a broker-only position, so the manifest has
+  // never heard of the signal. An absent sleeve must not silence its close.
+  it("ignores sleeves for a paper lane that closes off its own mirror row", () => {
+    const cov = classifyActionCoverage({
+      lane: "index_trend",
+      event: "EXIT",
+      ticker: "SPYU",
+      trade_id: "it:SPY:SPYU:LONG:2026-W38",
+      ts: OLD,
+      qty: 9,
+    }, {
+      ring: [], intents: [], mirrorLogs: [], held: { SPYU: { qty: 9 } }, sleeves: {}, nowMs: NOW,
+    });
+    expect(cov.status).toBe("unmatched");
+  });
+
   it("pages as before when holdings could not be read", () => {
     const cov = classifyActionCoverage(exitAction("U"), {
       ring: [], intents: [], mirrorLogs: [], held: null, nowMs: NOW,
