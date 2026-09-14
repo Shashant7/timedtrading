@@ -102,7 +102,7 @@ describe("index-trend-auto-mirror", () => {
   });
 
   it("does not burn a cap slot when the isolate dies mid-dispatch (2026-09-14)", async () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date(RTH_TS).toISOString().slice(0, 10);
     const vehicleKey = `timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`;
     const env = envWithStore({ "timed:options:auto-mirror:op@test.com": ENABLED_PREFS });
 
@@ -139,10 +139,16 @@ describe("index-trend-auto-mirror", () => {
   });
 
   it("stops entries once the cap is genuinely spent on placed orders", async () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date(RTH_TS).toISOString().slice(0, 10);
     const env = envWithStore({
       "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
       [`timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`]: "2",
+      // Two real places today — the ring corroborates the counter, so the
+      // reconcile must not hand the cap back.
+      "bridge:client:recent": JSON.stringify([
+        { ticker: "SPYU", side: "buy", status: "ok", order_id: "A", trade_id: "a", ts: RTH_TS - 3600_000 },
+        { ticker: "TQQQ", side: "buy", status: "ok", order_id: "B", trade_id: "b", ts: RTH_TS - 1800_000 },
+      ]),
     });
     const r = await maybeAutoMirrorIndexTrendEvent(env, {
       event: "BUY",
@@ -156,6 +162,34 @@ describe("index-trend-auto-mirror", () => {
     expect(r.skipped).toBe(true);
     expect(r.reason).toBe("vehicle_daily_cap_2_reached_for_index_trend_letf");
     expect(forwardOrderToBridge).not.toHaveBeenCalled();
+    expect(env.store[`timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`]).toBe("2");
+  });
+
+  it("hands back only the slots no confirmed place can account for", async () => {
+    const today = new Date(RTH_TS).toISOString().slice(0, 10);
+    const counterKey = `timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`;
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      // 2/2 consumed, but only ONE place is on record — the other slot was
+      // stranded by an isolate that died mid-dispatch.
+      [counterKey]: "2",
+      "bridge:client:recent": JSON.stringify([
+        { ticker: "SPYU", side: "buy", status: "ok", order_id: "A", trade_id: "a", ts: RTH_TS - 3600_000 },
+      ]),
+    });
+    const r = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      signal_id: "it:DIA:UDOW:LONG:2026-W38",
+      underlying: "DIA",
+      letf_ticker: "UDOW",
+      letf_price: 69.65,
+      book: { shares: 28, status: "open" },
+      now: RTH_TS,
+    });
+    expect(r.skipped).toBe(false);
+    expect(forwardOrderToBridge).toHaveBeenCalledTimes(1);
+    // One reconciled slot plus this place.
+    expect(env.store[counterKey]).toBe("2");
   });
 
   it("does not stamp entry_fired on a cash reject (UDOW 2026-09-03)", async () => {

@@ -420,8 +420,8 @@ export async function releaseVehicleCounter(env, userEmail, vehicle) {
  * mirrored`) plus the heal lock keep that rare, and one extra sleeve is a
  * far smaller failure than a whole day of unmirrored signals.
  */
-export async function entryCountersHaveRoom(env, userEmail, vehicle, { vehicleCap = 0, globalCap = 0 } = {}) {
-  const date = new Date().toISOString().slice(0, 10);
+export async function entryCountersHaveRoom(env, userEmail, vehicle, { vehicleCap = 0, globalCap = 0, now = Date.now() } = {}) {
+  const date = new Date(Number(now) || Date.now()).toISOString().slice(0, 10);
   const read = async (key) => Number(await env?.KV_TIMED?.get(key)) || 0;
   if (Number(vehicleCap) > 0) {
     const current = await read(DAILY_VEHICLE_COUNTER_KEY(userEmail, vehicle, date));
@@ -448,6 +448,11 @@ export async function entryCountersHaveRoom(env, userEmail, vehicle, { vehicleCa
   return { ok: true };
 }
 
+/** KV key for a vehicle's day counter — lets a lane reconcile its own value. */
+export function vehicleCounterKeyFor(userEmail, vehicle, date = new Date().toISOString().slice(0, 10)) {
+  return DAILY_VEHICLE_COUNTER_KEY(userEmail, vehicle, date);
+}
+
 async function bumpCounter(env, key) {
   if (!env?.KV_TIMED || !key) return 0;
   const current = Number(await env.KV_TIMED.get(key)) || 0;
@@ -456,8 +461,8 @@ async function bumpCounter(env, key) {
 }
 
 /** Count a CONFIRMED broker place against today's vehicle + global caps. */
-export async function commitEntryCounters(env, userEmail, vehicle, { vehicleCap = 0, globalCap = 0 } = {}) {
-  const date = new Date().toISOString().slice(0, 10);
+export async function commitEntryCounters(env, userEmail, vehicle, { vehicleCap = 0, globalCap = 0, now = Date.now() } = {}) {
+  const date = new Date(Number(now) || Date.now()).toISOString().slice(0, 10);
   const out = {};
   if (Number(vehicleCap) > 0) {
     out.vehicle = await bumpCounter(env, DAILY_VEHICLE_COUNTER_KEY(userEmail, vehicle, date));

@@ -2,12 +2,14 @@
 //
 // Broker mirror for index trend LETF share plays via /bridge/order.
 
-import { forwardOrderToBridge, parseBridgeOrderIds } from "./broker-bridge-client.js";
+import { forwardOrderToBridge, parseBridgeOrderIds, readClientRing } from "./broker-bridge-client.js";
 import {
   loadAutoMirrorPrefs,
   entryCountersHaveRoom,
   commitEntryCounters,
+  vehicleCounterKeyFor,
 } from "./options-auto-mirror.js";
+import { ringLooksLikeRealPlace } from "./investor-catchup-run.js";
 import { defaultIndexTrendPaperShares, indexTrendBookIsLive, isPrematureIndexTrendInvalidation } from "./index-trend-paper.js";
 import { isNyRegularMarketOpenStatic } from "./market-calendar.js";
 import {
@@ -391,11 +393,100 @@ async function gateMirror(env, ctx = {}) {
   return { ok: true, operatorEmail, letfTicker, underlying, prefs, vehicleRow };
 }
 
-function entryCapsFor(prefs, vehicleRow) {
+function entryCapsFor(prefs, vehicleRow, now) {
   return {
     vehicleCap: Number(vehicleRow?.daily_cap || 0),
     globalCap: Number(prefs?.daily_cap) || 0,
+    now: Number(now) || Date.now(),
   };
+}
+
+/**
+ * UTC calendar day — the same basis the counter keys use, so the reconcile
+ * counts exactly the window the counter covers.
+ */
+function counterDayKey(ts) {
+  return new Date(Number(ts) || Date.now()).toISOString().slice(0, 10);
+}
+
+/**
+ * Count the LETF buys the bridge actually took today, from the dispatch
+ * ring. The ring is written per `/bridge/order` call, so it is the record
+ * of what left the worker.
+ */
+export function countRingLetfBuysToday(ring = [], now = Date.now()) {
+  const today = counterDayKey(now);
+  const carry = new Set(INDEX_TREND_CARRY_LETFS);
+  const seen = new Set();
+  for (const row of ring || []) {
+    if (String(row?.side || "").toLowerCase() !== "buy") continue;
+    if (!carry.has(String(row?.ticker || "").toUpperCase())) continue;
+    if (counterDayKey(row?.ts) !== today) continue;
+    if (!ringLooksLikeRealPlace(row)) continue;
+    seen.add(String(row.trade_id || row.client_order_id || `${row.ticker}|${row.ts}`));
+  }
+  return seen.size;
+}
+
+/**
+ * Count mirror rows stamped with a confirmed entry today. Written by the
+ * same branch that commits the counter, so it corroborates the ring.
+ */
+async function countMirrorEntriesToday(env, now = Date.now()) {
+  const KV = env?.KV_TIMED;
+  if (typeof KV?.list !== "function") return 0;
+  const today = counterDayKey(now);
+  let n = 0;
+  try {
+    const listed = await KV.list({ prefix: "timed:idx-trend-mirror:", limit: 200 });
+    for (const entry of listed?.keys || []) {
+      const raw = await KV.get(entry.name);
+      if (!raw) continue;
+      let row = null;
+      try { row = JSON.parse(raw); } catch { continue; }
+      if (!row?.entry_fired) continue;
+      if (counterDayKey(row.entry_fired_ts) !== today) continue;
+      n += 1;
+    }
+  } catch (_) {
+    return n;
+  }
+  return n;
+}
+
+/**
+ * Heal a day counter that drifted above the orders actually placed.
+ *
+ * Commit-on-place stops NEW leaks, but a value already stranded by the old
+ * reserve-then-release path kept the lane shut until the date key rolled
+ * (2026-09-14 sat at 2/2 with zero placed orders, so every sleeve skipped
+ * `vehicle_daily_cap_2_reached` for a full session). Reconciling lets the
+ * lane recover on the next tick instead of at midnight.
+ *
+ * Two independent records have to agree that a slot went unused, and the
+ * higher count wins: the dispatch ring and the mirror rows are both written
+ * on the same confirmed-place branch as the counter commit, so trusting
+ * either one alone would let a lagging write erase a legitimate slot and
+ * make the cap unenforceable. Only ever lowers the counter.
+ */
+export async function reconcileIndexTrendVehicleCounter(env, operatorEmail, { now = Date.now() } = {}) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return null;
+  const key = vehicleCounterKeyFor(operatorEmail, VEHICLE_KEY, counterDayKey(now));
+  try {
+    const current = Number(await KV.get(key)) || 0;
+    if (current <= 0) return null;
+    const placed = Math.max(
+      countRingLetfBuysToday(await readClientRing(env), now),
+      await countMirrorEntriesToday(env, now),
+    );
+    if (placed >= current) return null;
+    await KV.put(key, String(placed), { expirationTtl: 86400 * 2 });
+    console.log(`[INDEX-TREND MIRROR] counter reconciled ${current} -> ${placed} (confirmed places today)`);
+    return { key, from: current, to: placed };
+  } catch (_) {
+    return null;
+  }
 }
 
 /**
@@ -483,8 +574,10 @@ async function runIndexTrendMirror(env, ctx = {}) {
     if (!sizing.ok) return { skipped: true, reason: sizing.reason };
 
     // Caps are checked here and counted only once the bridge confirms a
-    // place, so a dead isolate cannot burn a slot it never used.
-    const caps = entryCapsFor(prefs, vehicleRow);
+    // place, so a dead isolate cannot burn a slot it never used. Heal a
+    // counter stranded by the old reserve-then-release path first.
+    const caps = entryCapsFor(prefs, vehicleRow, ctx.now);
+    await reconcileIndexTrendVehicleCounter(env, operatorEmail, { now: caps.now });
     const capRoom = await entryCountersHaveRoom(env, operatorEmail, VEHICLE_KEY, caps);
     if (!capRoom.ok) return capRoom;
 
@@ -512,6 +605,9 @@ async function runIndexTrendMirror(env, ctx = {}) {
       const ids = parseBridgeOrderIds(parsed);
       await saveMirror(env, signalId, {
         entry_fired: true,
+        // Day-stamped so the cap reconcile can tell a slot this vehicle
+        // really used from one a dead isolate stranded.
+        entry_fired_ts: caps.now,
         letf_ticker: letfTicker,
         underlying,
         shares: sizing.qty,
@@ -528,6 +624,7 @@ async function runIndexTrendMirror(env, ctx = {}) {
       });
     }
     if (placed) await commitEntryCounters(env, operatorEmail, VEHICLE_KEY, caps);
+
 
     return {
       skipped: false,
