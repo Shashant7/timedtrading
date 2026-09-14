@@ -6,7 +6,7 @@
 
 ---
 
-## A green deploy shipped nothing for eleven days [2026-09-14]
+## CI deployed nothing for eleven days [2026-09-14]
 
 **Symptom:** The operator kept reporting Index Swings signals that never
 reached the broker, and each fix was merged green and changed nothing.
@@ -18,9 +18,15 @@ after the commit that deleted that string was merged and "deployed".
 command, so the step never wrote its `secrets-ok` output.
 `deploy-worker` / `deploy-engine` / `deploy-research` gated every deploy
 step on that output, and the fallback step printed a notice and
-`exit 0`. 25 consecutive runs skipped; the Cloudflare API showed prod
-last moved 2026-09-13T15:12Z from a hand-run wrangler. #1469 (FOMC snap)
-and #1470 (sleeve scale) were merged, green, and not running.
+`exit 0`. 25 consecutive runs skipped.
+
+Prod did keep moving, which is what hid it: every version in the
+Cloudflare list for 09-04 → 09-14 is a `wrangler version_upload` from an
+agent hand-deploying at the end of its own session. So a merge shipped
+whenever the next agent happened to run wrangler — same day, or two days
+later (no version at all on 09-06, 09-11). #1470 (sleeve scale) merged
+on 09-14 and did not reach prod until 22:20Z, eight hours after the TNA
+and UDOW signals the operator asked about.
 
 **Fix:** Resolution moved to `scripts/ci-resolve-cf-secrets.sh`, shared
 by all five deploy workflows, and it `exit 1`s when a credential is
@@ -28,7 +34,65 @@ missing. A deploy that does not happen is no longer green.
 
 **Do not:** Read a green deploy run as a live deploy. Check the
 Cloudflare deployments list or probe a string/route that only the new
-bundle has — see [`skills/deploy.md`](../skills/deploy.md).
+bundle has — see [`skills/deploy.md`](../skills/deploy.md). And do not
+read "the main worker is current" as "prod is current": `tt-feed`,
+`tt-engine`, `tt-research` and `tt-broker-bridge` each have their own
+deploy target, and `npm run deploy:worker` moves none of them. Check the
+version list per script and compare against
+`git log --since=<deployed-date> -- <its source paths>`.
+
+---
+
+## The broker holds one position per ticker, not one per sleeve [2026-09-14]
+
+**Symptom:** The hourly trader EXIT catch-up planned 30 ops against a
+Roth that held one residual per ticker. PH 0.13612 was claimed by four
+stale sleeves, DPZ 0.2714 by two, XLRE 1.35379 by two, XYZ by two
+(13.92981 + 8 against 13.92981 held). Selling every claim shorts the
+account with real money. The zombies also filled the `max_ops` window
+every hour, which is why a genuinely missed EXIT never got a turn.
+
+**Cause:** `planTraderExitCatchup` deduped by
+`trade_id|user|account` — one op per model sleeve. But
+`broker_remaining_qty` is derived from our own ledger per sleeve, and
+several closed sleeves on the same ticker each carry the same leftover.
+The broker's position is per ticker and account, so N sleeves claiming
+the same residual is N-1 phantom sells.
+
+**Fix:** `clampExitOpsToHoldings` spends a per-ticker budget taken from
+`/bridge/positions`, newest exit first. Live: 30 claims → 9 real ops, 21
+retired as `broker_position_already_flat`. An unreachable broker falls
+back to the single largest claim, which under-sells (recoverable next
+hour) rather than shorts.
+
+**Do not:** Let a reduce lane size itself off the manifest alone.
+Positions are the one record the broker writes; everything else is ours.
+
+---
+
+## Holdings answer "is anything left", sleeves answer "was this trade ever mirrored" [2026-09-14]
+
+**Symptom:** Coverage paged DPZ and KO trader EXITs as `unmatched`
+forever. The per-ticker holdings check said both were actionable (Roth
+held 0.2714 DPZ and 3.55262 KO), and the trader-exit heal could not
+plan either — the operator saw a page with no lever.
+
+**Cause:** The DPZ shares belonged to two OLDER DPZ lots and the KO
+shares to an `inv-KO-auto` investor DCA sleeve. Neither exited trade had
+a manifest sleeve at all, so its entry never mirrored and its exit has
+nothing of its own to sell. Per-ticker holdings cannot tell "this trade
+is stranded" from "a different trade on the same ticker is open".
+
+**Fix:** `classifyActionCoverage` asks the trade's own sleeve first
+(`loadBrokerSleeves`), then the ticker's position:
+`broker_never_held_this_trade` → terminal, `broker_sleeve_already_flat`
+→ terminal, sleeve still holding → keep paging. Only for the
+manifest-routed lanes (`trader`, `investor`): a paper-lane close is
+dispatched off its own mirror row, which is how the adopted broker-only
+SPYU sleeve gets sold, so an absent sleeve there means nothing.
+
+**Do not:** Silence a reduce on per-ticker holdings alone, and do not
+extend the sleeve rule to the paper lanes.
 
 ---
 

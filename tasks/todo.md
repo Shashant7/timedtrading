@@ -28,12 +28,22 @@
       variables → Actions. Until then every merge needs a hand-run
       `npm run deploy:worker`. The next `worker/**` merge will go RED
       as designed if they are still missing.
-- [ ] **Follow-up: 4 unmatched trader EXITs (2026-09-14).** Live
-      coverage shows U, DPZ, MNST, KO EXIT `unmatched`
-      (`ring_not_a_place`, and U as
-      `mirror_suppressed:insufficient_cash_for_one_unit_0_lt_42.99`),
-      heal `catchup-trader-exits`. Separate lane from Index Swings —
-      not addressed by `cursor/broker-mirror-failclosed-7ffc`.
+- [ ] **Watch the 2026-09-15 RTH open.** Three index-trend entries are
+      stranded going into it: SPYU W38 (broker already holds 9 sh →
+      adopted, no order), TNA W37 and UDOW W38 (real buys, cash-scaled
+      to 31 sh / 28 sh, $1986 / $1937). Replay says 2 orders, counter
+      lands 2/2. Roth cash is $2213, so the SECOND of the two may come
+      back `insufficient_cash` — that is an account limit, not a bug,
+      and coverage should say so rather than page `never_attempted`.
+- [x] **4 unmatched trader EXITs (2026-09-14).** U and MNST were
+      already flat at the broker; DPZ and KO had no manifest sleeve at
+      all (their entries never mirrored — the held shares belonged to
+      older DPZ lots and an `inv-KO-auto` DCA sleeve). Coverage now
+      settles a reduce against the trade's own sleeve, then the
+      ticker's position: live fails 6 → 4, and `catchup-trader-exits`
+      dropped off the heal plan. The exit catch-up itself was about to
+      sell one position per stale sleeve (30 claims → 9 real ops);
+      clamped to broker holdings, newest exit first.
 - [x] **Broker mirroring fail-closed (2026-09-14).** Three stacked
       faults: CI deployed nothing since 09-03; daily cap slots leaked
       on isolate death and wedged the lane at 2/2 with zero orders;

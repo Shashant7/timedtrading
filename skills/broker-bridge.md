@@ -72,6 +72,18 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   produces a fresh id and the bridge idempotency layer releases the
 >   retry. Sort exits/trims ahead of buys before `max_ops` (hourly/COO
 >   cap is 24).
+> - **A reduce lane must size off positions, not the manifest
+>   (2026-09-14).** `broker_remaining_qty` is per model sleeve and
+>   derived from our own ledger, so several closed sleeves on one ticker
+>   each carry the same leftover — the live plan wanted PH 0.13612 four
+>   times and XYZ 13.92981 + 8 against 13.92981 held. `trader-exit-catchup`
+>   runs `clampExitOpsToHoldings`: a per-ticker budget from
+>   `/bridge/positions`, spent newest-exit-first, everything else retired
+>   as `broker_position_already_flat` BEFORE `max_ops` (so zombies cannot
+>   starve a real miss). Unreachable broker → fall back to the single
+>   largest claim: under-selling is recoverable next hour, shorting is not.
+>   `broker-held-equity.js` is the one place that asks; `loadBrokerSleeves`
+>   is the per-trade view of the same manifest.
 > - Live ST / LETF entries must follow through on the signal path
 >   (fractional cash scale + `bridgeResponseIsOk`). Fan-out accounts run
 >   concurrently under the 28s client timeout; the outer receipt must
@@ -119,6 +131,17 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   index-trend entry/close, intent drain). Unmatched Short Term ENTRIES
 >   page only — they must re-qualify, not chase. Do not backfill leftover
 >   books that already tried a place.
+>   **A reduce is settled against the broker, in order of specificity
+>   (2026-09-14):** the trade's own manifest sleeve first
+>   (`broker_never_held_this_trade` = its entry never mirrored,
+>   `broker_sleeve_already_flat` = the broker sold it down — both
+>   terminal), then the ticker's position
+>   (`broker_position_already_flat`). Per-ticker holdings alone paged DPZ
+>   and KO forever on shares that belonged to older lots and an
+>   `inv-KO-auto` sleeve. Sleeves apply to `trader` / `investor` only: a
+>   paper-lane close fires off its own mirror row, which is how the
+>   adopted broker-only SPYU sleeve gets sold, so an absent sleeve there
+>   proves nothing. An ENTRY is never silenced by flat holdings.
 > - Long Term DCA (`/timed/investor/dca/execute`) must **await**
 >   `forwardInvestorMirror` before the HTTP response. `waitUntil` after
 >   lot+email dies (PLTR 2026-09-02 / 09-11). The 15:46–16:15 sweep

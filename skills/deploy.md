@@ -16,10 +16,16 @@ tell the user a fix is live. From 2026-09-03 to 2026-09-14 every
 nothing: `0f67e7132` overwrote the body of the "Resolve Cloudflare
 secrets" step, so `secrets-ok` was never written and every deploy step
 was skipped by its own `if:`. The fallback wrote a notice and `exit 0`,
-so the run went green. Eleven days of merges — including the FOMC snap
-and the Index Swings sleeve scale — sat merged and not running while the
-operator kept reporting missed broker fills. The workflows now `exit 1`
-when a credential is missing, but always check the deployment itself:
+so the run went green.
+
+What hid it for eleven days: prod kept moving anyway, because agents
+hand-ran `wrangler` at the end of their own sessions. Every version in
+the 09-04 → 09-14 list is a `version_upload`, with no version at all on
+09-06 or 09-11 — so a merge shipped whenever the next agent happened to
+deploy, same day or two days later. #1470 (Index Swings sleeve scale)
+merged on 09-14 and reached prod at 22:20Z, eight hours after the TNA
+and UDOW signals it was meant to fix. The workflows now `exit 1` when a
+credential is missing, but always check the deployment itself:
 
 ```bash
 # When did prod last ACTUALLY move? (source=wrangler rows, newest first)
@@ -35,6 +41,25 @@ A faster behavioural check: probe a route or a reason string that only
 exists in the new code. A stale bundle kept emitting
 `notional_*_exceeds_cap_2000` for hours after the commit that deleted
 that string was merged and "deployed".
+
+**"The worker is current" is not "prod is current."** Five scripts
+deploy separately and `npm run deploy:worker` moves only the first.
+Audit them all, then diff each one's date against its own sources:
+
+```bash
+for w in timed-trading-ingest tt-feed tt-engine tt-research tt-broker-bridge; do
+  printf '%-22s ' "$w"
+  curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$w/versions?per_page=1" \
+    | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);console.log(j.result?.items?.[0]?.metadata?.created_on||'?')})"
+done
+# then, per script: git log --oneline --since=<its date> origin/main -- <its sources>
+```
+
+On 2026-09-14 that showed `tt-feed` last deployed 09-12 and
+`tt-broker-bridge` 09-11 — both fine, because neither
+`worker-feed/**` + `worker/feed/**` nor `worker-bridge/**` had changed
+since. The date alone is not the finding; the date against the source is.
 
 **Prerequisites:**
 - `wrangler` available at `node_modules/.bin/wrangler` (run via path; the
