@@ -315,7 +315,12 @@ export async function healMissedIndexTrendEntries(env, { now = Date.now(), limit
       ticker: row.letf,
       placed,
       qty: result?.qty ?? null,
-      reason: result?.reason || extractIndexTrendRejectReason(result?.fired) || null,
+      // A placed order has no reject to report. Falling through to the
+      // extractor stamped every success `bridge_reject` in the heal log,
+      // which is the opposite of what happened.
+      reason: placed
+        ? (result?.reason || null)
+        : (result?.reason || extractIndexTrendRejectReason(result?.fired) || null),
     });
     if (out.attempted >= limit) break;
   }
