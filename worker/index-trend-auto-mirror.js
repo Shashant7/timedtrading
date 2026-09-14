@@ -10,6 +10,7 @@ import {
   vehicleCounterKeyFor,
 } from "./options-auto-mirror.js";
 import { ringLooksLikeRealPlace } from "./investor-catchup-run.js";
+import { loadBrokerHeldEquity, heldQtyFor } from "./broker-held-equity.js";
 import { defaultIndexTrendPaperShares, indexTrendBookIsLive, isPrematureIndexTrendInvalidation } from "./index-trend-paper.js";
 import { isNyRegularMarketOpenStatic } from "./market-calendar.js";
 import {
@@ -414,6 +415,24 @@ function counterDayKey(ts) {
  * ring. The ring is written per `/bridge/order` call, so it is the record
  * of what left the worker.
  */
+/**
+ * A dispatch whose outcome nobody ever learned. `forwardOrderToBridge`
+ * stamps `status:"pending"` BEFORE the fetch so a torn-down isolate still
+ * explains the model row; the response write is what flips it to ok/error.
+ * So a row left at `pending` means the request may well have reached the
+ * broker — SPYU 2026-09-14 sat at `pending qty 60` in the ring while the
+ * broker ledger held a real 9-share FILL. Treat it as spent, never as free.
+ */
+export function ringRowOutcomeUnknown(row) {
+  const status = String(row?.status || "").toLowerCase();
+  return status === "pending" || status === "fetch_error";
+}
+
+/**
+ * Slots this vehicle can account for today. Counts confirmed places AND
+ * unknown-outcome dispatches: handing a slot back for a dispatch that
+ * might have filled is how a heal double-buys a live sleeve.
+ */
 export function countRingLetfBuysToday(ring = [], now = Date.now()) {
   const today = counterDayKey(now);
   const carry = new Set(INDEX_TREND_CARRY_LETFS);
@@ -422,7 +441,7 @@ export function countRingLetfBuysToday(ring = [], now = Date.now()) {
     if (String(row?.side || "").toLowerCase() !== "buy") continue;
     if (!carry.has(String(row?.ticker || "").toUpperCase())) continue;
     if (counterDayKey(row?.ts) !== today) continue;
-    if (!ringLooksLikeRealPlace(row)) continue;
+    if (!ringLooksLikeRealPlace(row) && !ringRowOutcomeUnknown(row)) continue;
     seen.add(String(row.trade_id || row.client_order_id || `${row.ticker}|${row.ts}`));
   }
   return seen.size;
@@ -487,6 +506,68 @@ export async function reconcileIndexTrendVehicleCounter(env, operatorEmail, { no
   } catch (_) {
     return null;
   }
+}
+
+/** A sleeve the broker holds but no mirror row claims counts as filled from this many shares. */
+export const ADOPT_MIN_SHARES = 0.999;
+
+/**
+ * Claim a sleeve the broker already holds instead of buying it again.
+ *
+ * A catch-up exists because every model-side record says "never attempted".
+ * SPYU W38 proved those records can be wrong in the expensive direction: a
+ * real 9-share fill with no ring settle, no audit row and no mirror row. The
+ * broker's position is the only witness, so consult it before re-spending
+ * and write the mirror row the dead isolate never got to write.
+ *
+ * Only on the catch-up path. A fresh BUY has not dispatched yet, so there is
+ * nothing to confuse it with, and the entry must stay fast.
+ *
+ * Returns a skip result when the sleeve was adopted, else null to buy.
+ */
+export async function adoptBrokerHeldSleeve(env, {
+  signalId,
+  letfTicker,
+  underlying,
+  operatorEmail,
+  catchUp = false,
+  now = Date.now(),
+} = {}) {
+  if (!catchUp || !signalId || !letfTicker) return null;
+  let held = null;
+  try {
+    held = await loadBrokerHeldEquity(env, { owner: operatorEmail, nowMs: Number(now) || Date.now() });
+  } catch (_) {
+    held = null;
+  }
+  // Unreachable broker. Buying on an unknown is the one outcome that cannot
+  // be undone, so hold the sleeve and let the next tick decide.
+  if (held == null) return { skipped: true, reason: "broker_holdings_unknown_entry_deferred" };
+  const qty = heldQtyFor(held, letfTicker);
+  if (!(qty >= ADOPT_MIN_SHARES)) return null;
+  const shares = Math.max(1, Math.round(qty));
+  await saveMirror(env, signalId, {
+    entry_fired: true,
+    entry_fired_ts: Number(now) || Date.now(),
+    letf_ticker: letfTicker,
+    underlying,
+    shares,
+    shares_remaining: shares,
+    adopted_from_broker: true,
+    adopted_broker_qty: qty,
+    last_reject: null,
+    last_reject_ts: null,
+  });
+  console.log(
+    `[INDEX-TREND MIRROR] adopted broker-held ${letfTicker} ${qty} sh for ${signalId}`
+    + " (no mirror row; catch-up would have double-bought)",
+  );
+  return {
+    skipped: true,
+    adopted: true,
+    qty: shares,
+    reason: `broker_already_holds_${letfTicker}_${qty}_adopted`,
+  };
 }
 
 /**
@@ -570,6 +651,17 @@ async function runIndexTrendMirror(env, ctx = {}) {
       const existing = await loadMirror(env, signalId);
       if (existing?.entry_fired) return { skipped: true, reason: "entry_already_mirrored" };
     }
+    // A catch-up runs precisely because our own records cannot say whether
+    // the first dispatch landed. Ask the broker before spending again.
+    const adopted = await adoptBrokerHeldSleeve(env, {
+      signalId,
+      letfTicker,
+      underlying,
+      operatorEmail,
+      catchUp: ctx.catch_up === true,
+      now: ctx.now,
+    });
+    if (adopted) return adopted;
     const sizing = planEntryQty({ vehicleRow, letfPrice, book: ctx.book, size: ctx.size });
     if (!sizing.ok) return { skipped: true, reason: sizing.reason };
 

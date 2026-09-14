@@ -659,6 +659,53 @@ describe("index_trend lane reads the paper book, not just the tape", () => {
     expect(cov.status).toBe("unmatched");
     expect(healForCoverageRow({ ...action, ...cov })).toBe(HEAL_INDEX_ENTRY);
   });
+
+  // SPYU W38: the broker filled 9 shares, the ring row never got its
+  // response written back, and the sleeve was later adopted from the live
+  // position. Coverage must read that as mirrored or it pages forever on a
+  // sleeve that is genuinely held.
+  it("reads a sleeve adopted from a live broker position as mirrored", async () => {
+    const signalId = "it:SPY:SPYU:LONG:2026-W38";
+    const env = bookEnv({
+      ...carry("SPYU", signalId, openBook({ shares: 90, entry_letf_price: 33.42 })),
+      [`timed:idx-trend-mirror:${signalId}`]: JSON.stringify({
+        entry_fired: true,
+        entry_fired_ts: NOW - 3600 * 1000,
+        adopted_from_broker: true,
+        adopted_broker_qty: 9,
+        shares: 9,
+        shares_remaining: 9,
+      }),
+    });
+
+    const [action] = await loadIndexTrendBookActions(env, { sinceMs: 0, nowMs: NOW });
+    expect(action.broker_confirmed).toBe(true);
+    expect(action.adopted).toBe(true);
+
+    const cov = classifyActionCoverage(action, {
+      // The ring is still stuck on the pre-fetch breadcrumb.
+      ring: [{
+        ticker: "SPYU", side: "buy", status: "pending",
+        trade_id: signalId, ts: NOW - 5 * 3600 * 1000,
+      }],
+      intents: [],
+      mirrorLogs: [],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("mirrored");
+    expect(cov.broker_qty).toBe(9);
+  });
+
+  it("still pages a live book that no mirror row claims", async () => {
+    const signalId = "it:IWM:TNA:LONG:2026-W37";
+    const env = bookEnv(carry("TNA", signalId, openBook({ shares: 46 })));
+    const [action] = await loadIndexTrendBookActions(env, { sinceMs: 0, nowMs: NOW });
+    expect(action.broker_confirmed).toBeUndefined();
+    const cov = classifyActionCoverage(action, {
+      ring: [], intents: [], mirrorLogs: [], nowMs: NOW,
+    });
+    expect(cov.status).toBe("unmatched");
+  });
 });
 
 describe("snapshotMirrorCoverage", () => {

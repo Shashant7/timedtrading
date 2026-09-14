@@ -28,6 +28,7 @@ import { readClientRing } from "./broker-bridge-client.js";
 import { ringLooksLikeRealPlace } from "./investor-catchup-run.js";
 import {
   isTerminalIndexTrendExitReject,
+  indexTrendMirrorKey,
   INDEX_TREND_MIRROR_LOG_KEY,
   INDEX_TREND_CARRY_LETFS,
   INDEX_TREND_NEVER_ATTEMPTED_ENTRY_MS,
@@ -195,6 +196,18 @@ export function classifyActionCoverage(action, {
       };
     }
     return { status: "mirrored", reason: null, broker_qty: qty, order_id: orderId };
+  }
+
+  // The lane's own mirror row confirms the broker holds this sleeve. It
+  // outranks the ring, which stays stuck on the `pending` breadcrumb
+  // forever when the isolate died before the response was written back.
+  if (action?.broker_confirmed) {
+    return {
+      status: "mirrored",
+      reason: null,
+      broker_qty: Number(action.broker_qty) || null,
+      order_id: action.order_id || null,
+    };
   }
 
   const pending = matchingIntents(action, intents);
@@ -516,8 +529,8 @@ export function modelActionFromIndexTrend(a) {
   };
 }
 
-export function modelActionFromIndexTrendBook(book, { letf, signalId } = {}) {
-  return {
+export function modelActionFromIndexTrendBook(book, { letf, signalId, mirror } = {}) {
+  const action = {
     lane: "index_trend",
     event: "ENTRY",
     ticker: String(letf || book?.letf_ticker || "").toUpperCase(),
@@ -529,6 +542,16 @@ export function modelActionFromIndexTrendBook(book, { letf, signalId } = {}) {
     price: Number(book?.entry_letf_price) || Number(book?.last_letf_price) || 0,
     source: "idx-trend-book",
   };
+  // `entry_fired` is only ever stamped on a confirmed bridge place or on a
+  // sleeve adopted from a live broker position, so it settles the row even
+  // when the ring never got its response written back (SPYU W38).
+  if (mirror?.entry_fired) {
+    action.broker_confirmed = true;
+    action.broker_qty = Number(mirror.adopted_broker_qty ?? mirror.shares) || null;
+    action.order_id = mirror.entry_order_id || null;
+    action.adopted = mirror.adopted_from_broker === true;
+  }
+  return action;
 }
 
 /**
@@ -561,7 +584,11 @@ export async function loadIndexTrendBookActions(env, {
     const signalId = loaded.signal_id || book.signal_id || null;
     const ts = Number(book.entry_ts) || 0;
     if (!signalId || !(ts >= floor)) continue;
-    out.push(modelActionFromIndexTrendBook(book, { letf, signalId }));
+    let mirror = null;
+    try {
+      mirror = JSON.parse((await env?.KV_TIMED?.get(indexTrendMirrorKey(signalId))) || "null");
+    } catch (_) { mirror = null; }
+    out.push(modelActionFromIndexTrendBook(book, { letf, signalId, mirror }));
   }
   return out;
 }
