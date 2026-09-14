@@ -10,6 +10,32 @@ fresh branch off `main` instead. This has bitten three times so far
 (2026-08-12 broker hardening; 2026-08-18 index-options card redesign;
 2026-08-18 same-day card height fix — same session).
 
+**A merge is NOT a deploy.** Confirm the bundle actually moved before you
+tell the user a fix is live. From 2026-09-03 to 2026-09-14 every
+`worker/**` merge reported a GREEN `deploy-worker` run and shipped
+nothing: `0f67e7132` overwrote the body of the "Resolve Cloudflare
+secrets" step, so `secrets-ok` was never written and every deploy step
+was skipped by its own `if:`. The fallback wrote a notice and `exit 0`,
+so the run went green. Eleven days of merges — including the FOMC snap
+and the Index Swings sleeve scale — sat merged and not running while the
+operator kept reporting missed broker fills. The workflows now `exit 1`
+when a credential is missing, but always check the deployment itself:
+
+```bash
+# When did prod last ACTUALLY move? (source=wrangler rows, newest first)
+curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/timed-trading-ingest/deployments" \
+  | python3 -c "import json,sys; [print(d['created_on'], d.get('source')) for d in json.load(sys.stdin)['result']['deployments'][:5]]"
+
+# Did the CI run deploy, or just report success?
+gh run view <run-id> --log | grep -iE "SKIPPED|not configured|Current Version ID"
+```
+
+A faster behavioural check: probe a route or a reason string that only
+exists in the new code. A stale bundle kept emitting
+`notional_*_exceeds_cap_2000` for hours after the commit that deleted
+that string was merged and "deployed".
+
 **Prerequisites:**
 - `wrangler` available at `node_modules/.bin/wrangler` (run via path; the
   agent VM does not have `wrangler` on PATH)

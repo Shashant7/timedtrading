@@ -6,6 +6,82 @@
 
 ---
 
+## A green deploy shipped nothing for eleven days [2026-09-14]
+
+**Symptom:** The operator kept reporting Index Swings signals that never
+reached the broker, and each fix was merged green and changed nothing.
+Prod was still emitting `notional_2925_exceeds_cap_2000` three hours
+after the commit that deleted that string was merged and "deployed".
+
+**Cause:** `0f67e7132` (a CI npm-install fix, 2026-09-03) overwrote the
+**body** of the `Resolve Cloudflare secrets` step with the install
+command, so the step never wrote its `secrets-ok` output.
+`deploy-worker` / `deploy-engine` / `deploy-research` gated every deploy
+step on that output, and the fallback step printed a notice and
+`exit 0`. 25 consecutive runs skipped; the Cloudflare API showed prod
+last moved 2026-09-13T15:12Z from a hand-run wrangler. #1469 (FOMC snap)
+and #1470 (sleeve scale) were merged, green, and not running.
+
+**Fix:** Resolution moved to `scripts/ci-resolve-cf-secrets.sh`, shared
+by all five deploy workflows, and it `exit 1`s when a credential is
+missing. A deploy that does not happen is no longer green.
+
+**Do not:** Read a green deploy run as a live deploy. Check the
+Cloudflare deployments list or probe a string/route that only the new
+bundle has — see [`skills/deploy.md`](../skills/deploy.md).
+
+---
+
+## Cap counters must count places, not intentions [2026-09-14]
+
+**Symptom:** `index_trend_letf` sat at 2/2 with ZERO placed orders and
+zero mirror rows. SPYU, TNA and UDOW each skipped
+`vehicle_daily_cap_2_reached` every 5 minutes for a full session while
+their paper books ran on. The entry healer could not recover, because
+the healer hits the same gate.
+
+**Cause:** `bumpEntryCounters` reserved the vehicle + global slot before
+`/bridge/order` and released it on a non-place. Isolate death between
+the two ran neither branch, so the slot stayed consumed forever. The
+cash-scaling fix alone would not have helped: past the notional gate all
+three would have hit the leaked cap.
+
+**Fix:** Caps are checked read-only before dispatch and counted only once
+the bridge confirms the place (`entryCountersHaveRoom` /
+`commitEntryCounters`), which cannot leak. A reconcile hands back slots
+no confirmed place accounts for, so a value stranded by the old path
+recovers on the next tick rather than at UTC midnight. Two independent
+records — the dispatch ring and the day-stamped mirror rows — must agree
+a slot went unused, and the higher count wins.
+
+**Do not:** Trust one record to lower a cap counter; both are written on
+the same confirmed-place branch, so a lagging write would erase a real
+slot and make the cap unenforceable. Read wall clock in the counter
+helpers when the caller passed a `now` — the reconcile and the cap check
+then heal and read different day keys.
+
+---
+
+## Coverage must read the book, not the tape [2026-09-14]
+
+**Symptom:** `/timed/admin/broker/coverage?hours=96` returned ZERO
+`index_trend` actions while three sleeves sat open with no broker
+position. The contract reported clean, nothing paged, and the operator
+found it by eye.
+
+**Cause:** The lane was joined from `timed:idx-trend-actions` alone. That
+tape is best-effort and stopped gaining rows on 2026-09-10, so every
+book opened afterwards was invisible to coverage.
+
+**Fix:** Union the tape with the live carry books the entry healer
+already reads, deduped by signal id and bounded by the healer's
+never-attempted window so anything paged is still healable.
+
+**Do not:** Treat a best-effort KV tape as the authority for a lane when
+a persisted book is what Discord actually fires from.
+
+---
+
 ## Index Swings Discord is not a broker fill [2026-09-14]
 
 **Symptom:** #trade-signals posted TNA LONG DCA_ADD (11:30 ET, 46 sh)

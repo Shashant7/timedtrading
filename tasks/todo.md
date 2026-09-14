@@ -21,15 +21,33 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-- [ ] **Index Swings Discord without broker fill (2026-09-14).** TNA
+- [ ] **Operator action: add the Cloudflare CI secrets.** `deploy-*`
+      workflows now fail loudly instead of silently skipping, but they
+      still cannot deploy until `CLOUDFLARE_API_TOKEN` +
+      `CLOUDFLARE_ACCOUNT_ID` exist under Settings → Secrets and
+      variables → Actions. Until then every merge needs a hand-run
+      `npm run deploy:worker`. The next `worker/**` merge will go RED
+      as designed if they are still missing.
+- [ ] **Follow-up: 4 unmatched trader EXITs (2026-09-14).** Live
+      coverage shows U, DPZ, MNST, KO EXIT `unmatched`
+      (`ring_not_a_place`, and U as
+      `mirror_suppressed:insufficient_cash_for_one_unit_0_lt_42.99`),
+      heal `catchup-trader-exits`. Separate lane from Index Swings —
+      not addressed by `cursor/broker-mirror-failclosed-7ffc`.
+- [x] **Broker mirroring fail-closed (2026-09-14).** Three stacked
+      faults: CI deployed nothing since 09-03; daily cap slots leaked
+      on isolate death and wedged the lane at 2/2 with zero orders;
+      coverage was blind to `index_trend` because the action tape died
+      09-10. Replayed real prod state: 0 orders forwarded before, 2
+      after (cash-scaled into the $2000 sleeve) with the cap enforced.
+      Branch: `cursor/broker-mirror-failclosed-7ffc` (PR #1471).
+- [x] **Index Swings Discord without broker fill (2026-09-14).** TNA
       W37 DCA_ADD (46 sh, $2975) and UDOW W38 BUY (28 sh) hit
-      #trade-signals. Roth got neither. Catch-up skipped TNA as
-      `notional_*_exceeds_cap_2000` instead of cash-scaling to the
-      $2000 sleeve; vehicle cap already 2/2 (SPYU 60 pending, no
-      order id); UDOW never reached `/bridge/order`. Scale BUY qty
-      to `max_per_order_usd`; DCA on a never-filled sleeve is an
-      entry catch-up; heal never-attempted books first. Branch:
-      `cursor/index-trend-cap-scale-7ffc`.
+      #trade-signals. Roth got neither. Cash-scale BUY qty to
+      `max_per_order_usd`; DCA on a never-filled sleeve is an entry
+      catch-up; heal never-attempted books first. Shipped in #1470 —
+      but note it did NOT reach prod until 09-14 22:20Z because CI was
+      deploying nothing. Branch: `cursor/index-trend-cap-scale-7ffc`.
 - [x] **FOMC Today label (2026-09-13).** Sunday Today strip said
       TODAY · FOMC rate decision. Published decision is Wed Sep 16.
       Snap + D1 purge shipped. Branch: `cursor/fomc-today-label-7ffc`.
