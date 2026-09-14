@@ -402,6 +402,72 @@ export async function releaseVehicleCounter(env, userEmail, vehicle) {
   return releaseCounter(env, DAILY_VEHICLE_COUNTER_KEY(userEmail, vehicle, date));
 }
 
+/**
+ * Read-only cap check. Pair with `commitEntryCounters` AFTER the bridge
+ * confirms a place.
+ *
+ * Reserve-then-release could not survive isolate death: a BUY bumped the
+ * counter, `/bridge/order` never returned, and the release never ran. The
+ * slot stayed consumed for the rest of the day. On 2026-09-14
+ * `index_trend_letf` sat at 2/2 with ZERO orders placed and zero mirror
+ * rows, so SPYU, TNA and UDOW each skipped `vehicle_daily_cap_2_reached`
+ * every 5 minutes while the paper books ran on. A cap whose job is to
+ * limit orders SENT must count orders that were actually sent; counting
+ * intentions means a crash can wedge the lane shut.
+ *
+ * Trade-off: two entries dispatching concurrently can both pass this
+ * check and exceed the cap by one. Per-signal dedup (`entry_already_
+ * mirrored`) plus the heal lock keep that rare, and one extra sleeve is a
+ * far smaller failure than a whole day of unmirrored signals.
+ */
+export async function entryCountersHaveRoom(env, userEmail, vehicle, { vehicleCap = 0, globalCap = 0 } = {}) {
+  const date = new Date().toISOString().slice(0, 10);
+  const read = async (key) => Number(await env?.KV_TIMED?.get(key)) || 0;
+  if (Number(vehicleCap) > 0) {
+    const current = await read(DAILY_VEHICLE_COUNTER_KEY(userEmail, vehicle, date));
+    if (current >= Number(vehicleCap)) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: `vehicle_daily_cap_${vehicleCap}_reached_for_${vehicle}`,
+        counter: { allowed: false, current, cap: Number(vehicleCap), vehicle },
+      };
+    }
+  }
+  if (Number(globalCap) > 0) {
+    const current = await read(DAILY_COUNTER_KEY(userEmail, date));
+    if (current >= Number(globalCap)) {
+      return {
+        ok: false,
+        skipped: true,
+        reason: `daily_cap_${globalCap}_reached`,
+        counter: { allowed: false, current, cap: Number(globalCap) },
+      };
+    }
+  }
+  return { ok: true };
+}
+
+async function bumpCounter(env, key) {
+  if (!env?.KV_TIMED || !key) return 0;
+  const current = Number(await env.KV_TIMED.get(key)) || 0;
+  await env.KV_TIMED.put(key, String(current + 1), { expirationTtl: 86400 * 2 });
+  return current + 1;
+}
+
+/** Count a CONFIRMED broker place against today's vehicle + global caps. */
+export async function commitEntryCounters(env, userEmail, vehicle, { vehicleCap = 0, globalCap = 0 } = {}) {
+  const date = new Date().toISOString().slice(0, 10);
+  const out = {};
+  if (Number(vehicleCap) > 0) {
+    out.vehicle = await bumpCounter(env, DAILY_VEHICLE_COUNTER_KEY(userEmail, vehicle, date));
+  }
+  if (Number(globalCap) > 0) {
+    out.global = await bumpCounter(env, DAILY_COUNTER_KEY(userEmail, date));
+  }
+  return out;
+}
+
 /** HTTP success alone is not an accepted broker order. */
 export function optionsMirrorDispatchAccepted(fired) {
   return bridgeResponseIsOk(fired?.response, fired?.ok === true);
@@ -518,7 +584,7 @@ export async function maybeAutoMirror(env, ctx) {
   const decision = decideAutoMirror(ctx, prefs, profile);
   if (!decision.should_mirror) return { skipped: true, ...decision };
 
-  const counterOk = await bumpMirrorCounters(
+  const counterOk = await checkMirrorCounters(
     env,
     operatorEmail,
     prefs,
@@ -526,8 +592,6 @@ export async function maybeAutoMirror(env, ctx) {
     prefs.vehicles?.[decision.vehicle] || { daily_cap: decision.vehicle_daily_cap },
   );
   if (!counterOk.ok) return counterOk;
-  decision._vehicle_counter = counterOk.vehicle_counter || null;
-  decision._global_counter = counterOk.global_counter || null;
 
   // Fire.
   const fired = await fireAutoMirror(env, operatorEmail, {
@@ -538,8 +602,10 @@ export async function maybeAutoMirror(env, ctx) {
     confluence_verdict: decision.confluence,
     source: "auto_mirror",
   });
-  if (!optionsMirrorDispatchAccepted(fired)) {
-    await releaseMirrorCounters(env, operatorEmail, decision.vehicle, counterOk);
+  if (optionsMirrorDispatchAccepted(fired)) {
+    const committed = await commitEntryCounters(env, operatorEmail, decision.vehicle, counterOk.caps);
+    decision._vehicle_counter = committed.vehicle ?? null;
+    decision._global_counter = committed.global ?? null;
   }
 
   return {
@@ -925,43 +991,23 @@ async function gateIndexDayTradeMirror(env, ctx = {}) {
   };
 }
 
-async function bumpMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicleRow) {
-  let vehicleCounter = null;
-  const vehicleCap = Number(vehicleRow.daily_cap || 0);
-  if (vehicleCap > 0) {
-    const vCounter = await checkAndBumpVehicleCounter(env, operatorEmail, vehicleKey, vehicleCap);
-    if (!vCounter.allowed) {
-      return {
-        ok: false,
-        skipped: true,
-        reason: `vehicle_daily_cap_${vCounter.cap}_reached_for_${vehicleKey}`,
-        counter: vCounter,
-      };
-    }
-    vehicleCounter = vCounter;
-  }
-  let globalCounter = null;
-  const globalCap = Number(prefs.daily_cap) || 0;
-  if (globalCap > 0) {
-    const counter = await checkAndBumpDailyCounter(env, operatorEmail, globalCap);
-    if (!counter.allowed) {
-      if (vehicleCounter) await releaseVehicleCounter(env, operatorEmail, vehicleKey);
-      return { ok: false, skipped: true, reason: `daily_cap_${counter.cap}_reached`, counter };
-    }
-    globalCounter = counter;
-  }
-  return { ok: true, vehicle_counter: vehicleCounter, global_counter: globalCounter };
+function mirrorCapsFor(prefs, vehicleRow) {
+  return {
+    vehicleCap: Number(vehicleRow?.daily_cap || 0),
+    globalCap: Number(prefs?.daily_cap) || 0,
+  };
 }
 
-async function releaseMirrorCounters(env, operatorEmail, vehicleKey, reservation) {
-  const releases = [];
-  if (reservation?.vehicle_counter) {
-    releases.push(releaseVehicleCounter(env, operatorEmail, vehicleKey));
-  }
-  if (reservation?.global_counter) {
-    releases.push(releaseDailyCounter(env, operatorEmail));
-  }
-  await Promise.all(releases);
+/**
+ * Read-only cap gate. The commit happens once the broker accepts, so a
+ * crash between dispatch and bookkeeping cannot consume a slot — this
+ * lane shares the GLOBAL counter with index_trend, so a leak here wedges
+ * that lane too.
+ */
+async function checkMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicleRow) {
+  const caps = mirrorCapsFor(prefs, vehicleRow);
+  const room = await entryCountersHaveRoom(env, operatorEmail, vehicleKey, caps);
+  return room.ok ? { ok: true, caps } : { ...room, caps };
 }
 
 /**
@@ -1123,8 +1169,9 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
       };
     }
 
-    // Caps consume only when every entry check above passed.
-    const counterOk = await bumpMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicleRow);
+    // Caps are checked once every entry check above passed, and counted
+    // only after the broker takes the order.
+    const counterOk = await checkMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicleRow);
     if (!counterOk.ok) return counterOk;
 
     const fired = await fireAutoMirror(env, operatorEmail, {
@@ -1143,8 +1190,9 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     let fill = extractMirrorFill(fired, entryContracts);
     fill = await pollFillIfNeeded(env, operatorEmail, fill, entryContracts);
     const rec = reconcileIndexDtFill({ event: "BUY", requestedQty: entryContracts, fill });
-    if (!rec.persist && !rec.pending) {
-      await releaseMirrorCounters(env, operatorEmail, vehicleKey, counterOk);
+    // A working limit still occupies the broker, so it counts like a fill.
+    if (rec.persist || rec.pending) {
+      await commitEntryCounters(env, operatorEmail, vehicleKey, counterOk.caps);
     }
 
     if (signalId && rec.persist) {

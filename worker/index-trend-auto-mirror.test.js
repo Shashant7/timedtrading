@@ -101,6 +101,63 @@ describe("index-trend-auto-mirror", () => {
     expect(indexTrendCatchUpPlaced({ skipped: false, fired: { ok: false, skip: "no_bridge_url" } })).toBe(false);
   });
 
+  it("does not burn a cap slot when the isolate dies mid-dispatch (2026-09-14)", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const vehicleKey = `timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`;
+    const env = envWithStore({ "timed:options:auto-mirror:op@test.com": ENABLED_PREFS });
+
+    // /bridge/order never comes back — the same isolate death that left
+    // SPYU "pending, no order id" and wedged the vehicle at 2/2.
+    forwardOrderToBridge.mockImplementationOnce(async () => {
+      throw new Error("isolate_died");
+    });
+    const dead = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      signal_id: "it:SPY:SPYU:LONG:2026-W38",
+      underlying: "SPY",
+      letf_ticker: "SPYU",
+      letf_price: 33.42,
+      book: { shares: 40, status: "open" },
+      now: RTH_TS,
+    });
+    expect(dead.reason).toBe("mirror_error");
+    expect(env.store[vehicleKey]).toBeUndefined();
+
+    // The next sleeve still has its full cap and reaches the broker.
+    const live = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      signal_id: "it:DIA:UDOW:LONG:2026-W38",
+      underlying: "DIA",
+      letf_ticker: "UDOW",
+      letf_price: 69.65,
+      book: { shares: 28, status: "open" },
+      now: RTH_TS,
+    });
+    expect(live.skipped).toBe(false);
+    expect(live.reason).toBeNull();
+    expect(env.store[vehicleKey]).toBe("1");
+  });
+
+  it("stops entries once the cap is genuinely spent on placed orders", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      [`timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`]: "2",
+    });
+    const r = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      signal_id: "it:IWM:TNA:LONG:2026-W38",
+      underlying: "IWM",
+      letf_ticker: "TNA",
+      letf_price: 64.11,
+      book: { shares: 30, status: "open" },
+      now: RTH_TS,
+    });
+    expect(r.skipped).toBe(true);
+    expect(r.reason).toBe("vehicle_daily_cap_2_reached_for_index_trend_letf");
+    expect(forwardOrderToBridge).not.toHaveBeenCalled();
+  });
+
   it("does not stamp entry_fired on a cash reject (UDOW 2026-09-03)", async () => {
     forwardOrderToBridge.mockResolvedValueOnce({
       ok: false,
@@ -124,9 +181,10 @@ describe("index-trend-auto-mirror", () => {
     expect(r.fired?.ok).toBe(false);
     expect(await indexTrendNeedsEntryCatchUp(env, signalId, RTH_TS)).toBe(false);
     expect(await indexTrendNeedsEntryCatchUp(env, signalId, RTH_TS + 16 * 60 * 1000)).toBe(true);
+    // Caps count confirmed places only, so a reject never touches them.
     const today = new Date().toISOString().slice(0, 10);
-    expect(env.store[`timed:options:auto-mirror:count:op@test.com:${today}`]).toBe("0");
-    expect(env.store[`timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`]).toBe("0");
+    expect(env.store[`timed:options:auto-mirror:count:op@test.com:${today}`]).toBeUndefined();
+    expect(env.store[`timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`]).toBeUndefined();
   });
 
   it("stamps a fan-out order id so later UDOW/TQQQ trims stay eligible", async () => {

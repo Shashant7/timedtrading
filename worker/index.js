@@ -1348,7 +1348,9 @@ import {
   saveAutoMirrorPrefs as _saveAutoMirrorPrefs,
   decideAutoMirror as _decideAutoMirror,
   fireAutoMirror as _fireAutoMirror,
-  checkAndBumpDailyCounter as _bumpMirrorCounter,
+  entryCountersHaveRoom as _entryCountersHaveRoom,
+  commitEntryCounters as _commitEntryCounters,
+  optionsMirrorDispatchAccepted as _optionsMirrorDispatchAccepted,
 } from "./options-auto-mirror.js";
 import {
   optionsShadowModeEnabled as _optionsShadowModeEnabled,
@@ -94001,10 +94003,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           if (dryRun) {
             return sendJSON({ ok: true, fired: false, dry_run: true, decision }, 200, corsHeaders(env, req));
           }
-          // Live fire.
-          const counter = await _bumpMirrorCounter(env, userEmail, prefs.daily_cap);
-          if (!counter.allowed) {
-            return sendJSON({ ok: false, error: "daily_cap_reached", counter }, 429, corsHeaders(env, req));
+          // Live fire. Cap is checked here and counted only once the
+          // broker accepts, so a failed dispatch cannot burn a slot.
+          const caps = { globalCap: Number(prefs.daily_cap) || 0 };
+          const room = await _entryCountersHaveRoom(env, userEmail, decision.vehicle, caps);
+          if (!room.ok) {
+            return sendJSON({ ok: false, error: "daily_cap_reached", counter: room.counter }, 429, corsHeaders(env, req));
           }
           const fired = await _fireAutoMirror(env, userEmail, {
             trade_id: contract.trade_id || null,
@@ -94013,6 +94017,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             confluence_verdict: decision.confluence,
             source: "manual_mirror_now",
           });
+          let counter = null;
+          if (_optionsMirrorDispatchAccepted(fired)) {
+            const committed = await _commitEntryCounters(env, userEmail, decision.vehicle, caps);
+            counter = { allowed: true, current: committed.global ?? null, cap: caps.globalCap };
+          }
           return sendJSON({ ok: true, fired, decision, counter }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
