@@ -13,6 +13,8 @@ import {
   healForCoverageRow,
   modelActionFromInvestorLot,
   modelActionFromIndexTrend,
+  modelActionFromIndexTrendBook,
+  loadIndexTrendBookActions,
   modelActionFromIndexDt,
   snapshotMirrorCoverage,
   summarizeCoverageForDesk,
@@ -574,6 +576,88 @@ describe("source contract — coverage is wired fail-closed", () => {
     const coo = readFileSync(join(root, "coo/coo-orchestrator.js"), "utf8");
     expect(coo).toMatch(/model_broker_coverage/);
     expect(coo).toMatch(/_healModelBrokerCoverage/);
+  });
+});
+
+describe("index_trend lane reads the paper book, not just the tape", () => {
+  function bookEnv(books = {}) {
+    const store = new Map(Object.entries(books));
+    return {
+      KV_TIMED: {
+        get: async (k) => store.get(k) ?? null,
+        put: async (k, v) => { store.set(k, v); },
+      },
+    };
+  }
+
+  const openBook = (over = {}) => ({
+    status: "open",
+    shares: 42,
+    entry_ts: NOW - 6 * 3600 * 1000,
+    entry_letf_price: 69.65,
+    ...over,
+  });
+
+  // Same shape persistIndexTrendBook writes: the carry key inlines the book.
+  const carry = (letf, signalId, book) => ({
+    [`timed:idx-trend-carry:${letf}`]: JSON.stringify({
+      signal_id: signalId,
+      book_key: `timed:idx-trend-book:${signalId}`,
+      book,
+      ts: book.entry_ts,
+    }),
+    [`timed:idx-trend-book:${signalId}`]: JSON.stringify(book),
+  });
+
+  it("surfaces a live book whose tape row was never written (2026-09-14)", async () => {
+    // timed:idx-trend-actions stopped gaining rows on 2026-09-10 while
+    // UDOW W38 opened and ran unmirrored.
+    const env = bookEnv(carry("UDOW", "it:DIA:UDOW:LONG:2026-W38", openBook()));
+    const actions = await loadIndexTrendBookActions(env, { sinceMs: NOW - 48 * 3600 * 1000, nowMs: NOW });
+    const udow = actions.find((a) => a.ticker === "UDOW");
+    expect(udow).toBeTruthy();
+    expect(udow.lane).toBe("index_trend");
+    expect(udow.event).toBe("ENTRY");
+    expect(udow.trade_id).toBe("it:DIA:UDOW:LONG:2026-W38");
+    expect(udow.qty).toBe(42);
+    expect(udow.source).toBe("idx-trend-book");
+  });
+
+  it("keeps a book older than the coverage window while a heal can still act", async () => {
+    // TNA W37 opened 2026-09-11 and was still open + unmirrored on 09-14.
+    const env = bookEnv(carry("TNA", "it:IWM:TNA:LONG:2026-W37", openBook({
+      shares: 46,
+      entry_ts: NOW - 3 * 86400 * 1000,
+    })));
+    const actions = await loadIndexTrendBookActions(env, { sinceMs: NOW - 2 * 3600 * 1000, nowMs: NOW });
+    expect(actions.map((a) => a.ticker)).toContain("TNA");
+  });
+
+  it("ignores closed books", async () => {
+    const env = bookEnv(carry("TQQQ", "it:QQQ:TQQQ:LONG:2026-W37", openBook({ status: "closed" })));
+    const actions = await loadIndexTrendBookActions(env, { sinceMs: 0, nowMs: NOW });
+    expect(actions).toEqual([]);
+  });
+
+  it("classifies a book-derived entry with no broker place as unmatched", () => {
+    const action = modelActionFromIndexTrendBook(
+      { status: "open", shares: 42, entry_ts: OLD, entry_letf_price: 69.65 },
+      { letf: "UDOW", signalId: "it:DIA:UDOW:LONG:2026-W38" },
+    );
+    const cov = classifyActionCoverage(action, {
+      ring: [],
+      intents: [],
+      // The live mirror log only ever recorded cap skips.
+      mirrorLogs: [{
+        signal_id: "it:DIA:UDOW:LONG:2026-W38",
+        side: "buy",
+        decision: "skipped",
+        reason: "notional_2925_exceeds_cap_2000",
+      }],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("unmatched");
+    expect(healForCoverageRow({ ...action, ...cov })).toBe(HEAL_INDEX_ENTRY);
   });
 });
 

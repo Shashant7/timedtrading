@@ -26,8 +26,14 @@
 
 import { readClientRing } from "./broker-bridge-client.js";
 import { ringLooksLikeRealPlace } from "./investor-catchup-run.js";
-import { isTerminalIndexTrendExitReject, INDEX_TREND_MIRROR_LOG_KEY } from "./index-trend-auto-mirror.js";
-import { readIndexTrendActions } from "./index-trend-alerts.js";
+import {
+  isTerminalIndexTrendExitReject,
+  INDEX_TREND_MIRROR_LOG_KEY,
+  INDEX_TREND_CARRY_LETFS,
+  INDEX_TREND_NEVER_ATTEMPTED_ENTRY_MS,
+} from "./index-trend-auto-mirror.js";
+import { readIndexTrendActions, loadIndexTrendBook } from "./index-trend-alerts.js";
+import { indexTrendBookIsLive } from "./index-trend-paper.js";
 import { readDayTradeActions } from "./option-day-trade-alerts.js";
 import { OPT_DT_MIRROR_LOG_KEY } from "./options-auto-mirror.js";
 import { paperMirrorLogSide } from "./broker-day-actions-join.js";
@@ -510,6 +516,56 @@ export function modelActionFromIndexTrend(a) {
   };
 }
 
+export function modelActionFromIndexTrendBook(book, { letf, signalId } = {}) {
+  return {
+    lane: "index_trend",
+    event: "ENTRY",
+    ticker: String(letf || book?.letf_ticker || "").toUpperCase(),
+    trade_id: String(signalId || ""),
+    position_id: signalId || null,
+    signal_id: signalId || null,
+    ts: Number(book?.entry_ts) || 0,
+    qty: Number(book?.shares) || 0,
+    price: Number(book?.entry_letf_price) || Number(book?.last_letf_price) || 0,
+    source: "idx-trend-book",
+  };
+}
+
+/**
+ * Live paper books, read the way the entry healer reads them.
+ *
+ * The index_trend lane used to be joined from `timed:idx-trend-actions`
+ * alone. That tape is best-effort and stopped gaining rows on 2026-09-10,
+ * so the SPYU / TNA / UDOW books opened after it went quiet were invisible
+ * here: coverage reported a clean contract while three sleeves sat open
+ * with no broker position and nothing paged. The book is the authority
+ * Discord already fires from, so a lost tape row can no longer hide a
+ * missed fill. Bounded by the healer's own catch-up window so anything
+ * paged is still something a heal can act on.
+ */
+export async function loadIndexTrendBookActions(env, {
+  sinceMs = 0,
+  nowMs = Date.now(),
+} = {}) {
+  const out = [];
+  const floor = Math.min(Number(sinceMs) || 0, (Number(nowMs) || Date.now()) - INDEX_TREND_NEVER_ATTEMPTED_ENTRY_MS);
+  for (const letf of INDEX_TREND_CARRY_LETFS) {
+    let loaded = null;
+    try {
+      loaded = await loadIndexTrendBook(env, { letf_ticker: letf });
+    } catch (_) {
+      continue;
+    }
+    const book = loaded?.book;
+    if (!book || !indexTrendBookIsLive(book)) continue;
+    const signalId = loaded.signal_id || book.signal_id || null;
+    const ts = Number(book.entry_ts) || 0;
+    if (!signalId || !(ts >= floor)) continue;
+    out.push(modelActionFromIndexTrendBook(book, { letf, signalId }));
+  }
+  return out;
+}
+
 export function modelActionFromIndexDt(a) {
   const ev = String(a?.event || "").toUpperCase();
   const event = ev === "BUY" ? "ENTRY" : (ev === "TRIM" ? "TRIM" : "EXIT");
@@ -598,9 +654,20 @@ export async function loadMirrorCoverage(env, {
     sinceMs);
   for (const lot of lots) actions.push(modelActionFromInvestorLot(lot));
 
+  const idxSeen = new Set();
   try {
     for (const a of await readIndexTrendActions(env, sinceMs)) {
-      actions.push(modelActionFromIndexTrend(a));
+      const action = modelActionFromIndexTrend(a);
+      idxSeen.add(`${action.trade_id}|${action.event}`);
+      actions.push(action);
+    }
+  } catch (_) { /* optional */ }
+  try {
+    for (const action of await loadIndexTrendBookActions(env, { sinceMs, nowMs })) {
+      // An ENTRY already on the tape (or a book the model has since added
+      // to) must not be counted twice.
+      if (idxSeen.has(`${action.trade_id}|ENTRY`) || idxSeen.has(`${action.trade_id}|DCA_BUY`)) continue;
+      actions.push(action);
     }
   } catch (_) { /* optional */ }
   try {
