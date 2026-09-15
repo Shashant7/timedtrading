@@ -19,6 +19,19 @@ These patterns were established in the 2026-06-09 security hardening
 without a guard.** The calibration cluster shipped unguarded for months
 — anyone reaching the worker could mutate live trading parameters.
 
+### Auditing the route table: there is more than one
+
+`worker/index.js` is not the whole route table. `handleTrustSpineRoutes`
+in `worker/trust-spine/routes.js` owns 9 more behind a `routeKey`
+(`"GET /timed/plays/today"`, `/timed/why/recent`,
+`/timed/ledger/trades/:id/decisions`, and six
+`/timed/admin/trust-spine/*`). An audit that greps only `worker/index.js`
+reports every one of them as an orphaned UI call and invents work
+chasing routes that are live. Grep for the route string across
+`worker/**` before concluding anything is unrouted — and when adding a
+route to the spine file, guard it there: it gets `requireKeyOrAdmin` /
+`requireAdminSession` passed in through `ctx`, not from the main table.
+
 ## API key: header only
 
 - Callers send `X-API-Key: <TIMED_API_KEY>` (or `Authorization: Bearer`).
