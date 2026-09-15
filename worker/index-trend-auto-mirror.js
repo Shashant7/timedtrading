@@ -2,7 +2,7 @@
 //
 // Broker mirror for index trend LETF share plays via /bridge/order.
 
-import { forwardOrderToBridge, parseBridgeOrderIds, readClientRing } from "./broker-bridge-client.js";
+import { forwardOrderToBridge, parseBridgeOrderIds, parseBridgeAcceptedQty, readClientRing } from "./broker-bridge-client.js";
 import {
   loadAutoMirrorPrefs,
   entryCountersHaveRoom,
@@ -380,7 +380,23 @@ async function recordMirrorDecision(env, ctx, result) {
       letf_ticker: String(ctx.letf_ticker || "").toUpperCase(),
       skipped,
       decision: skipped ? "skipped" : (rejected ? "rejected" : "placed"),
-      reason: result?.reason || extractIndexTrendRejectReason(result?.fired) || result?.error || firedSkip || null,
+      // Only mine the response for a reject when there WAS one. Falling
+      // through unconditionally stamped every success `bridge_reject`: the
+      // two real placements of 2026-09-15 (TNA W37, UDOW W38) both read
+      // `decision: "placed", reason: "bridge_reject"` in this log, which is
+      // the single most misleading thing it could say to an operator
+      // checking whether a signal reached the broker. Same defect the heal
+      // path's `out.results` had one layer up.
+      reason: (skipped || rejected)
+        ? (result?.reason || extractIndexTrendRejectReason(result?.fired) || result?.error || firedSkip || null)
+        : (result?.scaled_by_broker
+          ? `placed_scaled_${result.qty}_of_${result.requested_qty}`
+          : null),
+      // The qty that reached the broker, so this log can answer "how much"
+      // and not just "did it go". Absent before, which is why a 5-of-31
+      // fill was indistinguishable from a full one here.
+      qty: result?.qty ?? null,
+      requested_qty: result?.requested_qty ?? null,
     });
     if (list.length > MIRROR_LOG_MAX) list.length = MIRROR_LOG_MAX;
     await KV.put(MIRROR_LOG_KEY, JSON.stringify(list), { expirationTtl: 30 * 86400 });
@@ -702,6 +718,12 @@ async function runIndexTrendMirror(env, ctx = {}) {
     });
 
     const placed = indexTrendFiredLooksPlaced(fired);
+    // The bridge scales a buy to fit the account and places the scaled qty,
+    // so what we asked for is not what we own. Record what it accepted.
+    const accepted = parseBridgeAcceptedQty(
+      fired.response && typeof fired.response === "object" ? fired.response : fired,
+      sizing.qty,
+    );
     if (signalId && placed) {
       const parsed = fired.response && typeof fired.response === "object"
         ? fired.response
@@ -714,8 +736,15 @@ async function runIndexTrendMirror(env, ctx = {}) {
         entry_fired_ts: caps.now,
         letf_ticker: letfTicker,
         underlying,
-        shares: sizing.qty,
-        shares_remaining: sizing.qty,
+        // `shares` drives closeQty, so it has to be the broker's number.
+        // Storing the request made the model size a 25% trim off 31 shares
+        // while the account held 5, i.e. sell the whole position and then
+        // some. `requested_shares` keeps the model's intent for the audit.
+        shares: accepted.qty,
+        shares_remaining: accepted.qty,
+        requested_shares: sizing.qty,
+        entry_qty_source: accepted.source,
+        entry_scaled_by_broker: accepted.qty < sizing.qty || null,
         entry_order_id: ids.order_id,
         entry_order_ids: ids.order_ids,
         last_reject: null,
@@ -734,7 +763,9 @@ async function runIndexTrendMirror(env, ctx = {}) {
       skipped: false,
       fired,
       event,
-      qty: sizing.qty,
+      qty: placed ? accepted.qty : sizing.qty,
+      requested_qty: sizing.qty,
+      scaled_by_broker: placed && accepted.qty < sizing.qty,
       vehicle: VEHICLE_KEY,
       reason: placed ? null : extractIndexTrendRejectReason(fired),
     };
