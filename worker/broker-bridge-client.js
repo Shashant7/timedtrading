@@ -173,6 +173,58 @@ export function parseBridgeOrderIds(parsed) {
   };
 }
 
+/**
+ * The qty the bridge actually placed, which is NOT the qty we asked for.
+ *
+ * The bridge scales a buy down to fit the account: relational sizing
+ * (equity / model book), the per-order notional cap, the cash buffer, the
+ * per-ticker concentration ceiling, and the Webull whole-share retry all
+ * reduce it. On 2026-09-15 TNA W37 asked for 31 shares and UDOW W38 for 28;
+ * the concentration ceiling on a $14.8k Roth cut both to 5. Recording the
+ * request meant the mirror rows claimed 31 / 28 shares against 5 held — a
+ * 6x phantom position that coverage still reported as a clean "mirrored".
+ *
+ * Reads `accepted_qty` first (the bridge's own post-scaling number, which
+ * covers the paths that reduce qty without populating `scaling`), then
+ * `scaling.scaled_qty` so an older bridge deploy still narrows correctly,
+ * and sums the children on a fan-out. Returns `requestedQty` only when the
+ * response says nothing — never silently zero, or a good place would be
+ * recorded as an empty sleeve.
+ */
+export function parseBridgeAcceptedQty(parsed, requestedQty) {
+  const requested = Number(requestedQty);
+  const fallback = Number.isFinite(requested) && requested > 0 ? requested : null;
+  if (!parsed || typeof parsed !== "object") return { qty: fallback, source: "requested" };
+
+  const own = (node) => {
+    if (!node || typeof node !== "object") return null;
+    const accepted = Number(node.accepted_qty);
+    if (Number.isFinite(accepted) && accepted > 0) return { qty: accepted, source: "accepted_qty" };
+    const scaled = Number(node.scaling?.scaled_qty);
+    if (Number.isFinite(scaled) && scaled > 0) return { qty: scaled, source: "scaling" };
+    return null;
+  };
+
+  const direct = own(parsed)
+    || own(parsed.response && typeof parsed.response === "object" ? parsed.response : null)
+    || own(parsed.data && typeof parsed.data === "object" ? parsed.data : null);
+  if (direct) return direct;
+
+  // Fan-out: each account is placed separately, so the mirrored sleeve is
+  // the sum of the legs that actually took. Only children that report a
+  // qty count — a rejected leg contributes nothing.
+  if (Array.isArray(parsed.results)) {
+    let total = 0;
+    let seen = 0;
+    for (const row of parsed.results) {
+      const child = own(row?.result);
+      if (child) { total += child.qty; seen += 1; }
+    }
+    if (seen > 0 && total > 0) return { qty: total, source: "fanout" };
+  }
+  return { qty: fallback, source: "requested" };
+}
+
 async function pushRing(env, entry, { replacePending = false } = {}) {
   const KV = env?.KV_TIMED;
   if (!KV) return;
@@ -604,6 +656,24 @@ export async function forwardOrderToBridge(env, order) {
       || parsed?.message
       || childReject
       || null;
+    // The ring is "what left the worker for the broker", and until now it
+    // recorded only what we ASKED for. The bridge scales a buy to fit the
+    // account, so a 31-share request placed as 5 looked identical here to
+    // one placed in full — and `ringQty()` (which coverage trusts for
+    // broker_qty) reported 31. Stamp the accepted qty whenever it differs
+    // so coverage can tell a full mirror from a scaled one.
+    // Stamped only when the bridge actually took less than we sent: the
+    // field name asserts a reduction happened, and writing it on every
+    // order would make `bridge_scaled_qty` mean nothing.
+    const _accepted = parseBridgeAcceptedQty(parsed, order?.qty);
+    if (_accepted.qty != null && _accepted.qty < (Number(order?.qty) || 0)) {
+      ringEntry.bridge_scaled_qty = _accepted.qty;
+      ringEntry.bridge_scale_reason = parsed?.scaling?.reason
+        || (Array.isArray(parsed?.results)
+          ? parsed.results.map((row) => row?.result?.scaling?.reason).find(Boolean)
+          : null)
+        || null;
+    }
     ringEntry.latency_ms = Date.now() - t0;
     await pushRing(env, ringEntry, { replacePending: true });
     if (!ok) {
