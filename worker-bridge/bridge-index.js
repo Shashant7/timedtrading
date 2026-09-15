@@ -2835,6 +2835,18 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     // 100, bridge sent 7" with the reason (cap_per_order / cash_buffer
     // / concentration). null when no scaling was applied.
     scaling: pf.scaling || null,
+    // 2026-09-15 — the qty this order was actually placed for. `scaling`
+    // alone is not enough: relational sizing (equity/model-book ratio)
+    // mutates payload.qty WITHOUT setting scalingMeta, and the Webull
+    // whole-share retry re-places at _wholeQty, so both reduce the order
+    // while `scaling` stays null. `sanitized` is the object preflight
+    // mutates in place and the fract retry reassigns, so its qty is the
+    // one number every reduction path converges on. Callers that record
+    // their REQUESTED qty end up believing they own more than they do:
+    // TNA W37 and UDOW W38 each asked for 31 / 28 shares, were scaled to
+    // 5 by the concentration ceiling on a $14.8k Roth, and the mirror
+    // rows stored 31 / 28 with coverage reporting a clean "mirrored".
+    accepted_qty: Number(sanitized.qty) || null,
     mock: !!place.mock,
     latency_ms: Date.now() - t0,
   }, 200);

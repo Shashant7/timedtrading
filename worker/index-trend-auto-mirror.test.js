@@ -802,3 +802,102 @@ describe("index-trend-auto-mirror", () => {
     expect(r.reason).toBe("outside_rth_buy_window");
   });
 });
+
+// 2026-09-15 — what the mirror row records IS the position as far as the
+// model is concerned: `closeQty` sizes every TRIM and EXIT off
+// `shares_remaining`. The bridge scales a buy to fit the account, so the
+// heal sent TNA W37 for 31 shares and UDOW W38 for 28 and the concentration
+// ceiling on a $14.8k Roth placed 5 of each. Storing the REQUEST left the
+// model believing it owned 31 against 5 held, which makes a 25% trim
+// (7.75 sh) larger than the whole position.
+describe("the mirror row records what the broker accepted, not what we asked", () => {
+  const SID = "it:IWM:TNA:LONG:2026-W37";
+
+  async function buyWith(bridgeResponse) {
+    const env = envWithStore({ "timed:options:auto-mirror:op@test.com": ENABLED_PREFS });
+    forwardOrderToBridge.mockResolvedValue(bridgeResponse);
+    const r = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      catch_up: true,
+      signal_id: SID,
+      underlying: "IWM",
+      letf_ticker: "TNA",
+      letf_price: 64.06,
+      book: { shares: 31, status: "open" },
+      now: AFTER_TS,
+    });
+    return { env, r, mirror: JSON.parse(env.store[`timed:idx-trend-mirror:${SID}`]) };
+  }
+
+  it("stores the scaled qty as the sleeve and keeps the request for audit", async () => {
+    const { r, mirror } = await buyWith({
+      ok: true,
+      order_id: "K8HS08L3MM602R23AAME051MSB",
+      response: {
+        ok: true,
+        rh_order_id: "K8HS08L3MM602R23AAME051MSB",
+        accepted_qty: 5,
+        scaling: { original_qty: 31, scaled_qty: 5, reason: "concentration" },
+      },
+    });
+    expect(mirror.entry_fired).toBe(true);
+    expect(mirror.shares).toBe(5);
+    expect(mirror.shares_remaining).toBe(5);
+    expect(mirror.requested_shares).toBe(31);
+    expect(mirror.entry_scaled_by_broker).toBe(true);
+    expect(r.qty).toBe(5);
+    expect(r.requested_qty).toBe(31);
+  });
+
+  it("records the full qty when the bridge scaled nothing", async () => {
+    const { r, mirror } = await buyWith({
+      ok: true,
+      order_id: "WB-FULL",
+      response: { ok: true, rh_order_id: "WB-FULL", accepted_qty: 31, scaling: null },
+    });
+    expect(mirror.shares).toBe(31);
+    expect(mirror.shares_remaining).toBe(31);
+    expect(mirror.entry_scaled_by_broker).toBeNull();
+    expect(r.scaled_by_broker).toBe(false);
+  });
+
+  it("never records an empty sleeve for a real place", async () => {
+    // A silent 0 would make the next heal think nothing was bought and
+    // re-buy on top of the position it just opened.
+    const { mirror } = await buyWith({ ok: true, order_id: "WB-QUIET" });
+    expect(mirror.shares).toBe(31);
+  });
+
+  it("does not label a placed order bridge_reject in the decision log", async () => {
+    const { env } = await buyWith({
+      ok: true,
+      order_id: "K8HS08L3MM602R23AAME051MSB",
+      response: {
+        ok: true,
+        rh_order_id: "K8HS08L3MM602R23AAME051MSB",
+        accepted_qty: 5,
+        scaling: { original_qty: 31, scaled_qty: 5, reason: "concentration" },
+      },
+    });
+    const log = JSON.parse(env.store[INDEX_TREND_MIRROR_LOG_KEY]);
+    expect(log[0].decision).toBe("placed");
+    // The live path stamped `reason: "bridge_reject"` on both real
+    // placements of 2026-09-15 — the most misleading thing this log could
+    // tell an operator checking whether a signal reached the broker.
+    expect(log[0].reason).not.toBe("bridge_reject");
+    expect(log[0].reason).toBe("placed_scaled_5_of_31");
+    expect(log[0].qty).toBe(5);
+    expect(log[0].requested_qty).toBe(31);
+  });
+
+  it("leaves the reason null on a clean full placement", async () => {
+    const { env } = await buyWith({
+      ok: true,
+      order_id: "WB-FULL",
+      response: { ok: true, rh_order_id: "WB-FULL", accepted_qty: 31 },
+    });
+    const log = JSON.parse(env.store[INDEX_TREND_MIRROR_LOG_KEY]);
+    expect(log[0].decision).toBe("placed");
+    expect(log[0].reason).toBeNull();
+  });
+});

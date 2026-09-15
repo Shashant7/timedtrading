@@ -323,6 +323,42 @@ async function _notifyCalibrationCycle(env, report, outcome) {
 // ── Self-healing actions ──────────────────────────────────────────────
 
 /**
+ * One line describing what a heal did, per lane.
+ *
+ * `JSON.stringify(action).slice(0, 200)` used to be good enough, back when
+ * a heal was one operation. `model_broker_coverage` fans out to five lanes
+ * and the raw dump spends its whole budget on the first two: the 2026-09-15
+ * 14:04 heal — the pass that recovered three stranded index-trend entries —
+ * logged `investor` and half of `trader_exits`, and the three lanes that
+ * did the interesting work were cut off mid-token. Summarising per lane
+ * fits all five and keeps the counts that matter (what was planned, what
+ * actually forwarded).
+ */
+export function summarizeHealAction(action) {
+  const results = action?.results && typeof action.results === "object" ? action.results : null;
+  if (!results) return JSON.stringify(action).slice(0, 200);
+  const parts = [];
+  for (const [lane, row] of Object.entries(results)) {
+    if (!row || typeof row !== "object") { parts.push(`${lane}=${row}`); continue; }
+    const counts = [
+      ["planned", row.planned],
+      ["claimed", row.claimed],
+      ["dropped", row.flat_dropped],
+      ["fwd", row.forwarded ?? row.forwarded_ok],
+      ["filled", row.filled],
+      ["scanned", row.scanned],
+      ["skipped", row.skipped],
+      ["drained", row.drained],
+    ].filter(([, v]) => Number(v) > 0).map(([k, v]) => `${k}=${v}`);
+    parts.push(`${lane}:${row.ok === false ? "FAIL" : "ok"}${counts.length ? `(${counts.join(",")})` : ""}`);
+  }
+  const failed = Array.isArray(action?.failed) && action.failed.length
+    ? ` failed=[${action.failed.join(",")}]`
+    : "";
+  return `${parts.join(" ")}${failed}`.slice(0, 400);
+}
+
+/**
  * Read the latest sanity sweep, route each failing check to its
  * remediation handler. Each remediation is idempotent + cooldown-gated.
  *
@@ -434,7 +470,7 @@ export async function runSelfHealing(env, options = {}) {
       reason: action?.dry_run
         ? `would_do: ${action.would_do}`
         : action?.ok
-          ? `healed: ${JSON.stringify(action).slice(0, 200)}`
+          ? `healed: ${summarizeHealAction(action)}`
           : `failed: ${action?.error
             || action?.reason
             || (action?.failed?.length ? `lanes:${action.failed.join(",")}` : "unknown")}`,

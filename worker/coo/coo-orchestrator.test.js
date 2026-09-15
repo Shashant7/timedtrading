@@ -22,6 +22,7 @@ import {
   runMoveDiscoveryCycle,
   runScreenerAutoPromote,
   runSelfHealing,
+  summarizeHealAction,
 } from "./coo-orchestrator.js";
 
 function makeKv() {
@@ -287,5 +288,62 @@ describe("runSelfHealing — unknown checks", () => {
     expect(row.would_do || "").toMatch(/catchup-trader-exits/);
     expect(row.would_do || "").toMatch(/heal-entries/);
     expect(JSON.stringify(out)).not.toMatch(/processTradeSimulation/);
+  });
+});
+
+// 2026-09-15 — the action log is where an operator reads what a heal did.
+// `JSON.stringify(action).slice(0, 200)` was written when a heal was one
+// operation; model_broker_coverage fans out to five lanes and the raw dump
+// spends its whole budget on the first two. The 14:04 heal that recovered
+// three stranded index-trend entries logged `investor` and half of
+// `trader_exits`, cut off mid-token, with the interesting lanes invisible.
+describe("summarizeHealAction keeps every lane in the log line", () => {
+  // Shape taken from the real 2026-09-15 14:04:03Z heal.
+  const ACTION = {
+    ok: true,
+    failed: [],
+    results: {
+      investor: { ok: true, planned: 0, forwarded_ok: 0, skipped_gates: 0, source: "catchup_coo_heal" },
+      trader_exits: { ok: true, dry_run: false, planned: 9, claimed: 31, flat_dropped: 22, forwarded: 9 },
+      index_trend_entries: { ok: true, scanned: 4, attempted: 3, filled: 2, skipped: 1 },
+      index_trend_closes: { ok: true, scanned: 4, filled: 0 },
+      broker_intents: { ok: true, drained: 0 },
+    },
+  };
+
+  it("names all five lanes inside the budget", () => {
+    const line = summarizeHealAction(ACTION);
+    for (const lane of Object.keys(ACTION.results)) expect(line).toContain(lane);
+    expect(line.length).toBeLessThanOrEqual(400);
+    // The old form truncated before these two ever appeared.
+    expect(JSON.stringify(ACTION).slice(0, 200)).not.toContain("index_trend_closes");
+    expect(line).toContain("index_trend_closes");
+  });
+
+  it("keeps the counts that show what the clamp actually did", () => {
+    const line = summarizeHealAction(ACTION);
+    // 31 claims clamped to 9 is the whole point of the oversell guard.
+    expect(line).toContain("claimed=31");
+    expect(line).toContain("planned=9");
+    expect(line).toContain("dropped=22");
+    expect(line).toContain("filled=2");
+  });
+
+  it("marks a failing lane and echoes the failed list", () => {
+    const line = summarizeHealAction({
+      ok: false,
+      failed: ["index_trend_entries"],
+      results: {
+        investor: { ok: true, planned: 0 },
+        index_trend_entries: { ok: false, error: "bridge_unreachable" },
+      },
+    });
+    expect(line).toContain("index_trend_entries:FAIL");
+    expect(line).toContain("investor:ok");
+    expect(line).toContain("failed=[index_trend_entries]");
+  });
+
+  it("falls back to the raw dump for a single-operation heal", () => {
+    expect(summarizeHealAction({ ok: true, repaired: 3 })).toBe('{"ok":true,"repaired":3}');
   });
 });
