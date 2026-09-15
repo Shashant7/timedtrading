@@ -6,6 +6,75 @@
 
 ---
 
+## "Mirrored" has to mean the quantity too [2026-09-15]
+
+**Symptom.** After a full session with the #1471 fixes live, broker coverage
+read `unmatched: 0, fails: 0, anomalies: 0` and showed SPYU / UDOW / JPM as
+`mirrored`. The account told a different story: the mirror rows claimed 31
+TNA and 28 UDOW; the broker held **5 of each**.
+
+**What happened.** `planEntryQty` cash-scales an index-trend entry to the
+$2000 `max_per_order_usd`, which gave 31 and 28 shares. The bridge then
+applies its OWN account-fit scaling — relational sizing, per-order cap, cash
+buffer, per-ticker concentration ceiling — and the concentration ceiling on a
+$14.8k Roth cut both to 5. The bridge was right. The problem was that the
+number never came back:
+
+- `/bridge/order` returned `scaling` only. Relational sizing sets
+  `payload._sizing` and the Webull whole-share retry re-places at
+  `_wholeQty`; **both reduce the order while `scaling` stays null.**
+- `forwardOrderToBridge` stamped `order.qty` on the dispatch ring, so
+  `ringQty()` — which coverage trusts for `broker_qty` — reported 31.
+- The mirror row stored `shares: sizing.qty`.
+- `classifyActionCoverage` had nothing to compare, so it said `mirrored`.
+
+**Why it matters beyond reporting.** `closeQty` sizes every TRIM and EXIT off
+`shares_remaining`. At 31-believed vs 5-held, a 25% trim is 7.75 shares —
+more than the entire position. The reporting bug and a sizing bug were the
+same bug.
+
+**Fix.** The bridge returns `accepted_qty` = `sanitized.qty`. That is the one
+object `preflightOrder` mutates in place and the fract retry reassigns, so it
+is where every reduction path converges — a strict superset of
+`scaling.scaled_qty`. `parseBridgeAcceptedQty` prefers it, falls back to
+`scaling.scaled_qty` so an older bridge still narrows, sums fan-out legs, and
+**never returns zero for a real place** (an empty sleeve would make the next
+heal re-buy on top of the position it just opened).
+
+**The part worth remembering.** Flag the shortfall from the ring row's own
+requested/accepted pair, NOT from the model's book qty. Scaling a model
+position down to the account is precisely what the bridge is FOR, so
+comparing against the book would flag every normal order and the warning
+would be worthless. I checked the live 200-row ring before choosing: every
+successful order there is already account-sized (fractional reduces of real
+holdings; index-trend entries pre-sized to the cap), so a reduction recorded
+on the ring means an account-fit cap actually bit. Measure the noise floor
+before picking the comparison.
+
+**Also fixed in the same pass.** `recordMirrorDecision` mined the response for
+a reject unconditionally, so both real placements of the session logged
+`decision: "placed", reason: "bridge_reject"` — the most misleading thing that
+log could tell an operator checking whether a signal reached the broker. Same
+defect the heal path's `out.results` had, one layer up; fixing one instance of
+a pattern is not fixing the pattern. And `JSON.stringify(action).slice(0, 200)`
+in the COO action log spent its whole budget on the first two of five lanes,
+so the 14:04 heal that recovered three stranded entries logged `investor` and
+half of `trader_exits` and nothing else — `summarizeHealAction` now emits a
+per-lane summary with the counts (`claimed=31 planned=9 dropped=22` is how you
+see the oversell clamp working).
+
+**What the session confirmed working.** CI deployed on merge and the new sha
+assertion passed first probe (`ok=true deployedSha=1a62809b`); all three
+workers carried it. `clampExitOpsToHoldings` clamped 31 raw exit claims to 9
+planned, dropping 22 zombies. `adoptBrokerHeldSleeve` adopted the 9 orphaned
+SPYU shares instead of buying 59 more. `_healModelBrokerCoverage` logged
+`failed: []` on all 13 passes — the stricter every-lane verdict did not
+false-negative. The ext-trim guard was NOT exercised: no `extTrimSession`
+stamp exists on any symbol, so the rule never fired (CVNA 0.75 and TSLA 0.85
+predate the deploy). Unit regression covers it; production has not.
+
+---
+
 ## CI deployed nothing for eleven days [2026-09-14]
 
 **Symptom:** The operator kept reporting Index Swings signals that never

@@ -28,19 +28,33 @@
       variables → Actions. Until then every merge needs a hand-run
       `npm run deploy:worker`. The next `worker/**` merge will go RED
       as designed if they are still missing.
-- [ ] **Watch the 2026-09-15 RTH open.** Three index-trend entries are
-      stranded going into it: SPYU W38 (broker already holds 9 sh →
-      adopted, no order), TNA W37 and UDOW W38 (real buys, cash-scaled
-      to 31 sh / 28 sh, $1986 / $1937). Replay says 2 orders, counter
-      lands 2/2. Roth cash is $2213, so the SECOND of the two may come
-      back `insufficient_cash` — that is an account limit, not a bug,
-      and coverage should say so rather than page `never_attempted`.
-      Re-replayed 09-14 23:54Z against live KV + live `/bridge/positions`
-      on the deployed code: SPYU returns
-      `broker_already_holds_SPYU_9_adopted` with zero orders; with the
-      adoption guard stubbed out the same inputs size a fresh 59-share
-      sleeve (~$1974) on top of the 9 already held. Evidence:
-      `/opt/cursor/artifacts/index-trend-heal-replay.log`.
+- [x] **The 2026-09-15 RTH open cleared all three index-trend entries.**
+      The 14:04:03Z coverage heal adopted SPYU W38
+      (`broker_already_holds_SPYU_9_adopted`, zero orders) and placed TNA
+      W37 + UDOW W38 with real order ids. Neither came back
+      `insufficient_cash` as predicted. Coverage ended the session
+      `unmatched: 0, fails: 0, anomalies: 0`.
+      But both placements were SHORT: the bridge's concentration ceiling
+      on a $14.8k Roth scaled 31 sh → 5 and 28 sh → 5, and every layer
+      recorded the request, so coverage called a 16%-filled sleeve a
+      clean `mirrored` and `closeQty` would size trims off 31 against 5
+      held. Fixed in #1472 (`accepted_qty` through the bridge, ring,
+      mirror row and coverage).
+- [ ] **Watch the first index-trend TRIM or EXIT.** No index-trend reduce
+      has ever been observed mirroring: the 120-row mirror log holds 118
+      skipped BUYs + 2 placed BUYs and zero reduce rows. The sleeves also
+      sit in manifest `sync_state: untracked`, which is in the bridge's
+      reducer REJECT set (`manifestAwareReducerCheck`). The log window is
+      only ~2 days so this is not evidence of a break — but the exit side
+      of this lane is unproven, and TNA W36's sleeve still reads
+      `remaining=4` after its shares were sold, so sleeve bookkeeping
+      over-claims (W36 4 + W37 5 against 5 actually held).
+- [ ] **`post_exec_drift` is flooding the bridge audit.** The same DE
+      trade (`DE-1787252853209-e3325t0lf`) warns with the identical qty
+      0.226964 every few minutes — 6 of the 6 most recent audit rows.
+      Either the drift is real and never heals, or the warn re-fires
+      without a cooldown. It crowds out real rows: the LETF placements
+      were 26 rows deep in a 400-row pull.
 - [ ] **Audit follow-ups still open (2026-09-14).** From the merged-PR
       audit, deliberately not taken this session: `_healModelBrokerCoverage`
       now fails per-lane but the 4h cooldown is still per-CHECK, so one
