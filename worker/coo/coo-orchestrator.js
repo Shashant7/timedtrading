@@ -340,6 +340,11 @@ export function summarizeHealAction(action) {
   const parts = [];
   for (const [lane, row] of Object.entries(results)) {
     if (!row || typeof row !== "object") { parts.push(`${lane}=${row}`); continue; }
+    if (row.skipped === "cooldown") {
+      // Distinct from a lane that ran and did nothing — this one never ran.
+      parts.push(`${lane}:cooldown(${row.last_ok_min_ago}m)`);
+      continue;
+    }
     const counts = [
       ["planned", row.planned],
       ["claimed", row.claimed],
@@ -487,36 +492,67 @@ export async function runSelfHealing(env, options = {}) {
   return { healed, skipped, elapsed_ms: Date.now() - t0 };
 }
 
-async function _healModelBrokerCoverage(env) {
-  const results = {};
-  results.investor = await _healInvestorBridgeCatchup(env);
-  try {
-    const r = await _dispatch(env, "/timed/admin/broker-bridge/catchup-trader-exits", {
+// Per-lane cooldown for the model_broker_coverage heal.
+//
+// The check-level cooldown only gets written when the WHOLE check succeeds,
+// so once the verdict became every-lane (rather than any-lane) a single
+// persistently failing lane meant no cooldown at all — and the four healthy
+// lanes re-ran on every COO cycle instead of every four hours. That is not
+// free: `catchup-trader-exits` carries `max_ops: 8` and `catchup-investor`
+// `max_ops: 24`, and this lane has already burned an hourly op window on
+// repeat work ahead of real misses once. A lane that just succeeded should
+// back off while the broken one keeps retrying.
+export const HEAL_LANE_COOLDOWN_MS = 4 * 60 * 60 * 1000;
+const HEAL_LANE_COOLDOWN_KEY = (check, lane) => `coo:heal_cooldown:${check}:${lane}`;
+
+const MODEL_BROKER_COVERAGE_LANES = [
+  { id: "investor", run: (env) => _healInvestorBridgeCatchup(env) },
+  {
+    id: "trader_exits",
+    run: (env) => _dispatchJson(env, "/timed/admin/broker-bridge/catchup-trader-exits", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dry_run: false, hours: 72, max_ops: 8, source: "catchup_coo_heal" }),
-    });
-    results.trader_exits = await r.json().catch(() => ({}));
-  } catch (e) {
-    results.trader_exits = { ok: false, error: String(e?.message || e).slice(0, 200) };
-  }
+    }),
+  },
+  { id: "index_entries", run: (env) => _dispatchJson(env, "/timed/admin/index-trend/heal-entries", { method: "POST" }) },
+  { id: "index_closes", run: (env) => _dispatchJson(env, "/timed/admin/index-trend/heal-closes", { method: "POST" }) },
+  { id: "intents", run: (env) => _dispatchJson(env, "/timed/admin/broker-intents/drain", { method: "POST" }) },
+];
+
+async function _dispatchJson(env, path, init) {
   try {
-    const r = await _dispatch(env, "/timed/admin/index-trend/heal-entries", { method: "POST" });
-    results.index_entries = await r.json().catch(() => ({}));
+    const r = await _dispatch(env, path, init);
+    return await r.json().catch(() => ({}));
   } catch (e) {
-    results.index_entries = { ok: false, error: String(e?.message || e).slice(0, 200) };
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
   }
-  try {
-    const r = await _dispatch(env, "/timed/admin/index-trend/heal-closes", { method: "POST" });
-    results.index_closes = await r.json().catch(() => ({}));
-  } catch (e) {
-    results.index_closes = { ok: false, error: String(e?.message || e).slice(0, 200) };
-  }
-  try {
-    const r = await _dispatch(env, "/timed/admin/broker-intents/drain", { method: "POST" });
-    results.intents = await r.json().catch(() => ({}));
-  } catch (e) {
-    results.intents = { ok: false, error: String(e?.message || e).slice(0, 200) };
+}
+
+export async function _healModelBrokerCoverage(env, {
+  now = Date.now(),
+  cooldownMs = HEAL_LANE_COOLDOWN_MS,
+} = {}) {
+  const results = {};
+  for (const lane of MODEL_BROKER_COVERAGE_LANES) {
+    const key = HEAL_LANE_COOLDOWN_KEY("model_broker_coverage", lane.id);
+    const lastOk = Number(await env?.KV_TIMED?.get(key).catch(() => null)) || 0;
+    if (lastOk && now - lastOk < cooldownMs) {
+      // Counts as ok: this lane succeeded recently, so it is not the reason
+      // the check is failing. Treating a cooldown as a failure would wedge
+      // the verdict permanently.
+      results[lane.id] = {
+        ok: true,
+        skipped: "cooldown",
+        last_ok_min_ago: Math.round((now - lastOk) / 60000),
+      };
+      continue;
+    }
+    const out = await lane.run(env);
+    results[lane.id] = out;
+    if (out && out.ok) {
+      await env?.KV_TIMED?.put(key, String(now), { expirationTtl: 86400 }).catch(() => null);
+    }
   }
   // EVERY lane, not some. `broker-intents/drain` answers ok:true with
   // nothing to drain, so `some()` was unconditionally true — the check got

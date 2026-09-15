@@ -23,6 +23,8 @@ import {
   runScreenerAutoPromote,
   runSelfHealing,
   summarizeHealAction,
+  _healModelBrokerCoverage,
+  HEAL_LANE_COOLDOWN_MS,
 } from "./coo-orchestrator.js";
 
 function makeKv() {
@@ -345,5 +347,106 @@ describe("summarizeHealAction keeps every lane in the log line", () => {
 
   it("falls back to the raw dump for a single-operation heal", () => {
     expect(summarizeHealAction({ ok: true, repaired: 3 })).toBe('{"ok":true,"repaired":3}');
+  });
+});
+
+// 2026-09-15 — the check-level cooldown is only written when the WHOLE check
+// succeeds. Once the verdict became every-lane rather than any-lane, one
+// persistently failing lane meant no cooldown at all, so the four healthy
+// lanes re-ran on every COO cycle instead of every four hours. Not free:
+// catchup-trader-exits carries max_ops 8 and catchup-investor max_ops 24, and
+// this lane has already burned an hourly op window on repeat work ahead of
+// real misses.
+describe("_healModelBrokerCoverage — a lane that just worked backs off alone", () => {
+  const NOW = Date.UTC(2026, 8, 15, 18, 0, 0);
+  const LANES = ["investor", "trader_exits", "index_entries", "index_closes", "intents"];
+
+  function harness({ seed = {}, laneOk = () => true } = {}) {
+    const store = new Map(Object.entries(seed));
+    const called = [];
+    const env = {
+      KV_TIMED: {
+        get: async (k) => store.get(k) ?? null,
+        put: async (k, v) => { store.set(k, v); },
+      },
+      // Both lane shapes route through fetch: _dispatch for the four HTTP
+      // lanes and _healInvestorBridgeCatchup for the investor lane.
+      ADMIN_API_KEY: "k",
+      TIMED_API_KEY: "k",
+      SELF_BASE_URL: "https://worker.test",
+    };
+    globalThis.fetch = async (url) => {
+      const path = String(url).replace(/^https?:\/\/[^/]+/, "").split("?")[0];
+      called.push(path);
+      const ok = laneOk(path);
+      return new Response(JSON.stringify({ ok, planned: 0 }), {
+        status: ok ? 200 : 500,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    return { env, store, called };
+  }
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("stamps a cooldown per lane when every lane succeeds", async () => {
+    const { env, store } = harness();
+    const out = await _healModelBrokerCoverage(env, { now: NOW });
+    expect(out.ok).toBe(true);
+    expect(out.failed).toEqual([]);
+    for (const lane of LANES) {
+      expect(store.get(`coo:heal_cooldown:model_broker_coverage:${lane}`)).toBe(String(NOW));
+    }
+  });
+
+  it("skips the cooled lanes and still runs the one that failed", async () => {
+    // Four lanes succeeded 5 minutes ago; index_entries is broken and has no
+    // stamp, so it is the only lane that should be dispatched again.
+    const seed = {};
+    for (const lane of LANES) {
+      if (lane === "index_entries") continue;
+      seed[`coo:heal_cooldown:model_broker_coverage:${lane}`] = String(NOW - 5 * 60 * 1000);
+    }
+    const { env, called } = harness({
+      seed,
+      laneOk: (path) => !path.includes("heal-entries"),
+    });
+    const out = await _healModelBrokerCoverage(env, { now: NOW });
+    expect(called).toEqual(["/timed/admin/index-trend/heal-entries"]);
+    // The failing lane is named; the cooled ones do not masquerade as failures.
+    expect(out.failed).toEqual(["index_entries"]);
+    expect(out.ok).toBe(false);
+    expect(out.results.trader_exits.skipped).toBe("cooldown");
+    expect(out.results.trader_exits.ok).toBe(true);
+  });
+
+  it("does not stamp a cooldown for a lane that failed", async () => {
+    const { env, store } = harness({ laneOk: (path) => !path.includes("heal-entries") });
+    await _healModelBrokerCoverage(env, { now: NOW });
+    expect(store.get("coo:heal_cooldown:model_broker_coverage:index_entries")).toBeUndefined();
+    expect(store.get("coo:heal_cooldown:model_broker_coverage:intents")).toBe(String(NOW));
+  });
+
+  it("runs a lane again once its own window elapses", async () => {
+    const seed = {
+      "coo:heal_cooldown:model_broker_coverage:intents": String(NOW - HEAL_LANE_COOLDOWN_MS - 1),
+    };
+    const { env, called } = harness({ seed });
+    await _healModelBrokerCoverage(env, { now: NOW });
+    expect(called).toContain("/timed/admin/broker-intents/drain");
+  });
+
+  it("a cooled lane can never wedge the verdict", async () => {
+    // Every lane cooled → nothing dispatched, verdict still ok. If a cooldown
+    // counted as a failure the check would fail forever and never re-stamp.
+    const seed = {};
+    for (const lane of LANES) {
+      seed[`coo:heal_cooldown:model_broker_coverage:${lane}`] = String(NOW - 60 * 1000);
+    }
+    const { env, called } = harness({ seed });
+    const out = await _healModelBrokerCoverage(env, { now: NOW });
+    expect(called).toEqual([]);
+    expect(out.ok).toBe(true);
+    expect(summarizeHealAction(out)).toContain("investor:cooldown(1m)");
   });
 });
