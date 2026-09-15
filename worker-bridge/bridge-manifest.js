@@ -135,9 +135,43 @@ export async function ensureMirrorManifestSchema(env) {
         }
       }
     }
+    await _repairMislabeledEquityRows(db);
     _schemaReady = true;
   } catch (e) {
     console.warn("[MANIFEST] schema ensure failed:", String(e?.message || e).slice(0, 200));
+  }
+}
+
+/**
+ * Reclassify rows an older `inferInstrument` filed as options because the
+ * order carried a share vehicle. The entry upsert is DO NOTHING on conflict
+ * and never revisits `instrument_type`, so these rows cannot self-correct
+ * from a later entry — they would stay untracked and out of the claim math
+ * forever. Runs once per isolate behind the same `_schemaReady` latch and
+ * matches nothing once the backlog is cleared.
+ *
+ * `sync_state` is deliberately left alone: the reconciler owns it and will
+ * now transition these rows on its own (untracked rows are still scanned),
+ * and leaving `untracked` keeps the reducer's held_override safety net in
+ * place until the equity classifier has actually converged them.
+ */
+async function _repairMislabeledEquityRows(db) {
+  const vehicles = [...EQUITY_MIRROR_VEHICLES];
+  const placeholders = vehicles.map((_, i) => `?${i + 1}`).join(",");
+  try {
+    const r = await db.prepare(`
+      UPDATE mirror_trade_manifest
+         SET instrument_type = 'equity',
+             options_structure = NULL
+       WHERE LOWER(COALESCE(instrument_type, '')) = 'options'
+         AND LOWER(COALESCE(options_structure, '')) IN (${placeholders})
+    `).bind(...vehicles).run();
+    const n = Number(r?.meta?.changes) || 0;
+    if (n > 0) {
+      console.log(`[MANIFEST] reclassified ${n} share-vehicle row(s) from options to equity`);
+    }
+  } catch (e) {
+    console.warn("[MANIFEST] equity reclassify skipped:", String(e?.message || e).slice(0, 200));
   }
 }
 
@@ -160,17 +194,41 @@ export function classifyOrderLifecycle(side) {
   return "other";
 }
 
+// Vehicles that buy SHARES. Anything here is an equity order no matter that
+// it carries a `vehicle`, which used to be the sole test.
+//
+// `index_trend_letf` is the one that broke: TNA / UDOW / SPYU / TQQQ are
+// leveraged ETFs, so the mirror sends ordinary share orders, but the vehicle
+// tag made every index-trend row `instrument_type: 'options'`. The reconciler
+// then tried to leg-compare them, found no `model_intended_legs`, and parked
+// all five at `sync_state: untracked` with "cannot leg-compare" — permanently,
+// because the equity classifier never ran. Two consequences: their
+// `broker_remaining_qty` never converged to broker truth, and
+// `_readOpenClaimRowsForUser` filters on `instrument_type = 'equity'`, so they
+// were invisible to the sibling-claim math. That is why TNA W36 (closed) still
+// claimed 4 shares while W37 (open) claimed 5, against a single 5-share
+// position. Of 245 live manifest rows the only 5 that were not classifiable
+// were exactly these, and all 5 were untracked.
+export const EQUITY_MIRROR_VEHICLES = new Set([
+  "equity_long",
+  "equity",
+  "shares",
+  "shares_primary",
+  "letf",
+  "index_trend_letf",
+]);
+
 /**
  * Infer the instrument shape from the order payload.
- * Equity orders have no `vehicle` field (or vehicle === 'equity_long').
- * Options orders carry vehicle ∈ {long_call, long_put, vertical_spread,
- * leaps, straddle, moonshot}.
+ * Equity orders have no `vehicle` field, or one named in
+ * EQUITY_MIRROR_VEHICLES. Options orders carry vehicle ∈ {long_call,
+ * long_put, vertical_spread, leaps, straddle, moonshot}.
  *
  * Returns { instrument_type, options_structure }.
  */
-function inferInstrument(payload) {
+export function inferInstrument(payload) {
   const vehicle = payload?.vehicle ? String(payload.vehicle).trim().toLowerCase() : null;
-  if (!vehicle || vehicle === "equity_long") {
+  if (!vehicle || EQUITY_MIRROR_VEHICLES.has(vehicle)) {
     return { instrument_type: "equity", options_structure: null };
   }
   return { instrument_type: "options", options_structure: vehicle };
