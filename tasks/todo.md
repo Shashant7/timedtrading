@@ -40,30 +40,50 @@
       clean `mirrored` and `closeQty` would size trims off 31 against 5
       held. Fixed in #1472 (`accepted_qty` through the bridge, ring,
       mirror row and coverage).
-- [ ] **Watch the first index-trend TRIM or EXIT.** No index-trend reduce
-      has ever been observed mirroring: the 120-row mirror log holds 118
-      skipped BUYs + 2 placed BUYs and zero reduce rows. The sleeves also
-      sit in manifest `sync_state: untracked`, which is in the bridge's
-      reducer REJECT set (`manifestAwareReducerCheck`). The log window is
-      only ~2 days so this is not evidence of a break — but the exit side
-      of this lane is unproven, and TNA W36's sleeve still reads
-      `remaining=4` after its shares were sold, so sleeve bookkeeping
-      over-claims (W36 4 + W37 5 against 5 actually held).
-- [ ] **`post_exec_drift` is flooding the bridge audit.** The same DE
-      trade (`DE-1787252853209-e3325t0lf`) warns with the identical qty
-      0.226964 every few minutes — 6 of the 6 most recent audit rows.
-      Either the drift is real and never heals, or the warn re-fires
-      without a cooldown. It crowds out real rows: the LETF placements
-      were 26 rows deep in a 400-row pull.
-- [ ] **Audit follow-ups still open (2026-09-14).** From the merged-PR
-      audit, deliberately not taken this session: `_healModelBrokerCoverage`
-      now fails per-lane but the 4h cooldown is still per-CHECK, so one
-      persistently failing lane delays the other four — per-lane cooldown
-      is the real fix. `lastSessionHint` and
-      `_resetDeskJournalSchemaCache` in `worker/desk-journal.js` are still
-      exported with no caller and no test. `skills/security-auth-patterns.md`
-      should note that a route-table audit must include
-      `worker/trust-spine/routes.js` or it reports four false orphans.
+- [x] **Index-trend sleeves were filed as OPTIONS — one cause, four
+      symptoms (2026-09-15).** Chasing "the reduce path is unproven" and
+      "the sleeves over-claim" separately turned out to be chasing one
+      bug. `inferInstrument` called any `vehicle` other than `equity_long`
+      an options structure, and the index-trend mirror tags share orders
+      `vehicle: index_trend_letf`, so all 5 LETF rows landed as
+      `instrument_type: options`. The reconciler then took the options
+      path, found no `model_intended_legs`, and parked them at
+      `untracked`/"cannot leg-compare" forever — the equity classifier
+      that converges `broker_remaining_qty` never ran — while
+      `claimedOpenEquityByTicker` and `_readOpenClaimRowsForUser` skipped
+      them for not being equity, which is exactly why TNA W36 (closed)
+      kept claiming 4 against W37's 5 on a 5-share position. 240 of 245
+      live rows classified fine; the only 5 that did not were these, and
+      all 5 were untracked. Fixed in #1473, with a one-shot reclassify
+      for the existing rows since the entry upsert is DO NOTHING on
+      conflict. Replay on the real rows: claim map nothing → 5, and W36
+      goes from drifting `broker_orphan` residual 5 to `in_sync`
+      residual 0. The reduce path itself was never blocked (untracked +
+      held reduces via `held_override`, a full exit is in the close
+      PROCEED set, and the live-position guard clamps) — now pinned by
+      tests instead of left unproven.
+- [x] **`post_exec_drift` flood (2026-09-15).** Not a real never-healing
+      drift and not a missing cooldown: the drift path treated
+      re-CHECKING and re-REPORTING as the same thing. The audit is left
+      `verified:false` on purpose so a heal can still be noticed, so
+      every pass re-wrote the row and re-notified. Fixed in #1473 —
+      288 audit rows/day → 4, while a drift that moves past the fill
+      tolerance in either direction still reports at once.
+      `drift_detected_at` now means first-seen; `drift_reported_at` is
+      the suppression clock.
+- [x] **Audit follow-ups from 2026-09-14, all closed in #1473.**
+      Per-lane cooldown for `_healModelBrokerCoverage` (the every-lane
+      verdict meant one broken lane stopped ANY cooldown being written,
+      so the four healthy lanes re-ran every cycle and could burn
+      `catchup-*`'s `max_ops` budget — not "delays the other four" as
+      first written); `lastSessionHint` and
+      `_resetDeskJournalSchemaCache` deleted; the route-audit note added
+      to `skills/security-auth-patterns.md` (it is 9 routes in
+      `worker/trust-spine/routes.js`, not four).
+- [ ] **Still watch the first real index-trend TRIM or EXIT.** The paths
+      are now tested and the classification fixed, but no index-trend
+      reduce has yet been observed end-to-end at the broker. Worth one
+      look at the mirror log after the next weekly flip.
 - [x] **Merged-PR audit + the defects it found (2026-09-14).** 47 of 66
       PRs merged 09-03 → 09-14 touched `worker/**` and did nothing until
       the 09-14 manual deploy; 14 of those ran HALF live, because their
