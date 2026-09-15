@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   CURATED_UPCOMING_MACRO,
+  curatedFomcDecisionDates,
   getUpcomingMacroEvents,
   isFomcDecisionName,
   isWeekendYmd,
+  purgeUncuratedUpcomingFomc,
   resolveMacroPersistDate,
   snapKnownMacroDate,
 } from "./macro-events-calendar.js";
@@ -151,5 +153,47 @@ describe("getUpcomingMacroEvents FOMC snap", () => {
     expect(fomc).toHaveLength(1);
     expect(fomc[0].date).toBe("2026-09-16");
     expect(fomc[0].is_today).toBe(false);
+  });
+});
+
+// The purge deletes FOMC rows it cannot vouch for. Unbounded, that turns
+// into a time bomb: once today passes the last curated decision the vendor
+// is the ONLY source of future Fed dates, and deleting its rows would leave
+// the strip with no upcoming FOMC at all.
+describe("purgeUncuratedUpcomingFomc stays inside the curated horizon", () => {
+  function capturingDb() {
+    const calls = [];
+    return {
+      calls,
+      prepare(sql) {
+        return {
+          bind: (...args) => ({
+            run: async () => { calls.push({ sql, args }); return { meta: { changes: 1 } }; },
+            all: async () => ({ results: [] }),
+            first: async () => null,
+          }),
+        };
+      },
+    };
+  }
+
+  const horizon = curatedFomcDecisionDates().reduce((a, b) => (b > a ? b : a));
+
+  it("bounds the delete by the last curated decision", async () => {
+    const DB = capturingDb();
+    const out = await purgeUncuratedUpcomingFomc({ DB }, "2026-09-14");
+    expect(out.ok).toBe(true);
+    expect(DB.calls).toHaveLength(1);
+    expect(DB.calls[0].sql).toMatch(/date <= \?/);
+    expect(DB.calls[0].args).toContain("2026-09-14");
+    expect(DB.calls[0].args).toContain(horizon);
+  });
+
+  it("does not delete the vendor's 2027 Fed meetings once the list expires", async () => {
+    const DB = capturingDb();
+    const out = await purgeUncuratedUpcomingFomc({ DB }, "2026-12-20");
+    expect(out.deleted).toBe(0);
+    expect(out.skipped).toBe("past_curated_horizon");
+    expect(DB.calls).toHaveLength(0);
   });
 });

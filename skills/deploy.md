@@ -10,6 +10,57 @@ fresh branch off `main` instead. This has bitten three times so far
 (2026-08-12 broker hardening; 2026-08-18 index-options card redesign;
 2026-08-18 same-day card height fix — same session).
 
+**A merge is NOT a deploy.** Confirm the bundle actually moved before you
+tell the user a fix is live. From 2026-09-03 to 2026-09-14 every
+`worker/**` merge reported a GREEN `deploy-worker` run and shipped
+nothing: `0f67e7132` overwrote the body of the "Resolve Cloudflare
+secrets" step, so `secrets-ok` was never written and every deploy step
+was skipped by its own `if:`. The fallback wrote a notice and `exit 0`,
+so the run went green.
+
+What hid it for eleven days: prod kept moving anyway, because agents
+hand-ran `wrangler` at the end of their own sessions. Every version in
+the 09-04 → 09-14 list is a `version_upload`, with no version at all on
+09-06 or 09-11 — so a merge shipped whenever the next agent happened to
+deploy, same day or two days later. #1470 (Index Swings sleeve scale)
+merged on 09-14 and reached prod at 22:20Z, eight hours after the TNA
+and UDOW signals it was meant to fix. The workflows now `exit 1` when a
+credential is missing, but always check the deployment itself:
+
+```bash
+# When did prod last ACTUALLY move? (source=wrangler rows, newest first)
+curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/timed-trading-ingest/deployments" \
+  | python3 -c "import json,sys; [print(d['created_on'], d.get('source')) for d in json.load(sys.stdin)['result']['deployments'][:5]]"
+
+# Did the CI run deploy, or just report success?
+gh run view <run-id> --log | grep -iE "SKIPPED|not configured|Current Version ID"
+```
+
+A faster behavioural check: probe a route or a reason string that only
+exists in the new code. A stale bundle kept emitting
+`notional_*_exceeds_cap_2000` for hours after the commit that deleted
+that string was merged and "deployed".
+
+**"The worker is current" is not "prod is current."** Five scripts
+deploy separately and `npm run deploy:worker` moves only the first.
+Audit them all, then diff each one's date against its own sources:
+
+```bash
+for w in timed-trading-ingest tt-feed tt-engine tt-research tt-broker-bridge; do
+  printf '%-22s ' "$w"
+  curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+    "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$w/versions?per_page=1" \
+    | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);console.log(j.result?.items?.[0]?.metadata?.created_on||'?')})"
+done
+# then, per script: git log --oneline --since=<its date> origin/main -- <its sources>
+```
+
+On 2026-09-14 that showed `tt-feed` last deployed 09-12 and
+`tt-broker-bridge` 09-11 — both fine, because neither
+`worker-feed/**` + `worker/feed/**` nor `worker-bridge/**` had changed
+since. The date alone is not the finding; the date against the source is.
+
 **Prerequisites:**
 - `wrangler` available at `node_modules/.bin/wrangler` (run via path; the
   agent VM does not have `wrangler` on PATH)
@@ -23,7 +74,7 @@ fresh branch off `main` instead. This has bitten three times so far
 
 | What you changed | What to deploy |
 |---|---|
-| `worker/*.js`, `worker/wrangler.toml`, `worker/*.sql` | **Worker, BOTH envs** (default + production) |
+| `worker/*.js`, `worker/wrangler.toml`, `worker/*.sql` | **Worker, BOTH envs** (default + production) **AND tt-engine + tt-research** — both bundle `../worker/index.js`, so a monolith-only deploy leaves every `*/5` and hourly cron running the old code |
 | `worker/feed/**` (price feed, merge, stream helpers) | **tt-feed too** (`worker-feed/`) — after cutover the */1 heal/merge cron runs there, not on the monolith |
 | `react-app/shared-right-rail.js` (the right-rail React source) | **Rail compile + frontend build + git push** |
 | `react-app/*.html` (any page using JSX/React) | **Frontend build + git push** |
@@ -44,12 +95,41 @@ cd /workspace/worker
 
 Both must succeed. The deploy is fast (~5s each).
 
+### That was one of three. Now the cron workers.
+
+`tt-engine` and `tt-research` set `main = "../worker/index.js"` — they are
+the SAME bundle, role-gated at runtime. A change in `worker/` is not live
+on the crons until they are redeployed too, and the crons are where the
+`*/5` mirror lanes, the hourly research slots and the Daily Brief run.
+Deploying only the monolith is how a fix can look shipped while the lane
+that needs it keeps running week-old code.
+
+```bash
+cd /workspace
+npm run deploy:crons     # engine + research, both single-env
+# or individually: npm run deploy:engine / npm run deploy:research
+```
+
+`npm run deploy:all` = frontend + monolith (both envs) + both crons.
+Before 2026-09-14 `deploy:all` stopped after the monolith and there was
+no script for the crons at all, so the broken workflow's own recovery
+notice ("run `npm run deploy:worker`") would have left two of the three
+stale.
+
 ### Verify
 
 ```bash
-curl -s https://timed-trading-ingest.shashant.workers.dev/timed/health | python3 -m json.tool | head -10
-# Expect: ok=true, dataVersion matches expectedVersion
+curl -s https://timed-trading-ingest.shashant.workers.dev/timed/health | python3 -m json.tool | head -14
+# Expect: ok=true, dataVersion matches expectedVersion, and
+# deployedSha == the commit you just shipped (CI stamps ENGINE_GIT_SHA;
+# a hand-run `wrangler deploy` without --var leaves it "unset").
 ```
+
+`deployedSha` is the answer to "is prod actually current?" — `ok:true`
+is what a stale worker answers too, which is why eleven days of green
+runs and healthy probes told the operator nothing. CI's post-deploy
+smoke now asserts the live sha equals the sha it just built, so a skipped
+or no-op upload fails the run.
 
 ---
 

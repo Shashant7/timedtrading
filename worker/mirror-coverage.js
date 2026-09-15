@@ -26,8 +26,16 @@
 
 import { readClientRing } from "./broker-bridge-client.js";
 import { ringLooksLikeRealPlace } from "./investor-catchup-run.js";
-import { isTerminalIndexTrendExitReject, INDEX_TREND_MIRROR_LOG_KEY } from "./index-trend-auto-mirror.js";
-import { readIndexTrendActions } from "./index-trend-alerts.js";
+import { loadBrokerHeldEquity, loadBrokerSleeves, sleeveFor } from "./broker-held-equity.js";
+import {
+  isTerminalIndexTrendExitReject,
+  indexTrendMirrorKey,
+  INDEX_TREND_MIRROR_LOG_KEY,
+  INDEX_TREND_CARRY_LETFS,
+  INDEX_TREND_NEVER_ATTEMPTED_ENTRY_MS,
+} from "./index-trend-auto-mirror.js";
+import { readIndexTrendActions, loadIndexTrendBook } from "./index-trend-alerts.js";
+import { indexTrendBookIsLive } from "./index-trend-paper.js";
 import { readDayTradeActions } from "./option-day-trade-alerts.js";
 import { OPT_DT_MIRROR_LOG_KEY } from "./options-auto-mirror.js";
 import { paperMirrorLogSide } from "./broker-day-actions-join.js";
@@ -47,6 +55,9 @@ export const HEAL_TRADER_EXIT = "catchup-trader-exits";
 export const HEAL_INDEX_ENTRY = "heal-index-trend-entries";
 export const HEAL_INDEX_EXIT = "heal-index-trend-closes";
 export const HEAL_INTENT_DRAIN = "drain-broker-intents";
+
+/** Lanes whose reduces are routed by manifest sleeve (trade_id → broker lot). */
+const MANIFEST_ROUTED_LANES = new Set(["trader", "investor"]);
 
 const OPEN_EVENTS = new Set(["ENTRY", "BUY", "DCA_BUY", "DCA_ADD", "ADD", "OPEN"]);
 const REDUCE_EVENTS = new Set(["TRIM", "EXIT", "STOP", "SELL", "CLOSE", "REDUCE"]);
@@ -130,6 +141,22 @@ function rejectText(row) {
   return String(row?.reject_reason || row?.error || row?.reason || row?.skip || row?.last_reason || "");
 }
 
+/** Sub-share dust the broker cannot sell anyway. */
+export const COVERAGE_FLAT_EPSILON = 1e-6;
+
+/**
+ * Shares the broker holds for a ticker, or null when holdings are unknown.
+ * `{}` from a reachable broker legitimately means "flat everywhere"; a null
+ * map means the call failed and nothing may be concluded from it.
+ */
+export function heldCoverageQty(held, ticker) {
+  if (!held || typeof held !== "object") return null;
+  const key = String(ticker || "").toUpperCase().trim();
+  if (!key) return null;
+  const qty = Number(held[key]?.qty);
+  return Number.isFinite(qty) ? qty : 0;
+}
+
 function matchingRingRows(action, ring = []) {
   const fam = actionSideFamily(action.event);
   const ticker = String(action.ticker || "").toUpperCase();
@@ -169,6 +196,8 @@ export function classifyActionCoverage(action, {
   ring = [],
   intents = [],
   mirrorLogs = [],
+  held = null,
+  sleeves = null,
   nowMs = Date.now(),
   graceMs = COVERAGE_GRACE_MS,
 } = {}) {
@@ -189,6 +218,18 @@ export function classifyActionCoverage(action, {
       };
     }
     return { status: "mirrored", reason: null, broker_qty: qty, order_id: orderId };
+  }
+
+  // The lane's own mirror row confirms the broker holds this sleeve. It
+  // outranks the ring, which stays stuck on the `pending` breadcrumb
+  // forever when the isolate died before the response was written back.
+  if (action?.broker_confirmed) {
+    return {
+      status: "mirrored",
+      reason: null,
+      broker_qty: Number(action.broker_qty) || null,
+      order_id: action.order_id || null,
+    };
   }
 
   const pending = matchingIntents(action, intents);
@@ -244,6 +285,51 @@ export function classifyActionCoverage(action, {
 
   if (ageMs >= 0 && ageMs < graceMs) {
     return { status: "in_flight", reason: "grace_window", broker_qty: null, order_id: null };
+  }
+
+  // A reduce nobody can account for has nothing to sell when the broker
+  // never held the sleeve. Asked in order of how specific the answer is:
+  // this trade's own sleeve first, then the ticker's total position.
+  //
+  // 2026-09-14 — U and MNST paged as unmatched EXITs while the account held
+  // 0 of either, and DPZ and KO paged while the account held 0.2714 and
+  // 3.55. The DPZ shares belonged to two older lots and the KO shares to an
+  // investor DCA sleeve; neither exited trade had a manifest sleeve, so
+  // their entries never mirrored and their exits are un-actionable. A page
+  // that cannot be acted on is a page nobody reads.
+  if (isReduceEvent(action.event)) {
+    // Only the manifest-routed lanes. A paper-lane close is dispatched off
+    // its own mirror row, which is how an adopted broker-only sleeve gets
+    // sold (SPYU: 9 shares the manifest has never heard of), so an absent
+    // sleeve there means nothing.
+    const sleeve = MANIFEST_ROUTED_LANES.has(String(action.lane || ""))
+      ? sleeveFor(sleeves, action.trade_id || action.position_id)
+      : null;
+    if (sleeve && sleeve.filled <= COVERAGE_FLAT_EPSILON) {
+      return {
+        status: "rejected_terminal",
+        reason: "broker_never_held_this_trade",
+        broker_qty: 0,
+        order_id: null,
+      };
+    }
+    if (sleeve && sleeve.remaining <= COVERAGE_FLAT_EPSILON) {
+      return {
+        status: "rejected_terminal",
+        reason: "broker_sleeve_already_flat",
+        broker_qty: 0,
+        order_id: null,
+      };
+    }
+    const heldQty = heldCoverageQty(held, action.ticker);
+    if (heldQty != null && heldQty <= COVERAGE_FLAT_EPSILON) {
+      return {
+        status: "rejected_terminal",
+        reason: "broker_position_already_flat",
+        broker_qty: 0,
+        order_id: null,
+      };
+    }
   }
 
   const falseOk = hits.find((r) => String(r?.status) === "ok" && isOpenEvent(action.event) && !ringLooksLikeRealPlace(r));
@@ -510,6 +596,70 @@ export function modelActionFromIndexTrend(a) {
   };
 }
 
+export function modelActionFromIndexTrendBook(book, { letf, signalId, mirror } = {}) {
+  const action = {
+    lane: "index_trend",
+    event: "ENTRY",
+    ticker: String(letf || book?.letf_ticker || "").toUpperCase(),
+    trade_id: String(signalId || ""),
+    position_id: signalId || null,
+    signal_id: signalId || null,
+    ts: Number(book?.entry_ts) || 0,
+    qty: Number(book?.shares) || 0,
+    price: Number(book?.entry_letf_price) || Number(book?.last_letf_price) || 0,
+    source: "idx-trend-book",
+  };
+  // `entry_fired` is only ever stamped on a confirmed bridge place or on a
+  // sleeve adopted from a live broker position, so it settles the row even
+  // when the ring never got its response written back (SPYU W38).
+  if (mirror?.entry_fired) {
+    action.broker_confirmed = true;
+    action.broker_qty = Number(mirror.adopted_broker_qty ?? mirror.shares) || null;
+    action.order_id = mirror.entry_order_id || null;
+    action.adopted = mirror.adopted_from_broker === true;
+  }
+  return action;
+}
+
+/**
+ * Live paper books, read the way the entry healer reads them.
+ *
+ * The index_trend lane used to be joined from `timed:idx-trend-actions`
+ * alone. That tape is best-effort and stopped gaining rows on 2026-09-10,
+ * so the SPYU / TNA / UDOW books opened after it went quiet were invisible
+ * here: coverage reported a clean contract while three sleeves sat open
+ * with no broker position and nothing paged. The book is the authority
+ * Discord already fires from, so a lost tape row can no longer hide a
+ * missed fill. Bounded by the healer's own catch-up window so anything
+ * paged is still something a heal can act on.
+ */
+export async function loadIndexTrendBookActions(env, {
+  sinceMs = 0,
+  nowMs = Date.now(),
+} = {}) {
+  const out = [];
+  const floor = Math.min(Number(sinceMs) || 0, (Number(nowMs) || Date.now()) - INDEX_TREND_NEVER_ATTEMPTED_ENTRY_MS);
+  for (const letf of INDEX_TREND_CARRY_LETFS) {
+    let loaded = null;
+    try {
+      loaded = await loadIndexTrendBook(env, { letf_ticker: letf });
+    } catch (_) {
+      continue;
+    }
+    const book = loaded?.book;
+    if (!book || !indexTrendBookIsLive(book)) continue;
+    const signalId = loaded.signal_id || book.signal_id || null;
+    const ts = Number(book.entry_ts) || 0;
+    if (!signalId || !(ts >= floor)) continue;
+    let mirror = null;
+    try {
+      mirror = JSON.parse((await env?.KV_TIMED?.get(indexTrendMirrorKey(signalId))) || "null");
+    } catch (_) { mirror = null; }
+    out.push(modelActionFromIndexTrendBook(book, { letf, signalId, mirror }));
+  }
+  return out;
+}
+
 export function modelActionFromIndexDt(a) {
   const ev = String(a?.event || "").toUpperCase();
   const event = ev === "BUY" ? "ENTRY" : (ev === "TRIM" ? "TRIM" : "EXIT");
@@ -598,9 +748,20 @@ export async function loadMirrorCoverage(env, {
     sinceMs);
   for (const lot of lots) actions.push(modelActionFromInvestorLot(lot));
 
+  const idxSeen = new Set();
   try {
     for (const a of await readIndexTrendActions(env, sinceMs)) {
-      actions.push(modelActionFromIndexTrend(a));
+      const action = modelActionFromIndexTrend(a);
+      idxSeen.add(`${action.trade_id}|${action.event}`);
+      actions.push(action);
+    }
+  } catch (_) { /* optional */ }
+  try {
+    for (const action of await loadIndexTrendBookActions(env, { sinceMs, nowMs })) {
+      // An ENTRY already on the tape (or a book the model has since added
+      // to) must not be counted twice.
+      if (idxSeen.has(`${action.trade_id}|ENTRY`) || idxSeen.has(`${action.trade_id}|DCA_BUY`)) continue;
+      actions.push(action);
     }
   } catch (_) { /* optional */ }
   try {
@@ -636,7 +797,18 @@ export async function loadMirrorCoverage(env, {
   const dtLog = await kvJson(env, OPT_DT_MIRROR_LOG_KEY);
   const mirrorLogs = [...idxLog, ...dtLog];
 
-  const rows = buildCoverageRows(actions, { ring, intents, mirrorLogs, nowMs, graceMs });
+  // Ground truth for "is there anything left to sell". Cached bridge-side
+  // and worker-side, so the */5 snapshot does not hammer the broker.
+  let held = null;
+  try {
+    held = await loadBrokerHeldEquity(env, { nowMs });
+  } catch (_) { held = null; }
+  let sleeves = null;
+  try {
+    sleeves = await loadBrokerSleeves(env);
+  } catch (_) { sleeves = null; }
+
+  const rows = buildCoverageRows(actions, { ring, intents, mirrorLogs, held, sleeves, nowMs, graceMs });
   const anomalies = coverageAnomalies(rows, { nowMs, graceMs });
   const summary = {
     actions: rows.length,

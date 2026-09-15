@@ -6,6 +6,298 @@
 
 ---
 
+## CI deployed nothing for eleven days [2026-09-14]
+
+**Symptom:** The operator kept reporting Index Swings signals that never
+reached the broker, and each fix was merged green and changed nothing.
+Prod was still emitting `notional_2925_exceeds_cap_2000` three hours
+after the commit that deleted that string was merged and "deployed".
+
+**Cause:** `0f67e7132` (a CI npm-install fix, 2026-09-03) overwrote the
+**body** of the `Resolve Cloudflare secrets` step with the install
+command, so the step never wrote its `secrets-ok` output.
+`deploy-worker` / `deploy-engine` / `deploy-research` gated every deploy
+step on that output, and the fallback step printed a notice and
+`exit 0`. 25 consecutive runs skipped.
+
+Prod did keep moving, which is what hid it: every version in the
+Cloudflare list for 09-04 → 09-14 is a `wrangler version_upload` from an
+agent hand-deploying at the end of its own session. So a merge shipped
+whenever the next agent happened to run wrangler — same day, or two days
+later (no version at all on 09-06, 09-11). #1470 (sleeve scale) merged
+on 09-14 and did not reach prod until 22:20Z, eight hours after the TNA
+and UDOW signals the operator asked about.
+
+**Fix:** Resolution moved to `scripts/ci-resolve-cf-secrets.sh`, shared
+by all five deploy workflows, and it `exit 1`s when a credential is
+missing. A deploy that does not happen is no longer green.
+
+**Do not:** Read a green deploy run as a live deploy. Check the
+Cloudflare deployments list or probe a string/route that only the new
+bundle has — see [`skills/deploy.md`](../skills/deploy.md). And do not
+read "the main worker is current" as "prod is current": `tt-feed`,
+`tt-engine`, `tt-research` and `tt-broker-bridge` each have their own
+deploy target, and `npm run deploy:worker` moves none of them. Check the
+version list per script and compare against
+`git log --since=<deployed-date> -- <its source paths>`.
+
+**Follow-up (same day):** the reason this took eleven days to notice is
+that nothing observable distinguished a stale worker from a current one.
+`/timed/health` returned `ok:true` throughout and `dataVersion` is a
+hand-bumped schema string. Confirming the recovery deploy required
+fingerprinting the bundle by probing a route that only exists in
+post-blackout code — which is not a control, it is archaeology.
+
+`/timed/health` and `/timed/version` now return `deployedSha` (the
+`ENGINE_GIT_SHA` the workflows already injected but never surfaced) and
+`workerRole`. The post-deploy smoke asserts the live sha equals the sha
+the run just built, with a cache-buster (health ships `max-age=60`, so a
+plain probe can be answered by the previous version) and a retry for
+colo propagation. `deploy-research.yml` was the one workflow that never
+passed `--var ENGINE_GIT_SHA`, so tt-research could not have reported
+its build even if asked.
+
+Also added `deploy:engine`, `deploy:research` and `deploy:crons`.
+`tt-engine` and `tt-research` set `main = "../worker/index.js"` — same
+bundle, role-gated — and had no npm script at all, while `deploy:all`
+stopped after the monolith. The broken workflow's own recovery notice
+said to run `npm run deploy:worker`, which would have left two of the
+three cron workers stale, and the crons are where the `*/5` mirror lanes
+and the Daily Brief run.
+
+---
+
+## A guard that lives in execState dies if the caller only persists a copy [2026-09-14]
+
+**Symptom:** none visible. `[RUNNER_EXT_TRIM]` lines looked correct
+individually, the trims were the right size, and nothing paged. Found by
+auditing PR 1425 against prod rather than by a failure.
+
+**Cause:** `assessRunnerExtensionTrim` enforces once-per-NY-session
+entirely through `execState.extTrimSession` and `extTrimPx` — the module
+is pure, so the caller owns the guard. `processTradeSimulation` built the
+stamped state into a local `_extExec`, persisted THAT to KV, and left the
+`execState` variable pointing at the pre-trim object. Two later blocks in
+the same pass then persisted `execState` over it:
+
+- the runner stale force-close block, via `ratchetRunnerPeak` → `execState = _rsPeak.execState` → `kvPutJSON`;
+- the smart runner exit block, after touching `runnerC512CloseBelowCount`.
+
+Both are gated on `_sreTrimmedPct`, which is a `const` snapshot of
+`trimmedPct` taken at the top of the pass, BEFORE the trim. So a trade's
+first-ever ext-trim survived (snapshot 0, both blocks gated off) and
+every one after it was erased. Worse, `ratchetRunnerPeak` returns
+`updated: true` precisely when the mark is a new peak — the defining
+condition of the extension this rule fires on — so the guard was wiped
+on exactly the ticks that matter. Losing `extTrimPx` also drops the
+"must print a new high to re-fire" requirement, so chop could bleed it.
+Net: a runner already at 25% could reach the 75% cap inside one session
+in two or three 5-minute ticks, instead of once per session as designed.
+
+**Fix:** assign the stamped object back to `execState` so the later
+writes carry it. One line. The regression test models the three-write
+sequence and separately asserts the call site builds the stamp into
+`execState`; both fail against the old ordering.
+
+**Do not:** leave a rule's guard in a local when the same pass persists
+the shared object again. If a module is pure and the caller owns
+persistence, the caller owns the guard's lifetime too — grep for every
+later write to that object before assuming a stamp sticks.
+
+---
+
+## A purge needs a horizon, not just a non-empty list [2026-09-14]
+
+**Symptom:** none yet — this was a dated time bomb, found while auditing
+the FOMC snap fix (#1469).
+
+**Cause:** `purgeUncuratedUpcomingFomc` runs
+`DELETE FROM market_events WHERE event_key='FOMC' AND date >= today AND
+date NOT IN (…curated…)`, guarded only by `if (!keep.length) return`.
+That guards an EMPTY curated list, not an EXPIRED one. The last curated
+decision in `CURATED_UPCOMING_MACRO` is 2026-12-09 and the ±10-day snap
+window cannot reach 2027, so from roughly 2026-12-20 every legitimate
+2027 Fed meeting the vendor published would be deleted on each Daily
+Brief run and the calendar would show no upcoming FOMC at all — the
+opposite failure to the Sunday-FOMC bug the purge was added to fix.
+
+**Fix:** cap the DELETE at `max(curatedFomcDecisionDates())` and no-op
+once today passes it. Past the horizon the vendor is the only source of
+Fed dates we have, so its rows stay.
+
+**Do not:** write a curated-list purge without bounding it to the window
+the list can speak for. "Delete everything not in my list" is only safe
+while the list covers the range being deleted.
+
+---
+
+## A heal that reports success on any lane suppresses the page [2026-09-14]
+
+**Symptom:** `model_broker_coverage` would show as healed and go quiet
+for four hours while sleeves stayed unmirrored.
+
+**Cause:** `_healModelBrokerCoverage` fans out to five lanes (investor
+catch-up, trader-exit catch-up, index-trend heal-entries, heal-closes,
+broker-intents drain) and returned
+`ok: Object.values(results).some((row) => row && row.ok)`.
+`broker-intents/drain` answers `ok:true` even with nothing to drain, so
+that `some()` was effectively always true. `runSelfHealing` then pushed
+the check into `healed` and wrote a 4-hour cooldown key — so the check
+was marked healed and suppressed even when the other four lanes threw.
+The per-lane results were recorded in the action reason but never gated
+the verdict. This is the exact shape of "the signal never went through
+and nothing told the desk".
+
+**Fix:** require every lane and name the failing ones in the action
+reason. Verified against prod that a closed window still answers
+`ok:true` (`outside_rth` on heal-entries, `no_bridge_configured` on a
+worker with no bridge), so the stricter verdict does not false-negative
+on a legitimate skip — all five lanes were green when probed.
+
+**Do not:** aggregate a fan-out healer with `some()`. One lane that
+always succeeds makes the verdict meaningless, and a false heal is worse
+than no heal because it takes the cooldown with it.
+
+---
+
+## Pages and the worker deploy independently [2026-09-14]
+
+**Symptom:** breakout badges rendered blank for two days after PR 1463
+shipped, with no error in the console, in worker logs, or in CI.
+
+**Cause:** Cloudflare Pages serves the committed `react-app-dist/`
+folder straight off `main` via Cloudflare's own Git integration — there
+is no GitHub Actions workflow that deploys Pages. `worker/` ships
+through the wrangler workflows. So the two halves of one PR go live on
+different schedules, and during the CI blackout the worker half did not
+go live at all. `react-app/index-react.source.html` and
+`react-app/today.html` both read `t._breakout_watch`; the
+`stampBreakoutWatchOnTicker` that writes it sat in the undeployed
+bundle. A field that is never stamped reads `undefined`, which every
+badge treats as "nothing to show" — a silent blank, not a failure.
+
+**Fix:** `tests/ui-worker-field-contract.test.js` asserts every
+underscore-prefixed ticker field the UI reads is either known to
+`worker/` or assigned in `react-app/` itself, deriving the client-side
+set from real assignments so it needs no allowlist upkeep.
+
+Sensitivity is deliberate and documented in the test header: the worker
+side accepts any mention, not specifically an assignment. Requiring an
+assignment flags shorthand properties (`{ _stDirD, _stDirW }`) and alias
+reads (`payload._event_risk`) as orphans, and a check needing five
+hand-maintained exceptions is a check nobody keeps. So it catches "the
+UI depends on a field the worker has never heard of" and NOT "the stamp
+was renamed while a reader kept the old name"; the latter is covered by
+a targeted assertion for the field that actually broke.
+
+**Do not:** assume a frontend change and its worker change ship
+together. They are separate deploy paths with no ordering guarantee.
+
+---
+
+## The broker holds one position per ticker, not one per sleeve [2026-09-14]
+
+**Symptom:** The hourly trader EXIT catch-up planned 30 ops against a
+Roth that held one residual per ticker. PH 0.13612 was claimed by four
+stale sleeves, DPZ 0.2714 by two, XLRE 1.35379 by two, XYZ by two
+(13.92981 + 8 against 13.92981 held). Selling every claim shorts the
+account with real money. The zombies also filled the `max_ops` window
+every hour, which is why a genuinely missed EXIT never got a turn.
+
+**Cause:** `planTraderExitCatchup` deduped by
+`trade_id|user|account` — one op per model sleeve. But
+`broker_remaining_qty` is derived from our own ledger per sleeve, and
+several closed sleeves on the same ticker each carry the same leftover.
+The broker's position is per ticker and account, so N sleeves claiming
+the same residual is N-1 phantom sells.
+
+**Fix:** `clampExitOpsToHoldings` spends a per-ticker budget taken from
+`/bridge/positions`, newest exit first. Live: 30 claims → 9 real ops, 21
+retired as `broker_position_already_flat`. An unreachable broker falls
+back to the single largest claim, which under-sells (recoverable next
+hour) rather than shorts.
+
+**Do not:** Let a reduce lane size itself off the manifest alone.
+Positions are the one record the broker writes; everything else is ours.
+
+---
+
+## Holdings answer "is anything left", sleeves answer "was this trade ever mirrored" [2026-09-14]
+
+**Symptom:** Coverage paged DPZ and KO trader EXITs as `unmatched`
+forever. The per-ticker holdings check said both were actionable (Roth
+held 0.2714 DPZ and 3.55262 KO), and the trader-exit heal could not
+plan either — the operator saw a page with no lever.
+
+**Cause:** The DPZ shares belonged to two OLDER DPZ lots and the KO
+shares to an `inv-KO-auto` investor DCA sleeve. Neither exited trade had
+a manifest sleeve at all, so its entry never mirrored and its exit has
+nothing of its own to sell. Per-ticker holdings cannot tell "this trade
+is stranded" from "a different trade on the same ticker is open".
+
+**Fix:** `classifyActionCoverage` asks the trade's own sleeve first
+(`loadBrokerSleeves`), then the ticker's position:
+`broker_never_held_this_trade` → terminal, `broker_sleeve_already_flat`
+→ terminal, sleeve still holding → keep paging. Only for the
+manifest-routed lanes (`trader`, `investor`): a paper-lane close is
+dispatched off its own mirror row, which is how the adopted broker-only
+SPYU sleeve gets sold, so an absent sleeve there means nothing.
+
+**Do not:** Silence a reduce on per-ticker holdings alone, and do not
+extend the sleeve rule to the paper lanes.
+
+---
+
+## Cap counters must count places, not intentions [2026-09-14]
+
+**Symptom:** `index_trend_letf` sat at 2/2 with ZERO placed orders and
+zero mirror rows. SPYU, TNA and UDOW each skipped
+`vehicle_daily_cap_2_reached` every 5 minutes for a full session while
+their paper books ran on. The entry healer could not recover, because
+the healer hits the same gate.
+
+**Cause:** `bumpEntryCounters` reserved the vehicle + global slot before
+`/bridge/order` and released it on a non-place. Isolate death between
+the two ran neither branch, so the slot stayed consumed forever. The
+cash-scaling fix alone would not have helped: past the notional gate all
+three would have hit the leaked cap.
+
+**Fix:** Caps are checked read-only before dispatch and counted only once
+the bridge confirms the place (`entryCountersHaveRoom` /
+`commitEntryCounters`), which cannot leak. A reconcile hands back slots
+no confirmed place accounts for, so a value stranded by the old path
+recovers on the next tick rather than at UTC midnight. Two independent
+records — the dispatch ring and the day-stamped mirror rows — must agree
+a slot went unused, and the higher count wins.
+
+**Do not:** Trust one record to lower a cap counter; both are written on
+the same confirmed-place branch, so a lagging write would erase a real
+slot and make the cap unenforceable. Read wall clock in the counter
+helpers when the caller passed a `now` — the reconcile and the cap check
+then heal and read different day keys.
+
+---
+
+## Coverage must read the book, not the tape [2026-09-14]
+
+**Symptom:** `/timed/admin/broker/coverage?hours=96` returned ZERO
+`index_trend` actions while three sleeves sat open with no broker
+position. The contract reported clean, nothing paged, and the operator
+found it by eye.
+
+**Cause:** The lane was joined from `timed:idx-trend-actions` alone. That
+tape is best-effort and stopped gaining rows on 2026-09-10, so every
+book opened afterwards was invisible to coverage.
+
+**Fix:** Union the tape with the live carry books the entry healer
+already reads, deduped by signal id and bounded by the healer's
+never-attempted window so anything paged is still healable.
+
+**Do not:** Treat a best-effort KV tape as the authority for a lane when
+a persisted book is what Discord actually fires from.
+
+---
+
 ## Index Swings Discord is not a broker fill [2026-09-14]
 
 **Symptom:** #trade-signals posted TNA LONG DCA_ADD (11:30 ET, 46 sh)

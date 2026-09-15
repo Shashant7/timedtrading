@@ -371,8 +371,9 @@ describe("Stage 5b mirror safety invariants", () => {
     });
     expect(first.reconcile.persist).toBe(false);
     expect(first.fill.reason).toBe("broker_preview_rejected");
-    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:${today}`)).toBe("0");
-    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBe("0");
+    // Caps count confirmed places only, so a reject never touches them.
+    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:${today}`)).toBeUndefined();
+    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBeUndefined();
 
     const second = await maybeAutoMirrorIndexDayTradeEvent(env, {
       event: "BUY",

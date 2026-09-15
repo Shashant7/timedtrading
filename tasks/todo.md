@@ -21,15 +21,74 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-- [ ] **Index Swings Discord without broker fill (2026-09-14).** TNA
+- [ ] **Operator action: add the Cloudflare CI secrets.** `deploy-*`
+      workflows now fail loudly instead of silently skipping, but they
+      still cannot deploy until `CLOUDFLARE_API_TOKEN` +
+      `CLOUDFLARE_ACCOUNT_ID` exist under Settings → Secrets and
+      variables → Actions. Until then every merge needs a hand-run
+      `npm run deploy:worker`. The next `worker/**` merge will go RED
+      as designed if they are still missing.
+- [ ] **Watch the 2026-09-15 RTH open.** Three index-trend entries are
+      stranded going into it: SPYU W38 (broker already holds 9 sh →
+      adopted, no order), TNA W37 and UDOW W38 (real buys, cash-scaled
+      to 31 sh / 28 sh, $1986 / $1937). Replay says 2 orders, counter
+      lands 2/2. Roth cash is $2213, so the SECOND of the two may come
+      back `insufficient_cash` — that is an account limit, not a bug,
+      and coverage should say so rather than page `never_attempted`.
+      Re-replayed 09-14 23:54Z against live KV + live `/bridge/positions`
+      on the deployed code: SPYU returns
+      `broker_already_holds_SPYU_9_adopted` with zero orders; with the
+      adoption guard stubbed out the same inputs size a fresh 59-share
+      sleeve (~$1974) on top of the 9 already held. Evidence:
+      `/opt/cursor/artifacts/index-trend-heal-replay.log`.
+- [ ] **Audit follow-ups still open (2026-09-14).** From the merged-PR
+      audit, deliberately not taken this session: `_healModelBrokerCoverage`
+      now fails per-lane but the 4h cooldown is still per-CHECK, so one
+      persistently failing lane delays the other four — per-lane cooldown
+      is the real fix. `lastSessionHint` and
+      `_resetDeskJournalSchemaCache` in `worker/desk-journal.js` are still
+      exported with no caller and no test. `skills/security-auth-patterns.md`
+      should note that a route-table audit must include
+      `worker/trust-spine/routes.js` or it reports four false orphans.
+- [x] **Merged-PR audit + the defects it found (2026-09-14).** 47 of 66
+      PRs merged 09-03 → 09-14 touched `worker/**` and did nothing until
+      the 09-14 manual deploy; 14 of those ran HALF live, because their
+      frontend or bridge half deploys on a different path (PR 1463
+      shipped blank breakout badges for two days). Fixed the three live
+      defects the blackout was hiding: the ext-trim guard was clobbered
+      in the same pass so an already-trimmed runner could reach the 75%
+      cap in one session instead of once per session; the FOMC purge was
+      unbounded and would have deleted every real 2027 Fed meeting from
+      late Dec; `_healModelBrokerCoverage` reported success on any one
+      lane and took a 4h cooldown while four could have thrown. Also
+      deleted the reserve-then-release cap helpers (no callers, and they
+      re-implement the wedge documented directly beneath them), exposed
+      `deployedSha` so a stale worker is distinguishable from a current
+      one, added `deploy:crons`, and added a UI/worker field-contract
+      test.
+- [x] **4 unmatched trader EXITs (2026-09-14).** U and MNST were
+      already flat at the broker; DPZ and KO had no manifest sleeve at
+      all (their entries never mirrored — the held shares belonged to
+      older DPZ lots and an `inv-KO-auto` DCA sleeve). Coverage now
+      settles a reduce against the trade's own sleeve, then the
+      ticker's position: live fails 6 → 4, and `catchup-trader-exits`
+      dropped off the heal plan. The exit catch-up itself was about to
+      sell one position per stale sleeve (30 claims → 9 real ops);
+      clamped to broker holdings, newest exit first.
+- [x] **Broker mirroring fail-closed (2026-09-14).** Three stacked
+      faults: CI deployed nothing since 09-03; daily cap slots leaked
+      on isolate death and wedged the lane at 2/2 with zero orders;
+      coverage was blind to `index_trend` because the action tape died
+      09-10. Replayed real prod state: 0 orders forwarded before, 2
+      after (cash-scaled into the $2000 sleeve) with the cap enforced.
+      Branch: `cursor/broker-mirror-failclosed-7ffc` (PR #1471).
+- [x] **Index Swings Discord without broker fill (2026-09-14).** TNA
       W37 DCA_ADD (46 sh, $2975) and UDOW W38 BUY (28 sh) hit
-      #trade-signals. Roth got neither. Catch-up skipped TNA as
-      `notional_*_exceeds_cap_2000` instead of cash-scaling to the
-      $2000 sleeve; vehicle cap already 2/2 (SPYU 60 pending, no
-      order id); UDOW never reached `/bridge/order`. Scale BUY qty
-      to `max_per_order_usd`; DCA on a never-filled sleeve is an
-      entry catch-up; heal never-attempted books first. Branch:
-      `cursor/index-trend-cap-scale-7ffc`.
+      #trade-signals. Roth got neither. Cash-scale BUY qty to
+      `max_per_order_usd`; DCA on a never-filled sleeve is an entry
+      catch-up; heal never-attempted books first. Shipped in #1470 —
+      but note it did NOT reach prod until 09-14 22:20Z because CI was
+      deploying nothing. Branch: `cursor/index-trend-cap-scale-7ffc`.
 - [x] **FOMC Today label (2026-09-13).** Sunday Today strip said
       TODAY · FOMC rate decision. Published decision is Wed Sep 16.
       Snap + D1 purge shipped. Branch: `cursor/fomc-today-label-7ffc`.

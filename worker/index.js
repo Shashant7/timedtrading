@@ -499,6 +499,7 @@ import {
   buildCloudPivotOptionsFirstPlay,
   evaluateTtCloudPivotExit,
   CLOUD_PIVOT_FAMILY,
+  CLOUD_PIVOT_SESSION_LOCK_START_MIN,
 } from "./foundation/tt-cloud-pivot.js";
 import {
   scopedAutopsyId,
@@ -1348,7 +1349,9 @@ import {
   saveAutoMirrorPrefs as _saveAutoMirrorPrefs,
   decideAutoMirror as _decideAutoMirror,
   fireAutoMirror as _fireAutoMirror,
-  checkAndBumpDailyCounter as _bumpMirrorCounter,
+  entryCountersHaveRoom as _entryCountersHaveRoom,
+  commitEntryCounters as _commitEntryCounters,
+  optionsMirrorDispatchAccepted as _optionsMirrorDispatchAccepted,
 } from "./options-auto-mirror.js";
 import {
   optionsShadowModeEnabled as _optionsShadowModeEnabled,
@@ -12650,7 +12653,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         positionAgeMin,
         trimmedPct: currentTrimPct,
         daCfg: tickerData?._env?._deepAuditConfig || {},
-        sessionLock: _cpWin.can_reduce && _cpWin.et_minutes >= 15 * 60 + 40,
+        sessionLock: _cpWin.can_reduce && _cpWin.et_minutes >= CLOUD_PIVOT_SESSION_LOCK_START_MIN,
       });
       if (openPosition?.__tradeRef && typeof openPosition.__tradeRef === "object") {
         if (openPosition.tt_cloud_pivot_pending_5_12 != null) {
@@ -23848,15 +23851,26 @@ async function processTradeSimulation(
           if (_extPlan && _extPlan.action === "trim") {
             console.log(`[RUNNER_EXT_TRIM] ${sym} trim-into-strength pnl=${_extPlan.pnlPct}% ext=${_extPlan.atrExt} ATR → trimmed ${(_extPlan.diag.trimmed_before * 100).toFixed(0)}% → ${(_extPlan.newTargetTrimPct * 100).toFixed(0)}%`);
             await trimTradeToPct(openTrade, _extPlan.newTargetTrimPct, pxNow, "RUNNER_EXTENSION_TRIM");
-            const _extExec = {
+            // Adopt the stamped state locally, not just in KV. The runner
+            // stale block and the smart-runner-exit block both persist
+            // `execState` later in this same pass, and their gate
+            // (`_sreTrimmedPct`) is a snapshot taken BEFORE this trim — so
+            // from the second step onward they wrote the pre-trim object
+            // back over `extTrimSession` / `extTrimPx`. `ratchetRunnerPeak`
+            // reports `updated` exactly on a new peak, which is the defining
+            // condition of the extension this rule fires on, so the
+            // once-per-session guard was erased on precisely the ticks that
+            // matter and a runner could walk 25% -> 50% -> 75% in one
+            // session.
+            execState = {
               ...execState,
               lastTrimMs: now,
               extTrimSession: _extPlan.diag.session,
               extTrimPx: pxNow,
               runnerPeakPrice: Math.max(Number(execState?.runnerPeakPrice) || 0, pxNow),
             };
-            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _extExec);
-            else if (!isReplay) await kvPutJSON(KV, execKey, _extExec);
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, execState);
+            else if (!isReplay) await kvPutJSON(KV, execKey, execState);
           }
         } catch (_extErr) {
           console.warn(`[RUNNER_EXT_TRIM] ${sym} failed:`, String(_extErr?.message || _extErr).slice(0, 150));
@@ -60910,6 +60924,14 @@ export default {
               : 0,
             dataVersion: storedVersion || "none",
             expectedVersion: CURRENT_DATA_VERSION,
+            // The deployed commit. `dataVersion` is a hand-bumped schema
+            // string and says nothing about which code is running, so for
+            // eleven days (2026-09-03 → 09-14) a stale worker answered
+            // ok:true on every probe while CI reported green and shipped
+            // nothing. A stale-but-healthy worker must be distinguishable
+            // from a current one without fingerprinting the bundle.
+            deployedSha: env?.ENGINE_GIT_SHA || "unset",
+            workerRole: env?.WORKER_ROLE || "monolith",
           },
           200,
           { ...corsHeaders(env, req), "Cache-Control": "public, max-age=60" },
@@ -61736,6 +61758,8 @@ export default {
             storedVersion: storedVersion || "none",
             expectedVersion: CURRENT_DATA_VERSION,
             match: storedVersion === CURRENT_DATA_VERSION,
+            deployedSha: env?.ENGINE_GIT_SHA || "unset",
+            workerRole: env?.WORKER_ROLE || "monolith",
           },
           200,
           corsHeaders(env, req),
@@ -94001,10 +94025,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           if (dryRun) {
             return sendJSON({ ok: true, fired: false, dry_run: true, decision }, 200, corsHeaders(env, req));
           }
-          // Live fire.
-          const counter = await _bumpMirrorCounter(env, userEmail, prefs.daily_cap);
-          if (!counter.allowed) {
-            return sendJSON({ ok: false, error: "daily_cap_reached", counter }, 429, corsHeaders(env, req));
+          // Live fire. Cap is checked here and counted only once the
+          // broker accepts, so a failed dispatch cannot burn a slot.
+          const caps = { globalCap: Number(prefs.daily_cap) || 0 };
+          const room = await _entryCountersHaveRoom(env, userEmail, decision.vehicle, caps);
+          if (!room.ok) {
+            return sendJSON({ ok: false, error: "daily_cap_reached", counter: room.counter }, 429, corsHeaders(env, req));
           }
           const fired = await _fireAutoMirror(env, userEmail, {
             trade_id: contract.trade_id || null,
@@ -94013,6 +94039,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             confluence_verdict: decision.confluence,
             source: "manual_mirror_now",
           });
+          let counter = null;
+          if (_optionsMirrorDispatchAccepted(fired)) {
+            const committed = await _commitEntryCounters(env, userEmail, decision.vehicle, caps);
+            counter = { allowed: true, current: committed.global ?? null, cap: caps.globalCap };
+          }
           return sendJSON({ ok: true, fired, decision, counter }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -105347,11 +105378,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const out = await runTraderExitCatchup(env, {
             dry_run: false,
             hours: 72,
-            max_ops: 8,
+            // 2026-09-14 — 8 was enough only because 21 of the 30 claimed
+            // ops were stale sleeves re-claiming a residual another sleeve
+            // already owned. Those are dropped before the window now, so
+            // the window can cover the real backlog in one pass.
+            max_ops: 12,
             reason: "trader_exit_catchup_auto",
           });
           console.log(
-            `[TRADER EXIT CATCHUP] planned=${out.planned} forwarded=${out.forwarded}`
+            `[TRADER EXIT CATCHUP] claimed=${out.claimed} planned=${out.planned}`
+            + ` flat_dropped=${out.flat_dropped} forwarded=${out.forwarded}`
             + ` results=${(out.results || []).length}`,
           );
           if (out.planned > 0) {

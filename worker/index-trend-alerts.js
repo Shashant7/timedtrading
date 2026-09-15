@@ -62,16 +62,6 @@ async function loadMirrorSharesRemaining(env, signalId) {
   }
 }
 
-export async function writeIndexTrendBook(env, {
-  bookKey,
-  book,
-  letfTicker,
-  signalId,
-  now = Date.now(),
-} = {}) {
-  return persistIndexTrendBook(env?.KV_TIMED, { bookKey, book, letfTicker, signalId, now });
-}
-
 export async function maybeReviveIndexTrendBook(env, {
   book,
   bookKey,

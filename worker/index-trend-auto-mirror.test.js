@@ -15,6 +15,7 @@ import {
   INDEX_TREND_MIRROR_LOG_KEY,
 } from "./index-trend-auto-mirror.js";
 import { forwardOrderToBridge } from "./broker-bridge-client.js";
+import { loadBrokerHeldEquity } from "./broker-held-equity.js";
 import { indexTrendActionShares } from "./index-trend-alerts.js";
 
 vi.mock("./broker-bridge-client.js", async (importOriginal) => {
@@ -25,6 +26,16 @@ vi.mock("./broker-bridge-client.js", async (importOriginal) => {
   };
 });
 
+// The broker is the tiebreaker on a catch-up, so every catch-up test has to
+// say what it holds. Default: nothing, which is the "safe to buy" case.
+vi.mock("./broker-held-equity.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    loadBrokerHeldEquity: vi.fn(async () => ({})),
+  };
+});
+
 const RTH_TS = Date.UTC(2026, 7, 31, 13, 45, 0); // 9:45 AM ET
 const AFTER_TS = Date.UTC(2026, 7, 31, 21, 30, 0); // 5:30 PM ET
 
@@ -32,6 +43,8 @@ function envWithStore(seed = {}) {
   const store = { ...seed };
   return {
     ADMIN_EMAIL: "op@test.com",
+    // The heal lane refuses to run on a worker with no bridge (tt-feed).
+    BROKER_BRIDGE_URL: "https://bridge.test",
     KV_TIMED: {
       get: async (k) => (store[k] == null ? null : store[k]),
       put: async (k, v) => { store[k] = v; },
@@ -50,6 +63,8 @@ describe("index-trend-auto-mirror", () => {
   beforeEach(() => {
     forwardOrderToBridge.mockClear();
     forwardOrderToBridge.mockResolvedValue({ ok: true, order_id: "ord-1" });
+    loadBrokerHeldEquity.mockClear();
+    loadBrokerHeldEquity.mockResolvedValue({});
   });
 
   it("skips when auto-mirror disabled and still writes the decision log", async () => {
@@ -101,6 +116,126 @@ describe("index-trend-auto-mirror", () => {
     expect(indexTrendCatchUpPlaced({ skipped: false, fired: { ok: false, skip: "no_bridge_url" } })).toBe(false);
   });
 
+  it("does not burn a cap slot when the isolate dies mid-dispatch (2026-09-14)", async () => {
+    const today = new Date(RTH_TS).toISOString().slice(0, 10);
+    const vehicleKey = `timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`;
+    const env = envWithStore({ "timed:options:auto-mirror:op@test.com": ENABLED_PREFS });
+
+    // /bridge/order never comes back — the same isolate death that left
+    // SPYU "pending, no order id" and wedged the vehicle at 2/2.
+    forwardOrderToBridge.mockImplementationOnce(async () => {
+      throw new Error("isolate_died");
+    });
+    const dead = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      signal_id: "it:SPY:SPYU:LONG:2026-W38",
+      underlying: "SPY",
+      letf_ticker: "SPYU",
+      letf_price: 33.42,
+      book: { shares: 40, status: "open" },
+      now: RTH_TS,
+    });
+    expect(dead.reason).toBe("mirror_error");
+    expect(env.store[vehicleKey]).toBeUndefined();
+
+    // The next sleeve still has its full cap and reaches the broker.
+    const live = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      signal_id: "it:DIA:UDOW:LONG:2026-W38",
+      underlying: "DIA",
+      letf_ticker: "UDOW",
+      letf_price: 69.65,
+      book: { shares: 28, status: "open" },
+      now: RTH_TS,
+    });
+    expect(live.skipped).toBe(false);
+    expect(live.reason).toBeNull();
+    expect(env.store[vehicleKey]).toBe("1");
+  });
+
+  it("stops entries once the cap is genuinely spent on placed orders", async () => {
+    const today = new Date(RTH_TS).toISOString().slice(0, 10);
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      [`timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`]: "2",
+      // Two real places today — the ring corroborates the counter, so the
+      // reconcile must not hand the cap back.
+      "bridge:client:recent": JSON.stringify([
+        { ticker: "SPYU", side: "buy", status: "ok", order_id: "A", trade_id: "a", ts: RTH_TS - 3600_000 },
+        { ticker: "TQQQ", side: "buy", status: "ok", order_id: "B", trade_id: "b", ts: RTH_TS - 1800_000 },
+      ]),
+    });
+    const r = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      signal_id: "it:IWM:TNA:LONG:2026-W38",
+      underlying: "IWM",
+      letf_ticker: "TNA",
+      letf_price: 64.11,
+      book: { shares: 30, status: "open" },
+      now: RTH_TS,
+    });
+    expect(r.skipped).toBe(true);
+    expect(r.reason).toBe("vehicle_daily_cap_2_reached_for_index_trend_letf");
+    expect(forwardOrderToBridge).not.toHaveBeenCalled();
+    expect(env.store[`timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`]).toBe("2");
+  });
+
+  it("hands back only the slots no confirmed place can account for", async () => {
+    const today = new Date(RTH_TS).toISOString().slice(0, 10);
+    const counterKey = `timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`;
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      // 2/2 consumed, but only ONE place is on record — the other slot was
+      // stranded by an isolate that died mid-dispatch.
+      [counterKey]: "2",
+      "bridge:client:recent": JSON.stringify([
+        { ticker: "SPYU", side: "buy", status: "ok", order_id: "A", trade_id: "a", ts: RTH_TS - 3600_000 },
+      ]),
+    });
+    const r = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      signal_id: "it:DIA:UDOW:LONG:2026-W38",
+      underlying: "DIA",
+      letf_ticker: "UDOW",
+      letf_price: 69.65,
+      book: { shares: 28, status: "open" },
+      now: RTH_TS,
+    });
+    expect(r.skipped).toBe(false);
+    expect(forwardOrderToBridge).toHaveBeenCalledTimes(1);
+    // One reconciled slot plus this place.
+    expect(env.store[counterKey]).toBe("2");
+  });
+
+  // The ring row is stamped `pending` BEFORE the fetch, so a row still at
+  // `pending` means nobody ever learned the outcome. SPYU W38 sat there
+  // while the broker held a real fill, so that slot is spent, not free.
+  it("keeps the slot for a dispatch whose outcome nobody learned", async () => {
+    const today = new Date(RTH_TS).toISOString().slice(0, 10);
+    const counterKey = `timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`;
+    const env = envWithStore({
+      "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+      [counterKey]: "2",
+      "bridge:client:recent": JSON.stringify([
+        { ticker: "SPYU", side: "buy", status: "pending", trade_id: "a", ts: RTH_TS - 3600_000 },
+        { ticker: "TNA", side: "buy", status: "pending", trade_id: "b", ts: RTH_TS - 1800_000 },
+      ]),
+    });
+    const r = await maybeAutoMirrorIndexTrendEvent(env, {
+      event: "BUY",
+      signal_id: "it:DIA:UDOW:LONG:2026-W38",
+      underlying: "DIA",
+      letf_ticker: "UDOW",
+      letf_price: 69.65,
+      book: { shares: 28, status: "open" },
+      now: RTH_TS,
+    });
+    expect(r.skipped).toBe(true);
+    expect(r.reason).toMatch(/vehicle_daily_cap/);
+    expect(forwardOrderToBridge).not.toHaveBeenCalled();
+    expect(env.store[counterKey]).toBe("2");
+  });
+
   it("does not stamp entry_fired on a cash reject (UDOW 2026-09-03)", async () => {
     forwardOrderToBridge.mockResolvedValueOnce({
       ok: false,
@@ -124,9 +259,10 @@ describe("index-trend-auto-mirror", () => {
     expect(r.fired?.ok).toBe(false);
     expect(await indexTrendNeedsEntryCatchUp(env, signalId, RTH_TS)).toBe(false);
     expect(await indexTrendNeedsEntryCatchUp(env, signalId, RTH_TS + 16 * 60 * 1000)).toBe(true);
+    // Caps count confirmed places only, so a reject never touches them.
     const today = new Date().toISOString().slice(0, 10);
-    expect(env.store[`timed:options:auto-mirror:count:op@test.com:${today}`]).toBe("0");
-    expect(env.store[`timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`]).toBe("0");
+    expect(env.store[`timed:options:auto-mirror:count:op@test.com:${today}`]).toBeUndefined();
+    expect(env.store[`timed:options:auto-mirror:count:op@test.com:index_trend_letf:${today}`]).toBeUndefined();
   });
 
   it("stamps a fan-out order id so later UDOW/TQQQ trims stay eligible", async () => {
@@ -477,6 +613,116 @@ describe("index-trend-auto-mirror", () => {
       qty: 30,
       trade_id: signalId,
     }));
+  });
+
+  // 2026-09-14 — SPYU W38 dispatched, the isolate died before the response
+  // came back, and the broker filled 9 shares anyway. Ring row stuck at
+  // `pending`, no audit row (the bridge's was cancelled with the request),
+  // no mirror row. Every model-side record read "never attempted", so the
+  // catch-up was one tick away from buying a live sleeve a second time.
+  describe("a catch-up asks the broker before spending again", () => {
+    const signalId = "it:SPY:SPYU:LONG:2026-W38";
+    const now = Date.UTC(2026, 8, 14, 14, 30, 0); // Mon 10:30 ET
+    const entryTs = Date.UTC(2026, 8, 14, 13, 45, 0);
+
+    function envWithSpyuBook() {
+      return envWithStore({
+        "timed:options:auto-mirror:op@test.com": ENABLED_PREFS,
+        "timed:idx-trend-carry:SPYU": JSON.stringify({
+          signal_id: signalId,
+          book: {
+            status: "open",
+            shares: 90,
+            shares_remaining: 90,
+            entry_ts: entryTs,
+            underlying: "SPY",
+            letf_ticker: "SPYU",
+            last_letf_price: 33.42,
+            signal_id: signalId,
+          },
+        }),
+      });
+    }
+
+    it("adopts the orphaned broker fill instead of buying the sleeve twice", async () => {
+      const env = envWithSpyuBook();
+      loadBrokerHeldEquity.mockResolvedValue({ SPYU: { qty: 9, avg_cost: 33.35 } });
+
+      const heal = await healMissedIndexTrendEntries(env, { now });
+
+      expect(heal.attempted).toBe(1);
+      expect(heal.filled).toBe(0);
+      expect(forwardOrderToBridge).not.toHaveBeenCalled();
+      const mirror = JSON.parse(env.store[`timed:idx-trend-mirror:${signalId}`]);
+      expect(mirror.entry_fired).toBe(true);
+      expect(mirror.adopted_from_broker).toBe(true);
+      expect(mirror.adopted_broker_qty).toBe(9);
+      expect(mirror.shares_remaining).toBe(9);
+    });
+
+    it("does not re-adopt on the next tick", async () => {
+      const env = envWithSpyuBook();
+      loadBrokerHeldEquity.mockResolvedValue({ SPYU: { qty: 9, avg_cost: 33.35 } });
+      await healMissedIndexTrendEntries(env, { now });
+      forwardOrderToBridge.mockClear();
+
+      const again = await healMissedIndexTrendEntries(env, { now: now + 5 * 60_000 });
+
+      expect(again.attempted).toBe(0);
+      expect(forwardOrderToBridge).not.toHaveBeenCalled();
+    });
+
+    it("defers rather than guesses when the broker cannot be reached", async () => {
+      const env = envWithSpyuBook();
+      loadBrokerHeldEquity.mockResolvedValue(null);
+
+      const heal = await healMissedIndexTrendEntries(env, { now });
+
+      expect(forwardOrderToBridge).not.toHaveBeenCalled();
+      expect(heal.results[0].reason).toBe("broker_holdings_unknown_entry_deferred");
+      // Deferred, not written off: the sleeve is still catchable next tick.
+      expect(env.store[`timed:idx-trend-mirror:${signalId}`]).toBeUndefined();
+    });
+
+    it("still buys a sleeve the broker does not hold", async () => {
+      const env = envWithSpyuBook();
+      loadBrokerHeldEquity.mockResolvedValue({ TNA: { qty: 46 } });
+
+      const heal = await healMissedIndexTrendEntries(env, { now });
+
+      expect(heal.filled).toBe(1);
+      expect(forwardOrderToBridge).toHaveBeenCalledWith(env, expect.objectContaining({
+        ticker: "SPYU",
+        side: "buy",
+        trade_id: signalId,
+      }));
+    });
+
+    it("does not run at all on a worker with no bridge (tt-feed)", async () => {
+      const env = envWithSpyuBook();
+      delete env.BROKER_BRIDGE_URL;
+      const heal = await healMissedIndexTrendEntries(env, { now });
+      expect(heal.reason).toBe("no_bridge_configured");
+      expect(heal.scanned).toBe(0);
+      expect(forwardOrderToBridge).not.toHaveBeenCalled();
+    });
+
+    it("leaves a fresh (non-catch-up) BUY on the fast path", async () => {
+      const env = envWithStore({ "timed:options:auto-mirror:op@test.com": ENABLED_PREFS });
+      loadBrokerHeldEquity.mockResolvedValue({ SPYU: { qty: 9 } });
+
+      const r = await maybeAutoMirrorIndexTrendEvent(env, {
+        event: "BUY",
+        signal_id: "it:SPY:SPYU:LONG:2026-W39",
+        underlying: "SPY",
+        letf_ticker: "SPYU",
+        letf_price: 33.42,
+        now: RTH_TS,
+      });
+
+      expect(r.skipped).toBe(false);
+      expect(loadBrokerHeldEquity).not.toHaveBeenCalled();
+    });
   });
 
   it("still catches a Friday never-attempted BUY on Monday RTH", async () => {

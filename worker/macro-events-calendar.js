@@ -184,15 +184,25 @@ export async function purgeUncuratedUpcomingFomc(env, today = nyDateStr()) {
   if (!env?.DB) return { ok: false, deleted: 0 };
   const keep = curatedFomcDecisionDates();
   if (!keep.length) return { ok: true, deleted: 0 };
+  // Only delete inside the window the curated calendar can speak for.
+  // Unbounded, this DELETE turns into a time bomb: the last curated
+  // decision is 2026-12-09 and the snap window reaches ±10 days, so from
+  // late Dec 2026 every legitimate 2027 Fed meeting the vendor published
+  // would be deleted on each Daily Brief and the strip would show no
+  // upcoming FOMC at all. Past the horizon the vendor is the only source
+  // we have, so leave its rows alone.
+  const horizon = keep.reduce((max, d) => (d > max ? d : max), keep[0]);
+  if (today > horizon) return { ok: true, deleted: 0, skipped: "past_curated_horizon" };
   const placeholders = keep.map(() => "?").join(",");
   try {
     const rs = await env.DB.prepare(`
       DELETE FROM market_events
       WHERE event_key = 'FOMC'
         AND date >= ?
+        AND date <= ?
         AND date NOT IN (${placeholders})
         AND LOWER(COALESCE(event_name, '')) NOT LIKE '%minute%'
-    `).bind(today, ...keep).run();
+    `).bind(today, horizon, ...keep).run();
     return { ok: true, deleted: Number(rs?.meta?.changes || 0) };
   } catch (_) {
     return { ok: false, deleted: 0 };
