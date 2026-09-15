@@ -32,6 +32,7 @@ import {
   HEAL_INTENT_DRAIN,
   COVERAGE_SNAPSHOT_KEY,
 } from "./mirror-coverage.js";
+import { _healModelBrokerCoverage } from "./coo/coo-orchestrator.js";
 
 const NOW = Date.UTC(2026, 8, 11, 16, 0, 0); // 12:00 ET
 const OLD = NOW - 10 * 60 * 1000;
@@ -584,14 +585,37 @@ describe("source contract — coverage is wired fail-closed", () => {
   // with nothing to drain — so four lanes could throw while the page stayed
   // suppressed for four hours. That is "the signal never went through and
   // nothing told the desk", which is the whole point of this contract.
-  it("the coverage healer's verdict requires every lane, not any lane", () => {
-    const coo = readFileSync(join(root, "coo/coo-orchestrator.js"), "utf8");
-    const fn = coo.slice(coo.indexOf("async function _healModelBrokerCoverage"));
-    const body = fn.slice(0, fn.indexOf("\n}"));
-    expect(body).not.toMatch(/\.some\(/);
-    expect(body).toMatch(/failed\.length === 0/);
+  it("the coverage healer's verdict requires every lane, not any lane", async () => {
+    // Asserted on behaviour rather than on the source text: the earlier
+    // version sliced the function body out of the file and broke the moment
+    // the healer grew a loop, while proving nothing about what it returns.
+    const store = new Map();
+    const env = {
+      KV_TIMED: {
+        get: async (k) => store.get(k) ?? null,
+        put: async (k, v) => { store.set(k, v); },
+      },
+      ADMIN_API_KEY: "k",
+      TIMED_API_KEY: "k",
+      SELF_BASE_URL: "https://worker.test",
+    };
+    // Only the drain lane answers ok — the shape that used to mark the whole
+    // check healed and take a 4h cooldown while four lanes were throwing.
+    globalThis.fetch = async (url) => {
+      const ok = String(url).includes("broker-intents/drain");
+      return new Response(JSON.stringify({ ok }), {
+        status: ok ? 200 : 500,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const out = await _healModelBrokerCoverage(env);
+    expect(out.ok).toBe(false);
     // The failing lanes must be named, or the operator cannot triage.
-    expect(body).toMatch(/failed/);
+    expect(out.failed).toContain("index_entries");
+    expect(out.failed).toContain("trader_exits");
+    expect(out.failed).not.toContain("intents");
+    // And the reason the desk sees has to carry them.
+    const coo = readFileSync(join(root, "coo/coo-orchestrator.js"), "utf8");
     expect(coo).toMatch(/lanes:\$\{action\.failed\.join\(","\)\}/);
   });
 });

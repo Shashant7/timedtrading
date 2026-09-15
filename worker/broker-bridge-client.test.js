@@ -146,9 +146,14 @@ describe("parseBridgeAcceptedQty", () => {
 });
 
 describe("forwardOrderToBridge stamps the accepted qty on the ring", () => {
-  afterEach(() => { vi.unstubAllGlobals(); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
   async function dispatch(bridgeBody) {
+    // Pin the clock inside RTH. Without this the test only passed before
+    // 7pm ET: after the equity follow-through cutoff the order is skipped
+    // rather than forwarded, so there is no ring row to inspect.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-15T11:30:00-04:00"));
     const KV = makeKv();
     vi.stubGlobal("fetch", async () => new Response(JSON.stringify(bridgeBody), {
       status: 200,
