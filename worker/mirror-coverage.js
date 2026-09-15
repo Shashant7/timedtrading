@@ -125,6 +125,29 @@ export function ringQty(row) {
   return Number.isFinite(q) ? q : null;
 }
 
+/**
+ * Reason string when the bridge placed materially less than we sent.
+ *
+ * Deliberately keyed off the ring row's own requested-vs-accepted pair and
+ * NOT off the model's book qty. The bridge is supposed to size a model
+ * position down to the account, so comparing against the model book would
+ * flag every normal order. Every successful order in the live ring is
+ * already account-sized (fractional reduces of real holdings; index-trend
+ * entries pre-sized to `max_per_order_usd`), so a reduction recorded HERE
+ * means an account-fit cap actually bit — the case worth reporting.
+ *
+ * The 0.5% floor keeps fractional-share rounding from reading as a partial.
+ */
+export function ringScaleShortfall(row) {
+  const accepted = Number(row?.bridge_scaled_qty ?? row?.scaled_qty);
+  const requested = Number(row?.qty ?? row?.shares ?? row?.contracts);
+  if (!(accepted > 0) || !(requested > 0)) return null;
+  if (accepted >= requested * 0.995) return null;
+  const pct = Math.round((accepted / requested) * 100);
+  const why = String(row?.bridge_scale_reason || "").trim();
+  return `broker_scaled_to_${accepted}_of_${requested}_${pct}pct${why ? `_${why}` : ""}`;
+}
+
 export function isCoverageTerminalReject(reason, event) {
   const text = String(reason || "");
   if (!text) return false;
@@ -206,13 +229,30 @@ export function classifyActionCoverage(action, {
   const ageMs = (Number(nowMs) || Date.now()) - (Number(action?.ts) || 0);
 
   if (placed.length) {
-    const qty = ringQty(placed[placed.length - 1]);
+    const lastPlaced = placed[placed.length - 1];
+    const qty = ringQty(lastPlaced);
     const orderId = placed.map((r) => r.rh_order_id || r.broker_order_id || r.order_id).find(Boolean) || null;
     const childReject = hits.map((r) => rejectText(r)).find((t) => t && !isCoverageTerminalReject(t, action.event));
     if (childReject && CASH_SUPPRESS_RE.test(childReject)) {
       return {
         status: "mirrored_partial",
         reason: childReject.slice(0, 160),
+        broker_qty: qty,
+        order_id: orderId,
+      };
+    }
+    // A place that only took part of the sleeve is not a clean mirror. The
+    // bridge scales a buy to fit the account (concentration ceiling, cash
+    // buffer, per-order cap), so on 2026-09-15 TNA W37 and UDOW W38 each
+    // went out for 31 / 28 shares and were placed as 5 — and this returned
+    // "mirrored" with no qualifier, which is the one thing the operator
+    // reads to decide whether a signal reached the broker. Report it so a
+    // 16%-filled sleeve is visible instead of green.
+    const shortfall = ringScaleShortfall(lastPlaced);
+    if (shortfall) {
+      return {
+        status: "mirrored_partial",
+        reason: shortfall,
         broker_qty: qty,
         order_id: orderId,
       };
@@ -497,7 +537,10 @@ export function coverageAnomalies(rows = [], {
         ...row,
         heal: null,
         severity: "warn",
-        detail: `${row.ticker} ${row.event} mirrored with a fan-out reject (${row.reason || "partial"})`,
+        // Two different causes land here now — a fan-out child rejecting,
+        // and the bridge scaling the order to fit the account. Naming only
+        // the first would misdescribe the second, so let the reason speak.
+        detail: `${row.ticker} ${row.event} mirrored only in part (${row.reason || "partial"})`,
       });
     } else if ((row.status === "unmatched" || row.status === "rejected") && anomalyVisible(row, list)) {
       const heal = healForCoverageRow(row);

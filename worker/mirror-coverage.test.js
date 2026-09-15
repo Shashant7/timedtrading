@@ -940,3 +940,62 @@ describe("coverage desk helpers", () => {
     expect(store.get(COVERAGE_CLEAN_DAY_KEY)).toBe(nyDateKey(NOW));
   });
 });
+
+// 2026-09-15 — a place that only took part of the sleeve used to report a
+// clean "mirrored". The bridge scales a buy to fit the account, so the heal
+// sent TNA W37 for 31 shares and UDOW W38 for 28 and the concentration
+// ceiling on a $14.8k Roth placed 5 of each. Coverage is the one surface the
+// operator reads to decide whether a signal reached the broker, and it said
+// yes without qualification for a 16%-filled sleeve.
+describe("a broker-scaled place is partial, not a clean mirror", () => {
+  it("flags the shortfall with the accepted/requested pair and the cause", () => {
+    const cov = classifyActionCoverage(stEntry({ ticker: "TNA", qty: 31 }), {
+      ring: [ringOk({
+        ticker: "TNA",
+        qty: 31,
+        bridge_scaled_qty: 5,
+        bridge_scale_reason: "concentration",
+      })],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("mirrored_partial");
+    expect(cov.reason).toBe("broker_scaled_to_5_of_31_16pct_concentration");
+    // broker_qty must be what the broker took, not what we asked for —
+    // this is the number an operator reconciles against the account.
+    expect(cov.broker_qty).toBe(5);
+  });
+
+  it("still reports a full place as mirrored", () => {
+    const cov = classifyActionCoverage(stEntry({ ticker: "TNA", qty: 31 }), {
+      ring: [ringOk({ ticker: "TNA", qty: 31 })],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("mirrored");
+    expect(cov.reason).toBeNull();
+  });
+
+  it("does not call fractional-share rounding a partial", () => {
+    // Every successful reduce in the live ring is a fractional share count
+    // (0.2599, 1.3538, 6.3851). A dust-level delta is not a shortfall.
+    const cov = classifyActionCoverage(stEntry({ qty: 54.75 }), {
+      ring: [ringOk({ qty: 54.75, bridge_scaled_qty: 54.7499 })],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("mirrored");
+  });
+
+  it("warns rather than pages, and describes the real cause", () => {
+    const rows = [{
+      ...stEntry({ ticker: "TNA" }),
+      status: "mirrored_partial",
+      reason: "broker_scaled_to_5_of_31_16pct_concentration",
+      key: "k1",
+    }];
+    const an = coverageAnomalies(rows, { nowMs: NOW });
+    expect(an).toHaveLength(1);
+    expect(an[0].severity).toBe("warn");
+    // The old copy asserted a fan-out reject, which is not what happened.
+    expect(an[0].detail).toContain("mirrored only in part");
+    expect(an[0].detail).toContain("broker_scaled_to_5_of_31");
+  });
+});
