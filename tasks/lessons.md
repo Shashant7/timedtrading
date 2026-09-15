@@ -6,6 +6,150 @@
 
 ---
 
+## Four symptoms, one mislabeled column [2026-09-15]
+
+**Symptom.** Four separate follow-ups sat on the list after the #1472 review:
+the index-trend sleeves were stuck at `sync_state: untracked`; TNA W36 kept
+claiming 4 shares after they were sold, so W36 + W37 claimed 9 against a
+5-share position; the reduce path looked like it would be rejected because
+`untracked` is in the reducer's blocked set; and `isGhostUntrackedBrokerFlat`
+already carried a band-aid naming this exact TNA W36 row.
+
+**What happened.** All four were one bug, three layers up. `inferInstrument`
+decided the instrument shape from the order's `vehicle`, treating anything
+other than `equity_long` or empty as an options structure. TNA / UDOW / SPYU /
+TQQQ are leveraged ETFs, so the index-trend mirror sends ordinary SHARE
+orders — tagged `vehicle: index_trend_letf`. Every index-trend manifest row
+was therefore written `instrument_type: 'options'`, and from there the rest
+followed mechanically:
+
+- the reconciler took the options path, looked for `model_intended_legs`,
+  found none, and stopped at `untracked` + "cannot leg-compare". The equity
+  classifier that converges `broker_remaining_qty` to broker truth never ran,
+  so the column froze at entry qty forever;
+- `claimedOpenEquityByTicker` and `_readOpenClaimRowsForUser` both filter
+  `instrument_type = 'equity'`, so the sleeves were invisible to the
+  sibling-claim math and no CLOSED row was ever told its shares belonged to
+  an OPEN sibling.
+
+**Lessons.**
+
+1. **Count the population before theorising.** One query settled it: of 245
+   live manifest rows, 240 classified fine and the only 5 that did not were
+   the index-trend rows — and all 5 were untracked, the one state nothing
+   else was in. A perfect correlation between "misclassified" and "stuck"
+   named the cause in a single step, after two sessions of treating the
+   symptoms separately.
+2. **A band-aid citing a specific row is a signal, not a fix.**
+   `isGhostUntrackedBrokerFlat` was written for "TNA W36 2026-09-11: rem=4,
+   sync=untracked". A guard that has to name one production row is
+   describing a cause nobody found yet.
+3. **Derive a type from a closed set, or the default will rot.**
+   `inferInstrument`'s else-branch was "options", so every vehicle added
+   later — `shares`, `shares_primary`, `letf`, `index_trend_letf` — was
+   silently an options order. The equity vehicles are now an explicit set.
+4. **An idempotent upsert cannot repair its own past.** The entry path is
+   `ON CONFLICT DO NOTHING` and never revisits `instrument_type`, so no
+   future entry would have corrected the five existing rows. Fixing the
+   writer is not the same as fixing the data; the backlog needed its own
+   one-shot reclassify.
+5. **"Unproven" and "broken" are different claims, and the difference is
+   worth the tests.** The reduce path was reported as probably-blocked. It
+   was fine: `held_override` carries an untracked sleeve that holds shares,
+   `untracked` is in the close PROCEED set, and `evaluateReducerAgainstPositions`
+   clamps the stale claim. Writing the tests both corrected the record and
+   pinned three behaviours that nothing had covered.
+
+## Re-checking and re-reporting are not the same thing [2026-09-15]
+
+**Symptom.** One DE trade (`DE-1787252853209-e3325t0lf`, 0.226964 sh) held 6
+of the 6 newest rows in the bridge audit and had for days, pushing real LETF
+placements 26 rows deep in a 400-row pull. The suspected causes were a drift
+that never heals, or a warn firing without a cooldown.
+
+**What happened.** Neither. `_verifyPostExecutionAudit` re-checks while
+`!audit.verified`, and `markLastActionDrift` sets `verified: false`
+deliberately — a drift CAN heal when a late fill lands or the operator sells
+by hand, and re-checking is the only way to notice. But the same code path
+also wrote the audit row and sent the notification, so a gap that had not
+changed in days was re-announced every five minutes. It also stamped
+`drift_detected_at = now` on every pass, so a days-old drift always looked
+brand new and no clock could be keyed off it.
+
+**Lessons.**
+
+1. **Separate the poll from the announcement.** Anything that must keep
+   looking at an unresolved condition needs two decisions: should I look
+   again (yes, always) and is there something new to say (usually no).
+   Collapsing them turns a monitor into a flood.
+2. **A "first seen" timestamp that gets overwritten is not a timestamp.**
+   `drift_detected_at` was rewritten every pass; the suppression clock needed
+   `drift_reported_at`, which moves only when something was actually sent.
+   Refreshing the stamp on the suppressed path would have made the repeat
+   window never expire and silenced a real drift forever.
+3. **Suppress on "unchanged", not on "seen".** A drift that shrinks toward
+   zero is news (a partial heal) and so is one that grows. Both still report
+   immediately; only a gap unchanged within the fill tolerance goes quiet.
+   288 audit rows a day became 4.
+4. **The audit log is a diagnostic surface with a capacity.** It is where the
+   desk looks to answer "did the order reach the broker". Burying it has a
+   cost even when every row is individually correct.
+
+## A cooldown that is only written on success is not a cooldown [2026-09-15]
+
+**Symptom.** After #1472 made `_healModelBrokerCoverage` require every lane
+rather than any lane, the note on the list said one persistently failing lane
+"delays the other four". That was backwards.
+
+**What happened.** The check-level cooldown is written only when the whole
+check succeeds. So a single failing lane meant no cooldown was written at
+all, and all five lanes — including the four that had just worked — re-ran on
+every COO cycle instead of every four hours. The failing lane retrying fast
+is what we want; `catchup-trader-exits` re-running with `max_ops: 8` and
+`catchup-investor` with `max_ops: 24` on every cycle is not, and this lane
+has already burned an hourly op window on repeat work ahead of real misses.
+
+**Lessons.**
+
+1. **Tightening a verdict moves the cost somewhere else.** Making the
+   verdict stricter was right, but the cooldown was coupled to it, so
+   "report accurately" silently became "retry everything constantly".
+   Check what else reads a predicate before changing what it means.
+2. **Back-off belongs at the unit of work that can fail.** Five lanes behind
+   one cooldown key can only ever have one back-off policy. Each lane now
+   stamps its own key.
+3. **A skip has to count as OK.** A cooled-down lane reports `ok: true`.
+   Counting it as a failure would fail the check forever, which would mean it
+   never succeeds, never stamps, and never cools — a wedge.
+
+## A test that reads the clock or the source will break later [2026-09-15]
+
+**Symptom.** Two tests failed on a run at 23:01 UTC that had passed at 16:00.
+
+**What happened.** Two different unsound tests, both mine from #1472:
+
+- the accepted-qty ring test called `forwardOrderToBridge` without pinning
+  the clock. After 7pm ET the equity follow-through cutoff skips the order
+  instead of forwarding it, so there was no ring row to inspect. It passed
+  when it was written because the session happened to be earlier in the day,
+  and #1472 merged green for the same reason;
+- the every-lane verdict test sliced `_healModelBrokerCoverage`'s body out of
+  the source file with `indexOf("\n}")` and regex-matched the text. Adding a
+  loop to the function moved the first line-initial `}`, so the slice
+  truncated and the assertion failed — while never having proved anything
+  about what the function returns.
+
+**Lessons.**
+
+1. **Any test touching market-hours logic pins the clock.** The codebase has
+   the pattern already (`vi.setSystemTime`); the neighbouring cutoff tests in
+   the same file use it. A test that passes for eight hours a day is worse
+   than no test, because it merges green and fails on someone else.
+2. **Assert on behaviour, not on source text.** Scraping a function body to
+   check it contains a string couples the test to formatting, proves nothing
+   about the return value, and fails on the next refactor. If a function
+   needs a contract test, export it and call it.
+
 ## "Mirrored" has to mean the quantity too [2026-09-15]
 
 **Symptom.** After a full session with the #1471 fixes live, broker coverage
