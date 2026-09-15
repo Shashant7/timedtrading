@@ -738,6 +738,18 @@ export const POST_EXEC_VERIFY_DELAY_MS = 2 * 60 * 1000;
 // dust routinely creates a fractional delta; anything larger than
 // this is a real execution gap we alert on.
 export const POST_EXEC_TOLERANCE_QTY = 0.05;
+// How long before an UNCHANGED post-exec drift is worth saying again.
+//
+// A drift keeps `verified:false` on purpose, because it can still heal —
+// a late fill lands, or the operator sells by hand — and the only way to
+// notice is to re-check every reconcile pass. But re-CHECKING and
+// re-REPORTING are different things, and the drift path did both: DE
+// (`DE-1787252853209-e3325t0lf`, 0.226964 sh) wrote a `post_exec_drift`
+// audit row and emitted a notification on every pass for days, holding 6
+// of the 6 newest audit rows and pushing real entries 26 rows deep in a
+// 400-row pull. Re-check always, re-report only when the drift is new,
+// has moved by more than the tolerance, or has gone this long unreported.
+export const POST_EXEC_DRIFT_REPEAT_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Stamp the last-action expectation onto a manifest row. Best-effort:
@@ -864,20 +876,30 @@ export async function markLastActionVerified(env, row, liveHeldQty) {
  * `drift_qty` + `drift_detected_at` and leaves `verified=false` so
  * follow-up reconciler passes re-check (the drift may self-heal on
  * the next fill snapshot).
+ *
+ * `drift_detected_at` is FIRST-seen and never moves once set — it used to
+ * be overwritten with `now` on every pass, which made it impossible to
+ * tell a drift found a minute ago from one that had been sitting for
+ * days, and reset any clock keyed off it. `drift_reported_at` is separate
+ * and moves only when the caller actually told someone (`reported`), so
+ * repeat suppression has a stamp that means what it says.
  */
-export async function markLastActionDrift(env, row, liveHeldQty) {
+export async function markLastActionDrift(env, row, liveHeldQty, { reported = true } = {}) {
   const db = env?.BRIDGE_DB;
   if (!db) return false;
   const audit = _parseAudit(row?.sync_last_action_json);
   if (!audit) return false;
   const drift = (Number(liveHeldQty) || 0) - (Number(audit.expected_post_held_qty) || 0);
   const now = Date.now();
+  const firstSeen = Number(audit.drift_detected_at) || now;
   const updated = {
     ...audit,
     verified: false,
     verified_at: null,
     drift_qty: drift,
-    drift_detected_at: now,
+    drift_detected_at: firstSeen,
+    drift_last_seen_at: now,
+    drift_reported_at: reported ? now : (Number(audit.drift_reported_at) || null),
     live_held_qty: Number(liveHeldQty) || 0,
   };
   try {
@@ -893,6 +915,39 @@ export async function markLastActionDrift(env, row, liveHeldQty) {
       String(e?.message || e).slice(0, 200));
     return false;
   }
+}
+
+/**
+ * Should this drift be written to the audit + notified, or only re-checked?
+ *
+ * Takes the PREVIOUS audit (before markLastActionDrift rewrites it) and the
+ * drift measured this pass. Reports a drift that is new, that has moved by
+ * more than the fill tolerance in either direction, or that has gone
+ * unreported for POST_EXEC_DRIFT_REPEAT_MS. Everything else is the same
+ * unresolved gap we already paged about, and saying it again every five
+ * minutes buried the audit log without telling the operator anything new.
+ */
+export function shouldReportPostExecDrift(prevAudit, driftQty, {
+  now = Date.now(),
+  repeatMs = POST_EXEC_DRIFT_REPEAT_MS,
+  toleranceQty = POST_EXEC_TOLERANCE_QTY,
+} = {}) {
+  const prev = prevAudit && typeof prevAudit === "object" ? prevAudit : null;
+  const reportedAt = Number(prev?.drift_reported_at) || 0;
+  // Never reported before (including rows written by the older code, which
+  // had no `drift_reported_at` at all) — say it once.
+  if (!(reportedAt > 0)) return { report: true, reason: "first_report" };
+  const prevQty = Number(prev?.drift_qty);
+  if (!Number.isFinite(prevQty)) return { report: true, reason: "no_prior_qty" };
+  if (Math.abs(prevQty - (Number(driftQty) || 0)) > toleranceQty) {
+    return { report: true, reason: "drift_qty_changed" };
+  }
+  if (now - reportedAt >= repeatMs) return { report: true, reason: "repeat_window_elapsed" };
+  return {
+    report: false,
+    reason: "unchanged_since_last_report",
+    suppressed_for_ms: repeatMs - (now - reportedAt),
+  };
 }
 
 function _parseAudit(raw) {

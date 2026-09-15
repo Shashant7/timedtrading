@@ -44,6 +44,7 @@ import {
   readLastActionAudit,
   markLastActionVerified,
   markLastActionDrift,
+  shouldReportPostExecDrift,
   claimQtyFromManifestRow,
   POST_EXEC_VERIFY_DELAY_MS,
   POST_EXEC_TOLERANCE_QTY,
@@ -1011,10 +1012,18 @@ async function _verifyPostExecutionAudit(env, row, liveHeldQty) {
     return "verified";
   }
 
-  // Drift — broker did NOT do what we asked. Stamp drift on the audit,
-  // log a discrepancy audit row, and emit a drift notification
-  // (warn on underexecution; critical on overexec / replenish).
-  await markLastActionDrift(env, row, live);
+  // Drift — broker did NOT do what we asked. Always re-stamp the audit so a
+  // later pass can still see it heal, but only write the discrepancy row and
+  // notify when there is something new to say. The audit is deliberately left
+  // `verified:false`, so an unconditional report re-fired every reconcile
+  // pass: DE 0.226964 sh held 6 of the 6 newest audit rows for days and put
+  // real placements 26 rows deep.
+  const repeat = shouldReportPostExecDrift(audit, drift);
+  await markLastActionDrift(env, row, live, { reported: repeat.report });
+  if (!repeat.report) {
+    console.log(`[POST_EXEC_AUDIT] drift unchanged on ${row.ticker}/${row.trade_id} (${drift.toFixed(4)} sh) — already reported, re-check only (${Math.round((repeat.suppressed_for_ms || 0) / 60000)}m to next)`);
+    return "drift_repeat";
+  }
   const reason = classified.reason || (
     live > expected ? "reducer_underexecuted" : "reducer_overexecuted"
   );
@@ -1254,6 +1263,10 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
           stats.post_exec_verified = (stats.post_exec_verified || 0) + 1;
         } else if (outcome === "drift") {
           stats.post_exec_drift = (stats.post_exec_drift || 0) + 1;
+        } else if (outcome === "drift_repeat") {
+          // Still drifting, already reported. Counted separately so the
+          // cycle stats show the gap persists without implying a new one.
+          stats.post_exec_drift_repeat = (stats.post_exec_drift_repeat || 0) + 1;
         } else if (outcome === "skip_not_due") {
           stats.post_exec_pending = (stats.post_exec_pending || 0) + 1;
         }
