@@ -100,6 +100,14 @@ each row says which. Always cross-foot `subtotal + tax == total`.
 - **Rate: 8% in Philadelphia** — 6% state + 2% Philadelphia local. Allegheny
   County is 6% + 1%. Everywhere else in PA is 6%. All reported on one return
   under the same account ID.
+- **Local tax went destination-based (Act 21 of 2026).** Enacted 2026-07-12,
+  retroactive to tax years after 2025-12-31, DOR enforcement from
+  2026-10-01. The 2% used to follow the *seller's* location, so a
+  Philadelphia seller charged 8% on every PA sale. It now follows the
+  *customer's*: 8% only when the customer is in Philadelphia, 6% for a PA
+  customer elsewhere. Most secondary guidance online still describes the old
+  origin rule, as does 61 Pa. Code § 60.16. Stripe Tax handles this
+  natively; hand-rolled rate logic must not hardcode 8%.
 - **Sourcing is the customer, not us.** Tax applies when the *user* is in PA.
   A PA billing address creates a presumption that the users are in PA. An
   out-of-state customer is not subject to PA tax (they'd give REV-1220 to
@@ -120,9 +128,26 @@ each row says which. Always cross-foot `subtotal + tax == total`.
 - Filing **on time** earns a vendor discount (quarterly: lesser of $75 or 1%
   of tax). Filing late forfeits it.
 
-Filing is done at [mypath.pa.gov](https://mypath.pa.gov): Summary tab → Sales
-and Use Tax panel → the period → *File or amend a return* → answer whether
-there are PA sales to report → submit.
+### Filing at [mypath.pa.gov](https://mypath.pa.gov)
+
+**Getting in is the hard part on a quiet account.** Account validation
+accepts a Letter ID, an Online Business Registration Confirmation Number, a
+Payment Amount, or a Return Line Item — and the last two **cannot be
+$0.00**. A business that has never filed a return or remitted a payment can
+use *neither*. Use the **Letter ID** off any DOR notice (format
+`L0000000000`, printed top right). Failing that, request an Access Letter
+and wait ~10 business days for mail.
+
+Path: *Manage My Profile* → *More…* → *Request Account Access*.
+
+**Then file:** Summary tab → Sales and Use Tax panel → **View Returns and
+Periods** → the period → *File or amend a return*. Do **not** use *File
+Now*, which only opens the current period — a past-due period is not
+reachable that way. Answer the "do you have Pennsylvania sales to report"
+question; answering No to all of them is the zero-return path.
+
+Do not mail a downloaded PA-3; using non-issued forms risks a non-filer
+notification or a misapplied payment.
 
 **This is not tax advice.** Get a CPA to sign off before filing anything
 consequential — particularly on whether charges to the operator's own test
@@ -155,5 +180,27 @@ Verify with a real checkout that the invoice shows subtotal $60 + tax $4.80
 for a Philadelphia address.
 
 Stripe is a payment processor, not a marketplace facilitator — it does not
-remit sales tax on our behalf. Stripe Tax calculates and reports; filing and
-remitting is still on us (or on Stripe Tax's filing add-on if enabled).
+remit sales tax on our behalf. PA's facilitator definition (72 P.S.
+§ 7201(iii)) is a two-part **conjunctive** test: list the goods in your own
+forum **and** collect the payment. Stripe does the second, not the first, so
+none of the marketplace-seller filing relief applies. Stripe Tax calculates
+and reports; filing and remitting stays with us.
+
+---
+
+## Economic nexus in other states
+
+Not an issue at current scale, but the threshold that bites first is **not**
+the dollar one. Roughly 15 states plus DC keep a "200 transactions"
+alternative, and monthly billing burns transactions fast:
+
+| Threshold | Customers in one state for a year at $60/mo |
+|---|---|
+| $100,000 | ~139 |
+| 200 transactions | **~17** |
+
+So ~17 recurring customers in a state with a transaction test can create
+nexus years before revenue would. Whether a recurring charge counts as a
+separate transaction varies by state — CPA question before it matters.
+Physical presence (an employee or contractor in another state) creates
+nexus immediately at any dollar amount.
