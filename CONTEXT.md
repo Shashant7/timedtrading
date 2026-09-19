@@ -9,20 +9,90 @@ Single reference for agents. Read this first to avoid context overload.
 
 ## Workflow
 
+- **An LETF is an equity, so `vehicle` must not decide the instrument type (2026-09-15):** `inferInstrument` called any `vehicle` other than `equity_long`/empty an options structure, and the index-trend mirror tags its SHARE orders `vehicle: index_trend_letf` — so all 5 LETF manifest rows were written `instrument_type: 'options'`. That one column caused four symptoms: the reconciler took the options path, found no `model_intended_legs`, and froze them at `untracked`/"cannot leg-compare" so `broker_remaining_qty` never converged; and `claimedOpenEquityByTicker` + `_readOpenClaimRowsForUser` filter on `equity`, so the sleeves were invisible to sibling-claim math and TNA W36 (CLOSED) kept claiming 4 against W37's 5 on a 5-share position. 240 of 245 live rows classified fine — the only 5 that did not were these, and all 5 were untracked, which named the cause in one query. Equity vehicles are now an explicit set (`shares`/`shares_primary`/`letf`/`index_trend_letf`); derive a type from a closed set, never from an else-branch, or every vehicle added later rots silently. The entry upsert is `DO NOTHING` on conflict and never revisits the column, so existing rows need their own one-shot reclassify — fixing the writer is not fixing the data. The reduce path was never actually blocked: `held_override` carries an untracked sleeve that holds shares, `untracked` is in the close PROCEED set, and `evaluateReducerAgainstPositions` clamps the stale claim.
+- **Re-checking an unresolved condition is not licence to re-announce it (2026-09-15):** `post_exec_drift` kept `verified:false` on purpose (a drift can heal on a late fill), but the same path also wrote the audit row and notified, so one DE trade re-announced an unchanged 0.226964 sh gap every 5 min for days — 6 of the 6 newest audit rows, real placements 26 rows deep in a 400-row pull. Split the poll from the announcement: `shouldReportPostExecDrift` reports new, moved-past-tolerance (shrinking counts — a partial heal is news), or 6h-unreported; 288 rows/day → 4. `drift_detected_at` is now first-seen and never overwritten; `drift_reported_at` is the suppression clock and must NOT move on the suppressed path or the window never expires and a real drift goes silent forever.
+- **A cooldown only written on success is not a cooldown (2026-09-15):** once `_healModelBrokerCoverage` required every lane, one failing lane meant NO cooldown was written, so the four healthy lanes re-ran every COO cycle instead of every 4h — and `catchup-trader-exits` (`max_ops: 8`) / `catchup-investor` (`max_ops: 24`) have already burned an hourly op window on repeat work ahead of real misses. Back-off belongs at the unit that can fail: each lane stamps its own key. A cooled lane must report `ok:true` — counting a skip as a failure fails the check forever, so it never succeeds, never stamps, never cools.
+- **A test that reads the wall clock or the source will break later (2026-09-15):** the #1472 accepted-qty ring test only passed before 7pm ET (after the equity follow-through cutoff `forwardOrderToBridge` skips instead of forwarding, so there is no ring row) and merged green only because the session ran earlier; pin the clock with `vi.setSystemTime` in ANY test touching market-hours logic. And never assert by slicing a function body out of a file and regex-matching it — that broke the moment the healer grew a loop while proving nothing about the return value. Export the function and call it.
+- **"Mirrored" must mean the qty too, not just that an order went (2026-09-15):** the bridge scales a buy to fit the account, and nothing carried the scaled number back. `/bridge/order` exposed `scaling` only — which relational sizing and the Webull whole-share retry both bypass, since they mutate `payload.qty` without setting `scalingMeta` — so the dispatch ring, the mirror row and coverage all recorded the REQUEST. TNA W37 went out for 31 shares and UDOW W38 for 28; the concentration ceiling on a $14.8k Roth placed 5 of each, and coverage reported a clean `mirrored` for both. `closeQty` sizes every TRIM/EXIT off `shares_remaining`, so the model believed it held 31 against 5 — a 25% trim is more than the whole position. The bridge now returns `accepted_qty` (`sanitized.qty`, the one object every reduction path mutates in place); `parseBridgeAcceptedQty` reads it and never reports zero for a real place. Flag a shortfall from the ring's own requested/accepted pair, NOT the model book — scaling a model position down to the account is the bridge's job, so comparing against the book flags every normal order.
+- **A merge is not a deploy (2026-09-14):** `0f67e7132` overwrote the body of the `Resolve Cloudflare secrets` step, so `secrets-ok` was never written and every deploy step in deploy-worker/engine/research was skipped by its own `if:` — 25 green runs that deployed nothing. Prod kept moving only because agents hand-ran wrangler at session end (every 09-04→09-14 version is a `version_upload`; none on 09-06 or 09-11), so #1470 merged 09-14 and reached prod at 22:20Z, eight hours after the signals it was meant to fix. Workflows now `exit 1` on a missing credential. NEVER read a green deploy run as a live deploy: check the Cloudflare deployments list or probe a string/route only the new bundle has. And `npm run deploy:worker` moves ONLY the monolith — `tt-feed` / `tt-engine` / `tt-research` / `tt-broker-bridge` each need their own deploy. See `skills/deploy.md`.
+- **Caps count places, not intentions (2026-09-14):** reserving a daily slot before `/bridge/order` and releasing on non-place leaked the slot whenever the isolate died — `index_trend_letf` sat 2/2 with zero placed orders and wedged SPYU/TNA/UDOW for a session, and the healer hits the same gate so it could not recover. `entryCountersHaveRoom` checks read-only; `commitEntryCounters` counts only a confirmed place. A reconcile hands back slots no confirmed place accounts for; the dispatch ring AND the day-stamped mirror rows must agree, higher count wins (one source alone would erase a real slot and make the cap unenforceable). Counter helpers take the caller's `now`, never wall clock.
+- **One position per ticker, not one per sleeve (2026-09-14):** `broker_remaining_qty` is derived from our ledger per model sleeve, so several closed sleeves on one ticker each carry the same leftover. The live exit catch-up plan wanted PH 0.13612 four times, DPZ 0.2714 twice, XYZ 13.92981 + 8 against 13.92981 held — phantom sells that short the account, and 21 of 30 ops that filled the hourly `max_ops` window ahead of every real miss. `clampExitOpsToHoldings` spends a per-ticker budget from `/bridge/positions`, newest exit first; an unreachable broker falls back to the largest single claim (under-sell, not short).
+- **Holdings vs sleeves (2026-09-14):** per-ticker holdings answer "is anything left to sell"; the manifest sleeve answers "was THIS trade ever mirrored". DPZ/KO EXITs paged forever because the Roth held 0.2714 DPZ (two older lots) and 3.55262 KO (an `inv-KO-auto` DCA sleeve) while the exited trades had no sleeve at all. Coverage asks the sleeve first (`broker_never_held_this_trade` / `broker_sleeve_already_flat` → terminal), then the ticker. Manifest-routed lanes only — a paper-lane close fires off its own mirror row, which is how the adopted broker-only SPYU sleeve gets sold.
+- **Coverage reads the book, not the tape (2026-09-14):** `timed:idx-trend-actions` stopped writing on 09-10, so `/timed/admin/broker/coverage` reported clean while three sleeves sat unmirrored. The lane now unions the tape with the live carry books the entry healer reads. The coverage route is `/timed/admin/broker/coverage` (there is no `/timed/admin/mirror-coverage`).
+- **`ok:true` is what a stale worker says too (2026-09-14):** eleven days of green CI plus a healthy `/timed/health` on every probe, and the bundle had not moved. `/timed/health` and `/timed/version` now return `deployedSha` (from the `ENGINE_GIT_SHA` the workflows inject) and `workerRole`; the post-deploy smoke asserts the live sha equals the sha it just built, with a cache-buster because health ships `max-age=60`. `npm run deploy:crons` exists now — `tt-engine` and `tt-research` bundle `../worker/index.js`, so a monolith-only deploy leaves every `*/5` and hourly cron on old code, and `deploy:all` used to stop after the monolith.
+- **A heal that reports success on any lane suppresses the page (2026-09-14):** `_healModelBrokerCoverage` returned `some(row => row.ok)` across five lanes, and `broker-intents/drain` answers `ok:true` with nothing to drain — so the verdict was unconditionally true, `model_broker_coverage` got marked healed, and the 4h cooldown ran while four lanes could have thrown. Require EVERY lane and name the failures. A closed window still answers `ok:true` (`outside_rth`, `no_bridge_configured`), so strictness does not false-negative on a skip.
+- **A guard in `execState` dies if the caller only persists a copy (2026-09-14):** `assessRunnerExtensionTrim` is once-per-session purely via `execState.extTrimSession`/`extTrimPx`. `processTradeSimulation` stamped a local `_extExec`, wrote it to KV, and left `execState` pre-trim — then the runner-stale and smart-runner-exit blocks persisted `execState` again in the SAME pass, gated on a `trimmedPct` snapshot taken BEFORE the trim. First trim survived; every later one was erased, and `ratchetRunnerPeak` reports `updated` exactly on a new peak, which is the extension condition. A runner could walk 25%→50%→75% in one session. When a rule's guard lives in shared mutable state, assign it back, not just persist it.
+- **A purge needs a horizon, not just a non-empty list (2026-09-14):** `purgeUncuratedUpcomingFomc` deleted every upcoming FOMC row not in `CURATED_UPCOMING_MACRO`, guarded only by `!keep.length`. That covers an empty list, not an expired one: the last curated decision is 2026-12-09, so from late Dec every real 2027 Fed meeting would be deleted on each Daily Brief and the strip would show no FOMC at all. Bound the DELETE at `max(curated)` and no-op past it — beyond the horizon the vendor is the only source there is.
+- **Pages and the worker deploy independently (2026-09-14):** Pages serves committed `react-app-dist/` straight off `main`; `worker/` ships via wrangler. PR 1463's breakout badges went live 09-12 reading `t._breakout_watch` while the stamp sat in the undeployed bundle — two days of blank badges, no error either side. `tests/ui-worker-field-contract.test.js` asserts every `_`-prefixed ticker field the UI reads is known to `worker/` or assigned in `react-app/`.
+- **Index Swings Discord is not a fill (2026-09-14):** #trade-signals TNA DCA_ADD / UDOW BUY wrote the paper book first. TNA W37 never filled; paper grew to 46 sh ($2975) and catch-up skipped `notional_*_exceeds_cap_2000` instead of scaling to the $2000 sleeve. Vehicle cap 2/2 was already reserved (SPYU 60 pending, no order id). UDOW W38 never hit `/bridge/order`. Scale BUY qty; DCA on a never-filled sleeve is entry catch-up; heal never-attempted books first. Do not chase leftover books that already tried a place.
+- **FOMC date snap (2026-09-13):** Today `is_today` is NY calendar day. Vendor/LLM/`daily_brief_econ` dated Sep FOMC as Sunday Sep 13 (and meeting-day-1 Sep 15). Snap FOMC *decisions* (not minutes) onto `CURATED_UPCOMING_MACRO`; drop weekend decisions with no nearby Fed day. Persist + FSD extract use the same snap; purge upcoming uncurated FOMC from `market_events` so PRE_FOMC does not fire on Sunday.
 - **Historical calibration corpus (2026-09-09):** use the complete ledger,
   Discovery Moves and multi-timeframe candles first; a report's export cap or
   a small fixture sample is not the available history. No arbitrary new 30-day
   wait before retrospective testing. Plan: `tasks/2026-09-09-historical-calibration.md`.
+- **Weekend CMT Desk / TT Setups (2026-09-12):** `*/5` scoring skips outside OH. Saturday 10:00 ET (tt-research hourly) pages a full-universe rescore, then composes a short unique list (named support/resistance, daily-brief chips, candle charts with drawn trendlines). Also-on-tape names get charts too. Ticker chips show last price, LONG/SHORT, and day %. Each card is a short report: the setup, the **target**, and the **invalidation** — not up/down/sideways restating the same level. Magnet dir is the pull toward the shelf, not SuperTrend `sideLabel` (GOLD $48→$44 is SHORT). Longs lead; quality shorts only when longs are thin. Fired / magnet copy names the structural target (magnet shelf, or a nearby handle on a fired break) and R:R when both sides are real — not a distant 150/300/500 mark. Daily charts use 60 unique sessions. D/W writes snap to `canonicalDailyTs` (00:00 UTC) and drop sibling 04:00 stamps. Displayed R:R caps at 4. Magnet stories use a daily chart. Opposite-side magnets that are not nearby stay off the copy. Email is **live** (`WEEKEND_DESK_BROADCAST=1` on ingest + tt-research) to opted-in Pro/VIP/Admin. Set `0` to revert to admin-only. Not Newton's monthly Upticks, not a buy path. Playbook: `skills/weekend-desk.md`.
+- **Breakout + trendline watch (2026-09-12):** Setup only on a 2–3 touch trendline (RVOL ≥ 1.15) or daily-level break, plus the pullback retest. Approaching is visible on the desk. ATR / EMA-stack do not flood Setup. Not a new ST ENTRY / `tt_*` buy path. Playbook: `skills/breakout-watch.md`.
 - **Ranking work (2026-09-09, PR #1442):** validate each input's semantics,
   direction, duplicate contributions and missing-data behavior. Aggregate
   rank correlation or sorting fixes do not establish that its ingredients
   deserve points. Playbook: `skills/rank-driver-audit.md`.
+- **Model vs broker coverage (2026-09-11):** one fail-closed join
+  (`worker/mirror-coverage.js`) of every lane (ST / Long Term /
+  index-trend / index DT / convexity) against `bridge:client:recent`
+  + `broker_intents` + paper mirror logs. Share count may differ;
+  the ratio must stay relative. `GET /timed/admin/broker/coverage`
+  + sanity `model_broker_coverage` (15 min) + `*/5` snapshot.
+  Discord pages new fail sets **and** one `BROKER COVERAGE · clean`
+  per NY day when actions > 0 and fails = 0. Friday Execution
+  Review + operator Account-today carry the desk block; the
+  Execution Review page overlays the live snapshot. Unmatched ST
+  ENTRIES page only (must re-qualify). Playbook:
+  `skills/broker-bridge.md`.
+- **TWLO SL exit was a same-day CIO approve (2026-09-11):** 11:47 ET
+  safety stop closed a 10:04 ET Forming Pair that CIO approved
+  (conf 0.83). Sep 10 rejects (CHOP + weekly divergence) never
+  opened a position. Overnight CIO flip, not a leftover. Broker
+  never placed the 10:04 ENTRY — unmatched ST ENTRY, page only.
+- **PLTR Long Term DCA miss (2026-09-11):** 15:50 ET `dca_pullback`
+  wrote the lot + email; `/bridge/order` never ran. Sweep marked the
+  day clean on an empty 15:46 window; execute used `waitUntil` that
+  died after sendJSON. Await mirrors on the request path; only mark
+  the sweep clean after today's lots exist and catch-up planned 0.
+  Playbook: `skills/broker-bridge.md`.
+- **Index-trend broker/recon (2026-09-11):** TNA W37 paper+email with
+  no `/bridge/order` BUY — never-attempted RTH catch-up for open
+  books younger than 4 days (not leftover backfill). W36 EXIT spam:
+  stamp real `no_broker_position` (fan-out child) and flatten the
+  mirror. Reconciler closes untracked OPEN claims when the broker
+  is flat. Playbook: `skills/broker-bridge.md`.
+- **Ops desk four-pack (2026-09-11):** Execution Review cutoff is NY
+  midnight 2026-09-04 (Sep 4 RTH cluster is in the cohort). Mission
+  Control Learning queue is always visible. Sanity heal does not page
+  `no_handler` for unhealable checks; expected ETH / no-position
+  rejects are not a bindings outage. Rotation snapshot persists 7
+  days; GET computes on read if KV expired.
 - **Rank / conviction context (2026-09-10):** fundamentals, theme
   membership, news, and S&P-inclusion headlines were computed but not
   applied to conviction, and rank/setup-grade signed them to HTF (BE
   quality-A LONG play scored as a SHORT fade). Play side is Cloud Pivot
-  / weekly ST hold. Context cap +18/−8. Do not fit weights or enable
-  `conviction_fusion`. Playbook: `skills/rank-driver-audit.md`.
+  / weekly ST hold. Context cap +18/−8. Scoring cron stamps
+  `_news_summary` from D1 `ticker_news` (one batch read; replay skips).
+  Do not fit weights or enable `conviction_fusion`. Playbook:
+  `skills/rank-driver-audit.md`.
+- **Upticks Sep 2026 + registry first-class (2026-09-12):** pub
+  `1555299` synced KV (`DDOG`/`LITE`/`NVDA` on) but `TT_SELECTED_DEFAULT`
+  stayed August and many registry names (DDOG/TEAM/ALL/DAL plus ~70
+  others) had no GICS row — theme-only or ETF auto-add `Unknown`.
+  Snapshot rebuild used `SECTOR_MAP ∪ user` so KV scores never reached
+  D1/`/timed/all`. TT Selected is a sentiment overlay; every
+  `ticker_index` name must have sector + candles + a live score.
+  Follow-up: `POST /timed/admin/universe` lifts `timed:removed` even
+  when the name is already in `SECTOR_MAP` (DBA). Watchlist add skips
+  TwelveData stock-list validation for mapped / Selected / live
+  Upticks. Admin rescore + entry-explain recompute conviction overlays.
+  Runtime `SECTOR_MAP` is the file map. Hourly
+  `registry_alignment` sweep + `GET /timed/admin/registry-alignment`.
+  Playbook: `skills/upticks-monthly.md`, `skills/ticker-registry.md`.
 - **Setup grade (2026-09-10):** fail-closed 0–10 (floor 6) on new core
   **and** paper-family entries (Cloud Pivot / confirm-stack /
   continuation). Index/day-trade stay exempt. Support Bounce is catalog
@@ -292,8 +362,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   guard. Any new "unsuppressible" reason must be classed there too, or the
   `[EXIT SHIELD]` re-gates it as soft (TSLA/TJX/ELF 2026-09-04).
 - Weekly execution review: Friday 17:00 ET cron (`worker/execution-review.js`)
-  -> KV `timed:execution:review:latest` + history, operator email, Discord
-  line; `/execution-review.html` (Admin menu) renders / reruns it;
+  -> KV `timed:execution:review:latest` + history, operator email on the
+  shared dark `emailLayout` (logo, Georgia, Twelve Data footer, coverage
+  block), Discord line; `/execution-review.html` (Admin menu) renders /
+  reruns it and overlays live `broker_coverage`;
   `GET|POST /timed/admin/execution/review`. Member Weekly Retrospective is
   in the same Friday slot (was Sunday 18:00).
 
@@ -545,10 +617,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   Any future writer of `timed:prices` MUST own every symbol it emits — no
   more single-blob-two-writers architecture (PRs #1175 + #1176 fixed the
   per-writer stamping; this fixes cross-writer coordination).
-- **Sanity `broker_bridge_bindings` ring density (2026-07-24)**: count only
-  *unresolved* 6h failures — skip rows superseded by a later `ok` for the
-  same `trade_id`+side (and `inv-inv-*` → `inv-*`). Otherwise operator
-  retries keep paging after NVDA/TT/ETN were fixed.
+- **Sanity `broker_bridge_bindings` ring density (2026-07-24, ETH
+  rejects 2026-09-11)**: count only *unresolved* 6h failures — skip
+  rows superseded by a later `ok` for the same `trade_id`+side (and
+  `inv-inv-*` → `inv-*`), plus expected rejects (`no_broker_position`,
+  ETH "only limit orders"). Those are not a bindings outage. Heal
+  skips unknown check ids as `not_self_healable` (do not page
+  `no_handler`). Do not heal-sell overnight to "fix" ETH limit-only.
 - **`broker_remaining_qty` = shares HELD at broker (2026-07-24)**: entry
   write was `intended - filled` (unfilled remainder) → fully-filled entries
   got `remaining=0` and reducers clamp to it. Entry fills must ADD to
@@ -837,8 +912,11 @@ playbook in `skills/security-auth-patterns.md`)**
   clamped ±10% when `COO_AUTO_APPLY_TIER1=true`; tier-2 (flag flips,
   bans, big moves) ALWAYS waits for the operator
   (`POST /timed/admin/learning/proposals/decide`). Don't add new bespoke
-  apply paths. The hourly learning desk (CIO/CRO/CTO) decides
-  high-confidence rows; only mixed/low-confidence items stay pending.
+  apply paths. Mission Control has an always-visible **Learning queue**
+  card under the status tiles (not Decision Review, not COO
+  Self-Learning). Discord `#system-alerts` points there. The hourly
+  learning desk (CIO/CRO/CTO) decides high-confidence rows; only
+  mixed/low-confidence items stay pending.
   Learning desk Discord is ops (`lane=system` → `#system-alerts`), not a
   `#trade-signals` post: human next-action copy, skip unchanged hourly
   escalates. If `DISCORD_SYSTEM_WEBHOOK_URL` is unset on tt-research the
@@ -997,6 +1075,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - No unbounded `ROW_NUMBER() OVER (PARTITION BY ticker)` on large tables
 - ALTER TABLE: wrap in try/catch (column may exist)
 - **80M rows-written billing alert (2026-06-22):** monthly cumulative, not incident — Jun 18 mining/replay burst + normal RTH crons; live prices = KV `timed:prices`, chart candle sync can lag ~5m; see `docs/d1-billing-investigation-2026-06-22.md`
+- **20B rows-read alert again (2026-09-12):** the bill is two queries, not ticker count — cache `ticker_candles` GROUP BY in KV `timed:cache:candle-tf-counts` (1h); Markov must keyset-page `trail_5m_facts` (no OFFSET). Do not trim the universe to cut D1. Dead-weight names are report-only (`docs/dead-weight-tickers-2026-09-12.md`); never `GROUP BY ticker_candles` for that list. Prod D1 name is `timed-trading-ledger`.
 - **Index 10m live-sync uses wall clock, not vendor `t` (2026-09-01):** TD `last_quote_at` can sit on a completed 10m open. Painting `snap.t` rewrites the old bucket and never opens the current one — SPY/QQQ froze at 10:00 ET and chain-smoke scoring went STALE at 10:42. `liveCandleSyncAnchorTs` = now; sentinels (SPY/QQQ/IWM/DIA/AAPL) patch every RTH minute; full universe stays */5 (D1-COST). Do not soften chain-smoke when ingest is fresh.
 
 **Price / Frontend**
@@ -1080,6 +1159,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - Replay loads `ticker_profiles` from D1 for personality-aware SL/TP and lineage enrichment
 - `signal_snapshot_json.lineage` includes `ticker_character` and `vix_at_entry` for post-trade analysis
 - **Trimmed runner stale bug (fixed)**: doa-gate-v2 had 65 `TP_HIT_TRIM` trades at 66% trimmed that never closed — pullback support shield had no time limit, so structural support (price above any cloud low) shielded them indefinitely. Fix: `RUNNER_STALE_FORCE_CLOSE` at 120 market-hours + time-decaying shield buffers (full → zero over 48h) in both `evaluateRunnerExit` and EXIT lane. Config key: `deep_audit_runner_stale_force_close_hours`. **Jul 2026**: anchor clock now uses `max(lastTrimMs, runnerPeakTs)` (new highs reset timer); hot momentum/theme runners can defer via `runner-stale-policy.js`.
+- **Exit email scores (2026-09-10)**: Signal Quality (rank / conviction / R:R) is not entry-only. Index Swings close emails were missing it because the template gated on TRADE_ENTRY and the paper-lane payload never stamped scores. Stamp on the book at BUY; fill blanks from `timed:latest`; do not overwrite entry scores on later ticks.
 - **Exit email trim display**: `qty_pct_delta` is a fraction — emails/alerts must ×100 for labels; phantom `pnl_realized` rows (corrupted entry_price) are recomputed via `trade-trim-display.js`; scrub with `POST /timed/admin/trade-events/scrub-phantom-trims`.
 - **RTX stacked trim (Jul 23)**: `RUNNER_PEAK_TRIM_LADDER` must not fall back to entry or a stale lower `execState` peak; hydrate `trim_price` on live openTrade; 5m cooldown after first trim.
 - **TRADE_TRIM email Trim Status (RTX Jul 23)**: `newTrimmedPct` / `trimmedPct` from the engine are 0–1 fractions. Never `Math.round(fraction)` into "%"; use `toTrimPctPoints()` (`worker/trade-trim-display.js`). Same for in-app trim notification body.
@@ -1091,8 +1171,8 @@ playbook in `skills/security-auth-patterns.md`)**
 **Ranking / technical score (PR #1442 — merged and deployed 2026-09-09)**
 - **Question:** whether each rank *ingredient* earns its points (producer,
   direction, missing-data, duplication) — not whether aggregate sort
-  improved. Live `SCORING_VERSION` is `2.1.9-2026-09-10`
-  (play-side + context conviction on top of 2.1.8 paper-family grade /
+  improved. Live `SCORING_VERSION` is `2.1.10-2026-09-10`
+  (news stamp + play-side + context conviction on top of 2.1.8 paper-family grade /
   2.1.7 core grade / 2.1.6 setup-admission / 2.1.5 rank);
   traces use `driver_version=rank-drivers-v2` and
   `CANDIDATE_RANK_VERSION=candidate-rank-v3`.
@@ -1146,7 +1226,7 @@ playbook in `skills/security-auth-patterns.md`)**
   `conviction_fusion` as a substitute (holdout was negative). Do not
   merge PR #1446's export loop as the live act.
 - Stamp `__setup_grade` on the payload / `__setup_evaluation` / entry
-  snapshot. Pro/VIP/Admin only. `SCORING_VERSION` `2.1.9-2026-09-10`.
+  snapshot. Pro/VIP/Admin only. `SCORING_VERSION` `2.1.10-2026-09-10`.
   Playbook: `skills/setup-grade.md`.
 
 **Breakout Entry Paths**
@@ -1155,6 +1235,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - Entry path `breakout_{type}_{long/short}` in `qualifiesForEnter` — bypasses rank/completion gates
 - Rank boost in `computeRank` (`worker/ranking/technical-rank.js`): +20 daily_level / +15 ATR / +12 EMA stack **only when type and `breakout.dir` match the candidate side** (PR #1442; weights still unvalidated)
 - Config: `deep_audit_breakout_{daily_level|atr_breakout|ema_stack}_enabled`, `_min_rr`, `_min_entry_quality`
+- **Breakout watch (2026-09-12):** 2–3 touch visual trendline + daily-level fire, or a pullback retest, stamp `_breakout_watch` and promote kanban `setup` ("look for a good entry"). Approaching / low-RVOL pierce stays `watch` with a TL Watch badge. ATR / EMA-stack stay informational (rank + existing entry path only). Not a new auto-buy path. Playbook: `skills/breakout-watch.md`.
 
 **Ticker Learning System**
 - `scripts/build-ticker-learning.js` — discovers moves from daily candles (2020+), enriches with 30m signals, classifies personality, writes to `ticker_moves` + `ticker_move_signals` D1 tables
@@ -1370,7 +1451,9 @@ Structural vintage bumped to **2026-09-08** (September Sector Allocation): Energ
 - **Investor DCA must mirror to the bridge (2026-07-24)**: `/timed/investor/dca/execute` wrote lots/ledger but never called the bridge (auto-rebalance did). Use shared `forwardInvestorMirror()`. Also put `BROKER_BRIDGE_HMAC_KEY` on **tt-research** (owns investor hourly). Sanity `bridge_mirror_coverage` correlates D1 lots↔`inv-*` ring (quiet book ≠ warn). Reconciler: write `last_tick` off-hours + 45m open grace on `last_run`.
 - **Catch-up: last signal wins + 4h RTH TTL (2026-07-30)**: After CRS/CW/NVDA buy+trim churn, catch-up keeps only the latest lot per position (older unmatched superseded), expires after 4h of NY RTH (ETH excluded), aliases ring `trim`↔SELL, Discord on forward. `BROKER_CATCHUP_AUTO_RTH` gates the hourly cron.
 - **Investor event-risk trim must mirror to the bridge (2026-07-27)**: KO PRE_EARNINGS trim fired Discord + email + D1 lot but never called `_bridgeMirrorInvestor` — the event-risk loop was the only investor reducer missing the queued mirror call. Every other reducer (invalidation exit, auto-reduce, exhaustion lock-in) had it. Source-contract test `worker/investor-reducer-mirror-coverage.test.js` now greps every `INSERT INTO investor_lots ... 'SELL'` in `index.js` and requires a mirror call within 120 lines (manual admin routes allow-listed). Related fixes: `forwardInvestorMirror` maps every reducer verb (`trim | exit | close | reduce | sell`) → `side="sell"` (was: only `trim`); `catchup-investor` dedupes mirror-ok by `(side, trade_id)` and requires a non-null broker order id so `dedupe_skip` (client_order_id burned) doesn't mask a retry; `shortClientOrderId` takes a `retry_nonce` so operator retries flip off the natural idempotency hash; `readManifestRow` aliases `inv-inv-*` ↔ `inv-*` legacy trade_id prefixes on read. Truth is `bridge:client:recent` — never rely on Discord/email as evidence a broker order happened.
-- **Every reducer needs a post-execution receipt (2026-07-27)**: After KO was oversold on the manual retry, added an "audit after action" contract. Every successful TRIM/EXIT/CLOSE stamps `mirror_trade_manifest.sync_last_action_json` with `{pre_held_qty, intended_qty, expected_post_held_qty, client_order_id, broker_order_id, verify_after_ms}`. Two minutes later the reconciler (which already fetches broker positions every 5min) compares live held vs expected — match within 0.05 sh dust → mark verified + write `post_exec_verified` bridge_audit row; drift → stamp `drift_qty` + `live_held_qty` on the audit, write `post_exec_drift`, emit critical drift notification. Reasons distinguished: `reducer_underexecuted_or_replenished` (live > expected — signal blocked / partially filled) vs `reducer_overexecuted` (live < expected — full-liquidation regression like the KO retry). Complements the runtime check `investor_signal_bridge_coverage` (fast sanity, 15-min cron) which flags `investor_lots` SELLs with no matching entry in `bridge:client:recent` — that catches the "signal never left the monolith" case where nothing stamps the audit in the first place. Together: post-exec audit + signal coverage close the "did what I ask actually happen?" loop end-to-end. Helpers: `writeLastActionAudit`, `markLastActionVerified`, `markLastActionDrift`, `readLastActionAudit` in `worker-bridge/bridge-manifest.js`.
+- **Stale OPEN leftover hid ULTA (2026-09-10)**: Model closed; Roth still held 0.07902 on a prior rejected OPEN sleeve. Catch-up hid suppressed remaining, picked a remaining=0 sibling, and only paired 72h EXITs. Close every sleeve on EXIT; pick leftover qty; plan when mothership `exit_ts` is set.
+- **Partial EXIT leftover is this lot (2026-09-10)**: ULTA sold at the broker but not the full live holding; Mirror Sync claimed shares were added. Full EXIT flattens uncounted live shares (reserve sibling OPEN + classified `user_added` only). Post-exec splits `reducer_underexecuted` (leftover ≤ pre_held) vs `reducer_replenished` (live > pre_held). Do not stamp leftover as `user_added` (zeros remaining, blocks exit catch-up).
+- **Every reducer needs a post-execution receipt (2026-07-27)**: After KO was oversold on the manual retry, added an "audit after action" contract. Every successful TRIM/EXIT/CLOSE stamps `mirror_trade_manifest.sync_last_action_json` with `{pre_held_qty, intended_qty, expected_post_held_qty, client_order_id, broker_order_id, verify_after_ms}`. Two minutes later the reconciler (which already fetches broker positions every 5min) compares live held vs expected — match within 0.05 sh dust → mark verified + write `post_exec_verified` bridge_audit row; drift → stamp `drift_qty` + `live_held_qty` on the audit, write `post_exec_drift`, emit critical drift notification. Reasons distinguished: `reducer_underexecuted` (live > expected and ≤ pre_held — partial fill of this reducer) vs `reducer_replenished` (live > pre_held — a new lot) vs `reducer_overexecuted` (live < expected — full-liquidation regression like the KO retry). Complements the runtime check `investor_signal_bridge_coverage` (fast sanity, 15-min cron) which flags `investor_lots` SELLs with no matching entry in `bridge:client:recent` — that catches the "signal never left the monolith" case where nothing stamps the audit in the first place. Together: post-exec audit + signal coverage close the "did what I ask actually happen?" loop end-to-end. Helpers: `writeLastActionAudit`, `markLastActionVerified`, `markLastActionDrift`, `readLastActionAudit` in `worker-bridge/bridge-manifest.js`.
 - **VIP code at checkout must grant tier=vip (2026-07-27)**: `checkout.session.completed` unconditionally wrote `tier='pro'` — it never inspected `discount.promotion_code`. A user redeeming a VIP invite landed in Pro Trial and had to be flipped manually. Fix: fetch the sub with `?expand[]=discount.promotion_code&expand[]=discounts.promotion_code`, run `resolveCheckoutTierGrant()` against `vip_codes` (by `stripe_promo_id` or case-insensitive `code`), and on match grant `tier='vip' + subscription_status='manual'` (matches admin-flip semantics so the existing `customer.subscription.deleted` guard preserves the grant), mark the `vip_codes` row used, cancel the Stripe sub (100%-off is `repeating` for 12mo — would restart billing after a year), and fire `sendVipWelcomeEmail`. Helper module `worker/stripe-vip-code.js` (pure, testable).
 - **A VIP grant must reach Stripe, not just D1 (2026-09-19)**: six subscriptions were still `active` against users already flipped to VIP; one of them reported the charge. Two faults. (1) The 2026-06-05 reorder (commit the grant BEFORE cancelling, to kill a `customer.subscription.deleted` race) left the cancel branch re-`SELECT`ing `subscription_status` and skipping on `'manual'` — the value the `UPDATE` three lines earlier had just written, so the `DELETE` was unreachable. Keep the ordering; capture the Stripe ids *before* the write. (2) The cancel only read `users.stripe_subscription_id`, which is NULL for accounts whose checkout webhook never stored it. `cancelBillingForUser` (`worker/stripe-billing-guard.js`) now asks Stripe what the customer holds, is idempotent, and `POST /timed/admin/stripe/reconcile-vip` sweeps stragglers (`?dry_run=true` to preview). `pro` is deliberately NOT comped — it is also the paying tier. Entitlement state and billing state are different facts in different systems; only one moves money.
 - **Checkout never asked Stripe for tax (2026-09-19)**: no `automatic_tax` and no `billing_address_collection` anywhere, so every app-created subscription billed at the bare price with no tax line regardless of where the customer lived — the absence of tax was never an address problem. Address collection is now always on (tax is sourced to the CUSTOMER's location, so it is both the input and the evidence); `automatic_tax` is opt-in via `STRIPE_AUTOMATIC_TAX=true` because Stripe rejects the session if the Price has no `tax_behavior`, which would break the paywall. `GET /timed/admin/stripe/revenue-audit` is the read-only ledger (charges + invoices + billing address + tax). Read tax from `total_taxes` OR `tax` OR `total - subtotal`: reading only the deprecated `tax` reported $0.00 against invoices 8% above subtotal.

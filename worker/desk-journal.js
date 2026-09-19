@@ -10,7 +10,7 @@
 
 import { parseOCCSymbol } from "./alpaca-options.js";
 import { buildOccSymbol } from "./options-marks.js";
-import { getETDateStr, getETMinutes, getStaticCalendar, previousTradingDay } from "./market-calendar.js";
+import { getETDateStr, getETMinutes } from "./market-calendar.js";
 
 const ALPACA_DATA_BASE = "https://data.alpaca.markets";
 const D1_BATCH = 80;
@@ -76,10 +76,6 @@ export async function ensureDeskJournalSchema(env) {
   } catch (e) {
     console.warn("[DESK_JOURNAL] schema ensure failed:", String(e?.message || e).slice(0, 160));
   }
-}
-
-export function _resetDeskJournalSchemaCache() {
-  _ready = false;
 }
 
 export function fnv1a32(str) {
@@ -1004,11 +1000,4 @@ export async function saveDeskJournalEntry(env, body = {}) {
       WHERE trip_id = ?5`,
   ).bind(journal_text, journal_grade, journal_tags, now, trip_id).run();
   return { ok: true, trip_id, journal_updated_at: now };
-}
-
-export function lastSessionHint(now = Date.now()) {
-  const day = defaultJournalDay(now);
-  const cal = getStaticCalendar();
-  const prev = previousTradingDay(cal, day);
-  return { day, prev_session: prev };
 }

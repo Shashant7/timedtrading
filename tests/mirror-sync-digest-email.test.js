@@ -80,6 +80,21 @@ describe("buildMirrorSyncDigestEmail", () => {
     expect(digest.html.toLowerCase()).not.toMatch(/\byou(r)?\b/);
   });
 
+  it("describes a partial EXIT leftover as this trade, not a new add", () => {
+    const digest = buildMirrorSyncDigestEmail([{
+      severity: "warn",
+      ticker: "ULTA",
+      mode: "trader",
+      instrument_type: "equity",
+      sync_state: "execution_drift",
+      sync_note: "post-exec drift on exit: expected ~0 held, live 12.4000 (drift 12.4000 sh, reducer_underexecuted)",
+    }]);
+    expect(digest.subject).toMatch(/Heads-up/);
+    expect(digest.html).toMatch(/leftover shares are still this trade/i);
+    expect(digest.html.toLowerCase()).not.toMatch(/may have been added/);
+    expect(digest.html.toLowerCase()).not.toMatch(/\byou(r)?\b/);
+  });
+
   it("returns null when only healthy events remain", () => {
     expect(buildMirrorSyncDigestEmail([
       { severity: "warn", ticker: "NVDA", sync_state: "in_sync", sync_note: "ok" },

@@ -8,6 +8,27 @@
 import { forwardOrderToBridge } from "./broker-bridge-client.js";
 
 /**
+ * Pick the sleeve that still holds leftover qty. A scan by trade_id alone
+ * can hit a rejected zero-remaining sibling first (ULTA 2026-09-10: Roth
+ * leftover 0.07902 sat behind a partner remaining=0 row → nothing_to_exit).
+ */
+export function pickCatchupManifestRow(rows, tradeId, opts = {}) {
+  const tid = String(tradeId || "").trim();
+  const wantUser = opts.user_id ? String(opts.user_id).toLowerCase() : "";
+  const wantAcct = opts.broker_account_id ? String(opts.broker_account_id) : "";
+  const matches = (Array.isArray(rows) ? rows : []).filter((row) => {
+    if (String(row?.trade_id || "").trim() !== tid) return false;
+    if (wantUser && String(row.user_id || "").toLowerCase() !== wantUser) return false;
+    if (wantAcct && String(row.broker_account_id || "") !== wantAcct) return false;
+    return true;
+  });
+  if (!matches.length) return null;
+  return matches.slice().sort((a, b) =>
+    (Number(b.broker_remaining_qty) || 0) - (Number(a.broker_remaining_qty) || 0),
+  )[0];
+}
+
+/**
  * @param {object} env
  * @param {{ trade_id: string, dry_run?: boolean, retry_nonce?: string, qty?: number, user_id?: string }} opts
  */
@@ -43,10 +64,11 @@ export async function catchupTraderExit(env, opts = {}) {
       const body = await call(`/bridge/manifest/row?${qs}`);
       manifest = body?.row || null;
     }
-    if (!manifest) {
-      const body = await call("/bridge/manifest?limit=200");
+    if (!manifest || !(Number(manifest.broker_remaining_qty) > 1e-9)) {
+      const body = await call("/bridge/manifest?limit=400");
       const rows = Array.isArray(body?.rows) ? body.rows : [];
-      manifest = rows.find((row) => String(row?.trade_id) === tradeId) || null;
+      const held = pickCatchupManifestRow(rows, tradeId, opts);
+      if (held) manifest = held;
     }
   } catch (e) {
     return { ok: false, error: `manifest_fetch_failed:${String(e?.message || e).slice(0, 120)}` };

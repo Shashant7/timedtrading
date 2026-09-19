@@ -27,12 +27,12 @@ describe("index day-trade dispatch scope", () => {
     expect(block).toMatch(/_dtDispatchAllowed\) queueBackground\(_optDtNotifyPaper/);
     expect(block).toMatch(/queueBackground\(maybeAutoMirrorIndexDayTradeEvent/);
     expect(block).toMatch(/await _itAutoMirror\(/);
-    expect(block).toMatch(/indexTrendNeedsEntryCatchUp/);
+    expect(block).toMatch(/indexTrendShouldCatchUpOpenEntry/);
     expect(block).toMatch(/indexTrendCatchUpPlaced/);
     expect(block).toMatch(/indexTrendCloseReadyToFinalize/);
     expect(block).toMatch(/_itFinalizeClose/);
     expect(block).toMatch(/pending_close/);
-    expect(block.indexOf("indexTrendNeedsEntryCatchUp")).toBeLessThan(block.indexOf("_itNotifyPaper"));
+    expect(block.indexOf("indexTrendShouldCatchUpOpenEntry")).toBeLessThan(block.indexOf("_itNotifyPaper"));
   });
 
   it("joins idx-trend-mirror-log onto it: day-action rows", () => {
@@ -59,8 +59,12 @@ describe("index day-trade dispatch scope", () => {
   });
 
   it("heals stranded index-trend closes on the */5 intent drain and via admin POST", () => {
+    expect(src).toMatch(/healMissedIndexTrendEntries/);
     expect(src).toMatch(/healStrandedIndexTrendCloses/);
     expect(src).toMatch(/POST \/timed\/admin\/index-trend\/heal-closes/);
+    expect(src).toMatch(/POST \/timed\/admin\/index-trend\/heal-entries/);
+    expect(src).toMatch(/GET \/timed\/admin\/broker\/coverage/);
+    expect(src).toMatch(/snapshotMirrorCoverage/);
     const idx = src.indexOf("Durable broker intents drain");
     expect(idx).toBeGreaterThan(-1);
     const slice = src.slice(idx, idx + 2800);

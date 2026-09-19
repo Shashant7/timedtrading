@@ -25,6 +25,24 @@ describe("buildDailyOwnerDigestEmail", () => {
     expect(out.html).toContain("broker_daily_digest");
     expect(out.html).not.toContain("<pre");
     expect(out.text).toContain("Email preferences");
+    expect(out.html).toContain("Market data powered by Twelve Data");
+    expect(out.html).not.toContain("Model vs broker");
+  });
+
+  it("interpolates the operator coverage block when supplied", () => {
+    const out = buildDailyOwnerDigestEmail({
+      broker: "WEBULL",
+      executed: [{ kind: "fill", label: "BUY", ticker: "IONQ", qty: 3, price: 40 }],
+      fill_count: 1,
+      positions: [],
+      day_pnl: { realized: 0, unrealized: 0, total: 0 },
+      equity_end: 20000,
+    }, {
+      coverageHtml: '<p>Model vs broker</p>',
+      coverageText: "Broker coverage: 2 model actions mirrored",
+    });
+    expect(out.html).toContain("Model vs broker");
+    expect(out.text).toContain("2 model actions mirrored");
   });
 });
 

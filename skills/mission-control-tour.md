@@ -26,13 +26,30 @@ section that owns it.
 | **Weekly Retro** | "ran N hours ago" | Click **Generate now** to fire the AI weekly retrospective. |
 | **Broker Bridge** | "LIVE" (green) | See [broker-bridge.md](broker-bridge.md) for full triage. |
 | **Trades Last 24h** | Number (any) | Sanity check that the system is trading. |
+| **Learning Queue** | "Clear" or "N pending" | Always-visible card **below the grid** (not behind DetailSectionsToggle). Discord `#system-alerts` learning-desk posts point here. Approve writes `model_config`; reject keeps the live knob. The desk does **not** auto-apply. API: `GET /timed/admin/learning/proposals?status=pending` + `POST /timed/admin/learning/proposals/decide`. |
+
+---
+
+## Learning queue (always visible)
+
+Discord copy that says "Mission Control learning queue" means this
+card, not Decision Review (that queue rates CIO trade calls) and not
+COO Self-Learning (calibration / self-heal actions).
+
+- Pending `learning_proposals` rows only.
+- Operator decide. Do not treat a Discord ping as an instruction to
+  auto-apply the knob.
+- High-confidence desk rows may already be decided on the hourly
+  tt-research slot; leftover pending rows are the mixed/low-confidence
+  ones.
 
 ---
 
 ## Sections below the grid
 
-All sections are wrapped in a collapsible `DetailSectionsToggle` so
-operators can ignore them by default. Open them when triaging.
+All sections except the learning queue are wrapped in a collapsible
+`DetailSectionsToggle` so operators can ignore them by default. Open
+them when triaging.
 
 ### 1. AI CIO Decisions
 - Recent CIO decisions table (last 24h)

@@ -82,9 +82,9 @@ const BRAND = {
 // - Editorial: Georgia is available on ~100% of mail clients and matches
 //   Instrument Serif closely enough in tone.
 // - Mono/num: Menlo / Consolas / Courier New for data.
-const EMAIL_FONT_UI = "'Helvetica Neue',Arial,sans-serif";
-const EMAIL_FONT_EDITORIAL = "Georgia,'Iowan Old Style','Palatino Linotype',Palatino,serif";
-const EMAIL_FONT_MONO = "'SF Mono',Menlo,Consolas,'Courier New',monospace";
+export const EMAIL_FONT_UI = "'Helvetica Neue',Arial,sans-serif";
+export const EMAIL_FONT_EDITORIAL = "Georgia,'Iowan Old Style','Palatino Linotype',Palatino,serif";
+export const EMAIL_FONT_MONO = "'SF Mono',Menlo,Consolas,'Courier New',monospace";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Brief Infographic → Email HTML
@@ -515,7 +515,7 @@ export async function sendEmail(env, { to, subject, html, text, category }) {
 // Email Layout Wrapper
 // ═══════════════════════════════════════════════════════════════════════
 
-function emailLayout(bodyHtml, { unsubscribeUrl, preheader } = {}) {
+export function emailLayout(bodyHtml, { unsubscribeUrl, preheader } = {}) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -547,6 +547,7 @@ ${preheader ? `<span style="display:none;font-size:1px;color:${BRAND.dark};max-h
     </p>
     ${unsubscribeUrl ? `<p style="margin:0;font-size:11px;color:${BRAND.textMuted}"><a href="${unsubscribeUrl}" style="color:${BRAND.textMuted};text-decoration:underline">Unsubscribe</a> from these emails</p>` : ""}
     <p style="margin:8px 0 0;font-size:10px;color:${BRAND.textMuted}">This is not financial advice. For educational purposes only.</p>
+    <p style="margin:6px 0 0;font-size:10px;color:${BRAND.textMuted}">Market data powered by Twelve Data</p>
   </td></tr>
 </table>
 </td></tr>
@@ -994,7 +995,18 @@ function _emailBriefDayPctLabel(pct) {
   return `(${_emailBriefPct(v, 2)} today)`;
 }
 
-function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
+function _emailBriefPrice(px) {
+  const n = Number(px);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return `$${n.toFixed(2)}`;
+}
+
+function _emailBriefDir(dir) {
+  const d = String(dir || "").toUpperCase();
+  return d === "LONG" || d === "SHORT" ? d : "";
+}
+
+export function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2, extras) {
   const SYM = String(sym || "").toUpperCase();
   if (!SYM) return "";
   const logo = `${baseUrl}/timed/logo/${encodeURIComponent(SYM)}.png`;
@@ -1006,6 +1018,10 @@ function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
     primary = dayPct;
     dayPct = null;
   }
+  const extra = extras && typeof extras === "object" && !Array.isArray(extras) ? extras : {};
+  const priceStr = _emailBriefPrice(extra.price);
+  const dirStr = _emailBriefDir(extra.dir);
+  const dirColor = dirStr === "SHORT" ? "#fb7185" : BRAND.green;
   const pctStr = _emailBriefPct(primary);
   const dayLabel = _emailBriefDayPctLabel(dayPct);
   const primaryNum = (primary == null || primary === "") ? NaN : Number(primary);
@@ -1013,6 +1029,8 @@ function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
   return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;margin:0 6px 6px 0;border-radius:999px;border:1px solid ${BRAND.border};background:rgba(255,255,255,0.04);vertical-align:middle">
     <img src="${logo}" alt="" width="18" height="18" style="border-radius:50%;background:#fff;object-fit:cover" />
     <span style="font-family:ui-monospace,monospace;font-weight:700;color:${BRAND.textPrimary};font-size:12px">${_esc(SYM)}</span>
+    ${priceStr ? `<span style="font-family:ui-monospace,monospace;font-weight:600;color:${BRAND.textPrimary};font-size:11px">${_esc(priceStr)}</span>` : ""}
+    ${dirStr ? `<span style="font-family:ui-monospace,monospace;font-weight:700;color:${dirColor};font-size:10px">${_esc(dirStr)}</span>` : ""}
     ${sub ? `<span style="font-size:10px;color:${BRAND.textMuted}">${_esc(sub)}</span>` : ""}
     ${pctStr ? `<span style="font-family:ui-monospace,monospace;font-weight:700;color:${color};font-size:11px">${pctStr}</span>` : ""}
     ${dayLabel ? `<span style="font-family:ui-monospace,monospace;font-size:10px;color:${BRAND.textMuted}">${dayLabel}</span>` : ""}
@@ -1227,6 +1245,7 @@ function humanizeEmailExitReason(raw) {
 //   - Position & P&L (entry, fill, exit, $ + % P&L, qty, value)
 //   - Trim Status (trimmed % + shares remaining/trimmed) — TRIMs only
 //   - Setup (setup name + grade + risk %)
+//   - Signal Quality (rank / conviction / R:R — entry, trim, and exit)
 //   - Why (exit/trim reason — same humanizer Discord uses)
 //   - AI CIO (decision pill + confidence + edge + FULL reasoning)
 //   - Chart link
@@ -1417,6 +1436,52 @@ async function _fetchTradeTrims(env, tradeId, direction, entry, shares) {
     entryShares,
     direction,
     dropNoOps: true,
+  });
+}
+
+/**
+ * Rank / conviction / R:R lines for trade emails.
+ * Entry-only gating used to drop these on Position Closed (TQQQ Index Swings
+ * 2026-09-10). Same lines render for entry, trim, and exit when present.
+ */
+export function collectTradeAlertSignalQualityLines({
+  signal_quality_lines,
+  rank,
+  conviction_score,
+  conviction_tier,
+  rr,
+  momentum_elite,
+  vwap_pct,
+} = {}) {
+  if (Array.isArray(signal_quality_lines) && signal_quality_lines.length > 0) {
+    return signal_quality_lines.map((line) => String(line));
+  }
+  const lines = [];
+  if (Number.isFinite(Number(rank)) && Number(rank) > 0) {
+    lines.push(`Signal Strength (Rank): ${Math.round(Number(rank))}/100`);
+  }
+  if (Number.isFinite(Number(conviction_score)) && Number(conviction_score) > 0) {
+    const tier = conviction_tier ? ` (${conviction_tier})` : "";
+    lines.push(`Conviction: ${Number(conviction_score).toFixed(0)}${tier}`);
+  }
+  if (Number.isFinite(Number(rr)) && Number(rr) > 0) {
+    lines.push(`Risk/Reward: ${Number(rr).toFixed(1)}:1`);
+  }
+  if (momentum_elite) lines.push("Strong Momentum");
+  if (Number.isFinite(Number(vwap_pct))) {
+    const v = Number(vwap_pct);
+    lines.push(`${v >= 0 ? "Above" : "Below"} 1H VWAP ${v >= 0 ? "+" : ""}${v.toFixed(2)}%`);
+  }
+  return lines;
+}
+
+function formatSignalQualityHtml(lines) {
+  return (lines || []).map((line) => {
+    const idx = String(line).indexOf(": ");
+    if (idx > 0) {
+      return `<strong style="color:white">${String(line).slice(0, idx)}</strong>: ${String(line).slice(idx + 2)}`;
+    }
+    return String(line);
   });
 }
 
@@ -1642,38 +1707,16 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     }
   }
 
-  // SIGNAL QUALITY (entry) — rank, conviction, R:R, full signal tag list
+  // SIGNAL QUALITY — rank, conviction, R:R. Shown on entry, trim, and exit
+  // so a close email still explains the setup that was on (TQQQ W3).
   let signalQualitySection = "";
-  if (isEntry) {
-    const sqLines = [];
-    if (Array.isArray(signal_quality_lines) && signal_quality_lines.length > 0) {
-      for (const line of signal_quality_lines) {
-        const idx = String(line).indexOf(": ");
-        if (idx > 0) {
-          sqLines.push(`<strong style="color:white">${String(line).slice(0, idx)}</strong>: ${String(line).slice(idx + 2)}`);
-        } else {
-          sqLines.push(String(line));
-        }
-      }
-    } else {
-      if (Number.isFinite(Number(rank)) && Number(rank) > 0) {
-        sqLines.push(`Signal Strength (Rank): <strong style="color:white">${Math.round(Number(rank))}/100</strong>`);
-      }
-      if (Number.isFinite(Number(conviction_score)) && Number(conviction_score) > 0) {
-        sqLines.push(`Conviction: <strong style="color:white">${Number(conviction_score).toFixed(0)}</strong>${conviction_tier ? ` (${conviction_tier})` : ""}`);
-      }
-      if (Number.isFinite(Number(rr)) && Number(rr) > 0) {
-        sqLines.push(`Risk/Reward: <strong style="color:white">${Number(rr).toFixed(1)}:1</strong>`);
-      }
-      if (momentum_elite) sqLines.push("Strong Momentum");
-      if (Number.isFinite(Number(vwap_pct))) {
-        const v = Number(vwap_pct);
-        sqLines.push(`${v >= 0 ? "Above" : "Below"} 1H VWAP ${v >= 0 ? "+" : ""}${v.toFixed(2)}%`);
-      }
-    }
-    if (sqLines.length > 0) {
-      signalQualitySection = _section("Signal Quality", sqLines.join("<br>"));
-    }
+  const sqSourceLines = collectTradeAlertSignalQualityLines({
+    signal_quality_lines, rank, conviction_score, conviction_tier, rr,
+    momentum_elite, vwap_pct,
+  });
+  if ((isEntry || isExit || isTrim || isExitSignal) && sqSourceLines.length > 0) {
+    const sqLines = formatSignalQualityHtml(sqSourceLines);
+    signalQualitySection = _section("Signal Quality", sqLines.join("<br>"));
   }
 
   // WHY WE ENTERED (entry only)
@@ -1891,13 +1934,13 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     }
   }
   if (isTrim && trimStatusPlain) _txtParts.push("", "Trim Status:", ...trimStatusPlain.split("\n").map((l) => "  " + l));
+  if (sqSourceLines.length > 0 && (isEntry || isExit || isTrim || isExitSignal)) {
+    _txtParts.push("", "Signal quality:");
+    for (const line of sqSourceLines) _txtParts.push("  " + line);
+  }
   if (isExit && exitReason) _txtParts.push("", "Why: " + humanizeEmailExitReason(exitReason));
   if (isTrim && trim_reason) _txtParts.push("", "Why: " + humanizeEmailTrimReason(trim_reason));
   if (isEntry && why_entered) _txtParts.push("", "Why we entered: " + why_entered);
-  if (isEntry && Array.isArray(signal_quality_lines) && signal_quality_lines.length > 0) {
-    _txtParts.push("", "Signal quality:");
-    for (const line of signal_quality_lines) _txtParts.push("  " + line);
-  }
   if (isEntry && scale_hint && Number(scale_hint.pct_of_account) > 0) {
     _txtParts.push(`Sizing: ${Number(scale_hint.pct_of_account).toFixed(1)}% of account`);
     if (Number(scale_hint.per_thousand) > 0) {
@@ -1943,6 +1986,9 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   const threadLabel = isExitSignal ? "open position" : isExit ? "model fill" : null;
   const subject = renderEmailSubject(sig, { threadLabel });
 
+  if (env?.EMAIL_RETURN_BODY) {
+    return { ok: true, html, text, subject };
+  }
   return sendEmail(env, { to: userEmail, subject, html, text, category: "trade_alert" });
 }
 
@@ -2043,6 +2089,7 @@ export function unsubscribeConfirmationHtml(email, pref) {
     trade_alerts: "Trade Alert emails",
     re_engagement: "Re-engagement emails",
     weekly_digest: "Weekly Digest emails",
+    weekend_desk: "TT Setups emails",
     investor_alerts: "Long Term Signal emails",
     all: "all emails",
   }[pref] || pref;
@@ -2076,6 +2123,8 @@ const DEFAULT_PREFS_PAID = {
   investor_alerts: true,
   // 2026-08-13 — Broker Connections end-of-day "Account today" digest.
   broker_daily_digest: true,
+  // 2026-09-12 — Saturday CMT / TT Setups weekend desk.
+  weekend_desk: true,
 };
 
 const DEFAULT_PREFS_FREE = {
@@ -2086,6 +2135,7 @@ const DEFAULT_PREFS_FREE = {
   re_engagement: true,
   investor_alerts: false,
   broker_daily_digest: false,
+  weekend_desk: false,
 };
 
 export function getUserEmailPrefs(user) {
@@ -3271,6 +3321,19 @@ function _mirrorMeaning(syncState, syncNote) {
   if (/model_open expected/i.test(note) && /broker holds 0/i.test(note)) {
     return "The model still shows an open position but the broker is flat. This can follow a manual close or a reducer that sold the remaining mirrored shares. Do not auto-rebuy; decide whether the sleeve should be remirrored.";
   }
+  if (/reducer_underexecuted|manifest_remaining_undercounted|reducer leftover|not user-added/i.test(note)
+      && !/reducer_replenished/i.test(note)) {
+    return "The EXIT or TRIM filled, but not the full intended quantity. The leftover shares are still this trade — not a newly added lot. The next exit catch-up sells the remainder.";
+  }
+  if (/reducer_replenished/i.test(note)) {
+    return "Holdings rose above the pre-exit quantity. That is a new lot or transfer, not an underexecuted sell. Review the broker fills before flattening.";
+  }
+  if (/reducer_overexecuted/i.test(note)) {
+    return "The broker sold more than this TRIM or EXIT intended, including a sibling lot on the same ticker. Compare fills before another reducer.";
+  }
+  if (/user may have added|held_gt_model|more than model tracked/i.test(note)) {
+    return "The broker held more than the manifest remaining. That leftover is still this trade unless another OPEN model trade on the same ticker claims those shares, or a prior cycle already tracked an add. This EXIT sells the live mirrored holding minus any reserved sibling or tracked add.";
+  }
   switch (String(syncState || "").toLowerCase()) {
     case "partial_fill":
       return "The broker filled less than the model intended. Future TRIM/EXIT actions will be scaled proportionally.";
@@ -3429,6 +3492,7 @@ export function buildDailyOwnerDigestEmail(digest, opts = {}) {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">
       ${posRows || `<tr><td style="padding:6px 0;color:${BRAND.textMuted};font-size:12px">No open equity positions</td></tr>`}
     </table>
+    ${opts.coverageHtml || ""}
     <p style="margin:18px 0 0;font-size:12px">
       <a href="${_esc(baseUrl)}/broker-connections.html" style="color:${BRAND.green};font-weight:700;text-decoration:none">Broker Connections →</a>
       &nbsp;&nbsp;
@@ -3462,6 +3526,7 @@ export function buildDailyOwnerDigestEmail(digest, opts = {}) {
     `  Unrealized $${Number(digest.day_pnl?.unrealized || 0).toFixed(2)}`,
     `Equity end $${Number(digest.equity_end || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
     "",
+    ...(opts.coverageText ? ["", opts.coverageText] : []),
     `Broker Connections: ${baseUrl}/broker-connections.html`,
     `Email preferences: ${baseUrl}/my-account.html#email`,
   ];

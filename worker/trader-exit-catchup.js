@@ -7,11 +7,19 @@
 import { catchupTraderExit } from "./broker-bridge-catchup-exit.js";
 import { recordBridgeMirrorSkip } from "./broker-bridge-client.js";
 import {
+  fetchBrokerManifestRows,
+  loadBrokerHeldEquity,
+  heldQtyFor,
+} from "./broker-held-equity.js";
+import {
   isNyRegularMarketOpenStatic,
   isEquityBrokerFollowThroughStatic,
 } from "./market-calendar.js";
 
 const NOTE_PREFIX = "timed:trader-exit-catchup:";
+
+/** Residual too small for the broker to sell. */
+export const EXIT_CATCHUP_FLAT_EPSILON = 1e-6;
 
 export function rowHoldsReducerQty(row) {
   if (!row) return false;
@@ -31,7 +39,7 @@ export function rowHoldsReducerQty(row) {
  * EXPE-class (exit, no manifest) yields no ops. AMZN-class (exit +
  * remaining 0.27) yields one op on the holding account only.
  */
-export function planTraderExitCatchup({ exits = [], manifests = [] } = {}) {
+export function planTraderExitCatchup({ exits = [], manifests = [], closedTradeIds = [] } = {}) {
   const byTrade = new Map();
   for (const row of manifests) {
     const id = String(row?.trade_id || "").trim();
@@ -41,26 +49,89 @@ export function planTraderExitCatchup({ exits = [], manifests = [] } = {}) {
   }
   const ops = [];
   const seen = new Set();
+  const pushOp = (row, ex = null) => {
+    const tid = String(row?.trade_id || ex?.position_id || ex?.trade_id || "").trim();
+    if (!tid || !rowHoldsReducerQty(row)) return;
+    const key = `${tid}|${row.user_id}|${row.broker_account_id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    ops.push({
+      trade_id: tid,
+      ticker: String(row.ticker || ex?.ticker || "").toUpperCase(),
+      user_id: row.user_id,
+      broker_account_id: row.broker_account_id,
+      qty: Number(row.broker_remaining_qty),
+      price: Number(ex?.price) || null,
+      exit_ts: Number(ex?.ts) || 0,
+    });
+  };
   for (const ex of exits) {
     const tid = String(ex?.position_id || ex?.trade_id || "").trim();
     if (!tid) continue;
-    for (const row of byTrade.get(tid) || []) {
-      if (!rowHoldsReducerQty(row)) continue;
-      const key = `${tid}|${row.user_id}|${row.broker_account_id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      ops.push({
-        trade_id: tid,
-        ticker: String(row.ticker || ex.ticker || "").toUpperCase(),
-        user_id: row.user_id,
-        broker_account_id: row.broker_account_id,
-        qty: Number(row.broker_remaining_qty),
-        price: Number(ex.price) || null,
-        exit_ts: Number(ex.ts) || 0,
-      });
-    }
+    for (const row of byTrade.get(tid) || []) pushOp(row, ex);
+  }
+  // Leftover remaining on a stale OPEN sleeve after the mothership trade
+  // already closed (ULTA prior lot 2026-09-10 — EXIT was older than 72h).
+  const closed = closedTradeIds instanceof Set ? closedTradeIds : new Set(closedTradeIds);
+  for (const row of manifests) {
+    const tid = String(row?.trade_id || "").trim();
+    const modelClosed = String(row.model_status || "").toUpperCase() === "CLOSED"
+      || closed.has(tid);
+    if (!modelClosed) continue;
+    pushOp(row);
   }
   return ops;
+}
+
+/**
+ * The broker holds ONE position per ticker; the manifest holds one sleeve
+ * per model trade. Several stale sleeves routinely claim the same residual
+ * — 2026-09-14 the live plan wanted to sell PH 0.13612 four times, DPZ
+ * 0.2714 twice and XLRE 1.35379 twice against a Roth that held exactly one
+ * of each. Selling every claim shorts the account with real money, and the
+ * zombie claims also fill the hourly `max_ops` window forever, which is why
+ * a genuinely missed EXIT never got a turn.
+ *
+ * So spend a per-ticker budget, newest exit first. `held == null` means the
+ * broker could not be asked: fall back to the single largest claim, which
+ * under-sells (recoverable next hour) rather than over-sells (not).
+ */
+export function clampExitOpsToHoldings(ops = [], held = null) {
+  const ordered = [...(ops || [])].sort((a, b) => (
+    (Number(b?.exit_ts) || 0) - (Number(a?.exit_ts) || 0)
+    || (Number(b?.qty) || 0) - (Number(a?.qty) || 0)
+  ));
+  const budgets = new Map();
+  const budgetFor = (ticker) => {
+    if (budgets.has(ticker)) return budgets.get(ticker);
+    const heldQty = heldQtyFor(held, ticker);
+    const start = heldQty == null
+      ? Math.max(0, ...ordered
+        .filter((op) => String(op?.ticker || "").toUpperCase() === ticker)
+        .map((op) => Number(op?.qty) || 0))
+      : heldQty;
+    budgets.set(ticker, start);
+    return start;
+  };
+  const kept = [];
+  const dropped = [];
+  for (const op of ordered) {
+    const ticker = String(op?.ticker || "").toUpperCase();
+    const want = Number(op?.qty) || 0;
+    const room = budgetFor(ticker);
+    const qty = Math.min(want, room);
+    if (!(qty > EXIT_CATCHUP_FLAT_EPSILON)) {
+      dropped.push({
+        ...op,
+        held_qty: heldQtyFor(held, ticker),
+        skip: "broker_position_already_flat",
+      });
+      continue;
+    }
+    budgets.set(ticker, room - qty);
+    kept.push(qty === want ? op : { ...op, qty, claimed_qty: want, clamped: true });
+  }
+  return { ops: kept, dropped };
 }
 
 async function loadExits(env, sinceMs) {
@@ -78,22 +149,24 @@ async function loadExits(env, sinceMs) {
   }
 }
 
-async function loadManifests(env) {
-  try {
-    const bridgeUrl = env?.BROKER_BRIDGE_URL || "https://bridge.internal";
-    const svc = env?.BROKER_BRIDGE;
-    const opKey = env?.BROKER_BRIDGE_OPERATOR_KEY;
-    const headers = opKey ? { Authorization: `Bearer ${opKey}` } : {};
-    const url = `${String(bridgeUrl).replace(/\/$/, "")}/bridge/manifest?limit=400&remaining=1`;
-    const init = { method: "GET", headers };
-    const r = svc && typeof svc.fetch === "function"
-      ? await svc.fetch(new Request(url, init))
-      : await fetch(url, init);
-    const body = await r.json().catch(() => null);
-    return Array.isArray(body?.rows) ? body.rows : [];
-  } catch (_) {
-    return [];
+async function loadClosedTradeIds(env, tradeIds) {
+  const closed = new Set();
+  if (!env?.DB?.prepare) return closed;
+  const unique = [...new Set((tradeIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  for (const id of unique.slice(0, 80)) {
+    try {
+      const r = await env.DB.prepare(
+        `SELECT trade_id FROM trades WHERE trade_id = ?1 AND exit_ts IS NOT NULL LIMIT 1`,
+      ).bind(id).first();
+      if (r?.trade_id) closed.add(String(r.trade_id));
+    } catch (_) { /* best-effort */ }
   }
+  return closed;
+}
+
+async function loadManifests(env) {
+  const rows = await fetchBrokerManifestRows(env, { limit: 400 });
+  return (rows || []).filter((row) => Number(row?.broker_remaining_qty) > 1e-9);
 }
 
 async function recentlyNoted(env, tradeId) {
@@ -123,10 +196,18 @@ export async function runTraderExitCatchup(env, opts = {}) {
   const sinceMs = Date.now() - hours * 3600 * 1000;
   const exits = Array.isArray(opts.exits) ? opts.exits : await loadExits(env, sinceMs);
   const manifests = Array.isArray(opts.manifests) ? opts.manifests : await loadManifests(env);
-  const planned = planTraderExitCatchup({ exits, manifests });
+  const leftoverIds = manifests.map((row) => String(row?.trade_id || "").trim()).filter(Boolean);
+  const closedTradeIds = opts.closedTradeIds instanceof Set || Array.isArray(opts.closedTradeIds)
+    ? opts.closedTradeIds
+    : await loadClosedTradeIds(env, leftoverIds);
+  const claimed = planTraderExitCatchup({ exits, manifests, closedTradeIds });
+  const held = opts.held !== undefined
+    ? opts.held
+    : await loadBrokerHeldEquity(env, { nowMs: Date.now() });
+  const { ops: planned, dropped } = clampExitOpsToHoldings(claimed, held);
   const rth = isNyRegularMarketOpenStatic(now);
   const eth = isEquityBrokerFollowThroughStatic(now);
-  const results = [];
+  const results = dropped.map((op) => ({ ...op, ok: false }));
 
   for (const op of planned.slice(0, maxOps)) {
     const qty = Number(op.qty);
@@ -173,6 +254,9 @@ export async function runTraderExitCatchup(env, opts = {}) {
     ok: true,
     dry_run: dryRun,
     planned: planned.length,
+    claimed: claimed.length,
+    flat_dropped: dropped.length,
+    held_known: held != null,
     results,
     forwarded: results.filter((r) => r.ok && !r.dry_run && !r.skip).length,
   };

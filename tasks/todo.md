@@ -21,6 +21,149 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **Operator action: add the Cloudflare CI secrets.** `deploy-*`
+      workflows now fail loudly instead of silently skipping, but they
+      still cannot deploy until `CLOUDFLARE_API_TOKEN` +
+      `CLOUDFLARE_ACCOUNT_ID` exist under Settings → Secrets and
+      variables → Actions. Until then every merge needs a hand-run
+      `npm run deploy:worker`. The next `worker/**` merge will go RED
+      as designed if they are still missing.
+- [x] **The 2026-09-15 RTH open cleared all three index-trend entries.**
+      The 14:04:03Z coverage heal adopted SPYU W38
+      (`broker_already_holds_SPYU_9_adopted`, zero orders) and placed TNA
+      W37 + UDOW W38 with real order ids. Neither came back
+      `insufficient_cash` as predicted. Coverage ended the session
+      `unmatched: 0, fails: 0, anomalies: 0`.
+      But both placements were SHORT: the bridge's concentration ceiling
+      on a $14.8k Roth scaled 31 sh → 5 and 28 sh → 5, and every layer
+      recorded the request, so coverage called a 16%-filled sleeve a
+      clean `mirrored` and `closeQty` would size trims off 31 against 5
+      held. Fixed in #1472 (`accepted_qty` through the bridge, ring,
+      mirror row and coverage).
+- [x] **Index-trend sleeves were filed as OPTIONS — one cause, four
+      symptoms (2026-09-15).** Chasing "the reduce path is unproven" and
+      "the sleeves over-claim" separately turned out to be chasing one
+      bug. `inferInstrument` called any `vehicle` other than `equity_long`
+      an options structure, and the index-trend mirror tags share orders
+      `vehicle: index_trend_letf`, so all 5 LETF rows landed as
+      `instrument_type: options`. The reconciler then took the options
+      path, found no `model_intended_legs`, and parked them at
+      `untracked`/"cannot leg-compare" forever — the equity classifier
+      that converges `broker_remaining_qty` never ran — while
+      `claimedOpenEquityByTicker` and `_readOpenClaimRowsForUser` skipped
+      them for not being equity, which is exactly why TNA W36 (closed)
+      kept claiming 4 against W37's 5 on a 5-share position. 240 of 245
+      live rows classified fine; the only 5 that did not were these, and
+      all 5 were untracked. Fixed in #1473, with a one-shot reclassify
+      for the existing rows since the entry upsert is DO NOTHING on
+      conflict. Replay on the real rows: claim map nothing → 5, and W36
+      goes from drifting `broker_orphan` residual 5 to `in_sync`
+      residual 0. The reduce path itself was never blocked (untracked +
+      held reduces via `held_override`, a full exit is in the close
+      PROCEED set, and the live-position guard clamps) — now pinned by
+      tests instead of left unproven.
+- [x] **`post_exec_drift` flood (2026-09-15).** Not a real never-healing
+      drift and not a missing cooldown: the drift path treated
+      re-CHECKING and re-REPORTING as the same thing. The audit is left
+      `verified:false` on purpose so a heal can still be noticed, so
+      every pass re-wrote the row and re-notified. Fixed in #1473 —
+      288 audit rows/day → 4, while a drift that moves past the fill
+      tolerance in either direction still reports at once.
+      `drift_detected_at` now means first-seen; `drift_reported_at` is
+      the suppression clock.
+- [x] **Audit follow-ups from 2026-09-14, all closed in #1473.**
+      Per-lane cooldown for `_healModelBrokerCoverage` (the every-lane
+      verdict meant one broken lane stopped ANY cooldown being written,
+      so the four healthy lanes re-ran every cycle and could burn
+      `catchup-*`'s `max_ops` budget — not "delays the other four" as
+      first written); `lastSessionHint` and
+      `_resetDeskJournalSchemaCache` deleted; the route-audit note added
+      to `skills/security-auth-patterns.md` (it is 9 routes in
+      `worker/trust-spine/routes.js`, not four).
+- [ ] **Still watch the first real index-trend TRIM or EXIT.** The paths
+      are now tested and the classification fixed, but no index-trend
+      reduce has yet been observed end-to-end at the broker. Worth one
+      look at the mirror log after the next weekly flip.
+- [x] **Merged-PR audit + the defects it found (2026-09-14).** 47 of 66
+      PRs merged 09-03 → 09-14 touched `worker/**` and did nothing until
+      the 09-14 manual deploy; 14 of those ran HALF live, because their
+      frontend or bridge half deploys on a different path (PR 1463
+      shipped blank breakout badges for two days). Fixed the three live
+      defects the blackout was hiding: the ext-trim guard was clobbered
+      in the same pass so an already-trimmed runner could reach the 75%
+      cap in one session instead of once per session; the FOMC purge was
+      unbounded and would have deleted every real 2027 Fed meeting from
+      late Dec; `_healModelBrokerCoverage` reported success on any one
+      lane and took a 4h cooldown while four could have thrown. Also
+      deleted the reserve-then-release cap helpers (no callers, and they
+      re-implement the wedge documented directly beneath them), exposed
+      `deployedSha` so a stale worker is distinguishable from a current
+      one, added `deploy:crons`, and added a UI/worker field-contract
+      test.
+- [x] **4 unmatched trader EXITs (2026-09-14).** U and MNST were
+      already flat at the broker; DPZ and KO had no manifest sleeve at
+      all (their entries never mirrored — the held shares belonged to
+      older DPZ lots and an `inv-KO-auto` DCA sleeve). Coverage now
+      settles a reduce against the trade's own sleeve, then the
+      ticker's position: live fails 6 → 4, and `catchup-trader-exits`
+      dropped off the heal plan. The exit catch-up itself was about to
+      sell one position per stale sleeve (30 claims → 9 real ops);
+      clamped to broker holdings, newest exit first.
+- [x] **Broker mirroring fail-closed (2026-09-14).** Three stacked
+      faults: CI deployed nothing since 09-03; daily cap slots leaked
+      on isolate death and wedged the lane at 2/2 with zero orders;
+      coverage was blind to `index_trend` because the action tape died
+      09-10. Replayed real prod state: 0 orders forwarded before, 2
+      after (cash-scaled into the $2000 sleeve) with the cap enforced.
+      Branch: `cursor/broker-mirror-failclosed-7ffc` (PR #1471).
+- [x] **Index Swings Discord without broker fill (2026-09-14).** TNA
+      W37 DCA_ADD (46 sh, $2975) and UDOW W38 BUY (28 sh) hit
+      #trade-signals. Roth got neither. Cash-scale BUY qty to
+      `max_per_order_usd`; DCA on a never-filled sleeve is an entry
+      catch-up; heal never-attempted books first. Shipped in #1470 —
+      but note it did NOT reach prod until 09-14 22:20Z because CI was
+      deploying nothing. Branch: `cursor/index-trend-cap-scale-7ffc`.
+- [x] **FOMC Today label (2026-09-13).** Sunday Today strip said
+      TODAY · FOMC rate decision. Published decision is Wed Sep 16.
+      Snap + D1 purge shipped. Branch: `cursor/fomc-today-label-7ffc`.
+- [x] **TT Setups broadcast live (2026-09-13).** Copy is locked.
+      `WEEKEND_DESK_BROADCAST=1` on ingest + tt-research. Live send
+      2026-09-13: 6/6, preview false. Branch:
+      `cursor/weekend-desk-live-7ffc`.
+- [x] **TT Setups target + invalidation (2026-09-13).** Drop the
+      up/down/sideways block — it restated the same level. Each
+      card is setup, **target**, and **invalidation**. Branch:
+      `cursor/weekend-target-invalidation-7ffc`. Admin preview
+      sent 2026-09-13 (AU/CDNS/EXPE/AMAT featured; RBLX/H on tape).
+- [x] **TT Setups report + opportunity (2026-09-13).** Each card
+      states the setup, up/down/sideways paths, and the path the
+      desk is watching. Branch: `cursor/weekend-setup-report-7ffc`.
+- [x] **TT Setups magnet dir vs pull (2026-09-13).** GOLD chip said
+      LONG while copy pulled price down to $44. Magnet dir now
+      follows price vs shelf. Branch:
+      `cursor/weekend-magnet-dir-7ffc`.
+- [x] **TT Setups chips: last price + LONG/SHORT (2026-09-13).**
+      Weekend email ticker chips show last price, setup direction,
+      and day %. Branch: `cursor/weekend-cmt-prep-7ffc`. Admin
+      preview resent 2026-09-13.
+- [x] **TT Setups email polish (2026-09-12).** 60-day daily window;
+      snap D/W writes to `canonicalDailyTs` and drop 00:00/04:00
+      siblings; cap displayed R:R at 4; magnet charts on daily
+      (GOLD). Branch: `cursor/weekend-cmt-prep-7ffc`. Admin preview
+      sent 2026-09-12 (AU/CDNS/EXPE/AMAT featured; TSM/GOLD on tape).
+- [ ] **Breakout watch upgrades (2026-09-12).** Narrow Setup to
+      trendline + daily-level; 2–3 touch visual line; RVOL on fire;
+      retest = look-for-entry; approaching badge on rail/Today.
+      Branch: `cursor/breakout-watch-upgrades-7ffc`.
+- [x] **Breakout + trendline watch (2026-09-12).** Level breaks already
+      exist (`detectBreakout`). Descending/ascending trendline breaks
+      were rail-only. Stamp `_breakout_watch`; fired → kanban `setup`
+      ("look for a good entry"). Not a new auto-buy path. Branch:
+      `cursor/breakout-trendline-watch-7ffc`. Merged #1462.
+- [x] **Exit emails missing Signal Quality (2026-09-10).** TQQQ Index Swings
+      close showed setup + P&L but no rank/conviction. Template was
+      entry-only; paper-lane payload never stamped scores. Branch:
+      `cursor/exit-email-scores-7ffc`.
 - [ ] **Bottom nav scrolls mid-page on mobile (2026-09-05).** Screenshot:
       nav floats ~2/3 down Today (content above + below). v8/v9 CSS
       `bottom:0` + post-scroll settle leaves the bar detached during

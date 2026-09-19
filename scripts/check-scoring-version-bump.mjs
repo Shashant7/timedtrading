@@ -26,6 +26,7 @@ const WATCH_GLOBS = [
   "worker/td-sequential-boost.js",
   "worker/replay-runtime-setup.js",
   "worker/pipeline/setup-grade.js",
+  "worker/discovery/news-tracker.js",
 ];
 
 function git(args) {

@@ -15,8 +15,13 @@
 // the operator asked for after the KO trim regression.
 
 import { describe, it, expect } from "vitest";
-import { reconcileUser } from "./bridge-reconciler.js";
-import { POST_EXEC_VERIFY_DELAY_MS, POST_EXEC_TOLERANCE_QTY } from "./bridge-manifest.js";
+import { reconcileUser, classifyPostExecHeldDrift } from "./bridge-reconciler.js";
+import {
+  POST_EXEC_VERIFY_DELAY_MS,
+  POST_EXEC_TOLERANCE_QTY,
+  POST_EXEC_DRIFT_REPEAT_MS,
+  shouldReportPostExecDrift,
+} from "./bridge-manifest.js";
 
 function makeDb({ rows = [] } = {}) {
   const updates = [];
@@ -105,6 +110,53 @@ function makeRow({
     sync_last_action_json: audit ? JSON.stringify(audit) : null,
   };
 }
+
+describe("classifyPostExecHeldDrift — ULTA leftover vs true replenish", () => {
+  const exitAudit = {
+    kind: "exit",
+    pre_held_qty: 50,
+    intended_qty: 50,
+    expected_post_held_qty: 0,
+  };
+
+  it("full EXIT leftover ≤ pre_held is underexecuted, not replenished", () => {
+    const out = classifyPostExecHeldDrift(exitAudit, 12.4);
+    expect(out.status).toBe("drift");
+    expect(out.reason).toBe("reducer_underexecuted");
+    expect(out.severity).toBe("warn");
+    expect(out.leftover_qty).toBeCloseTo(12.4, 6);
+  });
+
+  it("does not treat a blocked trim (still at pre_held) as replenished", () => {
+    const trim = {
+      kind: "trim",
+      pre_held_qty: 10.9,
+      intended_qty: 4.04568,
+      expected_post_held_qty: 6.85432,
+    };
+    const out = classifyPostExecHeldDrift(trim, 10.9);
+    expect(out.reason).toBe("reducer_underexecuted");
+  });
+
+  it("live above pre_held is replenished (a new lot)", () => {
+    const out = classifyPostExecHeldDrift(exitAudit, 55);
+    expect(out.reason).toBe("reducer_replenished");
+    expect(out.severity).toBe("critical");
+    expect(out.added_qty).toBeCloseTo(5, 6);
+  });
+
+  it("live below expected is overexecuted", () => {
+    const trim = {
+      kind: "trim",
+      pre_held_qty: 10.9,
+      intended_qty: 4.04568,
+      expected_post_held_qty: 6.85432,
+    };
+    const out = classifyPostExecHeldDrift(trim, 0);
+    expect(out.reason).toBe("reducer_overexecuted");
+    expect(out.severity).toBe("critical");
+  });
+});
 
 describe("reconcileUser — post-execution audit VERIFIED path", () => {
   it("marks audit verified + emits post_exec_verified when live held converges to expected", async () => {
@@ -328,5 +380,187 @@ describe("reconcileUser — post-exec audit with a sibling trade on the same tic
     const alert = db.audits.find(a => a.args.some(x => String(x).includes("post_exec_drift")));
     expect(alert).toBeTruthy();
     expect(alert.args.some(x => String(x).includes("reducer_overexecuted"))).toBe(true);
+  });
+});
+
+describe("reconcileUser — ULTA partial EXIT leftover", () => {
+  it("stamps reducer_underexecuted when the broker sold only part of a full EXIT", async () => {
+    const audit = {
+      ts: Date.now(),
+      kind: "exit",
+      intended_qty: 50,
+      pre_held_qty: 50,
+      expected_post_held_qty: 0,
+      client_order_id: "tt-exit-ULTA-1",
+      broker_order_id: "wb-ulta-1",
+      verify_after_ms: 0,
+      verified: false,
+    };
+    const row = {
+      user_id: "op@x.com",
+      trade_id: "ULTA-w36",
+      broker_account_id: "WB-ROTH",
+      ticker: "ULTA",
+      mode: "trader",
+      instrument_type: "equity",
+      model_status: "CLOSED",
+      sync_state: "in_sync",
+      model_intended_qty: 50,
+      broker_filled_qty: 50,
+      broker_remaining_qty: 0,
+      sync_last_checked_at: 0,
+      sync_drift_count: 0,
+      mirror_suppressed: 0,
+      sync_last_action_json: JSON.stringify(audit),
+    };
+    const db = makeDb({ rows: [row] });
+    const adapter = {
+      async getEquityPositions() {
+        return { ok: true, positions: [{ symbol: "ULTA", qty: 12.4, avg_cost: 537.25 }] };
+      },
+    };
+    const stats = await reconcileUser({ BRIDGE_DB: db }, perAccountUser, adapter, {});
+    expect(stats.post_exec_drift).toBe(1);
+    const alert = db.audits.find(a => a.args.some(x => String(x).includes("post_exec_drift")));
+    expect(alert).toBeTruthy();
+    expect(alert.args.some(x => String(x).includes("reducer_underexecuted"))).toBe(true);
+    expect(alert.args.some(x => String(x).includes("reducer_underexecuted_or_replenished"))).toBe(false);
+    expect(alert.args.some(x => String(x).includes("reducer_replenished"))).toBe(false);
+  });
+});
+
+// 2026-09-15 — a drift is deliberately left `verified:false` so a later pass
+// can see it heal, but the drift path treated "re-check" and "re-report" as
+// the same thing. DE (`DE-1787252853209-e3325t0lf`, 0.226964 sh) wrote a
+// post_exec_drift audit row and emitted a notification every reconcile pass
+// for days: 6 of the 6 newest audit rows, with real placements pushed 26 rows
+// deep in a 400-row pull. The audit log is where an operator looks to see
+// whether an order reached the broker, so burying it has a cost.
+describe("shouldReportPostExecDrift — say it once, keep checking", () => {
+  const NOW = Date.UTC(2026, 8, 15, 18, 0, 0);
+
+  it("reports a drift nobody has reported yet", () => {
+    const out = shouldReportPostExecDrift({ drift_qty: 0.226964 }, 0.226964, { now: NOW });
+    expect(out.report).toBe(true);
+    expect(out.reason).toBe("first_report");
+  });
+
+  it("reports rows written before drift_reported_at existed", () => {
+    // The old code stamped drift_detected_at and nothing else, so the very
+    // first pass after this ships must not silently swallow a live drift.
+    const legacy = { drift_qty: 0.226964, drift_detected_at: NOW - 60_000 };
+    expect(shouldReportPostExecDrift(legacy, 0.226964, { now: NOW }).report).toBe(true);
+  });
+
+  it("stays quiet on the same drift already reported", () => {
+    const prev = { drift_qty: 0.226964, drift_reported_at: NOW - 5 * 60 * 1000 };
+    const out = shouldReportPostExecDrift(prev, 0.226964, { now: NOW });
+    expect(out.report).toBe(false);
+    expect(out.reason).toBe("unchanged_since_last_report");
+    expect(out.suppressed_for_ms).toBeGreaterThan(0);
+  });
+
+  it("speaks up again when the drift moves past the fill tolerance", () => {
+    const prev = { drift_qty: 0.226964, drift_reported_at: NOW - 5 * 60 * 1000 };
+    // Dust-level change is still the same gap.
+    expect(shouldReportPostExecDrift(prev, 0.226964 + POST_EXEC_TOLERANCE_QTY / 2, { now: NOW }).report).toBe(false);
+    // A real move means something happened at the broker.
+    const moved = shouldReportPostExecDrift(prev, 4.5, { now: NOW });
+    expect(moved.report).toBe(true);
+    expect(moved.reason).toBe("drift_qty_changed");
+    // Shrinking counts too — a partial heal is news.
+    expect(shouldReportPostExecDrift(prev, 0, { now: NOW }).reason).toBe("drift_qty_changed");
+  });
+
+  it("re-reports an unresolved drift after the repeat window", () => {
+    const prev = { drift_qty: 0.226964, drift_reported_at: NOW - POST_EXEC_DRIFT_REPEAT_MS - 1 };
+    const out = shouldReportPostExecDrift(prev, 0.226964, { now: NOW });
+    expect(out.report).toBe(true);
+    expect(out.reason).toBe("repeat_window_elapsed");
+  });
+});
+
+describe("reconcileUser — an unchanged drift is re-checked, not re-reported", () => {
+  /** A row whose audit already carries a reported drift of +4.04568. */
+  function rowWithReportedDrift(over = {}) {
+    const audit = {
+      ...auditSnapshot(),
+      drift_qty: 4.04568,
+      drift_detected_at: Date.now() - 60 * 60 * 1000,
+      drift_reported_at: Date.now() - 5 * 60 * 1000,
+      live_held_qty: 10.9,
+      ...over,
+    };
+    return makeRow({ audit });
+  }
+
+  const stillHolding = {
+    async getEquityPositions() {
+      return { ok: true, positions: [{ symbol: "KO", qty: 10.9, avg_cost: 82.11 }] };
+    },
+  };
+
+  it("writes no new audit row and no notification for the same gap", async () => {
+    const db = makeDb({ rows: [rowWithReportedDrift()] });
+    const stats = await reconcileUser({ BRIDGE_DB: db }, perAccountUser, stillHolding, {});
+    expect(stats.post_exec_drift_repeat).toBe(1);
+    expect(stats.post_exec_drift || 0).toBe(0);
+    expect(db.audits.find((a) => a.args.some((x) => String(x).includes("post_exec_drift")))).toBeFalsy();
+  });
+
+  it("keeps re-checking, so the audit still updates and can still heal", async () => {
+    const db = makeDb({ rows: [rowWithReportedDrift()] });
+    await reconcileUser({ BRIDGE_DB: db }, perAccountUser, stillHolding, {});
+    const upd = db.updates.find((u) => /sync_last_action_json/.test(u.sql));
+    expect(upd).toBeTruthy();
+    const written = JSON.parse(upd.args[3]);
+    // Suppressing the REPORT must not suppress the re-check: verified stays
+    // false so a later pass can still flip it, and the last-seen stamp moves.
+    expect(written.verified).toBe(false);
+    expect(written.drift_last_seen_at).toBeTypeOf("number");
+  });
+
+  it("does not move drift_reported_at while suppressed, so the window still expires", async () => {
+    // If the suppressed path refreshed the stamp, the repeat window would
+    // never elapse and a real unresolved drift would go silent forever.
+    const reportedAt = Date.now() - 5 * 60 * 1000;
+    const db = makeDb({ rows: [rowWithReportedDrift({ drift_reported_at: reportedAt })] });
+    await reconcileUser({ BRIDGE_DB: db }, perAccountUser, stillHolding, {});
+    const written = JSON.parse(db.updates.find((u) => /sync_last_action_json/.test(u.sql)).args[3]);
+    expect(written.drift_reported_at).toBe(reportedAt);
+  });
+
+  it("keeps drift_detected_at pinned to first sight", async () => {
+    // It used to be overwritten with `now` every pass, so a drift sitting for
+    // days always looked brand new.
+    const firstSeen = Date.now() - 36 * 60 * 60 * 1000;
+    const db = makeDb({ rows: [rowWithReportedDrift({ drift_detected_at: firstSeen })] });
+    await reconcileUser({ BRIDGE_DB: db }, perAccountUser, stillHolding, {});
+    const written = JSON.parse(db.updates.find((u) => /sync_last_action_json/.test(u.sql)).args[3]);
+    expect(written.drift_detected_at).toBe(firstSeen);
+  });
+
+  it("still reports when the gap changes at the broker", async () => {
+    const db = makeDb({ rows: [rowWithReportedDrift()] });
+    const soldSome = {
+      async getEquityPositions() {
+        return { ok: true, positions: [{ symbol: "KO", qty: 8.0, avg_cost: 82.11 }] };
+      },
+    };
+    const stats = await reconcileUser({ BRIDGE_DB: db }, perAccountUser, soldSome, {});
+    expect(stats.post_exec_drift).toBe(1);
+    expect(stats.post_exec_drift_repeat || 0).toBe(0);
+  });
+
+  it("still verifies when the drift heals", async () => {
+    const db = makeDb({ rows: [rowWithReportedDrift()] });
+    const converged = {
+      async getEquityPositions() {
+        return { ok: true, positions: [{ symbol: "KO", qty: 6.85432, avg_cost: 82.11 }] };
+      },
+    };
+    const stats = await reconcileUser({ BRIDGE_DB: db }, perAccountUser, converged, {});
+    expect(stats.post_exec_verified).toBe(1);
+    expect(stats.post_exec_drift_repeat || 0).toBe(0);
   });
 });

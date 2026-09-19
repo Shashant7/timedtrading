@@ -44,6 +44,8 @@ import {
   readLastActionAudit,
   markLastActionVerified,
   markLastActionDrift,
+  shouldReportPostExecDrift,
+  claimQtyFromManifestRow,
   POST_EXEC_VERIFY_DELAY_MS,
   POST_EXEC_TOLERANCE_QTY,
 } from "./bridge-manifest.js";
@@ -116,6 +118,70 @@ const AUTO_SUPPRESS_AFTER_DRIFT = 3;
 // audit stuck) normal drift classification resumes so real gaps still
 // alert. The post-exec audit path remains the execution-receipt check.
 export const PENDING_REDUCER_GRACE_MS = 30 * 60 * 1000;
+export const UNVERIFIED_REDUCER_LEFTOVER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Split post-exec leftover: a partial fill of THIS reducer vs shares
+ * that appeared above the pre-action holding (a real new lot).
+ *
+ * ULTA 2026-09-10: full EXIT leftover ≤ pre_held is underexecution, not
+ * "replenished" / user-added.
+ */
+export function classifyPostExecHeldDrift(audit, liveHeldQty, {
+  toleranceQty = POST_EXEC_TOLERANCE_QTY,
+} = {}) {
+  const expected = Number(audit?.expected_post_held_qty);
+  const live = Number(liveHeldQty) || 0;
+  const preHeld = Number(audit?.pre_held_qty);
+  if (!Number.isFinite(expected)) {
+    return { status: "skip_no_audit", reason: null, expected: null, live, drift: null, leftover_qty: 0 };
+  }
+  const drift = live - expected;
+  if (Math.abs(drift) <= toleranceQty) {
+    return { status: "verified", reason: null, expected, live, drift, leftover_qty: 0 };
+  }
+  if (live < expected - toleranceQty) {
+    return {
+      status: "drift",
+      reason: "reducer_overexecuted",
+      severity: "critical",
+      expected, live, drift, leftover_qty: 0,
+    };
+  }
+  if (Number.isFinite(preHeld) && live > preHeld + toleranceQty) {
+    return {
+      status: "drift",
+      reason: "reducer_replenished",
+      severity: "critical",
+      expected, live, drift,
+      leftover_qty: 0,
+      added_qty: live - preHeld,
+    };
+  }
+  return {
+    status: "drift",
+    reason: "reducer_underexecuted",
+    severity: "warn",
+    expected, live, drift,
+    leftover_qty: Math.max(0, live - expected),
+  };
+}
+
+/** Leftover after an unverified TRIM/EXIT that never rose above pre-held. */
+export function isUnverifiedReducerLeftover(audit, brokerQty, {
+  tolerance = POST_EXEC_TOLERANCE_QTY,
+  nowMs = Date.now(),
+  maxAgeMs = UNVERIFIED_REDUCER_LEFTOVER_MS,
+} = {}) {
+  if (!audit || audit.verified === true) return false;
+  const kind = String(audit.kind || audit.action || "").toLowerCase();
+  if (!["trim", "exit", "close", "sell", "reduce"].includes(kind)) return false;
+  const ts = Number(audit.ts) || 0;
+  if (!(ts > 0) || nowMs - ts > maxAgeMs || nowMs - ts < 0) return false;
+  const pre = Number(audit.pre_held_qty);
+  if (!Number.isFinite(pre)) return false;
+  return (Number(brokerQty) || 0) <= pre + tolerance;
+}
 
 /**
  * Return the row's unverified last-action audit when it is recent
@@ -191,20 +257,27 @@ export function claimedOpenEquityByTicker(rows) {
     if (String(r?.model_status || "").toUpperCase() !== "OPEN") continue;
     const ticker = String(r?.ticker || "").toUpperCase();
     if (!ticker) continue;
-    const remaining = Number(r.broker_remaining_qty);
-    const intended = Number(r.model_intended_qty) || 0;
-    // Prefer live remaining; fall back to intended. When both are present,
-    // take the max so a rejected/suppressed re-entry (remaining stamped from
-    // the prior lot, intended = new model size) still covers the broker qty
-    // and a CLOSED sibling cannot page as broker_orphan (DPZ 2026-09-03).
-    const claim = Math.max(
-      (Number.isFinite(remaining) && remaining > 0) ? remaining : 0,
-      intended > 0 ? intended : 0,
-    );
+    const claim = claimQtyFromManifestRow(r);
     if (!(claim > 0)) continue;
     out.set(ticker, (out.get(ticker) || 0) + claim);
   }
   return out;
+}
+
+/**
+ * Untracked leftover claiming shares the broker does not hold
+ * (TNA W36 2026-09-11: rem=4, sync=untracked, broker=0, paper flat).
+ * Close the ghost so Phase C stops paging a 4-share claim.
+ */
+export function isGhostUntrackedBrokerFlat(row, brokerState, cfg = {}) {
+  const modelStatus = String(row?.model_status || "OPEN").toUpperCase();
+  if (modelStatus !== "OPEN") return false;
+  if (String(row?.sync_state || "") !== SYNC_STATES.UNTRACKED) return false;
+  const tolerance = Number(cfg.tolerance) || TOLERANCE.trader_equity;
+  const rem = Number(row?.broker_remaining_qty);
+  if (!(Number.isFinite(rem) && rem > tolerance)) return false;
+  const brokerQty = Number(brokerState?.qty) || 0;
+  return brokerQty <= tolerance;
 }
 
 /**
@@ -221,6 +294,17 @@ export function classifyDrift(row, brokerState, cfg = {}) {
   const modelStatus = String(row.model_status || "OPEN").toUpperCase();
   const modelQty = Number(row.model_intended_qty) || 0;
   const expectedBrokerQty = Number(row.broker_remaining_qty);
+  if (isGhostUntrackedBrokerFlat(row, brokerState, { ...cfg, tolerance })) {
+    return {
+      sync_state: SYNC_STATES.IN_SYNC,
+      drift_detected: false,
+      severity: "info",
+      close_model: true,
+      close_reason: "reconcile_untracked_broker_flat",
+      note: "untracked leftover — broker flat; closed ghost claim",
+      broker_state: { qty: 0, avgCost: 0, expected: 0 },
+    };
+  }
   // 2026-08-13 — Reducer in flight: an unverified recent last-action
   // audit means a TRIM/EXIT just placed and broker_remaining_qty is
   // stale (pre-trim). Its expected_post_held_qty is the real expected.
@@ -350,6 +434,22 @@ export function classifyDrift(row, brokerState, cfg = {}) {
       severity: "info",
       note: `${pendingReducer.kind || "reducer"} order in flight — broker ${brokerQty}, expected ${expected} after fill (post-exec audit pending)`,
       broker_state: { qty: brokerQty, avgCost: brokerAvgCost, expected, reducer_in_flight: true },
+    };
+  }
+  // Leftover from a partial TRIM/EXIT is still this lot. Stamping it
+  // user_added zeros broker_remaining_qty on persist and blocks
+  // runTraderExitCatchup (ULTA 2026-09-10).
+  const leftoverAudit = readLastActionAudit(row);
+  if (isUnverifiedReducerLeftover(leftoverAudit, brokerQty, { tolerance })) {
+    return {
+      sync_state: SYNC_STATES.PARTIAL_FILL,
+      drift_detected: true,
+      severity: "warn",
+      note: `reducer leftover: broker ${brokerQty} still held after ${leftoverAudit.kind || "reducer"} (not user-added; exit catch-up sells the remainder)`,
+      broker_state: {
+        qty: brokerQty, avgCost: brokerAvgCost, expected,
+        leftover_qty: Math.max(0, brokerQty - expected),
+      },
     };
   }
   // brokerQty > expected → user added shares (untracked delta).
@@ -740,6 +840,10 @@ async function _persistRowUpdate(env, row, classification) {
     : (row.mirror_suppressed_reason || null);
   const newSuppressedAt = shouldAutoSuppress ? now : (row.mirror_suppressed_at || null);
   const noteShort = String(classification.note || "").slice(0, 200);
+  const closeModel = classification.close_model === true ? 1 : 0;
+  const closeReason = closeModel
+    ? String(classification.close_reason || "reconcile_broker_flat").slice(0, 200)
+    : null;
   // 2026-07-24 — broker_remaining_qty = shares the MIRROR holds at the
   // broker right now (live qty minus any user-added excess the model
   // doesn't own). The old binding wrote back `expected` — which is
@@ -769,6 +873,9 @@ async function _persistRowUpdate(env, row, classification) {
              mirror_suppressed = ?13,
              mirror_suppressed_at = ?14,
              mirror_suppressed_reason = ?15,
+             model_status = CASE WHEN ?16 = 1 THEN 'CLOSED' ELSE model_status END,
+             model_exit_ts = CASE WHEN ?16 = 1 THEN ?8 ELSE model_exit_ts END,
+             model_exit_reason = CASE WHEN ?16 = 1 THEN ?17 ELSE model_exit_reason END,
              updated_at = ?8
        WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
     `).bind(
@@ -785,6 +892,8 @@ async function _persistRowUpdate(env, row, classification) {
       newSuppressed,
       newSuppressedAt,
       newSuppressedReason ? String(newSuppressedReason).slice(0, 200) : null,
+      closeModel,
+      closeReason,
     ).run();
     // Keep the in-memory row aligned with what we just wrote.
     // emitDriftNotification reads sync_state / sync_note from this object;
@@ -795,6 +904,11 @@ async function _persistRowUpdate(env, row, classification) {
     row.sync_drift_count = newDriftCount;
     if (heldQty !== null) row.broker_remaining_qty = heldQty;
     if (filledUpdate !== null) row.broker_filled_qty = filledUpdate;
+    if (closeModel) {
+      row.model_status = "CLOSED";
+      row.model_exit_ts = now;
+      row.model_exit_reason = closeReason;
+    }
     row.mirror_suppressed = newSuppressed;
     row.mirror_suppressed_at = newSuppressedAt;
     row.mirror_suppressed_reason = newSuppressedReason;
@@ -864,13 +978,13 @@ async function _verifyPostExecutionAudit(env, row, liveHeldQty) {
   const verifyAfter = Number(audit.verify_after_ms || 0);
   if (verifyAfter > 0 && Date.now() < verifyAfter) return "skip_not_due";
 
-  const expected = Number(audit.expected_post_held_qty);
-  if (!Number.isFinite(expected)) return "skip_no_audit";
-  const live = Number(liveHeldQty) || 0;
-  const drift = live - expected;
-  const absDrift = Math.abs(drift);
+  const classified = classifyPostExecHeldDrift(audit, liveHeldQty);
+  if (classified.status === "skip_no_audit") return "skip_no_audit";
+  const expected = classified.expected;
+  const live = classified.live;
+  const drift = classified.drift;
 
-  if (absDrift <= POST_EXEC_TOLERANCE_QTY) {
+  if (classified.status === "verified") {
     // Broker converged. Clear the audit (verified) + log the receipt.
     await markLastActionVerified(env, row, live);
     try {
@@ -898,14 +1012,22 @@ async function _verifyPostExecutionAudit(env, row, liveHeldQty) {
     return "verified";
   }
 
-  // Drift — broker did NOT do what we asked. Stamp drift on the audit,
-  // log a discrepancy audit row, and emit a critical drift notification
-  // so the operator sees a first-class alert (Discord + email in
-  // production).
-  await markLastActionDrift(env, row, live);
-  const reason = live > expected
-    ? "reducer_underexecuted_or_replenished" // broker sold LESS than expected
-    : "reducer_overexecuted";                // broker sold MORE than expected
+  // Drift — broker did NOT do what we asked. Always re-stamp the audit so a
+  // later pass can still see it heal, but only write the discrepancy row and
+  // notify when there is something new to say. The audit is deliberately left
+  // `verified:false`, so an unconditional report re-fired every reconcile
+  // pass: DE 0.226964 sh held 6 of the 6 newest audit rows for days and put
+  // real placements 26 rows deep.
+  const repeat = shouldReportPostExecDrift(audit, drift);
+  await markLastActionDrift(env, row, live, { reported: repeat.report });
+  if (!repeat.report) {
+    console.log(`[POST_EXEC_AUDIT] drift unchanged on ${row.ticker}/${row.trade_id} (${drift.toFixed(4)} sh) — already reported, re-check only (${Math.round((repeat.suppressed_for_ms || 0) / 60000)}m to next)`);
+    return "drift_repeat";
+  }
+  const reason = classified.reason || (
+    live > expected ? "reducer_underexecuted" : "reducer_overexecuted"
+  );
+  const notifySeverity = classified.severity || "critical";
   try {
     await writeAudit(env, {
       ts: Date.now(),
@@ -938,7 +1060,7 @@ async function _verifyPostExecutionAudit(env, row, liveHeldQty) {
       ...row,
       sync_state: "execution_drift",
       sync_note: `post-exec drift on ${audit.kind}: expected ~${expected.toFixed(4)} held, live ${live.toFixed(4)} (drift ${drift.toFixed(4)} sh, ${reason})`,
-    }, "critical");
+    }, notifySeverity);
   } catch (_) { /* notify best-effort */ }
   return "drift";
 }
@@ -1141,6 +1263,10 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
           stats.post_exec_verified = (stats.post_exec_verified || 0) + 1;
         } else if (outcome === "drift") {
           stats.post_exec_drift = (stats.post_exec_drift || 0) + 1;
+        } else if (outcome === "drift_repeat") {
+          // Still drifting, already reported. Counted separately so the
+          // cycle stats show the gap persists without implying a new one.
+          stats.post_exec_drift_repeat = (stats.post_exec_drift_repeat || 0) + 1;
         } else if (outcome === "skip_not_due") {
           stats.post_exec_pending = (stats.post_exec_pending || 0) + 1;
         }

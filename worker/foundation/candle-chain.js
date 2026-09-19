@@ -79,6 +79,21 @@ export function canonicalDailyTs(ts) {
 }
 
 /**
+ * D/W writes snap to the UTC midnight anchor so TwelveData 00:00Z and
+ * Alpaca 04:00Z land on the same primary key. Sibling stamps in that
+ * UTC day should be deleted after the upsert.
+ */
+export function prepareHtCandleWrite(tf, ts) {
+  const n = Number(ts);
+  const t = String(tf || "").toUpperCase();
+  if (!Number.isFinite(n) || (t !== "D" && t !== "1D" && t !== "W" && t !== "1W")) {
+    return { ts: n, siblingFrom: null, siblingTo: null };
+  }
+  const canon = canonicalDailyTs(n);
+  return { ts: canon, siblingFrom: canon, siblingTo: canon + DAY_MS };
+}
+
+/**
  * Normalize + dedup a daily series: snap every bar to its canonical daily anchor
  * and de-duplicate by ts (last write wins). This is what kills the legacy
  * 00:00Z/04:00Z daily double-write — both stamps map to the same anchor and

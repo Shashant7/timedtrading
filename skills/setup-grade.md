@@ -29,7 +29,7 @@ when the grade later falls.
 | TT Core | `qualifyEntry` in `worker/pipeline/tt-core-entry.js` |
 | Legacy enter | `qualifiesForEnter` in `worker/index.js` |
 | Stamp | `d.__setup_grade` + `__setup_evaluation.setup_grade` |
-| Version | `SCORING_VERSION` `2.1.9-2026-09-10` |
+| Version | `SCORING_VERSION` `2.1.10-2026-09-10` |
 | Paper families | `resolvePaperFamilyStandaloneEntry` — same floor |
 
 `deep_audit_setup_grade_enabled` default **true**. Floor
@@ -62,7 +62,7 @@ node node_modules/vitest/vitest.mjs run \
   worker/pipeline/admission-seam.test.js
 ```
 
-After deploy, a sentinel rescore should show `scoring_version` `2.1.9`
+After deploy, a sentinel rescore should show `scoring_version` `2.1.10`
 and `__setup_grade` on rejected/qualified core **and** paper-family
 attempts. Members/anon must not see the stamp (`redactTickerSnapshot`).
 A thin Cloud Pivot proposal must not open. Support Bounce explain must

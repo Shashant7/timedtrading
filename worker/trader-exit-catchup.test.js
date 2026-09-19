@@ -9,7 +9,12 @@ vi.mock("./broker-bridge-client.js", () => ({
   recordBridgeMirrorSkip: (...args) => skipMock(...args),
 }));
 
-import { planTraderExitCatchup, runTraderExitCatchup, rowHoldsReducerQty } from "./trader-exit-catchup.js";
+import {
+  planTraderExitCatchup,
+  runTraderExitCatchup,
+  rowHoldsReducerQty,
+  clampExitOpsToHoldings,
+} from "./trader-exit-catchup.js";
 
 const AMZN_EXIT = {
   position_id: "AMZN-1787578395449-2nbtbch14",
@@ -91,6 +96,102 @@ describe("planTraderExitCatchup", () => {
     expect(ops).toHaveLength(1);
     expect(ops[0].qty).toBe(0.2714);
   });
+
+  it("plans leftover on a stale OPEN sleeve when the mothership trade is closed", () => {
+    const stale = {
+      trade_id: "ULTA-1788443015769-b6e9u2f8g",
+      ticker: "ULTA",
+      user_id: "shashant@gmail.com",
+      broker_account_id: "LJJ84GKUVIVG998B8DO3069DKA",
+      broker_remaining_qty: 0.07902,
+      model_status: "OPEN",
+      sync_state: "rejected",
+      mirror_suppressed: 1,
+    };
+    const ops = planTraderExitCatchup({
+      exits: [],
+      manifests: [stale],
+      closedTradeIds: ["ULTA-1788443015769-b6e9u2f8g"],
+    });
+    expect(ops).toHaveLength(1);
+    expect(ops[0].qty).toBe(0.07902);
+  });
+});
+
+// 2026-09-14 — the live plan wanted 30 ops against a Roth that held one
+// residual per ticker: PH 0.13612 claimed by four stale sleeves, DPZ 0.2714
+// by two, XLRE 1.35379 by two. Every claim is a real manifest row; only the
+// first is a real share.
+describe("clampExitOpsToHoldings", () => {
+  const ROTH = "LJJ84GKUVIVG998B8DO3069DKA";
+  const op = (ticker, tradeId, qty, exitTs = 0) => ({
+    trade_id: tradeId,
+    ticker,
+    user_id: "shashant@gmail.com",
+    broker_account_id: ROTH,
+    qty,
+    exit_ts: exitTs,
+  });
+  const PH_CLAIMS = [
+    op("PH", "PH-1787771392989-f9iyi0rgr", 0.13612),
+    op("PH", "PH-1786982842280-z9qno23xt", 0.13612),
+    op("PH", "PH-1786648976564-i9c7t6uqg", 0.13612),
+    op("PH", "PH-1785949382582-y6a0jrjtr", 0.13612),
+  ];
+
+  it("sells the PH residual once, not four times", () => {
+    const { ops, dropped } = clampExitOpsToHoldings(PH_CLAIMS, { PH: { qty: 0.13612 } });
+    expect(ops).toHaveLength(1);
+    expect(ops[0].qty).toBe(0.13612);
+    expect(dropped).toHaveLength(3);
+    expect(dropped.every((d) => d.skip === "broker_position_already_flat")).toBe(true);
+  });
+
+  it("dedupes to one claim even when the broker cannot be asked", () => {
+    const { ops, dropped } = clampExitOpsToHoldings(PH_CLAIMS, null);
+    expect(ops).toHaveLength(1);
+    expect(dropped).toHaveLength(3);
+  });
+
+  it("clamps a claim larger than the position instead of shorting it", () => {
+    const { ops } = clampExitOpsToHoldings(
+      [op("DPZ", "DPZ-1788443309854-hlxfbubhx", 0.2714)],
+      { DPZ: { qty: 0.1 } },
+    );
+    expect(ops).toHaveLength(1);
+    expect(ops[0].qty).toBe(0.1);
+    expect(ops[0].claimed_qty).toBe(0.2714);
+    expect(ops[0].clamped).toBe(true);
+  });
+
+  it("drops every claim on a ticker the broker is flat in", () => {
+    const { ops, dropped } = clampExitOpsToHoldings(
+      [op("TNA", "it:IWM:TNA:LONG:2026-W36", 4)],
+      { DPZ: { qty: 0.2714 } },
+    );
+    expect(ops).toHaveLength(0);
+    expect(dropped[0].skip).toBe("broker_position_already_flat");
+    expect(dropped[0].held_qty).toBe(0);
+  });
+
+  // The zombies filled the hourly max_ops window ahead of a real miss.
+  it("spends the position on the newest exit first", () => {
+    const { ops } = clampExitOpsToHoldings([
+      op("XLRE", "XLRE-1784747320549-quvjz2sxa", 1.35379, 0),
+      op("XLRE", "XLRE-1786723521379-gan8kwxju", 1.35379, Date.parse("2026-09-14T16:35:05Z")),
+    ], { XLRE: { qty: 1.35379 } });
+    expect(ops).toHaveLength(1);
+    expect(ops[0].trade_id).toBe("XLRE-1786723521379-gan8kwxju");
+  });
+
+  it("splits one position across two accounts' claims", () => {
+    const { ops } = clampExitOpsToHoldings([
+      { ...op("UNP", "UNP-1786730641396-bl2td32wf", 2), broker_account_id: "9QHQ6RKN0POS4JU54D4TJTKH98" },
+      op("UNP", "UNP-1786125805120-po3kjcj7z", 1.90357),
+    ], { UNP: { qty: 1.90357 } });
+    expect(ops).toHaveLength(1);
+    expect(ops[0].qty).toBe(1.90357);
+  });
 });
 
 describe("runTraderExitCatchup", () => {
@@ -133,5 +234,25 @@ describe("runTraderExitCatchup", () => {
     expect(opts.qty).toBe(0.27239);
     expect(opts.price).toBe(256.22);
     expect(opts.dry_run).toBe(false);
+  });
+
+  it("reports the flat claims without spending a max_ops slot on them", async () => {
+    const out = await runTraderExitCatchup({}, {
+      dry_run: false,
+      now: new Date("2026-08-28T10:05:00-04:00"),
+      max_ops: 1,
+      held: { AMZN: { qty: 0.27239 } },
+      exits: [AMZN_EXIT],
+      manifests: [
+        AMZN_HELD,
+        { ...AMZN_HELD, trade_id: "AMZN-1780000000000-oldlot", model_status: "CLOSED" },
+      ],
+    });
+    expect(out.claimed).toBe(2);
+    expect(out.planned).toBe(1);
+    expect(out.flat_dropped).toBe(1);
+    expect(out.held_known).toBe(true);
+    expect(out.forwarded).toBe(1);
+    expect(catchupMock).toHaveBeenCalledTimes(1);
   });
 });

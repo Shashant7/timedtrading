@@ -25,11 +25,12 @@ import {
 import { synthesizeNineHourBars, synthesizeRthSessionBars } from "./session-tfs.js";
 import { resolveFormingPair } from "./mtf-forming.js";
 import { computeTdBoostForSide } from "./td-sequential-boost.js";
+import { evaluateBreakoutWatch, stampBreakoutWatchOnTicker } from "./breakout-watch.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
 // this version let us know exactly which logic produced them.
-export const SCORING_VERSION = "2.1.9-2026-09-10";
+export const SCORING_VERSION = "2.1.10-2026-09-10";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)
@@ -5169,6 +5170,18 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
   // ── Breakout Detection (daily level, ATR-relative, EMA stack) ──
   const rawDailyBars = rawBarsEarly?.D || rawBarsEarly?.daily || [];
   const breakout = detectBreakout(bD, regime, price, rawDailyBars);
+  // Trendline + level watch. Fired → kanban setup ("look for a good
+  // entry"). Not a new qualifiesForEnter path.
+  const bundleRvol = Math.max(bD?.rvolSpike || 0, bD?.rvol5 || 0);
+  const breakoutWatch = evaluateBreakoutWatch({
+    dailyBars: rawDailyBars,
+    price,
+    existingBreakout: breakout,
+    atr14: bD?.atr14,
+    rvol: bundleRvol > 0 ? bundleRvol : null,
+    priorWatch: existingData?._breakout_watch || existingData?.breakout_watch,
+  });
+  if (breakoutWatch) stampBreakoutWatchOnTicker({ flags }, breakoutWatch);
 
   // ── Opening Range Breakout (ORB) ──
   const orbIntradayBars = rawBarsEarly?.["10"] || rawBarsEarly?.["15"] || rawBarsEarly?.["5"] || [];
@@ -5308,6 +5321,8 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
     market_internals: marketInternals || regimeClass.market_internals || undefined,
     execution_profile: executionProfile || undefined,
     breakout: breakout || undefined,           // breakout detection result
+    breakout_watch: breakoutWatch || undefined,
+    _breakout_watch: breakoutWatch || undefined,
     overnight_gap: overnightGap || undefined,  // prior-close vs open gap context
     orb: orb || undefined,                     // Opening Range Breakout levels + signals
     data_source: "alpaca",
@@ -5838,7 +5853,10 @@ export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
 /**
  * Deduplicate candles so there is at most one per calendar period.
  *
- * For Daily: one candle per calendar date (UTC).
+ * For Daily: one candle per UTC day, plus same-NY-day stamps
+ * within 12 hours (close print + late twin). 00:00Z and 04:00Z
+ * of the same UTC day collapse; consecutive TwelveData midnights
+ * do not.
  * For Weekly: one candle per ISO week.
  * For Monthly: one candle per year-month.
  * For intraday: deduplicate by exact timestamp (safety net).
@@ -5892,13 +5910,23 @@ export function deduplicateCandles(candles, tf) {
   const upperTf = String(tf).toUpperCase();
 
   if (upperTf === "D" || upperTf === "1D" || upperTf === "DAY") {
-    const byDate = new Map();
+    const DAY_MS = 86400000;
+    const byUtc = new Map();
     for (const c of candles) {
-      const key = nyTradingDayKey(c.ts);
-      if (!key) continue;
-      byDate.set(key, _mergeOhlcCandle(byDate.get(key), c));
+      if (!Number.isFinite(Number(c?.ts))) continue;
+      const key = Math.floor(Number(c.ts) / DAY_MS) * DAY_MS;
+      byUtc.set(key, _mergeOhlcCandle(byUtc.get(key), c));
     }
-    return [...byDate.values()].sort((a, b) => a.ts - b.ts);
+    const mid = [...byUtc.values()].sort((a, b) => a.ts - b.ts);
+    const out = [];
+    for (const c of mid) {
+      const prev = out[out.length - 1];
+      const sameNy = prev && nyTradingDayKey(prev.ts) && nyTradingDayKey(prev.ts) === nyTradingDayKey(c.ts);
+      const closeInTime = prev && Math.abs(Number(c.ts) - Number(prev.ts)) <= 12 * 3600000;
+      if (prev && sameNy && closeInTime) out[out.length - 1] = _mergeOhlcCandle(prev, c);
+      else out.push(c);
+    }
+    return out;
   }
 
   if (upperTf === "W" || upperTf === "1W" || upperTf === "WEEK") {

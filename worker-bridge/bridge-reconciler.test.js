@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reconcileUser } from "./bridge-reconciler.js";
+import { reconcileUser, classifyDrift, isGhostUntrackedBrokerFlat } from "./bridge-reconciler.js";
 
 /**
  * 2026-07-24 — two reconciler regressions found during the post-launch
@@ -110,6 +110,36 @@ describe("reconcileUser — fan-out user_id vs manifest base user_id", () => {
     expect(upd).toBeTruthy();
     expect(upd.args[4]).toBeCloseTo(1.2, 6); // remaining converges to held
     expect(upd.args[3]).toBeNull();          // cumulative fills untouched
+  });
+});
+
+describe("reconcileUser — untracked ghost leftover", () => {
+  it("closes an untracked OPEN claim when the broker is already flat", async () => {
+    const ghost = {
+      ...manifestRow,
+      ticker: "TNA",
+      trade_id: "it:IWM:TNA:LONG:2026-W36",
+      sync_state: "untracked",
+      broker_remaining_qty: 4,
+      model_intended_qty: 29,
+    };
+    expect(isGhostUntrackedBrokerFlat(ghost, null)).toBe(true);
+    expect(classifyDrift(ghost, null).close_model).toBe(true);
+    expect(classifyDrift(ghost, { qty: 4 }).close_model).toBeFalsy();
+
+    const db = makeDb({ rows: [ghost] });
+    const stats = await reconcileUser(
+      { BRIDGE_DB: db },
+      perAccountUser,
+      { async getEquityPositions() { return { ok: true, positions: [] }; } },
+      {},
+    );
+    expect(stats.rows_scanned).toBe(1);
+    const upd = db.updates.find((u) => /model_status = CASE WHEN/i.test(u.sql));
+    expect(upd).toBeTruthy();
+    expect(upd.args[4]).toBe(0); // remaining converges to broker 0
+    expect(upd.args[15]).toBe(1); // close_model
+    expect(upd.args[16]).toBe("reconcile_untracked_broker_flat");
   });
 });
 

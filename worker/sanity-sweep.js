@@ -17,10 +17,12 @@
 //   6. position_drift              same position trimmed >2x in last hour
 //   7. price_outlier               ticker price > 3x its 30d average
 //   8. bridge_mirror_coverage      BROKER_INVESTOR_MIRROR_ENABLED on AND last call >24h
+//  18. model_broker_coverage       every model lane vs ring/intents (relative qty)
 //   9. loop2_breaker_stale         Loop 2 paused for >48h with no operator action
 //  10. nav_script_coverage         user-facing html missing tt-bottom-nav.js
 //  15. broker_bridge_bindings      URL set but HMAC/service-binding missing
 //  16. worker_role_split           dual scoring heartbeats / RESEARCH_EXTERNAL typo
+//  19. registry_alignment          live Upticks vs TT_SELECTED vs GICS vs removed
 //
 // SEVERITY:
 //   fail  — caller should treat as outage. Page on-call. Discord ⛔.
@@ -50,6 +52,17 @@ import {
   slDrawdownPct,
   DEFAULT_MAX_SL_DRAWDOWN_PCT,
 } from "./sanity-stop-heal.js";
+import {
+  evaluateModelBrokerCoverage,
+  loadMirrorCoverage,
+} from "./mirror-coverage.js";
+import { SECTOR_MAP } from "./sector-mapping.js";
+import { TT_SELECTED_DEFAULT } from "./focus-tier.js";
+import {
+  diffRegistryAlignment,
+  evaluateRegistryAlignment,
+  healUnknownSectorMapKeys,
+} from "./registry-alignment.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -704,6 +717,55 @@ const checkAlertDelivery = timed(async function checkAlertDelivery(env, ctx) {
 });
 
 // ── Check 15: broker_bridge_bindings ────────────────────────────────────
+//
+// 2026-07-24 — Ignore failures superseded by a later ok for the same
+// trade_id+side (operator retry / catch-up). Also treat inv-inv-* DCA
+// rejects as resolved when inv-* later placed (double-prefix catch-up).
+// 2026-09-11 — Do not treat expected broker rejects as a bindings outage:
+// already-flat `no_broker_position`, and ETH "only limit orders" (the
+// healer must not fire overnight market sells to "fix" those).
+
+export function isExpectedBridgeReject(row) {
+  const reason = String(row?.reject_reason || row?.error || "").toLowerCase();
+  if (!reason) return false;
+  if (reason.includes("no_broker_position")) return true;
+  if (reason.includes("only limit orders are supported for extended-hours")) return true;
+  return false;
+}
+
+export function isSupersededBridgeReject(row, ring = []) {
+  const ts = Number(row?.ts || 0);
+  const side = String(row?.side || "");
+  const tid = String(row?.trade_id || "");
+  const altTid = tid.startsWith("inv-inv-") ? tid.replace(/^inv-inv-/, "inv-") : null;
+  for (const o of ring) {
+    if (o?.status !== "ok") continue;
+    if (String(o?.side || "") !== side) continue;
+    if (Number(o?.ts || 0) <= ts) continue;
+    const otid = String(o?.trade_id || "");
+    if (otid === tid || (altTid && otid === altTid)) return true;
+  }
+  return false;
+}
+
+export function evaluateBrokerRejectDensity({
+  ring = [],
+  nowMs = Date.now(),
+  windowMs = 6 * 3600000,
+} = {}) {
+  const list = Array.isArray(ring) ? ring : [];
+  const recent = list.filter((r) => (nowMs - Number(r?.ts || 0)) < windowMs);
+  const bad = recent.filter((r) =>
+    (r?.status === "error" || r?.status === "fetch_error")
+    && !isSupersededBridgeReject(r, list)
+    && !isExpectedBridgeReject(r));
+  if (bad.length < 3) return [];
+  const sample = bad.slice(0, 3).map((r) => `${r.ticker}/${r.side}:${r.reject_reason || r.error || r.http_status}`).join("; ");
+  return [{
+    detail: `${bad.length} unresolved bridge mirror failures in last 6h (of ${recent.length} dispatches; superseded retries and expected rejects excluded) — e.g. ${sample}`,
+    severity: bad.length >= 8 ? "fail" : "warn",
+  }];
+}
 
 const checkBrokerBridgeBindings = timed(async function checkBrokerBridgeBindings(env, ctx) {
   const anomalies = [];
@@ -726,38 +788,11 @@ const checkBrokerBridgeBindings = timed(async function checkBrokerBridgeBindings
     }
 
     // Recent reject / fetch_error density in the client ring.
-    // 2026-07-24 — Ignore failures superseded by a later ok for the same
-    // trade_id+side (operator retry / catch-up). Also treat inv-inv-* DCA
-    // rejects as resolved when inv-* later placed (double-prefix catch-up).
-    // Otherwise the 6h window keeps paging after NVDA/TT/ETN were fixed.
     const ringRaw = await env.KV_TIMED.get("bridge:client:recent");
     let ring = [];
     try { ring = ringRaw ? JSON.parse(ringRaw) : []; } catch (_) { ring = []; }
     if (!Array.isArray(ring)) ring = [];
-    const recent = ring.filter((r) => (Date.now() - Number(r?.ts || 0)) < 6 * 3600000);
-    const isSuperseded = (r) => {
-      const ts = Number(r?.ts || 0);
-      const side = String(r?.side || "");
-      const tid = String(r?.trade_id || "");
-      const altTid = tid.startsWith("inv-inv-") ? tid.replace(/^inv-inv-/, "inv-") : null;
-      for (const o of ring) {
-        if (o?.status !== "ok") continue;
-        if (String(o?.side || "") !== side) continue;
-        if (Number(o?.ts || 0) <= ts) continue;
-        const otid = String(o?.trade_id || "");
-        if (otid === tid || (altTid && otid === altTid)) return true;
-      }
-      return false;
-    };
-    const bad = recent.filter((r) =>
-      (r?.status === "error" || r?.status === "fetch_error") && !isSuperseded(r));
-    if (bad.length >= 3) {
-      const sample = bad.slice(0, 3).map((r) => `${r.ticker}/${r.side}:${r.reject_reason || r.error || r.http_status}`).join("; ");
-      anomalies.push({
-        detail: `${bad.length} unresolved bridge mirror failures in last 6h (of ${recent.length} dispatches; superseded retries excluded) — e.g. ${sample}`,
-        severity: bad.length >= 8 ? "fail" : "warn",
-      });
-    }
+    anomalies.push(...evaluateBrokerRejectDensity({ ring }));
   } catch (e) {
     anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
   }
@@ -1062,6 +1097,84 @@ const checkInvestorSignalBridgeCoverage = timed(async function checkInvestorSign
   );
 });
 
+// ── Check 18: model_broker_coverage ─────────────────────────────────────
+//
+// 2026-09-11 — Fail-closed join of every model lane (ST, Long Term,
+// index-trend, index DT, convexity) against bridge:client:recent +
+// broker_intents + paper mirror logs. Complements the investor-only
+// checks: TNA W37 never-attempted BUY, PLTR DCA waitUntil death, and
+// AMZN EXIT leftovers were invisible to those. Relative qty drift
+// (model 100 / broker 2 on entry, then broker 100 on exit) pages too.
+const checkModelBrokerCoverage = timed(async function checkModelBrokerCoverage(env, ctx) {
+  const anomalies = [];
+  try {
+    if (!env?.BROKER_BRIDGE_URL) {
+      return envelope(
+        "model_broker_coverage",
+        "Model actions reached the broker (all lanes)",
+        [],
+        "no_op: BROKER_BRIDGE_URL not configured",
+        "would have caught: TNA W37 paper+email with no /bridge/order; PLTR 15:50 DCA lot with no ring row; AMZN EXIT leftover after waitUntil died",
+      );
+    }
+    const snap = await loadMirrorCoverage(env, {});
+    anomalies.push(...evaluateModelBrokerCoverage({
+      rows: snap.actions,
+      nowMs: snap.ts,
+    }));
+  } catch (e) {
+    anomalies.push({ detail: `check failed: ${String(e?.message || e).slice(0, 200)}`, severity: "fail" });
+  }
+  return envelope(
+    "model_broker_coverage",
+    "Model actions reached the broker (all lanes)",
+    anomalies,
+    "Inspect GET /timed/admin/broker/coverage. COO heals existing lanes (investor catch-up, trader EXIT catch-up, index-trend entry/close heal, intent drain). Unmatched Short Term ENTRIES page only — they must re-qualify, not chase.",
+    "would have caught: TNA W37 paper+email with no /bridge/order; PLTR 15:50 DCA lot with no ring row; AMZN EXIT leftover after waitUntil died; META flatten when catch-up replayed model-space shares",
+  );
+});
+
+// ── Check 19: registry_alignment ────────────────────────────────────────
+//
+// 2026-09-12 — Live Upticks vs TT_SELECTED_DEFAULT vs SECTOR_MAP vs
+// ticker_index vs timed:removed. Cheap KV/D1 reads only (no candles).
+const checkRegistryAlignment = timed(async function checkRegistryAlignment(env) {
+  const anomalies = [];
+  try {
+    const kv = env?.KV_TIMED;
+    const liveUpticks = (await kv?.get("timed:admin:upticks", "json")) || [];
+    const removed = (await kv?.get("timed:removed", "json")) || [];
+    const kvTickers = (await kv?.get("timed:tickers", "json")) || [];
+    let indexTickers = Array.isArray(kvTickers) ? kvTickers : [];
+    try {
+      const { results } = await env.DB.prepare(
+        `SELECT ticker FROM ticker_index ORDER BY ticker ASC`,
+      ).all();
+      if (results?.length) indexTickers = results.map((r) => r.ticker);
+    } catch (_) { /* cheap table; tolerate miss */ }
+    const healed = kv
+      ? await healUnknownSectorMapKeys(kv, Array.isArray(kvTickers) ? kvTickers : [])
+      : [];
+    const diff = diffRegistryAlignment({
+      liveUpticks: Array.isArray(liveUpticks) ? liveUpticks : [],
+      ttSelected: [...TT_SELECTED_DEFAULT],
+      sectorMapKeys: Object.keys(SECTOR_MAP),
+      indexTickers,
+      removed: Array.isArray(removed) ? removed : [],
+    });
+    anomalies.push(...evaluateRegistryAlignment(diff, { unknownHealed: healed }));
+  } catch (e) {
+    anomalies.push({ detail: `check failed: ${String(e?.message || e).slice(0, 200)}`, severity: "warn" });
+  }
+  return envelope(
+    "registry_alignment",
+    "Registry, Upticks, and GICS stay aligned",
+    anomalies,
+    "Lift live Upticks from timed:removed via POST /timed/admin/universe. Add missing GICS in worker/sector-mapping.js. Keep TT_SELECTED_DEFAULT equal to timed:admin:upticks. Inspect GET /timed/admin/registry-alignment.",
+    "would have caught: DBA live Uptick left on timed:removed (Sep 2026); DDOG KV-only rotation while TT_SELECTED stayed August; TEAM/ALL/DAL theme-only with no GICS row.",
+  );
+});
+
 // ── Master sweep ────────────────────────────────────────────────────────
 
 const CHECKS = [
@@ -1088,6 +1201,12 @@ const CHECKS = [
   // source-contract test. Catches investor SELLs written to D1 but
   // never forwarded to the broker bridge (KO event-risk gap).
   checkInvestorSignalBridgeCoverage,
+  // 2026-09-11 — All-lane model vs broker (ST / Long Term / index-trend
+  // / index DT / convexity) + relative qty. Fast-pathed below.
+  checkModelBrokerCoverage,
+  // 2026-09-12 — Hourly only. Live Upticks vs curated set vs GICS vs
+  // ticker_index vs timed:removed. Heals Unknown sector_map overlays.
+  checkRegistryAlignment,
 ];
 
 // Critical-path subset that runs every 15min instead of hourly. These
@@ -1108,6 +1227,7 @@ const FAST_CHECKS = [
   // is the difference between catching it before earnings and eating
   // the drawdown.
   checkInvestorSignalBridgeCoverage,
+  checkModelBrokerCoverage,
 ];
 
 /**

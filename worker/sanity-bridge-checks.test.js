@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   evaluateBridgeMirrorCoverage,
   evaluateBrokerReconcilerFreshness,
+  evaluateBrokerRejectDensity,
+  isExpectedBridgeReject,
 } from "./sanity-sweep.js";
 
 describe("evaluateBridgeMirrorCoverage", () => {
@@ -102,5 +104,41 @@ describe("evaluateBrokerReconcilerFreshness", () => {
       nowMs,
       bridgeConfigured: true,
     })).toEqual([]);
+  });
+});
+
+describe("evaluateBrokerRejectDensity", () => {
+  const now = Date.parse("2026-09-11T04:10:00Z");
+
+  it("treats no_broker_position and ETH limit-only as expected rejects", () => {
+    expect(isExpectedBridgeReject({ reject_reason: "no_broker_position" })).toBe(true);
+    expect(isExpectedBridgeReject({
+      error: "Only limit orders are supported for extended-hours trading. Please consider placing a limit order to trade during extended hours.",
+    })).toBe(true);
+    expect(isExpectedBridgeReject({ reject_reason: "hmac_mismatch" })).toBe(false);
+  });
+
+  it("does not page when the 6h window is only expected rejects", () => {
+    const ring = [
+      { ts: now - 10 * 60000, ticker: "TNA", side: "exit", status: "error", reject_reason: "no_broker_position" },
+      { ts: now - 20 * 60000, ticker: "UDOW", side: "exit", status: "error", reject_reason: "Only limit orders are supported for extended-hours trading" },
+      { ts: now - 30 * 60000, ticker: "TQQQ", side: "exit", status: "error", error: "no_broker_position" },
+      { ts: now - 40 * 60000, ticker: "SPY", side: "entry", status: "ok" },
+    ];
+    expect(evaluateBrokerRejectDensity({ ring, nowMs: now })).toEqual([]);
+  });
+
+  it("still pages real unresolved fetch errors", () => {
+    const ring = Array.from({ length: 8 }, (_, i) => ({
+      ts: now - i * 60000,
+      ticker: `T${i}`,
+      side: "exit",
+      status: "fetch_error",
+      error: "hmac_mismatch",
+    }));
+    const an = evaluateBrokerRejectDensity({ ring, nowMs: now });
+    expect(an).toHaveLength(1);
+    expect(an[0].severity).toBe("fail");
+    expect(an[0].detail).toMatch(/expected rejects excluded/);
   });
 });

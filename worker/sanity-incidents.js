@@ -66,6 +66,13 @@ export const SANITY_CHECK_PLAYBOOK = {
     files_hint: ["worker/coo/coo-orchestrator.js", "worker-bridge/"],
     agent_prompt: "Investor lots missing broker mirror coverage. COO catch-up via POST /timed/admin/broker-bridge/catchup-investor; if recurring, fix mirror enqueue on auto-rebalance.",
   },
+  model_broker_coverage: {
+    kind: "runtime",
+    auto_heal: true,
+    needs_pr: false,
+    files_hint: ["worker/mirror-coverage.js", "worker/investor-catchup-run.js", "worker/trader-exit-catchup.js", "worker/index-trend-auto-mirror.js"],
+    agent_prompt: "Model action missing at the broker. Read GET /timed/admin/broker/coverage. Heal existing lanes only (investor catch-up, trader EXIT catch-up, index-trend entry/close, intent drain). Do not chase unmatched Short Term ENTRIES — they must re-qualify. Share count may differ; the ratio must stay relative.",
+  },
   loop2_breaker_stale: {
     kind: "ops",
     auto_heal: false,

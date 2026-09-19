@@ -5,7 +5,19 @@ vi.mock("./broker-bridge-client.js", () => ({
   forwardOrderToBridge: (...args) => forwardMock(...args),
 }));
 
-import { catchupTraderExit } from "./broker-bridge-catchup-exit.js";
+import { catchupTraderExit, pickCatchupManifestRow } from "./broker-bridge-catchup-exit.js";
+
+describe("pickCatchupManifestRow", () => {
+  it("prefers the sleeve that still holds leftover qty", () => {
+    const rows = [
+      { trade_id: "ULTA-old", user_id: "p@x.com#webull#cash", broker_account_id: "P", broker_remaining_qty: 0 },
+      { trade_id: "ULTA-old", user_id: "shashant@gmail.com", broker_account_id: "ROTH", broker_remaining_qty: 0.07902 },
+    ];
+    const picked = pickCatchupManifestRow(rows, "ULTA-old");
+    expect(picked.broker_account_id).toBe("ROTH");
+    expect(picked.broker_remaining_qty).toBe(0.07902);
+  });
+});
 
 describe("catchupTraderExit", () => {
   beforeEach(() => {
@@ -76,5 +88,23 @@ describe("catchupTraderExit", () => {
     expect(order.client_order_id.length).toBeLessThanOrEqual(40);
     expect(order.qty).toBe(0.5);
     expect(order.entry).toBeNull();
+  });
+
+  it("scans past a zero-remaining sibling to the leftover sleeve", async () => {
+    const env = {
+      BROKER_BRIDGE: {
+        fetch: async () => new Response(JSON.stringify({
+          ok: true,
+          rows: [
+            { trade_id: "ULTA-old", ticker: "ULTA", user_id: "p@x.com", broker_remaining_qty: 0, broker_filled_qty: 0, broker_account_id: "P", mode: "trader", model_status: "OPEN" },
+            { trade_id: "ULTA-old", ticker: "ULTA", user_id: "shashant@gmail.com", broker_remaining_qty: 0.07902, broker_filled_qty: 0.07902, broker_account_id: "ROTH", mode: "trader", model_status: "OPEN" },
+          ],
+        }), { status: 200 }),
+      },
+    };
+    const out = await catchupTraderExit(env, { trade_id: "ULTA-old", dry_run: true });
+    expect(out.ok).toBe(true);
+    expect(out.planned.qty).toBe(0.07902);
+    expect(out.planned.broker_account_id).toBe("ROTH");
   });
 });

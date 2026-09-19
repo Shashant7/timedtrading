@@ -15,16 +15,16 @@ authoritative DB.
 ```bash
 cd /workspace/worker
 
-# List all tables in production D1
-../node_modules/.bin/wrangler d1 execute --env production timed-trading \
+# List all tables in production D1 (name is timed-trading-ledger)
+../node_modules/.bin/wrangler d1 execute timed-trading-ledger --env production --remote \
   --command "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
 
 # Show schema of one table
-../node_modules/.bin/wrangler d1 execute --env production timed-trading \
+../node_modules/.bin/wrangler d1 execute timed-trading-ledger --env production --remote \
   --command "SELECT sql FROM sqlite_master WHERE type='table' AND name='ai_cio_decisions';"
 
 # Read recent rows
-../node_modules/.bin/wrangler d1 execute --env production timed-trading \
+../node_modules/.bin/wrangler d1 execute timed-trading-ledger --env production --remote \
   --command "SELECT trade_id, ticker, decision, confidence, created_at FROM ai_cio_decisions ORDER BY created_at DESC LIMIT 10;"
 ```
 
@@ -91,11 +91,11 @@ LIMIT 20;
 ```bash
 # ALTER TABLE — wrap in try/catch in code; from CLI just be careful
 cd /workspace/worker
-../node_modules/.bin/wrangler d1 execute --env production timed-trading \
+../node_modules/.bin/wrangler d1 execute timed-trading-ledger --env production --remote \
   --command "ALTER TABLE ai_cio_decisions ADD COLUMN is_replay INTEGER DEFAULT 0;"
 
 # Delete a single bad row (e.g. duplicate trade id)
-../node_modules/.bin/wrangler d1 execute --env production timed-trading \
+../node_modules/.bin/wrangler d1 execute timed-trading-ledger --env production --remote \
   --command "DELETE FROM trades WHERE trade_id = 'bad-id-here';"
 ```
 
@@ -110,13 +110,27 @@ run via `wrangler d1 migrations apply`.
 - **No unbounded window functions on big tables** — `ROW_NUMBER() OVER
   (PARTITION BY ticker)` on `ticker_candles` (millions of rows) will
   OOM the D1 query. Add `WHERE timeframe='D' AND ts >= ?` first.
+- **Never ad-hoc `GROUP BY ticker, tf` on `ticker_candles`** — that
+  scan is the Sep 2026 20B-read bill (~6B/week). Onboard gap detection
+  reads KV `timed:cache:candle-tf-counts` (1h TTL). Bust it next to
+  `timed:cache:ingestion-status`. See `worker/candle-tf-counts.js`.
+- **Never `OFFSET` page `trail_5m_facts`** — page N re-reads every
+  prior row. Use `trailFactsKeysetSql()` in `worker/lib/regime-markov-compute.js`.
 - **`ALTER TABLE ADD COLUMN` may fail if column exists** — always wrap
   in try/catch (code) or use `PRAGMA table_info(table)` to check first.
 - **D1 is SQLite, not PostgreSQL** — no `RETURNING` (newer SQLite has it,
   D1's runtime doesn't), no `IF NOT EXISTS` on `ADD COLUMN`, no `INSERT
   ON CONFLICT UPDATE` with multiple columns easily.
 
+## Dead-weight tickers (report only)
+
+Do not scan candles. Classify from `ticker_index`, `ticker_latest`,
+`ticker_profiles`, live `trades` (`run_id` null), `user_tickers`,
+`investor_positions`. Classifier: `worker/dead-weight-tickers.js`.
+Snapshot: [`docs/dead-weight-tickers-2026-09-12.md`](../docs/dead-weight-tickers-2026-09-12.md).
+Do not auto-REMOVE.
+
 ## Source
 
-- `worker/wrangler.toml` → D1 bindings (`timed-trading` is the prod DB)
+- `worker/wrangler.toml` → D1 bindings (`timed-trading-ledger` is the prod DB)
 - Lessons: [`tasks/lessons.md`](../tasks/lessons.md) → "D1" entries

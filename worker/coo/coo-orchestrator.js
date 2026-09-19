@@ -323,6 +323,47 @@ async function _notifyCalibrationCycle(env, report, outcome) {
 // ── Self-healing actions ──────────────────────────────────────────────
 
 /**
+ * One line describing what a heal did, per lane.
+ *
+ * `JSON.stringify(action).slice(0, 200)` used to be good enough, back when
+ * a heal was one operation. `model_broker_coverage` fans out to five lanes
+ * and the raw dump spends its whole budget on the first two: the 2026-09-15
+ * 14:04 heal — the pass that recovered three stranded index-trend entries —
+ * logged `investor` and half of `trader_exits`, and the three lanes that
+ * did the interesting work were cut off mid-token. Summarising per lane
+ * fits all five and keeps the counts that matter (what was planned, what
+ * actually forwarded).
+ */
+export function summarizeHealAction(action) {
+  const results = action?.results && typeof action.results === "object" ? action.results : null;
+  if (!results) return JSON.stringify(action).slice(0, 200);
+  const parts = [];
+  for (const [lane, row] of Object.entries(results)) {
+    if (!row || typeof row !== "object") { parts.push(`${lane}=${row}`); continue; }
+    if (row.skipped === "cooldown") {
+      // Distinct from a lane that ran and did nothing — this one never ran.
+      parts.push(`${lane}:cooldown(${row.last_ok_min_ago}m)`);
+      continue;
+    }
+    const counts = [
+      ["planned", row.planned],
+      ["claimed", row.claimed],
+      ["dropped", row.flat_dropped],
+      ["fwd", row.forwarded ?? row.forwarded_ok],
+      ["filled", row.filled],
+      ["scanned", row.scanned],
+      ["skipped", row.skipped],
+      ["drained", row.drained],
+    ].filter(([, v]) => Number(v) > 0).map(([k, v]) => `${k}=${v}`);
+    parts.push(`${lane}:${row.ok === false ? "FAIL" : "ok"}${counts.length ? `(${counts.join(",")})` : ""}`);
+  }
+  const failed = Array.isArray(action?.failed) && action.failed.length
+    ? ` failed=[${action.failed.join(",")}]`
+    : "";
+  return `${parts.join(" ")}${failed}`.slice(0, 400);
+}
+
+/**
  * Read the latest sanity sweep, route each failing check to its
  * remediation handler. Each remediation is idempotent + cooldown-gated.
  *
@@ -356,6 +397,12 @@ export async function runSelfHealing(env, options = {}) {
     // 2026-07-30 — Missed broker mirrors (ETH fractional reject, missing
     // forward call). Gated catch-up replays only when thesis/price intact.
     "investor_signal_bridge_coverage",
+    // 2026-09-11 — same catch-up as investor_signal_bridge_coverage.
+    // Does not place overnight market sells.
+    "bridge_mirror_coverage",
+    // 2026-09-11 — all-lane model vs broker. Fans out to existing
+    // lane heals; does not invent a Short Term ENTRY buy path.
+    "model_broker_coverage",
     // 2026-08-17 (evolved from PR #896) — stale investor compute.
     "compute_freshness",
   ]);
@@ -399,16 +446,24 @@ export async function runSelfHealing(env, options = {}) {
       action = enabled
         ? await _healInvalidationDistance(env)
         : { ok: true, dry_run: true, would_do: "tightenWideOpenStops(dryRun=false)" };
-    } else if (check.id === "investor_signal_bridge_coverage") {
+    } else if (check.id === "investor_signal_bridge_coverage" || check.id === "bridge_mirror_coverage") {
       action = enabled
         ? await _healInvestorBridgeCatchup(env, baseUrl, adminKey)
         : { ok: true, dry_run: true, would_do: "POST /timed/admin/broker-bridge/catchup-investor {dry_run:false,hours:72,max_ops:24}" };
+    } else if (check.id === "model_broker_coverage") {
+      action = enabled
+        ? await _healModelBrokerCoverage(env)
+        : { ok: true, dry_run: true, would_do: "POST catchup-investor + catchup-trader-exits + index-trend heal-entries/closes + broker-intents/drain" };
     } else if (check.id === "compute_freshness") {
       action = enabled
         ? await _healComputeFreshness(env)
         : { ok: true, dry_run: true, would_do: "POST /timed/investor/compute" };
     } else {
-      action = { ok: false, reason: `no_handler_for_${check.id}` };
+      // Unknown fail/warn is not a missing healer — do not page Discord
+      // as "Heal skipped: <id> (no_handler)". Operator triage stays on
+      // the sanity check itself.
+      skipped.push({ check: check.id, reason: "not_self_healable" });
+      continue;
     }
 
     await recordAction(env, {
@@ -420,8 +475,10 @@ export async function runSelfHealing(env, options = {}) {
       reason: action?.dry_run
         ? `would_do: ${action.would_do}`
         : action?.ok
-          ? `healed: ${JSON.stringify(action).slice(0, 200)}`
-          : `failed: ${action?.error || action?.reason || "unknown"}`,
+          ? `healed: ${summarizeHealAction(action)}`
+          : `failed: ${action?.error
+            || action?.reason
+            || (action?.failed?.length ? `lanes:${action.failed.join(",")}` : "unknown")}`,
     });
 
     if (action?.ok && !action?.dry_run) {
@@ -433,6 +490,81 @@ export async function runSelfHealing(env, options = {}) {
   }
 
   return { healed, skipped, elapsed_ms: Date.now() - t0 };
+}
+
+// Per-lane cooldown for the model_broker_coverage heal.
+//
+// The check-level cooldown only gets written when the WHOLE check succeeds,
+// so once the verdict became every-lane (rather than any-lane) a single
+// persistently failing lane meant no cooldown at all — and the four healthy
+// lanes re-ran on every COO cycle instead of every four hours. That is not
+// free: `catchup-trader-exits` carries `max_ops: 8` and `catchup-investor`
+// `max_ops: 24`, and this lane has already burned an hourly op window on
+// repeat work ahead of real misses once. A lane that just succeeded should
+// back off while the broken one keeps retrying.
+export const HEAL_LANE_COOLDOWN_MS = 4 * 60 * 60 * 1000;
+const HEAL_LANE_COOLDOWN_KEY = (check, lane) => `coo:heal_cooldown:${check}:${lane}`;
+
+const MODEL_BROKER_COVERAGE_LANES = [
+  { id: "investor", run: (env) => _healInvestorBridgeCatchup(env) },
+  {
+    id: "trader_exits",
+    run: (env) => _dispatchJson(env, "/timed/admin/broker-bridge/catchup-trader-exits", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dry_run: false, hours: 72, max_ops: 8, source: "catchup_coo_heal" }),
+    }),
+  },
+  { id: "index_entries", run: (env) => _dispatchJson(env, "/timed/admin/index-trend/heal-entries", { method: "POST" }) },
+  { id: "index_closes", run: (env) => _dispatchJson(env, "/timed/admin/index-trend/heal-closes", { method: "POST" }) },
+  { id: "intents", run: (env) => _dispatchJson(env, "/timed/admin/broker-intents/drain", { method: "POST" }) },
+];
+
+async function _dispatchJson(env, path, init) {
+  try {
+    const r = await _dispatch(env, path, init);
+    return await r.json().catch(() => ({}));
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+export async function _healModelBrokerCoverage(env, {
+  now = Date.now(),
+  cooldownMs = HEAL_LANE_COOLDOWN_MS,
+} = {}) {
+  const results = {};
+  for (const lane of MODEL_BROKER_COVERAGE_LANES) {
+    const key = HEAL_LANE_COOLDOWN_KEY("model_broker_coverage", lane.id);
+    const lastOk = Number(await env?.KV_TIMED?.get(key).catch(() => null)) || 0;
+    if (lastOk && now - lastOk < cooldownMs) {
+      // Counts as ok: this lane succeeded recently, so it is not the reason
+      // the check is failing. Treating a cooldown as a failure would wedge
+      // the verdict permanently.
+      results[lane.id] = {
+        ok: true,
+        skipped: "cooldown",
+        last_ok_min_ago: Math.round((now - lastOk) / 60000),
+      };
+      continue;
+    }
+    const out = await lane.run(env);
+    results[lane.id] = out;
+    if (out && out.ok) {
+      await env?.KV_TIMED?.put(key, String(now), { expirationTtl: 86400 }).catch(() => null);
+    }
+  }
+  // EVERY lane, not some. `broker-intents/drain` answers ok:true with
+  // nothing to drain, so `some()` was unconditionally true — the check got
+  // marked healed and took its 4h cooldown while the investor catch-up, the
+  // trader-exit catch-up and both index-trend heals could all have thrown.
+  // That is the exact shape of "the signal never went through and nothing
+  // paged". A lane with a closed window still answers ok:true (`outside_rth`,
+  // `no_bridge_configured`), so this does not false-negative on a skip.
+  const failed = Object.entries(results)
+    .filter(([, row]) => !(row && row.ok))
+    .map(([lane]) => lane);
+  return { ok: failed.length === 0, failed, results };
 }
 
 async function _healInvestorBridgeCatchup(env, baseUrl, adminKey) {

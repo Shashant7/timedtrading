@@ -72,20 +72,80 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   produces a fresh id and the bridge idempotency layer releases the
 >   retry. Sort exits/trims ahead of buys before `max_ops` (hourly/COO
 >   cap is 24).
+> - **A reduce lane must size off positions, not the manifest
+>   (2026-09-14).** `broker_remaining_qty` is per model sleeve and
+>   derived from our own ledger, so several closed sleeves on one ticker
+>   each carry the same leftover — the live plan wanted PH 0.13612 four
+>   times and XYZ 13.92981 + 8 against 13.92981 held. `trader-exit-catchup`
+>   runs `clampExitOpsToHoldings`: a per-ticker budget from
+>   `/bridge/positions`, spent newest-exit-first, everything else retired
+>   as `broker_position_already_flat` BEFORE `max_ops` (so zombies cannot
+>   starve a real miss). Unreachable broker → fall back to the single
+>   largest claim: under-selling is recoverable next hour, shorting is not.
+>   `broker-held-equity.js` is the one place that asks; `loadBrokerSleeves`
+>   is the per-trade view of the same manifest.
 > - Live ST / LETF entries must follow through on the signal path
 >   (fractional cash scale + `bridgeResponseIsOk`). Fan-out accounts run
 >   concurrently under the 28s client timeout; the outer receipt must
 >   carry child order IDs/rejects. Never send equity to a Futures
->   sub-account. Do not backfill leftover books. Index-trend same-tick
->   heal is only for a book younger than 15 minutes. A paper STOP/EXIT
->   persists `pending_close` and Discords only after `/bridge/order`
->   places (`finalizeIndexTrendPaperClose`). Heal on monolith `*/5`
->   (`healStrandedIndexTrendCloses`) or
+>   sub-account. Do not backfill leftover books that already tried a
+>   place (UDOW/TQQQ/TJX 2026-09-03). Index-trend same-tick heal stays
+>   under 15 minutes; a **never-attempted** BUY (no mirror row) for a
+>   still-open book younger than 4 days may catch up during RTH
+>   (`healMissedIndexTrendEntries` on `*/5`, before EXIT heal). Cash-scale
+>   BUY qty to `max_per_order_usd` when the paper book grew past the
+>   sleeve (TNA W37 DCA 46 sh / $2975). Paper DCA on a never-filled
+>   sleeve is an entry catch-up. Heal never-attempted books first.
+>   Discord is not a fill. Stamp
+>   the real bridge reject (fan-out child `reject_reason`), not
+>   `bridge_reject`. Terminal EXIT rejects (`no_broker_position`,
+>   `already_flat`, …) flatten the KV mirror so heal stops looping.
+>   Reconciler closes untracked OPEN claims when the broker is already
+>   flat. A paper STOP/EXIT persists `pending_close` and Discords only
+>   after `/bridge/order` places (`finalizeIndexTrendPaperClose`). Heal
+>   on monolith `*/5` (`healStrandedIndexTrendCloses`) or
 >   `POST /timed/admin/index-trend/heal-closes` sells leftover qty for
 >   *real* closes. Do not heal-sell a premature runner invalidation
 >   (TQQQ W36). Do not treat action qty=0 as flat.
 >   Partner accounts must not manually exit a name that never filled
 >   (`no_manifest_for_trade`).
+> - **Model vs broker coverage (2026-09-11):** `worker/mirror-coverage.js`
+>   is the fail-closed join. Every model action (ST ledger, investor
+>   lots, index-trend tape, index DT tape, convexity tickets that
+>   engaged the mirror) is classified against `bridge:client:recent`,
+>   `broker_intents`, and the paper mirror logs.
+>   Status: `mirrored` / `mirrored_partial` / `rejected_terminal` /
+>   `pending_intent` / `deferred` / `in_flight` / `unmatched`.
+>   Buys/DCAs need a broker order id — HTTP 200 and `{ok:true,deduped:true}`
+>   are not fills. A prior BUY on the same position is not today's DCA.
+>   Share count may differ (cash scale); entry ratio must hold on later
+>   trims/exits (100/2 then 100/2, never 100/100).
+>   Read: `GET /timed/admin/broker/coverage?hours=48` (`requireKeyOrAdmin`).
+>   Watch: sanity `model_broker_coverage` (fast 15 min) + `*/5` snapshot
+>   at `timed:mirror-coverage:latest` (Discord when the fail set changes,
+>   plus one `BROKER COVERAGE · clean` per NY day when healthy).
+>   Inbox: Friday Execution Review and the operator Account-today digest
+>   carry the same desk block; `/execution-review.html` overlays the
+>   live snapshot. Do not attach house coverage to partner digests.
+>   Heal stays on existing lanes (investor catch-up, trader EXIT catch-up,
+>   index-trend entry/close, intent drain). Unmatched Short Term ENTRIES
+>   page only — they must re-qualify, not chase. Do not backfill leftover
+>   books that already tried a place.
+>   **A reduce is settled against the broker, in order of specificity
+>   (2026-09-14):** the trade's own manifest sleeve first
+>   (`broker_never_held_this_trade` = its entry never mirrored,
+>   `broker_sleeve_already_flat` = the broker sold it down — both
+>   terminal), then the ticker's position
+>   (`broker_position_already_flat`). Per-ticker holdings alone paged DPZ
+>   and KO forever on shares that belonged to older lots and an
+>   `inv-KO-auto` sleeve. Sleeves apply to `trader` / `investor` only: a
+>   paper-lane close fires off its own mirror row, which is how the
+>   adopted broker-only SPYU sleeve gets sold, so an absent sleeve there
+>   proves nothing. An ENTRY is never silenced by flat holdings.
+> - Long Term DCA (`/timed/investor/dca/execute`) must **await**
+>   `forwardInvestorMirror` before the HTTP response. `waitUntil` after
+>   lot+email dies (PLTR 2026-09-02 / 09-11). The 15:46–16:15 sweep
+>   must not mark the day clean on an empty lot window.
 > - Catch-up trims MUST send `reduce_pct = lot.shares / (remaining +
 >   lot.shares)` from `investor_positions.total_shares`. Replaying raw
 >   model-space `investor_lots.shares` is the META flatten (PLTR OpEx
@@ -130,9 +190,19 @@ the operator audit log, or the `tt-broker-bridge` worker.
 > - Drift outside tolerance → `markLastActionDrift` stamps `drift_qty`
 >   + `live_held_qty` + `drift_detected_at` (preserving the original
 >   expectation so operator can diff), write `post_exec_drift`
->   bridge_audit row, emit `critical` drift notification.
->   `reject_reason` distinguishes `reducer_underexecuted_or_replenished`
->   (live > expected) vs `reducer_overexecuted` (live < expected).
+>   bridge_audit row, emit a drift notification (warn on underexecution).
+>   `reject_reason` distinguishes `reducer_underexecuted` (live > expected
+>   and ≤ pre_held — leftover of this TRIM/EXIT, not a new lot),
+>   `reducer_replenished` (live > pre_held), and `reducer_overexecuted`
+>   (live < expected). Underexecution pages warn; the other two stay
+>   critical. Full EXIT flattens uncounted live shares unless a sibling
+>   OPEN row or a classified `user_added` reserves them. Do not persist
+>   leftover as `user_added` (zeros `broker_remaining_qty`, blocks
+>   `runTraderExitCatchup`). Catch-up must pick the sleeve that still
+>   holds leftover qty (not the first `trade_id` match), include
+>   suppressed remaining, and plan when the mothership trade already
+>   has `exit_ts`. `markManifestModelClosed` closes every sleeve for
+>   that trade_id.
 >
 > Helpers: `writeLastActionAudit`, `markLastActionVerified`,
 > `markLastActionDrift`, `readLastActionAudit` in `worker-bridge/bridge-manifest.js`.

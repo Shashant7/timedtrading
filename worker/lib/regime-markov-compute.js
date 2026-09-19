@@ -28,7 +28,29 @@ const KV_KEY = "timed:regime:matrix:global";
 // per-ticker, the existing reads) is never affected.
 const EXPANDED_KV_KEY = "timed:regime:matrix:expanded:global";
 const KV_TTL_SECONDS = 14 * 24 * 3600; // 14 days — daily refresh should always be fresher than this
-const READ_BATCH_LIMIT = 5000; // page size for trail_5m_facts SELECTs
+export const READ_BATCH_LIMIT = 5000; // page size for trail_5m_facts SELECTs
+
+/**
+ * Keyset page over trail_5m_facts (ticker, bucket_ts).
+ * OFFSET re-reads every prior row — 5.3B reads / 7d in Sep 2026.
+ * Seed afterTicker="" and afterTs=0 for the first page.
+ */
+export function trailFactsKeysetSql({ tickerInCount = 0, pageLimit = READ_BATCH_LIMIT } = {}) {
+  const limit = Math.max(1, Math.min(READ_BATCH_LIMIT, Number(pageLimit) || READ_BATCH_LIMIT));
+  const inClause = tickerInCount > 0
+    ? `AND ticker IN (${Array.from({ length: tickerInCount }, (_, i) => `?${i + 2}`).join(",")})`
+    : "";
+  const afterTickerIdx = tickerInCount + 2;
+  const afterTsIdx = afterTickerIdx + 1;
+  return `SELECT ticker, bucket_ts, state, completion AS max_completion
+           FROM trail_5m_facts
+          WHERE bucket_ts >= ?1
+            AND state IS NOT NULL
+            ${inClause}
+            AND (ticker > ?${afterTickerIdx} OR (ticker = ?${afterTickerIdx} AND bucket_ts > ?${afterTsIdx}))
+          ORDER BY ticker, bucket_ts
+          LIMIT ${limit}`;
+}
 
 // 2026-05-27 (PR #309 — improvement 3): per-ticker matrices for the
 // top-N most active tickers. Stored at
@@ -73,14 +95,17 @@ export async function computeAndPersistRegimeMatrix(env, opts = {}) {
   let totalRows = 0;
   const buckets = []; // we'll collect everything to feed buildTransitionMatrix once
   const tickerSet = new Set();
-  let lastTs = cutoff - 1;
+  let lastTs = 0;
   let lastTicker = "";
+  const pageLimit = Number.isFinite(opts.pageSize)
+    ? Math.max(1, Math.min(READ_BATCH_LIMIT, Math.floor(opts.pageSize)))
+    : READ_BATCH_LIMIT;
 
   for (;;) {
-    // Cursor by (bucket_ts, ticker) so subsequent pages start strictly
+    // Cursor by (ticker, bucket_ts) so subsequent pages start strictly
     // after the last row of the previous page. trail_5m_facts PK is
-    // (ticker, bucket_ts) so ORDER BY ticker, bucket_ts is the cheap
-    // index walk.
+    // (ticker, bucket_ts) so this is an index walk. Do not use OFFSET —
+    // page N re-reads every prior row (5.3B reads / 7d, 2026-09-12).
     //
     // 2026-05-27 (PR #311 — improvement 2): also SELECT the completion so
     // the expanded 12-state matrix builder can assign each row to its
@@ -98,25 +123,13 @@ export async function computeAndPersistRegimeMatrix(env, opts = {}) {
     // Markov matrix stopped rebuilding. Verified against the production
     // schema via pragma_table_info before this fix. Alias kept so the
     // row-mapping below stays unchanged.
-    const sql = tickersFilter
-      ? `SELECT ticker, bucket_ts, state, completion AS max_completion
-           FROM trail_5m_facts
-          WHERE bucket_ts >= ?1
-            AND state IS NOT NULL
-            AND ticker IN (${tickersFilter.map((_, i) => `?${i + 2}`).join(",")})
-          ORDER BY ticker, bucket_ts
-          LIMIT ${READ_BATCH_LIMIT}
-         OFFSET ?${tickersFilter.length + 2}`
-      : `SELECT ticker, bucket_ts, state, completion AS max_completion
-           FROM trail_5m_facts
-          WHERE bucket_ts >= ?1
-            AND state IS NOT NULL
-          ORDER BY ticker, bucket_ts
-          LIMIT ${READ_BATCH_LIMIT}
-         OFFSET ?2`;
+    const sql = trailFactsKeysetSql({
+      tickerInCount: tickersFilter ? tickersFilter.length : 0,
+      pageLimit,
+    });
     const binds = tickersFilter
-      ? [cutoff, ...tickersFilter, totalRows]
-      : [cutoff, totalRows];
+      ? [cutoff, ...tickersFilter, lastTicker, lastTs]
+      : [cutoff, lastTicker, lastTs];
 
     let rows;
     try {
@@ -139,7 +152,10 @@ export async function computeAndPersistRegimeMatrix(env, opts = {}) {
       tickerSet.add(String(r.ticker || "").toUpperCase());
     }
     totalRows += rows.length;
-    if (rows.length < READ_BATCH_LIMIT) break;
+    const last = rows[rows.length - 1];
+    lastTicker = String(last.ticker || "");
+    lastTs = Number(last.bucket_ts) || lastTs;
+    if (rows.length < pageLimit) break;
     // Guard against runaway: cap at ~5M rows for safety.
     if (totalRows >= 5_000_000) break;
   }
@@ -388,22 +404,21 @@ export async function computeAndPersistPerTickerMatrices(env, opts = {}) {
 
 async function _fetchTickerBuckets(db, ticker, cutoff) {
   const out = [];
-  let offset = 0;
+  let afterTs = cutoff - 1;
   for (;;) {
     const res = await db.prepare(
       `SELECT ticker, bucket_ts, state
          FROM trail_5m_facts
-        WHERE ticker = ?1 AND bucket_ts >= ?2 AND state IS NOT NULL
+        WHERE ticker = ?1 AND bucket_ts > ?2 AND state IS NOT NULL
         ORDER BY bucket_ts
-        LIMIT ${READ_BATCH_LIMIT}
-        OFFSET ?3`,
-    ).bind(ticker, cutoff, offset).all();
+        LIMIT ${READ_BATCH_LIMIT}`,
+    ).bind(ticker, afterTs).all();
     const rows = res?.results || [];
     if (!rows.length) break;
     for (const r of rows) out.push({ ticker: r.ticker, bucket_ts: Number(r.bucket_ts), state: String(r.state) });
+    afterTs = Number(rows[rows.length - 1].bucket_ts);
     if (rows.length < READ_BATCH_LIMIT) break;
-    offset += rows.length;
-    if (offset >= 200_000) break; // hard safety cap per ticker
+    if (out.length >= 200_000) break; // hard safety cap per ticker
   }
   return out;
 }

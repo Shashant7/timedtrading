@@ -6,6 +6,7 @@ import {
   shouldForwardTraderMirrorAsEquity,
   recordBridgeMirrorSkip,
   parseBridgeOrderIds,
+  parseBridgeAcceptedQty,
   bridgeResponseIsOk,
   resolveTraderEquityEthMirror,
 } from "./broker-bridge-client.js";
@@ -90,6 +91,106 @@ describe("parseBridgeOrderIds", () => {
     expect(ids.order_id).toBe("WB-OWNER");
     expect(ids.order_ids).toEqual(["WB-OWNER", "WB-PARTNER"]);
     expect(ids.deduped).toBe(false);
+  });
+});
+
+// 2026-09-15 — the concrete loss of information this exists to stop. The
+// heal sent TNA W37 for 31 shares and UDOW W38 for 28; the bridge's
+// concentration ceiling on a $14.8k Roth placed 5 of each. Recording the
+// request left the mirror rows claiming 31 / 28 against 5 held, and
+// coverage reported a clean "mirrored" for both.
+describe("parseBridgeAcceptedQty", () => {
+  it("prefers the bridge's own accepted_qty over the request", () => {
+    const out = parseBridgeAcceptedQty({ ok: true, accepted_qty: 5 }, 31);
+    expect(out).toEqual({ qty: 5, source: "accepted_qty" });
+  });
+
+  it("falls back to scaling.scaled_qty so an older bridge still narrows", () => {
+    const out = parseBridgeAcceptedQty(
+      { ok: true, scaling: { original_qty: 31, scaled_qty: 5, reason: "concentration" } },
+      31,
+    );
+    expect(out).toEqual({ qty: 5, source: "scaling" });
+  });
+
+  it("returns the request when the bridge scaled nothing", () => {
+    expect(parseBridgeAcceptedQty({ ok: true, scaling: null }, 31))
+      .toEqual({ qty: 31, source: "requested" });
+  });
+
+  it("never reports zero for a real place", () => {
+    // A good place recorded as an empty sleeve would make the model think
+    // it owns nothing and re-buy on the next heal.
+    expect(parseBridgeAcceptedQty({ ok: true, accepted_qty: 0 }, 31).qty).toBe(31);
+    expect(parseBridgeAcceptedQty(null, 31).qty).toBe(31);
+    expect(parseBridgeAcceptedQty({ ok: true }, 31).qty).toBe(31);
+  });
+
+  it("reads through response / data envelopes", () => {
+    expect(parseBridgeAcceptedQty({ response: { accepted_qty: 7 } }, 31).qty).toBe(7);
+    expect(parseBridgeAcceptedQty({ data: { scaling: { scaled_qty: 9 } } }, 31).qty).toBe(9);
+  });
+
+  it("sums the legs that took on a fan-out", () => {
+    const out = parseBridgeAcceptedQty({
+      ok: true,
+      fanout: true,
+      results: [
+        { result: { ok: true, accepted_qty: 3 } },
+        { result: { ok: true, accepted_qty: 2 } },
+        { result: { ok: false, reject_reason: "insufficient_buying_power" } },
+      ],
+    }, 31);
+    expect(out).toEqual({ qty: 5, source: "fanout" });
+  });
+});
+
+describe("forwardOrderToBridge stamps the accepted qty on the ring", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  async function dispatch(bridgeBody) {
+    // Pin the clock inside RTH. Without this the test only passed before
+    // 7pm ET: after the equity follow-through cutoff the order is skipped
+    // rather than forwarded, so there is no ring row to inspect.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-15T11:30:00-04:00"));
+    const KV = makeKv();
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify(bridgeBody), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    await forwardOrderToBridge({
+      KV_TIMED: KV,
+      BROKER_BRIDGE_URL: "https://bridge.example.com",
+      BROKER_BRIDGE_HMAC_KEY: "k",
+    }, {
+      user_id: "op@example.com",
+      trade_id: "it:IWM:TNA:LONG:2026-W37",
+      ticker: "TNA",
+      side: "buy",
+      qty: 31,
+      mode: "trader",
+    });
+    const ring = await readClientRing({ KV_TIMED: KV });
+    return ring.find((r) => r.ticker === "TNA") || null;
+  }
+
+  it("records the scaled qty and why, so coverage can see the shortfall", async () => {
+    const row = await dispatch({
+      ok: true,
+      rh_order_id: "K8HS08L3MM602R23AAME051MSB",
+      accepted_qty: 5,
+      scaling: { original_qty: 31, scaled_qty: 5, reason: "concentration" },
+    });
+    expect(row.qty).toBe(31);
+    expect(row.bridge_scaled_qty).toBe(5);
+    expect(row.bridge_scale_reason).toBe("concentration");
+  });
+
+  it("leaves the field off when the order went out whole", async () => {
+    const row = await dispatch({ ok: true, rh_order_id: "WB-1", accepted_qty: 31 });
+    expect(row.qty).toBe(31);
+    expect(row.bridge_scaled_qty).toBeUndefined();
   });
 });
 

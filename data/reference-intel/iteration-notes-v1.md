@@ -1,6 +1,6 @@
 # Iteration Notes v1
 
-Generated: 2026-09-10T11:14:58.829420+00:00
+Generated: 2026-09-19T20:42:13.028141+00:00
 
 ## Window
 - Dates: 2025-07-31 → 2025-08-01
@@ -18,4 +18,4 @@ Generated: 2026-09-10T11:14:58.829420+00:00
 
 ## Outcome
 - go_no_go: INVALID
-- invalid_reasons: control_reset_failed, candidate_reset_failed, legs_observed_identical_trade_set, candidate_closed_trades_1_below_min_5, cio_eval_zero_decision_rows
+- invalid_reasons: control_reset_failed, candidate_reset_failed, candidate_closed_trades_0_below_min_5, cio_eval_zero_decision_rows

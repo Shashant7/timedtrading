@@ -163,8 +163,15 @@ export async function extractMacroEventsFromPublication(env, pubId, { title = nu
   const store = await loadStore(env);
   let merged = 0;
   const nowPub = pubDateISO || new Date().toISOString().slice(0, 10);
+  let snapKnownMacroDate = (row) => row;
+  try {
+    ({ snapKnownMacroDate } = await import("../macro-events-calendar.js"));
+  } catch (_) { /* curated snap optional — store still writes the raw date */ }
   for (const e of events) {
-    const date = String(e.date || "").slice(0, 10);
+    const rawDate = String(e.date || "").slice(0, 10);
+    const snapped = snapKnownMacroDate({ date: rawDate, name: e.name });
+    if (snapped === null) continue;
+    const date = String(snapped?.date || rawDate).slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !e.name) continue;
     const key = `${date}|${normName(e.name)}`;
     const prev = store.byKey[key] || null;

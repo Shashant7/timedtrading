@@ -278,6 +278,96 @@ export async function scoreUnscoredNews(env, opts = {}) {
   return { ok: true, scored: totalScored, rows: rows.length, batches };
 }
 
+/**
+ * Compact scored-news summary. Same shape for CIO L14, promotion NEWS_CATALYST,
+ * and context conviction (`_news_summary` on timed:latest).
+ * Promotion aliases: max_catalyst, top_catalyst_headline.
+ */
+export function summarizeNewsRows(ticker, rows = [], opts = {}) {
+  const sym = String(ticker || "").toUpperCase();
+  const lookbackDays = Math.max(1, Math.min(30, Number(opts.lookbackDays) || 5));
+  const raw = Array.isArray(rows) ? rows : [];
+  const filtered = raw.filter((r) => headlineMentionsTicker(r.headline, r.summary, sym));
+  if (!sym || filtered.length === 0) {
+    return { ticker: sym, has_data: false, count: 0, filtered_out: raw.length, lookback_days: lookbackDays };
+  }
+  let bull = 0, bear = 0, neutral = 0, unscored = 0;
+  let topCatalyst = null;
+  let bullishCatalystCount = 0;
+  let bearishCatalystCount = 0;
+  for (const r of filtered) {
+    const sent = r.sentiment || null;
+    const cs = Number(r.catalyst_strength) || 0;
+    const ic = r.is_catalyst === 1 || r.is_catalyst === true;
+    if (sent === "bullish") bull++;
+    else if (sent === "bearish") bear++;
+    else if (sent === "neutral") neutral++;
+    else unscored++;
+    if (ic && (!topCatalyst || cs > topCatalyst.catalyst_strength)) {
+      topCatalyst = {
+        headline: r.headline,
+        source: r.source || null,
+        datetime: r.datetime_utc,
+        sentiment: sent,
+        catalyst_strength: cs,
+      };
+    }
+    if (ic && sent === "bullish") bullishCatalystCount++;
+    if (ic && sent === "bearish") bearishCatalystCount++;
+  }
+  const dominant = (bull > bear && bull > neutral) ? "bullish"
+                 : (bear > bull && bear > neutral) ? "bearish"
+                 : "neutral";
+  return {
+    ticker: sym,
+    has_data: true,
+    lookback_days: lookbackDays,
+    count: filtered.length,
+    bull, bear, neutral, unscored,
+    dominant_sentiment: dominant,
+    bullish_catalyst_count: bullishCatalystCount,
+    bearish_catalyst_count: bearishCatalystCount,
+    top_catalyst: topCatalyst,
+    latest_3: filtered.slice(0, 3).map((r) => ({
+      headline: r.headline,
+      source: r.source || null,
+      sentiment: r.sentiment,
+      catalyst_strength: r.catalyst_strength,
+      datetime: r.datetime_utc,
+    })),
+    max_catalyst: topCatalyst?.catalyst_strength || 0,
+    top_catalyst_headline: topCatalyst?.headline ? String(topCatalyst.headline).slice(0, 200) : null,
+  };
+}
+
+/** KV/entry stamp — no URLs, bounded headlines. */
+export function compactNewsStamp(summary) {
+  if (!summary || summary.has_data !== true) return null;
+  return {
+    has_data: true,
+    lookback_days: summary.lookback_days ?? 5,
+    count: summary.count || 0,
+    bull: summary.bull || 0,
+    bear: summary.bear || 0,
+    neutral: summary.neutral || 0,
+    unscored: summary.unscored || 0,
+    dominant_sentiment: summary.dominant_sentiment || "neutral",
+    bullish_catalyst_count: summary.bullish_catalyst_count || 0,
+    bearish_catalyst_count: summary.bearish_catalyst_count || 0,
+    top_catalyst: summary.top_catalyst || null,
+    latest_3: Array.isArray(summary.latest_3) ? summary.latest_3.slice(0, 3) : [],
+  };
+}
+
+export function attachNewsSummary(td, newsMap) {
+  if (!td || !newsMap || typeof newsMap !== "object") return td;
+  const sym = String(td.ticker || td.sym || "").toUpperCase();
+  if (!sym) return td;
+  const stamp = compactNewsStamp(newsMap[sym]);
+  if (stamp) td._news_summary = stamp;
+  return td;
+}
+
 // Compact summary for CIO memory L14 + Promotion Queue NEWS_CATALYST.
 export async function loadRecentNewsSummary(env, ticker, opts = {}) {
   const db = env?.DB;
@@ -293,63 +383,15 @@ export async function loadRecentNewsSummary(env, ticker, opts = {}) {
        ORDER BY datetime_utc DESC
        LIMIT 25
     `).bind(sym, cutoffIso).all().catch(() => ({ results: [] })))?.results || [];
-    const filtered = rows.filter((r) => headlineMentionsTicker(r.headline, null, sym));
-    if (filtered.length === 0) {
-      return { ticker: sym, has_data: false, count: 0, filtered_out: rows.length };
-    }
-    // Aggregate.
-    let bull = 0, bear = 0, neutral = 0, unscored = 0;
-    let topCatalyst = null;
-    let bullishCatalystCount = 0;
-    let bearishCatalystCount = 0;
-    for (const r of filtered) {
-      const sent = r.sentiment || null;
-      const cs = Number(r.catalyst_strength) || 0;
-      const ic = r.is_catalyst === 1;
-      if (sent === "bullish") bull++;
-      else if (sent === "bearish") bear++;
-      else if (sent === "neutral") neutral++;
-      else unscored++;
-      if (ic && (!topCatalyst || cs > topCatalyst.catalyst_strength)) {
-        topCatalyst = {
-          headline: r.headline,
-          source: r.source,
-          datetime: r.datetime_utc,
-          sentiment: sent,
-          catalyst_strength: cs,
-        };
-      }
-      if (ic && sent === "bullish") bullishCatalystCount++;
-      if (ic && sent === "bearish") bearishCatalystCount++;
-    }
-    const dominant = (bull > bear && bull > neutral) ? "bullish"
-                   : (bear > bull && bear > neutral) ? "bearish"
-                   : "neutral";
-    return {
-      ticker: sym,
-      has_data: true,
-      lookback_days: lookbackDays,
-      count: filtered.length,
-      bull, bear, neutral, unscored,
-      dominant_sentiment: dominant,
-      bullish_catalyst_count: bullishCatalystCount,
-      bearish_catalyst_count: bearishCatalystCount,
-      top_catalyst: topCatalyst,
-      latest_3: filtered.slice(0, 3).map((r) => ({
-        headline: r.headline,
-        source: r.source,
-        sentiment: r.sentiment,
-        catalyst_strength: r.catalyst_strength,
-        datetime: r.datetime_utc,
-      })),
-    };
+    return summarizeNewsRows(sym, rows, { lookbackDays });
   } catch (e) {
     console.warn(`[NEWS] loadRecentNewsSummary failed for ${sym}:`, String(e?.message || e).slice(0, 150));
     return null;
   }
 }
 
-// Batch load for promotion queue scoring.
+// Batch load for scoring cron + promotion queue. One D1 read.
+// Replay must not call this with wall-clock news (lookahead).
 export async function loadNewsSummariesBatch(env, tickers, opts = {}) {
   const db = env?.DB;
   if (!db || !Array.isArray(tickers) || tickers.length === 0) return {};
@@ -358,31 +400,23 @@ export async function loadNewsSummariesBatch(env, tickers, opts = {}) {
   const symSet = new Set(tickers.map((t) => String(t || "").toUpperCase()).filter(Boolean));
   try {
     const rows = (await db.prepare(`
-      SELECT ticker, sentiment, catalyst_strength, is_catalyst, headline, datetime_utc
+      SELECT ticker, sentiment, catalyst_strength, is_catalyst, headline, source, datetime_utc
         FROM ticker_news
        WHERE datetime_utc >= ?1
        ORDER BY datetime_utc DESC
        LIMIT 5000
     `).bind(cutoffIso).all().catch(() => ({ results: [] })))?.results || [];
-    const out = {};
-    for (const t of symSet) out[t] = { ticker: t, count: 0, bull: 0, bear: 0, max_catalyst: 0, bullish_catalyst_count: 0, top_catalyst_headline: null };
+    const byTicker = {};
+    for (const t of symSet) byTicker[t] = [];
     for (const r of rows) {
       const t = String(r.ticker || "").toUpperCase();
       if (!symSet.has(t)) continue;
-      if (!headlineMentionsTicker(r.headline, null, t)) continue;
-      out[t].count++;
-      const cs = Number(r.catalyst_strength) || 0;
-      const ic = r.is_catalyst === 1;
-      if (r.sentiment === "bullish") out[t].bull++;
-      if (r.sentiment === "bearish") out[t].bear++;
-      if (ic && r.sentiment === "bullish") out[t].bullish_catalyst_count++;
-      if (ic && cs > out[t].max_catalyst) {
-        out[t].max_catalyst = cs;
-        out[t].top_catalyst_headline = String(r.headline || "").slice(0, 200);
-      }
+      byTicker[t].push(r);
     }
-    for (const t of Object.keys(out)) {
-      if (out[t].count === 0) delete out[t];
+    const out = {};
+    for (const t of symSet) {
+      const summary = summarizeNewsRows(t, byTicker[t], { lookbackDays });
+      if (summary.has_data) out[t] = summary;
     }
     return out;
   } catch (e) {

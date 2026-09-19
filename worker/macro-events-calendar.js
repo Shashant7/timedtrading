@@ -64,16 +64,161 @@ function nyDateStr(d = new Date()) {
   return `${p[2]}-${p[0]}-${p[1]}`;
 }
 
+/** Vendor/LLM FOMC dates within this many days of a published decision snap onto it. */
+export const FOMC_SNAP_WINDOW_DAYS = 10;
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isFomcDecisionName(name) {
+  const n = String(name || "");
+  if (/minutes/i.test(n)) return false;
+  return /fomc|fed (rate|funds|decision)/i.test(n);
+}
+
+export function curatedFomcDecisionDates() {
+  return CURATED_UPCOMING_MACRO.filter((e) => isFomcDecisionName(e.name)).map((e) => e.date);
+}
+
+function parseYmdUtc(ymd) {
+  if (!YMD_RE.test(String(ymd || ""))) return null;
+  const [y, m, d] = String(ymd).split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+}
+
+export function daysBetweenYmd(a, b) {
+  const ta = parseYmdUtc(a);
+  const tb = parseYmdUtc(b);
+  if (ta == null || tb == null) return null;
+  return Math.round((tb - ta) / 86400000);
+}
+
+/** Civil weekday for a YYYY-MM-DD using 16:00 UTC (noon Eastern in EDT). */
+export function weekdayFromYmd(ymd) {
+  if (!YMD_RE.test(String(ymd || ""))) return null;
+  return new Date(`${ymd}T16:00:00.000Z`).getUTCDay();
+}
+
+export function isWeekendYmd(ymd) {
+  const dow = weekdayFromYmd(ymd);
+  return dow === 0 || dow === 6;
+}
+
+/**
+ * Snap a vendor/LLM FOMC *decision* onto the published Fed calendar.
+ * Minutes are left alone. Weekend decisions with no nearby curated day
+ * are dropped (returns null) so Sunday never labels as FOMC day.
+ */
+export function snapKnownMacroDate(event) {
+  if (!event) return event;
+  const date = String(event.date || "").slice(0, 10);
+  const name = event.name || event.event || event.event_name || "";
+  if (!YMD_RE.test(date)) return event;
+  if (!isFomcDecisionName(name)) return { ...event, date };
+
+  const curated = CURATED_UPCOMING_MACRO.filter((e) => isFomcDecisionName(e.name));
+  let best = null;
+  let bestAbs = Infinity;
+  for (const c of curated) {
+    const delta = daysBetweenYmd(date, c.date);
+    if (delta == null) continue;
+    const abs = Math.abs(delta);
+    if (abs <= FOMC_SNAP_WINDOW_DAYS && abs < bestAbs) {
+      best = c;
+      bestAbs = abs;
+    }
+  }
+  if (best && best.date !== date) {
+    return {
+      ...event,
+      date: best.date,
+      time_et: event.time_et || event.time || best.time_et,
+      date_raw: date,
+      date_snapped: "curated_fomc",
+    };
+  }
+  if (isWeekendYmd(date)) return null;
+  return { ...event, date };
+}
+
+/** Persist / brief helper: YYYY-MM-DD or null if the row should be dropped. */
+export function resolveMacroPersistDate(event, fallbackToday) {
+  const name = String(event?.event || event?.event_name || event?.name || "").trim();
+  if (!name) return null;
+  const raw = String(event?.date || fallbackToday || "").slice(0, 10);
+  const snapped = snapKnownMacroDate({ date: raw, name });
+  return snapped?.date || null;
+}
+
+const D1_MACRO_KEYS = new Set([
+  "FOMC", "CPI", "NFP", "PPI", "GDP", "PCE", "RETAIL", "CLAIMS", "ISM", "JOLTS", "HOUSING", "OTHER_MACRO",
+]);
+
+async function loadD1ScheduledMacroEvents(env, today, horizon) {
+  if (!env?.DB) return [];
+  try {
+    const rs = await env.DB.prepare(`
+      SELECT date, event_name, scheduled_time_et, event_key, source, impact
+      FROM market_events
+      WHERE date >= ? AND date <= ?
+        AND event_type = 'macro'
+        AND COALESCE(impact, 'medium') IN ('high', 'medium')
+        AND COALESCE(status, '') != 'resolved'
+    `).bind(today, horizon).all();
+    return (rs?.results || [])
+      .filter((r) => D1_MACRO_KEYS.has(String(r.event_key || "").toUpperCase()) || isFomcDecisionName(r.event_name))
+      .map((r) => ({
+        date: String(r.date || "").slice(0, 10),
+        time_et: r.scheduled_time_et || null,
+        name: r.event_name,
+        impact: r.impact || (String(r.event_key).toUpperCase() === "FOMC" ? "high" : "medium"),
+        kind: isFomcDecisionName(r.event_name) ? "fomc" : "macro",
+        source: r.source || "d1",
+      }));
+  } catch (_) {
+    return [];
+  }
+}
+
+/** Drop upcoming FOMC *decision* rows that are not on the published calendar. */
+export async function purgeUncuratedUpcomingFomc(env, today = nyDateStr()) {
+  if (!env?.DB) return { ok: false, deleted: 0 };
+  const keep = curatedFomcDecisionDates();
+  if (!keep.length) return { ok: true, deleted: 0 };
+  // Only delete inside the window the curated calendar can speak for.
+  // Unbounded, this DELETE turns into a time bomb: the last curated
+  // decision is 2026-12-09 and the snap window reaches ±10 days, so from
+  // late Dec 2026 every legitimate 2027 Fed meeting the vendor published
+  // would be deleted on each Daily Brief and the strip would show no
+  // upcoming FOMC at all. Past the horizon the vendor is the only source
+  // we have, so leave its rows alone.
+  const horizon = keep.reduce((max, d) => (d > max ? d : max), keep[0]);
+  if (today > horizon) return { ok: true, deleted: 0, skipped: "past_curated_horizon" };
+  const placeholders = keep.map(() => "?").join(",");
+  try {
+    const rs = await env.DB.prepare(`
+      DELETE FROM market_events
+      WHERE event_key = 'FOMC'
+        AND date >= ?
+        AND date <= ?
+        AND date NOT IN (${placeholders})
+        AND LOWER(COALESCE(event_name, '')) NOT LIKE '%minute%'
+    `).bind(today, horizon, ...keep).run();
+    return { ok: true, deleted: Number(rs?.meta?.changes || 0) };
+  } catch (_) {
+    return { ok: false, deleted: 0 };
+  }
+}
+
 /**
  * Return upcoming high-impact US macro events from today out `days` ahead,
  * merging the curated schedule with any live actuals/estimates already
  * persisted (best-effort). Sorted by date+time ascending; `is_today` flagged.
  *
  * @param env
- * @param opts { days?, includeLowImpact? }
+ * @param opts { days?, includeLowImpact?, today? }
  */
-export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact = false } = {}) {
-  const today = nyDateStr();
+export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact = false, today: todayOverride } = {}) {
+  const today = todayOverride || nyDateStr();
   const horizon = (() => {
     const d = new Date(today + "T12:00:00Z");
     d.setUTCDate(d.getUTCDate() + Math.max(1, days));
@@ -115,7 +260,17 @@ export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact 
   try {
     const { loadFSDMacroEvents } = await import("./cro/macro-event-extractor.js");
     const fsdEvents = await loadFSDMacroEvents(env);
-    for (const e of (fsdEvents || [])) {
+    for (const raw of (fsdEvents || [])) {
+      const e = snapKnownMacroDate({
+        date: raw.date,
+        name: raw.name,
+        time_et: raw.time_et,
+        impact: raw.impact,
+        kind: raw.kind,
+        estimate: raw.estimate,
+        actual: raw.actual,
+        source: "fsd",
+      });
       if (!e?.date || e.date < today || e.date > horizon) continue;
       const k = normKey(e.date, e.name);
       const prev = byKey.get(k);
@@ -133,6 +288,29 @@ export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact 
       fsdCount += 1;
     }
   } catch (_) { /* FSD store optional — curated is the floor */ }
+
+  // Daily-brief persist is how Empire / second-tier prints reach D1. Merge
+  // those scheduled rows so the strip matches the ledger, then snap FOMC
+  // onto the published decision day (Sunday "FOMC today" was a persist miss).
+  try {
+    const d1Events = await loadD1ScheduledMacroEvents(env, today, horizon);
+    for (const raw of d1Events) {
+      const e = snapKnownMacroDate(raw);
+      if (!e?.date || e.date < today || e.date > horizon) continue;
+      const k = normKey(e.date, e.name);
+      const prev = byKey.get(k);
+      byKey.set(k, mergeMacroEventRow(prev, {
+        date: e.date,
+        time_et: e.time_et || null,
+        name: e.name,
+        impact: e.impact || prev?.impact || "medium",
+        kind: e.kind || prev?.kind || "macro",
+        estimate: null,
+        actual: null,
+        source: e.source || "d1",
+      }));
+    }
+  } catch (_) { /* D1 optional — curated + FSD remain the floor */ }
 
   let items = dedupeMacroEventsByCanonical(Array.from(byKey.values()))
     .filter((e) => includeLowImpact || e.impact !== "low")

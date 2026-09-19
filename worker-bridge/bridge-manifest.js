@@ -135,9 +135,43 @@ export async function ensureMirrorManifestSchema(env) {
         }
       }
     }
+    await _repairMislabeledEquityRows(db);
     _schemaReady = true;
   } catch (e) {
     console.warn("[MANIFEST] schema ensure failed:", String(e?.message || e).slice(0, 200));
+  }
+}
+
+/**
+ * Reclassify rows an older `inferInstrument` filed as options because the
+ * order carried a share vehicle. The entry upsert is DO NOTHING on conflict
+ * and never revisits `instrument_type`, so these rows cannot self-correct
+ * from a later entry — they would stay untracked and out of the claim math
+ * forever. Runs once per isolate behind the same `_schemaReady` latch and
+ * matches nothing once the backlog is cleared.
+ *
+ * `sync_state` is deliberately left alone: the reconciler owns it and will
+ * now transition these rows on its own (untracked rows are still scanned),
+ * and leaving `untracked` keeps the reducer's held_override safety net in
+ * place until the equity classifier has actually converged them.
+ */
+async function _repairMislabeledEquityRows(db) {
+  const vehicles = [...EQUITY_MIRROR_VEHICLES];
+  const placeholders = vehicles.map((_, i) => `?${i + 1}`).join(",");
+  try {
+    const r = await db.prepare(`
+      UPDATE mirror_trade_manifest
+         SET instrument_type = 'equity',
+             options_structure = NULL
+       WHERE LOWER(COALESCE(instrument_type, '')) = 'options'
+         AND LOWER(COALESCE(options_structure, '')) IN (${placeholders})
+    `).bind(...vehicles).run();
+    const n = Number(r?.meta?.changes) || 0;
+    if (n > 0) {
+      console.log(`[MANIFEST] reclassified ${n} share-vehicle row(s) from options to equity`);
+    }
+  } catch (e) {
+    console.warn("[MANIFEST] equity reclassify skipped:", String(e?.message || e).slice(0, 200));
   }
 }
 
@@ -160,17 +194,41 @@ export function classifyOrderLifecycle(side) {
   return "other";
 }
 
+// Vehicles that buy SHARES. Anything here is an equity order no matter that
+// it carries a `vehicle`, which used to be the sole test.
+//
+// `index_trend_letf` is the one that broke: TNA / UDOW / SPYU / TQQQ are
+// leveraged ETFs, so the mirror sends ordinary share orders, but the vehicle
+// tag made every index-trend row `instrument_type: 'options'`. The reconciler
+// then tried to leg-compare them, found no `model_intended_legs`, and parked
+// all five at `sync_state: untracked` with "cannot leg-compare" — permanently,
+// because the equity classifier never ran. Two consequences: their
+// `broker_remaining_qty` never converged to broker truth, and
+// `_readOpenClaimRowsForUser` filters on `instrument_type = 'equity'`, so they
+// were invisible to the sibling-claim math. That is why TNA W36 (closed) still
+// claimed 4 shares while W37 (open) claimed 5, against a single 5-share
+// position. Of 245 live manifest rows the only 5 that were not classifiable
+// were exactly these, and all 5 were untracked.
+export const EQUITY_MIRROR_VEHICLES = new Set([
+  "equity_long",
+  "equity",
+  "shares",
+  "shares_primary",
+  "letf",
+  "index_trend_letf",
+]);
+
 /**
  * Infer the instrument shape from the order payload.
- * Equity orders have no `vehicle` field (or vehicle === 'equity_long').
- * Options orders carry vehicle ∈ {long_call, long_put, vertical_spread,
- * leaps, straddle, moonshot}.
+ * Equity orders have no `vehicle` field, or one named in
+ * EQUITY_MIRROR_VEHICLES. Options orders carry vehicle ∈ {long_call,
+ * long_put, vertical_spread, leaps, straddle, moonshot}.
  *
  * Returns { instrument_type, options_structure }.
  */
-function inferInstrument(payload) {
+export function inferInstrument(payload) {
   const vehicle = payload?.vehicle ? String(payload.vehicle).trim().toLowerCase() : null;
-  if (!vehicle || vehicle === "equity_long") {
+  if (!vehicle || EQUITY_MIRROR_VEHICLES.has(vehicle)) {
     return { instrument_type: "equity", options_structure: null };
   }
   return { instrument_type: "options", options_structure: vehicle };
@@ -555,6 +613,59 @@ export function pickReducerFanoutAccounts(accounts, rows) {
   return (accounts || []).filter((acct) => holders.some((row) => accountMatchesManifestRow(acct, row)));
 }
 
+/**
+ * Qty claimed by other OPEN equity rows on the same ticker + account.
+ * Full EXIT must reserve this so a sibling lot (XLRE) is not flattened
+ * when the live holding is larger than this row's remaining.
+ */
+export function claimQtyFromManifestRow(row) {
+  const remaining = Number(row?.broker_remaining_qty);
+  const intended = Number(row?.model_intended_qty) || 0;
+  const liveRem = (Number.isFinite(remaining) && remaining > 0) ? remaining : 0;
+  const rejected = String(row?.sync_state || "").toLowerCase() === "rejected"
+    || Number(row?.mirror_suppressed) === 1;
+  // Rejected + no leftover is not an open book (ULTA prior lot intended
+  // 1.77 / remaining 0 was still claiming a sibling reserve).
+  if (liveRem > 0) return Math.max(liveRem, rejected ? liveRem : intended);
+  if (rejected) return 0;
+  return intended > 0 ? intended : 0;
+}
+
+export async function sumOpenSiblingEquityQty(env, {
+  userId,
+  brokerAccountId,
+  ticker,
+  exceptTradeId,
+} = {}) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return 0;
+  const uid = String(userId || "").toLowerCase();
+  const acct = String(brokerAccountId || "").trim();
+  const sym = String(ticker || "").toUpperCase();
+  const except = String(exceptTradeId || "").trim();
+  if (!uid || !sym) return 0;
+  await ensureMirrorManifestSchema(env);
+  try {
+    const r = await db.prepare(`
+      SELECT trade_id, broker_remaining_qty, model_intended_qty
+        FROM mirror_trade_manifest
+       WHERE (user_id = ?1 OR (?2 != '' AND broker_account_id = ?2))
+         AND UPPER(COALESCE(ticker, '')) = ?3
+         AND UPPER(COALESCE(model_status, '')) = 'OPEN'
+         AND LOWER(COALESCE(instrument_type, 'equity')) = 'equity'
+         AND (?4 = '' OR trade_id != ?4)
+       LIMIT 100
+    `).bind(uid, acct, sym, except).all();
+    let sum = 0;
+    for (const row of r?.results || []) sum += claimQtyFromManifestRow(row);
+    return sum;
+  } catch (e) {
+    console.warn("[MANIFEST] sumOpenSiblingEquityQty failed:",
+      String(e?.message || e).slice(0, 200));
+    return 0;
+  }
+}
+
 export async function listManifestRowsForTrade(env, tradeId) {
   const db = env?.BRIDGE_DB;
   if (!db) return [];
@@ -591,9 +702,7 @@ export async function recentManifestRows(env, opts = {}) {
   const limit = Math.max(1, Math.min(500, Number(opts.limit) || 50));
   const sinceMs = Number(opts.since_ms) || 0;
   const remSql = opts.remaining_only
-    ? ` AND COALESCE(broker_remaining_qty, 0) > 0
-        AND COALESCE(mirror_suppressed, 0) = 0
-        AND sync_state NOT IN ('rejected','expired','mirror_suppressed')`
+    ? ` AND COALESCE(broker_remaining_qty, 0) > 0`
     : "";
   try {
     let q, b;
@@ -687,6 +796,18 @@ export const POST_EXEC_VERIFY_DELAY_MS = 2 * 60 * 1000;
 // dust routinely creates a fractional delta; anything larger than
 // this is a real execution gap we alert on.
 export const POST_EXEC_TOLERANCE_QTY = 0.05;
+// How long before an UNCHANGED post-exec drift is worth saying again.
+//
+// A drift keeps `verified:false` on purpose, because it can still heal —
+// a late fill lands, or the operator sells by hand — and the only way to
+// notice is to re-check every reconcile pass. But re-CHECKING and
+// re-REPORTING are different things, and the drift path did both: DE
+// (`DE-1787252853209-e3325t0lf`, 0.226964 sh) wrote a `post_exec_drift`
+// audit row and emitted a notification on every pass for days, holding 6
+// of the 6 newest audit rows and pushing real entries 26 rows deep in a
+// 400-row pull. Re-check always, re-report only when the drift is new,
+// has moved by more than the tolerance, or has gone this long unreported.
+export const POST_EXEC_DRIFT_REPEAT_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Stamp the last-action expectation onto a manifest row. Best-effort:
@@ -813,20 +934,30 @@ export async function markLastActionVerified(env, row, liveHeldQty) {
  * `drift_qty` + `drift_detected_at` and leaves `verified=false` so
  * follow-up reconciler passes re-check (the drift may self-heal on
  * the next fill snapshot).
+ *
+ * `drift_detected_at` is FIRST-seen and never moves once set — it used to
+ * be overwritten with `now` on every pass, which made it impossible to
+ * tell a drift found a minute ago from one that had been sitting for
+ * days, and reset any clock keyed off it. `drift_reported_at` is separate
+ * and moves only when the caller actually told someone (`reported`), so
+ * repeat suppression has a stamp that means what it says.
  */
-export async function markLastActionDrift(env, row, liveHeldQty) {
+export async function markLastActionDrift(env, row, liveHeldQty, { reported = true } = {}) {
   const db = env?.BRIDGE_DB;
   if (!db) return false;
   const audit = _parseAudit(row?.sync_last_action_json);
   if (!audit) return false;
   const drift = (Number(liveHeldQty) || 0) - (Number(audit.expected_post_held_qty) || 0);
   const now = Date.now();
+  const firstSeen = Number(audit.drift_detected_at) || now;
   const updated = {
     ...audit,
     verified: false,
     verified_at: null,
     drift_qty: drift,
-    drift_detected_at: now,
+    drift_detected_at: firstSeen,
+    drift_last_seen_at: now,
+    drift_reported_at: reported ? now : (Number(audit.drift_reported_at) || null),
     live_held_qty: Number(liveHeldQty) || 0,
   };
   try {
@@ -842,6 +973,39 @@ export async function markLastActionDrift(env, row, liveHeldQty) {
       String(e?.message || e).slice(0, 200));
     return false;
   }
+}
+
+/**
+ * Should this drift be written to the audit + notified, or only re-checked?
+ *
+ * Takes the PREVIOUS audit (before markLastActionDrift rewrites it) and the
+ * drift measured this pass. Reports a drift that is new, that has moved by
+ * more than the fill tolerance in either direction, or that has gone
+ * unreported for POST_EXEC_DRIFT_REPEAT_MS. Everything else is the same
+ * unresolved gap we already paged about, and saying it again every five
+ * minutes buried the audit log without telling the operator anything new.
+ */
+export function shouldReportPostExecDrift(prevAudit, driftQty, {
+  now = Date.now(),
+  repeatMs = POST_EXEC_DRIFT_REPEAT_MS,
+  toleranceQty = POST_EXEC_TOLERANCE_QTY,
+} = {}) {
+  const prev = prevAudit && typeof prevAudit === "object" ? prevAudit : null;
+  const reportedAt = Number(prev?.drift_reported_at) || 0;
+  // Never reported before (including rows written by the older code, which
+  // had no `drift_reported_at` at all) — say it once.
+  if (!(reportedAt > 0)) return { report: true, reason: "first_report" };
+  const prevQty = Number(prev?.drift_qty);
+  if (!Number.isFinite(prevQty)) return { report: true, reason: "no_prior_qty" };
+  if (Math.abs(prevQty - (Number(driftQty) || 0)) > toleranceQty) {
+    return { report: true, reason: "drift_qty_changed" };
+  }
+  if (now - reportedAt >= repeatMs) return { report: true, reason: "repeat_window_elapsed" };
+  return {
+    report: false,
+    reason: "unchanged_since_last_report",
+    suppressed_for_ms: repeatMs - (now - reportedAt),
+  };
 }
 
 function _parseAudit(raw) {
@@ -868,16 +1032,21 @@ export async function markManifestModelClosed(env, userId, tradeId, brokerAccoun
   const db = env?.BRIDGE_DB;
   if (!db) return false;
   await ensureMirrorManifestSchema(env);
+  const tid = String(tradeId || "").trim();
+  if (!tid) return false;
   try {
+    // Close every sleeve for this trade_id. A rejected/suppressed leftover
+    // on another account must not stay OPEN and claim leftover as a sibling
+    // (ULTA 2026-09-10: prior lot stayed OPEN after the model EXIT).
     await db.prepare(`
       UPDATE mirror_trade_manifest
          SET model_status = 'CLOSED',
-             model_exit_ts = ?4,
-             model_exit_reason = ?5,
-             updated_at = ?4
-       WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
+             model_exit_ts = ?2,
+             model_exit_reason = ?3,
+             updated_at = ?2
+       WHERE trade_id = ?1
     `).bind(
-      String(userId).toLowerCase(), String(tradeId), String(brokerAccountId || "default"),
+      tid,
       Number(exitTs) || Date.now(),
       String(exitReason || "exit").slice(0, 200),
     ).run();

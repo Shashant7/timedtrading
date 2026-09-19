@@ -66,10 +66,38 @@ exist.
   cron now scores `timed:tickers`, promoted tickers score on the next cycle
   (freshness-quarantined at rank 10 until candles backfill — that's expected,
   not an orphan).
-- A promoted ticker not in `SECTOR_MAP` scores with sector `"Unknown"` until an
-  admin assigns one. That's fine; it is still scored and visible.
+- A promoted ticker must get a real GICS (file map, Granny holdings
+  sector, or normalized profile). Do **not** persist `"Unknown"` to
+  `timed:sector_map:{T}` — that freezes type/conviction and is how
+  TEAM/DDOG/ALL/DAL went blind. TT Selected is a sentiment overlay
+  (`+10` live Upticks / `+15` curated), not the only scored set.
+- `timed:all:snapshot` and D1 `ticker_latest` batch sync must use the
+  same registry as the scoring cron (`resolveRegistryUniverseTickers` /
+  `allTickers`). Building the snapshot from `SECTOR_MAP ∪ user_tickers`
+  only drops KV/`ticker_index` names after they score to `timed:latest`.
+- `POST /timed/admin/universe` on a name already in `SECTOR_MAP` must
+  still lift `timed:removed` and ensure `timed:tickers` + `ticker_index`.
+  `already_in_core` is not a no-op (DBA Sep 2026).
+- Watchlist add skips TwelveData US-stock validation for names in
+  `SECTOR_MAP`, `TT_SELECTED_DEFAULT`, or live `timed:admin:upticks`.
+  Commodity / thematic ETFs fail that stock list.
+- Hourly sanity `registry_alignment` (not the 15-min FAST path) diffs
+  live Upticks vs curated vs GICS vs `ticker_index` vs `timed:removed`
+  and deletes `Unknown` `timed:sector_map:{T}` overlays. Read-only:
+  `GET /timed/admin/registry-alignment`.
 - Never re-introduce a divergent list. New consumers MUST call
   `resolveScoringUniverse` (or read `/timed/tickers`), never re-union sources.
+- **Dead weight is a review list, not a delete job.** Names that never
+  produced a live trade (screener adds, broken orphans, idle core-map
+  names) are classified by `worker/dead-weight-tickers.js` from cheap
+  tables only. KEEP always includes open books, user slots, live
+  Upticks / `TT_SELECTED`, and index/pulse/levered proxies. A healthy
+  scored registry name that is not in the static map is WATCH, not
+  DEAD unused_add. Do not auto-REMOVE.
+  Do not `GROUP BY ticker_candles` to build the list. Snapshot:
+  [`docs/dead-weight-tickers-2026-09-12.md`](../docs/dead-weight-tickers-2026-09-12.md).
+  Trimming the book does not fix D1 read overage
+  (`docs/d1-billing-investigation-2026-06-22.md`).
 
 ## Verify
 

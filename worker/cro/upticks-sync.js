@@ -3,7 +3,7 @@
 
 import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { onboardTicker } from "../onboard-ticker.js";
-import { SECTOR_MAP } from "../sector-mapping.js";
+import { SECTOR_MAP, pickTickerSector } from "../sector-mapping.js";
 
 export const UPTICKS_KV_KEY = "timed:admin:upticks";
 
@@ -199,11 +199,13 @@ export async function applyUpticksListChanges(env, { added = [], removed = [], p
   for (const t of appliedAdded) {
     const wasNew = await ensureTickerInIndex(KV, t);
     if (wasNew) indexAdded.push(t);
-    const sector = SECTOR_MAP[t] || null;
+    const sector = pickTickerSector(t) || SECTOR_MAP[t] || null;
     try {
-      // Prefer the GICS sector from SECTOR_MAP; never leave "Unknown" when we know it.
-      if (sector) await KV.put(`timed:sector_map:${t}`, sector);
-      else if (!SECTOR_MAP[t]) await KV.put(`timed:sector_map:${t}`, "Unknown");
+      // Prefer the GICS sector from SECTOR_MAP; never persist Unknown.
+      if (sector) {
+        SECTOR_MAP[t] = sector;
+        await KV.put(`timed:sector_map:${t}`, sector);
+      }
     } catch (_) { /* best-effort */ }
   }
 

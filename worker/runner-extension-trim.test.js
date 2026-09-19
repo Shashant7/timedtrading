@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFile } from "node:fs/promises";
 import { assessRunnerExtensionTrim, loadExtensionTrimCfg, nySessionKey } from "./runner-extension-trim.js";
 
 // The motivating case: TSLA LONG from 347.27, first trim 50% at 354.66,
@@ -130,5 +131,65 @@ describe("assessRunnerExtensionTrim", () => {
     });
     // Falls back to entry-based ATR estimate + no EMA → null
     expect(plan).toBeNull();
+  });
+});
+
+// The guard lives entirely in execState, so the CALLER's write order is part
+// of the rule. `processTradeSimulation` stamped the guard into a local
+// (`_extExec`), persisted that, and left `execState` pointing at the
+// pre-trim object — then the runner-stale block and the smart-runner-exit
+// block persisted `execState` again later in the SAME pass. Their gate is a
+// snapshot of `trimmedPct` taken before this trim, so from the second step
+// onward they overwrote the guard with a copy that had no `extTrimSession`.
+describe("the call site must adopt the stamped state, not just persist it", () => {
+  /** One 5-min pass: assess, trim, stamp, then the two later persists. */
+  function runPass({ adoptStampedState }, stored) {
+    let execState = { ...stored };
+    const openTrade = { trimmedPct: 0.5, entryPrice: 347.27 };
+    const plan = assessRunnerExtensionTrim({ ...TSLA_SEP3, openTrade, execState });
+    if (plan) {
+      const stamped = {
+        ...execState,
+        lastTrimMs: TSLA_SEP3.now,
+        extTrimSession: plan.diag.session,
+        extTrimPx: TSLA_SEP3.pxNow,
+      };
+      if (adoptStampedState) execState = stamped;
+    }
+    // Later in the same pass: ratchetRunnerPeak reports a new peak (which is
+    // exactly the extension condition), then the smart-runner-exit block
+    // touches its own counter. Both persist `execState`.
+    execState = { ...execState, runnerPeakPrice: TSLA_SEP3.pxNow };
+    execState = { ...execState, runnerC512CloseBelowCount: 1 };
+    return { plan, persisted: execState };
+  }
+
+  it("re-fires in the same session when the stamp is only persisted (the bug)", () => {
+    const first = runPass({ adoptStampedState: false }, {});
+    expect(first.plan.action).toBe("trim");
+    expect(first.persisted.extTrimSession).toBeUndefined();
+    // Next tick reads what the pass persisted — the guard is gone.
+    const second = runPass({ adoptStampedState: false }, first.persisted);
+    expect(second.plan).toBeTruthy();
+  });
+
+  it("holds for the rest of the session once the stamp is adopted (the fix)", () => {
+    const first = runPass({ adoptStampedState: true }, {});
+    expect(first.plan.action).toBe("trim");
+    expect(first.persisted.extTrimSession).toBe(nySessionKey(TSLA_SEP3.now));
+    expect(first.persisted.extTrimPx).toBe(TSLA_SEP3.pxNow);
+    const second = runPass({ adoptStampedState: true }, first.persisted);
+    expect(second.plan).toBeNull();
+  });
+
+  it("assigns the stamped object back to execState in worker/index.js", async () => {
+    const src = await readFile(new URL("./index.js", import.meta.url), "utf8");
+    const block = src.slice(src.indexOf("RUNNER EXTENSION TRIM"));
+    const stamp = block.indexOf("extTrimSession: _extPlan.diag.session");
+    expect(stamp).toBeGreaterThan(-1);
+    // The stamp must be built into `execState` itself, not a local the later
+    // persists will ignore.
+    expect(block.slice(Math.max(0, stamp - 400), stamp)).toMatch(/execState\s*=\s*\{/);
+    expect(block.slice(stamp, stamp + 400)).not.toMatch(/execKey,\s*_extExec/);
   });
 });

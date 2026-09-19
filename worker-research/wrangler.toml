@@ -127,6 +127,8 @@ TT_EXIT_DEBOUNCE_BARS = "3"
 LIVE_MANAGE_INTERVAL_MIN = "30"
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
+# 2026-09-13 — TT Setups copy locked. Same flag as the ingest worker.
+WEEKEND_DESK_BROADCAST = "1"
 EMAIL_ENABLED = "true"
 EMAIL_FROM = "notifications@timed-trading.com"
 COO_ENABLED = "true"

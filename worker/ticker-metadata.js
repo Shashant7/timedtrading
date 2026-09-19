@@ -235,9 +235,13 @@ export async function syncMetadataToContext(env, row, opts = {}) {
   if (opts.patchSectorMap !== false && ctx.sector) {
     try {
       const SectorMap = await import("./sector-mapping.js");
-      if (SectorMap.SECTOR_MAP?.[sym] === "Unknown" || !SectorMap.SECTOR_MAP?.[sym]) {
-        SectorMap.SECTOR_MAP[sym] = ctx.sector;
-        if (KV) await KV.put(`timed:sector_map:${sym}`, ctx.sector);
+      const normalized = SectorMap.normalizeSectorLabel?.(ctx.sector) || null;
+      const current = SectorMap.SECTOR_MAP?.[sym];
+      const currentUnknown = !current || current === "Unknown"
+        || SectorMap.isUnknownSector?.(current);
+      if (normalized && currentUnknown) {
+        SectorMap.SECTOR_MAP[sym] = normalized;
+        if (KV) await KV.put(`timed:sector_map:${sym}`, normalized);
       }
     } catch (_) {}
   }

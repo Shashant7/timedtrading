@@ -10,6 +10,10 @@ const fetchOpts = {
   cache: "no-store"
 };
 const fmt = (v, suffix = "") => v === null || v === undefined || v === "" ? "n/a" : `${v}${suffix}`;
+const histSlice = (slice, prefix) => {
+  const n = Number(slice?.n) || 0;
+  return n ? `${prefix} n=${n} · ${signed(slice.sum_pct)}` : `${prefix} n=0`;
+};
 const signed = (v, suffix = "pp") => {
   if (v === null || v === undefined) return "n/a";
   const n = Number(v);
@@ -151,11 +155,12 @@ function App() {
   const od = review?.options_desk || null;
   const bi = review?.broker_intents || {};
   const knobs = review?.knobs || {};
+  const cov = review?.broker_coverage || null;
   return React.createElement("main", null, React.createElement("div", {
     className: "head"
   }, React.createElement("div", null, React.createElement("h1", null, "Execution Review"), React.createElement("div", {
     className: "sub"
-  }, "The ledger grades the execution-discipline plan. Runs every Friday at 5 PM ET; emailed to the operator; one line to Discord.", review && React.createElement(React.Fragment, null, " Latest: ", React.createElement("strong", null, review.label), " \xB7 generated ", fmtTs(review.generated_at), " \xB7 source ", review.source || "kv", "."))), React.createElement("div", {
+  }, "The ledger grades the execution-discipline plan. Runs every Friday at 5 PM ET; emailed to the operator on the same dark template as Brief / trade / Account-today mail; one line to Discord.", review && React.createElement(React.Fragment, null, " Latest: ", React.createElement("strong", null, review.label), " \xB7 generated ", fmtTs(review.generated_at), " \xB7 source ", review.source || "kv", "."))), React.createElement("div", {
     className: "actions"
   }, React.createElement("button", {
     className: "btn",
@@ -224,7 +229,52 @@ function App() {
     } : undefined
   }, String(h.status || "").toUpperCase()), React.createElement("div", {
     className: "n"
-  }, "wk n=", h.week_all?.n ?? 0, " ", signed(h.week_all?.sum_pct), " \xB7 core since n=", h.core_since?.n ?? 0, " ", signed(h.core_since?.sum_pct))))))), React.createElement("div", {
+  }, histSlice(h.week_all, "wk"), " \xB7 ", histSlice(h.core_since, "core since"))))))), React.createElement("div", {
+    className: "card",
+    style: {
+      marginBottom: 14
+    }
+  }, React.createElement("h2", null, "Model vs broker"), !cov ? React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 13
+    }
+  }, "Coverage snapshot not taken yet.") : React.createElement(React.Fragment, null, React.createElement("span", {
+    className: `badge badge--${cov.healthy ? "pass" : cov.quiet ? "insufficient" : "fail"}`
+  }, cov.healthy ? "MIRRORED" : cov.quiet ? "QUIET" : `${cov.fails} UNMATCHED`), React.createElement("div", {
+    className: "kv",
+    style: {
+      marginTop: 12
+    }
+  }, React.createElement("span", {
+    className: "k"
+  }, "actions"), React.createElement("span", {
+    className: "v"
+  }, cov.actions), React.createElement("span", {
+    className: "k"
+  }, "mirrored"), React.createElement("span", {
+    className: "v"
+  }, cov.mirrored), React.createElement("span", {
+    className: "k"
+  }, "unmatched"), React.createElement("span", {
+    className: `v ${cov.unmatched ? "neg" : ""}`
+  }, cov.unmatched), React.createElement("span", {
+    className: "k"
+  }, "pending intents"), React.createElement("span", {
+    className: "v"
+  }, cov.pending_intent), React.createElement("span", {
+    className: "k"
+  }, "terminal rejects"), React.createElement("span", {
+    className: "v"
+  }, cov.rejected_terminal)), (cov.sample || []).length > 0 && React.createElement("ul", {
+    className: "checks"
+  }, cov.sample.map((row, i) => React.createElement("li", {
+    key: `${row.ticker}-${row.event}-${i}`
+  }, React.createElement("span", {
+    className: "dot dot--miss"
+  }), React.createElement("span", null, row.ticker, " ", row.lane, " ", row.event, ": ", React.createElement("strong", null, row.reason))))), React.createElement("div", {
+    className: "note"
+  }, "Fail-closed join of Short Term, Long Term, index-trend, index DT, and convexity against the broker ring. Discord pages when the unmatched set changes, and one clean confirmation per NY day when every action is mirrored. Detail: GET /timed/admin/broker/coverage. Unmatched Short Term ENTRIES page only \u2014 they must re-qualify."))), React.createElement("div", {
     className: "grid grid--3",
     style: {
       marginBottom: 14
@@ -324,6 +374,6 @@ root.render(AuthGate ? React.createElement(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "admin"
 }, () => React.createElement(App, null)) : React.createElement(App, null));
-// cache-bust:1788812870099:126980240
+// cache-bust:1789244206254:157764095
 
-// cache-bust:1788812870099:126980240
+// cache-bust:1789244206254:157764095

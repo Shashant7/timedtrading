@@ -3,6 +3,7 @@ import {
   mergeTickerUniverse,
   resolveScoringUniverse,
   loadScoringUniverse,
+  planRegistryReactivation,
 } from "./universe.js";
 
 describe("mergeTickerUniverse", () => {
@@ -76,5 +77,37 @@ describe("loadScoringUniverse", () => {
     });
     // AAPL removed; SMCI from KV survives; failing user-ticker read tolerated.
     expect(out).toEqual(["SMCI"]);
+  });
+});
+
+describe("planRegistryReactivation", () => {
+  it("lifts a mapped Uptick off timed:removed and back onto timed:tickers", () => {
+    const plan = planRegistryReactivation({
+      ticker: "dba",
+      inSectorMap: true,
+      removed: ["DBA", "FOO"],
+      kvTickers: ["AAPL"],
+    });
+    expect(plan).toMatchObject({
+      ticker: "DBA",
+      already_in_core: true,
+      lifted_removed: true,
+      ensure_kv_tickers: true,
+      shouldOnboard: true,
+    });
+    expect(plan.nextRemoved).toEqual(["FOO"]);
+    expect(plan.nextTickers).toEqual(["AAPL", "DBA"]);
+  });
+
+  it("is a no-op onboard when the mapped name is already live", () => {
+    const plan = planRegistryReactivation({
+      ticker: "AAPL",
+      inSectorMap: true,
+      removed: [],
+      kvTickers: ["AAPL"],
+    });
+    expect(plan.lifted_removed).toBe(false);
+    expect(plan.ensure_kv_tickers).toBe(false);
+    expect(plan.shouldOnboard).toBe(false);
   });
 });

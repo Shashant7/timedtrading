@@ -135,6 +135,9 @@ TT_EXIT_DEBOUNCE_BARS = "3"
 LIVE_MANAGE_INTERVAL_MIN = "30"
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
+# 2026-09-13 — TT Setups copy locked. Opted-in Pro/VIP/Admin get the
+# Saturday list. Set "0" to revert to admin-only preview.
+WEEKEND_DESK_BROADCAST = "1"
 EMAIL_ENABLED = "true"
 EMAIL_FROM = "notifications@timed-trading.com"
 # Provenance (Slice A): build identity stamped on every decision_record.
@@ -364,6 +367,9 @@ LIVE_MANAGE_INTERVAL_MIN = "30"
 # Cloudflare Access — user auth via Google SSO / One-time PIN
 CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
+# 2026-09-13 — TT Setups copy locked. Opted-in Pro/VIP/Admin get the
+# Saturday list. Set "0" to revert to admin-only preview.
+WEEKEND_DESK_BROADCAST = "1"
 EMAIL_ENABLED = "true"
 EMAIL_FROM = "notifications@timed-trading.com"
 # ── AI COO — mirror of top-level [vars] block (2026-06-02) ──

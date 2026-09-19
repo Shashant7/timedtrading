@@ -225,8 +225,9 @@ describe("formatLearningDeskDiscord", () => {
     expect(text).toContain("Not a live trade signal");
     expect(text).toContain("Needs a decision");
     expect(text).toContain("Support Bounce (long) #68, #70");
-    expect(text).toContain("approve = pause this setup");
-    expect(text).toContain("reject = keep it live");
+    expect(text).toContain("Mission Control learning queue (top of the page");
+    expect(text).toContain("approve writes the knob");
+    expect(text).toContain("reject keeps the live value");
     expect(text).toContain("Desk already acted");
     expect(text).toContain("CIO restored Support Bounce (long)");
     expect(text).not.toContain("ESCALATE");

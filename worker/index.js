@@ -279,13 +279,28 @@ else apikeyInput.addEventListener('change', startPolling, { once:true });
 </script>
 
 </body></html>`;
-import { computeConvictionScore, TT_SELECTED_DEFAULT } from "./focus-tier.js";
+import {
+  computeConvictionScore,
+  TT_SELECTED_DEFAULT,
+  attachFocusListEnv,
+  stampFocusConvictionFields,
+} from "./focus-tier.js";
+import { attachNewsSummary } from "./discovery/news-tracker.js";
+import {
+  breakoutWatchLookForEntryCopy,
+  breakoutWatchSetupReason,
+  shouldPromoteBreakoutWatchToSetup,
+} from "./breakout-watch.js";
 import {
   getTickerType as getTickerTypeForFocus,
   SECTOR_MAP as SECTOR_MAP_FILE,
   // 2026-05-29 — used to attach themes per ticker in /timed/all so the
   // Right Rail header can render theme chips client-side.
   getThemesForTicker as _getThemesForTicker,
+  pickTickerSector,
+  stampResolvedSector,
+  normalizeSectorLabel,
+  isUnknownSector,
 } from "./sector-mapping.js";
 import {
   getEffectiveSectorRating,
@@ -304,6 +319,7 @@ export { BacktestRunner } from "./backtest-runner-do.js";
 export { CandleChainShard } from "./foundation/candle-chain-do.js";
 export { DeltaOneStream } from "./discovery/delta-one-stream.js";
 import { candleShardStub as _candleShardStub } from "./foundation/candle-chain-do.js";
+import { prepareHtCandleWrite as _prepareHtCandleWrite } from "./foundation/candle-chain.js";
 // Phase 2 seam: chain-backed getCandles for shadow scoring (live-vs-chain diff).
 import { makeChainGetCandles as _makeChainGetCandles, getSeriesFromBases as _getSeriesFromBases, makeHybridGetCandles as _makeHybridGetCandles, HYBRID_CHAIN_TFS as _HYBRID_CHAIN_TFS, resolveScoreGetCandles as _resolveScoreGetCandles } from "./foundation/chain-series-adapter.js";
 // Market cycle (replay-parity) + per-index benchmark mapping + breadth-aware backdrop.
@@ -483,6 +499,7 @@ import {
   buildCloudPivotOptionsFirstPlay,
   evaluateTtCloudPivotExit,
   CLOUD_PIVOT_FAMILY,
+  CLOUD_PIVOT_SESSION_LOCK_START_MIN,
 } from "./foundation/tt-cloud-pivot.js";
 import {
   scopedAutopsyId,
@@ -860,7 +877,8 @@ import {
   applyLiveMarkToEquityPoints as _applyLiveMarkToEquityPoints,
 } from "./account-summary.js";
 import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction, applyPaperMirrorLog, paperMirrorLogSide } from "./broker-day-actions-join.js";
-import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendNeedsEntryCatchUp, indexTrendCatchUpPlaced, indexTrendCloseReadyToFinalize } from "./index-trend-auto-mirror.js";
+import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendShouldCatchUpOpenEntry, indexTrendCatchUpPlaced, indexTrendCloseReadyToFinalize } from "./index-trend-auto-mirror.js";
+import { dcaSweepShouldMarkClean } from "./investor-dca-sweep.js";
 import {
   recordSignal as _soRecordSignal,
   optionsPlayToSignal as _soOptionsPlayToSignal,
@@ -1084,7 +1102,12 @@ import {
 } from "./investor.js";
 import { shallowBreachScoreHold } from "./investor-autopsy-gates.js";
 import { enrichInvestorDayState } from "./seed-investor-daystate.js";
-import { resolveScoringUniverse } from "./universe.js";
+import { resolveScoringUniverse, planRegistryReactivation } from "./universe.js";
+import {
+  shouldSkipSymbolValidation,
+  runRegistryAlignment,
+} from "./registry-alignment.js";
+import { loadCandleTfCounts, bustCandleTfCountsCache } from "./candle-tf-counts.js";
 import {
   BROAD_INDEX_TICKERS,
   computeTimingOverlay,
@@ -1332,7 +1355,9 @@ import {
   saveAutoMirrorPrefs as _saveAutoMirrorPrefs,
   decideAutoMirror as _decideAutoMirror,
   fireAutoMirror as _fireAutoMirror,
-  checkAndBumpDailyCounter as _bumpMirrorCounter,
+  entryCountersHaveRoom as _entryCountersHaveRoom,
+  commitEntryCounters as _commitEntryCounters,
+  optionsMirrorDispatchAccepted as _optionsMirrorDispatchAccepted,
 } from "./options-auto-mirror.js";
 import {
   optionsShadowModeEnabled as _optionsShadowModeEnabled,
@@ -2372,6 +2397,7 @@ const ROUTES = [
   // ── Admin: Core Universe management (KV overlay on SECTOR_MAP) ──
   ["GET", "/timed/admin/universe", "GET /timed/admin/universe"],
   ["GET", "/timed/admin/universe-audit", "GET /timed/admin/universe-audit"],
+  ["GET", "/timed/admin/registry-alignment", "GET /timed/admin/registry-alignment"],
   ["POST", "/timed/admin/universe", "POST /timed/admin/universe"],
   ["DELETE", (p) => /^\/timed\/admin\/universe\/[A-Z0-9.!-]+$/i.test(p), "DELETE /timed/admin/universe/:ticker"],
   // ── ETF Holdings Sync ──
@@ -2524,11 +2550,16 @@ const ROUTES = [
   ["GET",  "/timed/broker/accounts",                     "GET /timed/broker/accounts"],
   ["GET",  "/timed/admin/broker-intents",                "GET /timed/admin/broker-intents"],
   ["POST", "/timed/admin/broker-intents/drain",          "POST /timed/admin/broker-intents/drain"],
+  ["GET",  "/timed/admin/broker/coverage",               "GET /timed/admin/broker/coverage"],
+  ["POST", "/timed/admin/index-trend/heal-entries",      "POST /timed/admin/index-trend/heal-entries"],
   ["POST", "/timed/admin/index-trend/heal-closes",       "POST /timed/admin/index-trend/heal-closes"],
   ["GET",  "/timed/admin/convexity-tickets",             "GET /timed/admin/convexity-tickets"],
   ["GET",  "/timed/admin/execution/report-card",         "GET /timed/admin/execution/report-card"],
   ["GET",  "/timed/admin/execution/review",              "GET /timed/admin/execution/review"],
   ["POST", "/timed/admin/execution/review",              "POST /timed/admin/execution/review"],
+  ["GET",  "/timed/weekend-desk",                        "GET /timed/weekend-desk"],
+  ["GET",  "/timed/admin/weekend-desk",                  "GET /timed/admin/weekend-desk"],
+  ["POST", "/timed/admin/weekend-desk",                  "POST /timed/admin/weekend-desk"],
   ["POST", "/timed/admin/convexity-tickets/mark",        "POST /timed/admin/convexity-tickets/mark"],
   ["GET",  "/timed/broker/positions",                    "GET /timed/broker/positions"],
   // 2026-08-13 — Day timeline (model actions × mirror outcomes) + scoped
@@ -4582,16 +4613,17 @@ async function etfAutoAddTickers(env, tickers, weightMap, ctx) {
     if (SECTOR_MAP[ticker]) { added.push(ticker); continue; } // already in core
 
     try {
-      // Derive sector from ETF holdings data if available
-      const weights = weightMap?.[ticker];
-      let sector = "Unknown";
-      // The holdings HTML includes sector info — stored in the full holdings KV
-      // For now, default to Unknown; the scoring pipeline enriches via Finnhub context later.
-      SECTOR_MAP[ticker] = sector;
-      await KV.put(`timed:sector_map:${ticker}`, sector);
+      // Holdings HTML includes GICS; applyHoldingsToMaps stores it on weightMap._sectors.
+      // Never persist Unknown — that freezes the name as untyped across KV + scoring.
+      const holdingsSector = normalizeSectorLabel(weightMap?._sectors?.[ticker]);
+      const sector = holdingsSector || pickTickerSector(ticker);
+      if (sector) {
+        SECTOR_MAP[ticker] = sector;
+        await KV.put(`timed:sector_map:${ticker}`, sector);
+      }
       await ensureTickerIndex(KV, ticker);
       added.push(ticker);
-      console.log(`[ETF AUTO-ADD] Added ${ticker} to system (sector: ${sector})`);
+      console.log(`[ETF AUTO-ADD] Added ${ticker} to system (sector: ${sector || "pending"})`);
     } catch (e) {
       console.warn(`[ETF AUTO-ADD] Failed to add ${ticker}:`, String(e?.message || e).slice(0, 150));
     }
@@ -4945,7 +4977,42 @@ function classifyScoreStaleness(latest, { nowMs, marketCloseMs, forcePostClose =
   return null;
 }
 
+async function loadFocusListEnv(env) {
+  const kv = env?.KV_TIMED || env?.KV;
+  try {
+    if (!env._currentUpticks) {
+      const upticksList = await kvGetJSON(kv, "timed:admin:upticks");
+      env._currentUpticks = new Set(
+        (Array.isArray(upticksList) ? upticksList : []).map((t) => String(t || "").toUpperCase()).filter(Boolean),
+      );
+    }
+  } catch (_) { env._currentUpticks = env._currentUpticks || null; }
+  try {
+    if (!env._currentGrannyHoldings) {
+      const { loadETFWeightMap } = await import("./etf-holdings.js");
+      const wm = await loadETFWeightMap(env).catch(() => null);
+      if (wm && typeof wm === "object") {
+        env._currentGrannyHoldings = new Set(Object.keys(wm).map((t) => String(t).toUpperCase()));
+      }
+    }
+  } catch (_) { /* optional */ }
+  return env;
+}
+
+function stampFocusConvictionOnTicker(tickerData, env) {
+  if (!tickerData) return null;
+  attachFocusListEnv(tickerData, env);
+  try {
+    return stampFocusConvictionFields(tickerData, computeConvictionScoreForD(tickerData));
+  } catch (_) {
+    return tickerData;
+  }
+}
+
 async function forceRescoreSingleTicker(env, ticker) {
+  // Match the */5 cron: without these lists, computeConvictionScore
+  // cannot apply live Upticks +10 / Granny +10 (DDOG Sep 2026).
+  await loadFocusListEnv(env);
   const candleCache = await d1GetCandlesAllTfs(env, ticker, RESCORE_TF_CONFIGS);
   const getCandlesCached = async (_env, _ticker, tf, _limit) => {
     const tfKey = normalizeTfKey(tf);
@@ -4970,9 +5037,8 @@ async function forceRescoreSingleTicker(env, ticker) {
   tickerData.rank = computeRank(tickerData);
   tickerData.score = tickerData.rank;
   const sym = String(ticker || "").toUpperCase();
-  if (!tickerData.sector) {
-    tickerData.sector = getSector(sym) || SECTOR_MAP[sym] || "Unknown";
-  }
+  stampRuntimeSector(sym, tickerData);
+  stampFocusConvictionOnTicker(tickerData, env);
   delete tickerData._scoring_skip_reason;
   delete tickerData._scoring_degraded;
   // Harmonic Wave — stamp on admin rescore too (OOH scoring cron is skipped).
@@ -5081,6 +5147,7 @@ async function hydrateTickerLayers(env, ticker) {
   }
 
   try { await KV?.delete("timed:cache:ingestion-status"); } catch (_) {}
+  await bustCandleTfCountsCache(env);
   console.log(`[HYDRATE] ${sym}:`, JSON.stringify(steps));
   return { ok: true, ticker: sym, steps };
 }
@@ -5089,29 +5156,13 @@ async function hydrateTickerLayers(env, ticker) {
 async function rebuildTimedAllSnapshotFromLatest(env) {
   const KV = env?.KV_TIMED;
   if (!KV) return { ok: false, error: "kv_missing" };
-  const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
-  const _userAdded = await d1GetActiveUserTickersCached(env).catch(() => []);
-  const activeSyms = [...new Set([...Object.keys(SECTOR_MAP || {}), ..._userAdded])]
-    .map((t) => String(t || "").toUpperCase())
-    .filter((t) => t && !removedSet.has(t));
-  try {
-    const watchRaw = await KV.get("timed:tickers");
-    if (watchRaw) {
-      const parsed = JSON.parse(watchRaw);
-      const arr = Array.isArray(parsed) ? parsed : (parsed?.tickers || []);
-      for (const t of arr) {
-        const sym = String(t || "").toUpperCase();
-        if (sym && !removedSet.has(sym)) activeSyms.push(sym);
-      }
-    }
-  } catch (_) {}
-  const uniq = [...new Set(activeSyms)].sort();
+  const uniq = await resolveRegistryUniverseTickers(env);
   const snapshot = {};
   let merged = 0;
   for (const sym of uniq) {
     const payload = await kvGetJSON(KV, `timed:latest:${sym}`).catch(() => null);
     if (payload && typeof payload === "object") {
-      snapshot[sym] = payload;
+      snapshot[sym] = stampRuntimeSector(sym, payload);
       merged++;
     }
   }
@@ -7183,6 +7234,9 @@ function computeConvictionScoreForD(d, sideOverride = null) {
     try {
       d._ticker_type = getTickerTypeForFocus(d.ticker || d.sym || "");
     } catch { /* ignore */ }
+  }
+  if (!d._news_summary) {
+    try { attachNewsSummary(d, env._newsSummaries); } catch { /* ignore */ }
   }
 
   // V15 P0.1 — derive entry side for the Saty ATR proximity signal.
@@ -12607,7 +12661,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         positionAgeMin,
         trimmedPct: currentTrimPct,
         daCfg: tickerData?._env?._deepAuditConfig || {},
-        sessionLock: _cpWin.can_reduce && _cpWin.et_minutes >= 15 * 60 + 40,
+        sessionLock: _cpWin.can_reduce && _cpWin.et_minutes >= CLOUD_PIVOT_SESSION_LOCK_START_MIN,
       });
       if (openPosition?.__tradeRef && typeof openPosition.__tradeRef === "object") {
         if (openPosition.tt_cloud_pivot_pending_5_12 != null) {
@@ -13906,6 +13960,13 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       return "setup";
     }
   }
+
+  // SETUP: Level or trendline breakout fired — look for a good entry.
+  // Watch / setup only. Does not skip setup grade or add a buy path.
+  if (shouldPromoteBreakoutWatchToSetup(tickerData)) {
+    tickerData.__setup_reason = breakoutWatchSetupReason(tickerData);
+    return "setup";
+  }
   
   // WATCH: Valid data, monitoring pool
   const hasValidData =
@@ -14063,6 +14124,16 @@ function deriveKanbanMeta(tickerData, stage) {
         patternMatch: pm,
       };
     }
+    if (tickerData?.__setup_reason?.startsWith("breakout_watch:")) {
+      const watch = tickerData?._breakout_watch || tickerData?.breakout_watch || {};
+      return {
+        bucket: "breakout_watch",
+        emoji: "🎯",
+        reason: breakoutWatchLookForEntryCopy(watch) || "look_for_entry",
+        reasons: ["breakout_watch", watch.kind, watch.dir].filter(Boolean),
+        breakoutWatch: watch,
+      };
+    }
     if (flags.flip_watch) {
       return { bucket: "flip_watch", emoji: "🔄", reason: "about_to_flip", reasons: ["flip_watch"] };
     }
@@ -14072,9 +14143,19 @@ function deriveKanbanMeta(tickerData, stage) {
     return { bucket: "preparing", emoji: "⏳", reason: "pullback_forming", reasons: ["setup"] };
   }
 
-  // WATCH stage: show monitoring
+  // WATCH stage: approaching a trendline is still watch, but visible.
   if (stage === "watch") {
-    return null;  // No special meta for watch
+    const watch = tickerData?._breakout_watch || tickerData?.breakout_watch;
+    if (watch?.approaching || tickerData?.flags?.breakout_approaching) {
+      return {
+        bucket: "breakout_approaching",
+        emoji: "🎯",
+        reason: breakoutWatchLookForEntryCopy(watch) || "watching_for_break",
+        reasons: ["breakout_approaching", watch?.kind, watch?.dir].filter(Boolean),
+        breakoutWatch: watch,
+      };
+    }
+    return null;
   }
 
   return null;
@@ -21078,8 +21159,7 @@ async function processTradeSimulation(
                 exit: Number(trade.exitPrice) || null,
                 pnl: Number(trade.pnl) || null,
                 status: trade.status || null,
-                rank: Number(trade.rank) || null,
-                rr: Number(trade.rr) || null,
+                ...tradeAlertScoreFields({ trade, tickerData, direction: trade.direction }),
                 setup_name: trade.setupName || trade.setup_name || tickerData?.__setupName || null,
                 setup_grade: trade.setupGrade || trade.setup_grade || tickerData?.__setupGrade || null,
                 action_ts: tsMs,
@@ -21719,6 +21799,7 @@ async function processTradeSimulation(
               newTrimmedPct: tgt,
               shares_trimmed: Number(trimShares) || null,
               shares_remaining: (Number(trade.shares) || 0) - (Number(trimShares) || 0),
+              ...tradeAlertScoreFields({ trade, tickerData, direction: dir }),
               setup_name: trade.setupName || trade.setup_name || tickerData?.__setupName || null,
               setup_grade: trade.setupGrade || trade.setup_grade || tickerData?.__setupGrade || null,
               risk_budget: Number(trade.riskBudget || trade.risk_budget || tickerData?.__riskBudget) || null,
@@ -23778,15 +23859,26 @@ async function processTradeSimulation(
           if (_extPlan && _extPlan.action === "trim") {
             console.log(`[RUNNER_EXT_TRIM] ${sym} trim-into-strength pnl=${_extPlan.pnlPct}% ext=${_extPlan.atrExt} ATR → trimmed ${(_extPlan.diag.trimmed_before * 100).toFixed(0)}% → ${(_extPlan.newTargetTrimPct * 100).toFixed(0)}%`);
             await trimTradeToPct(openTrade, _extPlan.newTargetTrimPct, pxNow, "RUNNER_EXTENSION_TRIM");
-            const _extExec = {
+            // Adopt the stamped state locally, not just in KV. The runner
+            // stale block and the smart-runner-exit block both persist
+            // `execState` later in this same pass, and their gate
+            // (`_sreTrimmedPct`) is a snapshot taken BEFORE this trim — so
+            // from the second step onward they wrote the pre-trim object
+            // back over `extTrimSession` / `extTrimPx`. `ratchetRunnerPeak`
+            // reports `updated` exactly on a new peak, which is the defining
+            // condition of the extension this rule fires on, so the
+            // once-per-session guard was erased on precisely the ticks that
+            // matter and a runner could walk 25% -> 50% -> 75% in one
+            // session.
+            execState = {
               ...execState,
               lastTrimMs: now,
               extTrimSession: _extPlan.diag.session,
               extTrimPx: pxNow,
               runnerPeakPrice: Math.max(Number(execState?.runnerPeakPrice) || 0, pxNow),
             };
-            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _extExec);
-            else if (!isReplay) await kvPutJSON(KV, execKey, _extExec);
+            if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, execState);
+            else if (!isReplay) await kvPutJSON(KV, execKey, execState);
           }
         } catch (_extErr) {
           console.warn(`[RUNNER_EXT_TRIM] ${sym} failed:`, String(_extErr?.message || _extErr).slice(0, 150));
@@ -39719,14 +39811,9 @@ async function runDcaSweepGuarded(env, { mirror = true } = {}) {
   }
   try {
     const out = await sweepInvestorDcaSideEffects(env, { mirror });
-    const catchupClean = !out?.catchup
-      || (!out.catchup.error
-        && (out.catchup.planned || 0) === 0
-        && (out.catchup.forwarded_fail || 0) === 0);
-    const clean = out?.ok === true
-      && !out?.healed_count
-      && out?.mirror_checked === true
-      && catchupClean;
+    // PLTR 2026-09-11: empty 15:46 window used to mark the day clean
+    // before the 15:50 lot existed; later ticks skipped the broker heal.
+    const clean = dcaSweepShouldMarkClean(out);
     if (clean && KV) {
       await KV.put(cleanKey, String(Date.now()), { expirationTtl: 12 * 3600 }).catch(() => {});
     }
@@ -40015,17 +40102,13 @@ async function d1FindTickersNeedingOnboard(env, opts = {}) {
 
   const expected = { "10": 500, "30": 300, "60": 300, "240": 300, "D": 250, "W": 200, "M": 60 };
   const tfs = ["M", "W", "D", "240", "60", "30", "10"];
-  const byTicker = {};
-  try {
-    const rows = (await db.prepare(
-      "SELECT ticker, tf, COUNT(*) as cnt FROM ticker_candles GROUP BY ticker, tf"
-    ).all())?.results || [];
-    for (const r of rows) {
-      const sym = String(r.ticker || "").toUpperCase();
-      if (!byTicker[sym]) byTicker[sym] = {};
-      byTicker[sym][r.tf] = Number(r.cnt) || 0;
-    }
-  } catch (_) { return []; }
+  const counts = await loadCandleTfCounts(env);
+  if (counts.source === "d1_failed" || counts.source === "none") {
+    // Same as the old inline GROUP BY catch: do not invent 300 orphans
+    // and do not retry the 6M-row scan on the soft/heal caller.
+    return [];
+  }
+  const byTicker = counts.byTicker || {};
 
   let profileSet = new Set();
   try {
@@ -40212,6 +40295,7 @@ async function kickOnboardGapsHeal(env, ctx, opts = {}) {
         }
       }
       try { await KV.delete("timed:cache:ingestion-status"); } catch (_) {}
+      await bustCandleTfCountsCache(env);
       try {
         const selfUrl = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
         const _hdrs = env?.TIMED_API_KEY ? { "X-API-Key": env.TIMED_API_KEY } : {};
@@ -40292,8 +40376,8 @@ async function ensureTickerUniverseAndOnboard(env, ticker, ctx, opts = {}) {
 
   await ensureTickerIndex(KV, sym);
 
-  const sector = opts.sector || SECTOR_MAP[sym] || "Unknown";
-  if (!SECTOR_MAP[sym]) {
+  const sector = normalizeSectorLabel(opts.sector) || pickTickerSector(sym);
+  if (sector && (isUnknownSector(SECTOR_MAP[sym]) || !SECTOR_MAP[sym])) {
     try {
       await KV.put(`timed:sector_map:${sym}`, sector);
       SECTOR_MAP[sym] = sector;
@@ -40305,6 +40389,7 @@ async function ensureTickerUniverseAndOnboard(env, ticker, ctx, opts = {}) {
   } catch (_) { /* best-effort */ }
 
   try { await KV.delete("timed:cache:ingestion-status"); } catch (_) {}
+  await bustCandleTfCountsCache(env);
 
   const runOnboard = async () => {
     try {
@@ -40624,8 +40709,10 @@ async function d1UpsertCandle(env, ticker, tf, candle) {
   const tfKey = normalizeTfKey(tf);
   if (!sym || !tfKey) return { ok: false, error: "bad_params" };
 
-  const ts = Number(candle?.ts);
-  if (!Number.isFinite(ts)) return { ok: false, error: "bad_ts" };
+  const rawTs = Number(candle?.ts);
+  if (!Number.isFinite(rawTs)) return { ok: false, error: "bad_ts" };
+  const write = _prepareHtCandleWrite(tfKey, rawTs);
+  const ts = write.ts;
   const o = Number(candle?.o);
   const h = Number(candle?.h);
   const l = Number(candle?.l);
@@ -40667,6 +40754,12 @@ async function d1UpsertCandle(env, ticker, tf, candle) {
         throw sessionErr;
       }
     }
+    if (write.siblingFrom != null) {
+      await db.prepare(
+        `DELETE FROM ticker_candles
+          WHERE ticker = ?1 AND tf = ?2 AND ts >= ?3 AND ts < ?4 AND ts != ?5`,
+      ).bind(sym, tfKey, write.siblingFrom, write.siblingTo, ts).run().catch(() => {});
+    }
     return { ok: true };
   } catch (err) {
     console.error(`[D1 CANDLES] Upsert failed for ${sym} ${tfKey}:`, err);
@@ -40695,6 +40788,8 @@ async function d1UpsertIngestCandle(env, ticker, tf, price, tsMs) {
   if (!sym || !tfKey || !Number.isFinite(price) || price <= 0 || !Number.isFinite(tsMs)) return { ok: false };
   try {
     await d1EnsureCandleSchema(env);
+    const write = _prepareHtCandleWrite(tfKey, tsMs);
+    const snapped = write.ts;
     await db.prepare(
       `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8)
@@ -40703,7 +40798,13 @@ async function d1UpsertIngestCandle(env, ticker, tf, price, tsMs) {
          l = MIN(ticker_candles.l, excluded.l),
          c = excluded.c,
          updated_at = excluded.updated_at`
-    ).bind(sym, tfKey, tsMs, price, price, price, price, Date.now()).run();
+    ).bind(sym, tfKey, snapped, price, price, price, price, Date.now()).run();
+    if (write.siblingFrom != null) {
+      await db.prepare(
+        `DELETE FROM ticker_candles
+          WHERE ticker = ?1 AND tf = ?2 AND ts >= ?3 AND ts < ?4 AND ts != ?5`,
+      ).bind(sym, tfKey, write.siblingFrom, write.siblingTo, snapped).run().catch(() => {});
+    }
     return { ok: true };
   } catch (err) {
     console.warn(`[INGEST CANDLE] ${sym} ${tfKey} upsert failed:`, String(err).slice(0, 100));
@@ -47783,6 +47884,23 @@ function buildTraderEntrySignalQualityLines({ tickerData, direction, rank, rr })
   return { lines, signalTags, conviction_score: conv > 0 ? conv : null, conviction_tier: convTier || null };
 }
 
+/** Rank / conviction / R:R for trade emails on entry, trim, and exit. */
+function tradeAlertScoreFields({ trade, tickerData, direction } = {}) {
+  const { lines, conviction_score, conviction_tier } = buildTraderEntrySignalQualityLines({
+    tickerData,
+    direction: direction || trade?.direction,
+    rank: trade?.rank ?? tickerData?.rank,
+    rr: trade?.rr ?? tickerData?.rr,
+  });
+  return {
+    rank: Number(trade?.rank ?? tickerData?.rank) || null,
+    rr: Number(trade?.rr ?? tickerData?.rr) || null,
+    conviction_score,
+    conviction_tier,
+    signal_quality_lines: lines.length ? lines : null,
+  };
+}
+
 /** Payload shared by Discord-adjacent channels (email, in-app body). */
 function buildTraderEntryAlertParityPayload({
   direction,
@@ -48590,323 +48708,27 @@ function createKanbanStageEmbed(ticker, stage, prevStage, tickerData = null, ope
 // ─────────────────────────────────────────────────────────────
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SECTOR_MAP — Active Ticker Universe (230 tickers)
-// Core universe: GRNY/GRNI, GRNJ, Newton Upticks, TT Selected, rotated picks
-// Structural: S&P Sector ETFs, Commodity ETFs, Crypto, Futures, Indices
+// SECTOR_MAP — one runtime object (the file map).
+// KV hydrate mutates this same object so pickTickerSector / getSector
+// see admin overlays. The previous inline copy was a 230-key subset and
+// drifted from worker/sector-mapping.js.
+// Pulse futures stay watch-only (WATCH_ONLY) and are stamped here so
+// getSector("ES1!") still resolves. They are not listed in the file map
+// so file-only imports stay equity/ETF.
 // ═══════════════════════════════════════════════════════════════════════════
-const SECTOR_MAP = {
-  // ── Consumer Discretionary ──
-  AMZN: "Consumer Discretionary",
-  TSLA: "Consumer Discretionary",
-  TJX: "Consumer Discretionary",
-  BABA: "Consumer Discretionary",
-  ULTA: "Consumer Discretionary",
-  APP: "Consumer Discretionary",
-  DPZ: "Consumer Discretionary",
-  H: "Consumer Discretionary",
-  LRN: "Consumer Discretionary",
-  NKE: "Consumer Discretionary",
-  MCD: "Consumer Discretionary",
-  EXPE: "Consumer Discretionary",
-  RBLX: "Consumer Discretionary",
-  LULU: "Consumer Discretionary",
-  DKNG: "Consumer Discretionary",
-  CVNA: "Consumer Discretionary",
-  SWK: "Consumer Discretionary",
-  JD: "Consumer Discretionary",
-  KWEB: "Consumer Discretionary",
-  XYZ: "Consumer Discretionary",
-  GRNY: "Consumer Discretionary",
-  // ── Consumer Staples ──
-  KO: "Consumer Staples",
-  WMT: "Consumer Staples",
-  COST: "Consumer Staples",
-  MNST: "Consumer Staples",
-  ELF: "Consumer Staples",
-  CELH: "Consumer Staples",
-  BG: "Consumer Staples",              // Bunge Global
-  // ── Industrials ──
-  CAT: "Industrials",
-  GE: "Industrials",
-  ETN: "Industrials",
-  DE: "Industrials",
-  PH: "Industrials",
-  CSX: "Industrials",
-  HII: "Industrials",
-  GEV: "Industrials",
-  TT: "Industrials",
-  PWR: "Industrials",
-  AWI: "Industrials",
-  WTS: "Industrials",
-  DY: "Industrials",
-  FIX: "Industrials",
-  ITT: "Industrials",
-  STRL: "Industrials",
-  JCI: "Industrials",
-  IBP: "Industrials",
-  DCI: "Industrials",
-  IESC: "Industrials",
-  BWXT: "Industrials",
-  BE: "Industrials",
-  AVAV: "Industrials",
-  AXON: "Industrials",
-  MLI: "Industrials",
-  NXT: "Industrials",
-  SGI: "Industrials",
-  CARR: "Industrials",
-  CW: "Industrials",
-  FLR: "Industrials",
-  J: "Industrials",
-  VMI: "Industrials",
-  UNP: "Industrials",
-  ARRY: "Industrials",
-  BA: "Industrials",
-  RTX: "Industrials",
-  EMR: "Industrials",
-  UPS: "Industrials",
-  EME: "Industrials",
-  MTZ: "Industrials",
-  B: "Industrials",
-  JOBY: "Industrials",
-  ASTS: "Industrials",
-  AYI: "Industrials",
-  WM: "Industrials",
-  QXO: "Industrials",                  // QXO Inc (building products)
-  ACN: "Information Technology",        // Accenture
-  // ── Information Technology ──
-  AAPL: "Information Technology",
-  MSFT: "Information Technology",
-  NVDA: "Information Technology",
-  AVGO: "Information Technology",
-  AMD: "Information Technology",
-  ORCL: "Information Technology",
-  KLAC: "Information Technology",
-  ANET: "Information Technology",
-  CDNS: "Information Technology",
-  PANW: "Information Technology",
-  PLTR: "Information Technology",
-  MDB: "Information Technology",
-  PATH: "Information Technology",
-  SMCI: "Information Technology",
-  SNOW: "Information Technology",
-  ADBE: "Information Technology",
-  CLS: "Information Technology",
-  CRS: "Information Technology",
-  SANM: "Information Technology",
-  IONQ: "Information Technology",
-  LITE: "Information Technology",
-  ON: "Information Technology",
-  KTOS: "Information Technology",
-  MSTR: "Information Technology",
-  LSCC: "Information Technology",
-  FN: "Information Technology",
-  SHOP: "Information Technology",
-  CRM: "Information Technology",
-  INTC: "Information Technology",
-  CSCO: "Information Technology",
-  LRCX: "Information Technology",
-  CRWD: "Information Technology",
-  QLYS: "Information Technology",
-  PEGA: "Information Technology",
-  IOT: "Information Technology",
-  MU: "Information Technology",
-  APLD: "Information Technology",
-  ARM: "Information Technology",
-  TSM: "Information Technology",
-  HUBS: "Information Technology",
-  INTU: "Information Technology",
-  STX: "Information Technology",
-  WDC: "Information Technology",
-  AGYS: "Information Technology",
-  IREN: "Information Technology",
-  PI: "Information Technology",
-  AEHR: "Information Technology",
-  SNDK: "Information Technology",       // Sandisk (Western Digital spin-off)
-  // ── Communication Services ──
-  META: "Communication Services",
-  GOOGL: "Communication Services",
-  NFLX: "Communication Services",
-  RDDT: "Communication Services",
-  SATS: "Communication Services",
-  TWLO: "Communication Services",
-  SPOT: "Communication Services",
-  U: "Communication Services",
-  // ── Basic Materials ──
-  ALB: "Basic Materials",
-  MP: "Basic Materials",
-  CCJ: "Basic Materials",
-  RGLD: "Basic Materials",
-  SN: "Basic Materials",
-  AU: "Basic Materials",
-  APD: "Basic Materials",
-  PKG: "Basic Materials",
-  PPG: "Basic Materials",
-  NEU: "Basic Materials",
-  AA: "Basic Materials",               // Alcoa (Aluminum)
-  GOLD: "Basic Materials",             // Barrick Gold
-  // ── Energy ──
-  VST: "Energy",
-  FSLR: "Energy",
-  TLN: "Energy",
-  WFRD: "Energy",
-  ENS: "Energy",
-  CVX: "Energy",
-  UUUU: "Energy",
-  DINO: "Energy",
-  DTM: "Energy",
-  OKE: "Energy",
-  TPL: "Energy",
-  AR: "Energy",
-  XOM: "Energy",
-  // ── Financials ──
-  JPM: "Financials",
-  GS: "Financials",
-  AXP: "Financials",
-  SPGI: "Financials",
-  PNC: "Financials",
-  ALLY: "Financials",
-  EWBC: "Financials",
-  WAL: "Financials",
-  SOFI: "Financials",
-  HOOD: "Financials",
-  MTB: "Financials",
-  "BRK-B": "Financials",
-  COIN: "Financials",
-  LMND: "Financials",
-  // ── Health Care ──
-  AMGN: "Health Care",
-  GILD: "Health Care",
-  UTHR: "Health Care",
-  NBIS: "Information Technology", // 2026-06-01 — Fix: NBIS (Nebius Group) is AI infra / cloud compute, NOT Health Care. Was wrong sector → wrong sector-rotation tilt + theme misalignment → lower investor score → kept out of Accumulate despite strong momentum. Matches sector-mapping.js.
-  EXEL: "Health Care",
-  HALO: "Health Care",
-  UHS: "Health Care",
-  VRTX: "Health Care",
-  ISRG: "Health Care",
-  UNH: "Health Care",
-  LLY: "Health Care",
-  MRK: "Health Care",
-  ABT: "Health Care",
-  HIMS: "Health Care",
-  TEM: "Health Care",
-  BMNR: "Health Care",
-  CRWV: "Health Care",
-  // ── Aerospace & Defense ──
-  RKLB: "Aerospace & Defense",
-  NOC: "Aerospace & Defense",
-  // ── Crypto-Related ──
-  BTCUSD: "Crypto",
-  ETHUSD: "Crypto",
-  GLXY: "Crypto",
-  RIOT: "Crypto",
-  ETHA: "Crypto",
-  // ── Precious Metals ──
-  GDX: "Precious Metals",
-  IAU: "Precious Metals",
-  AGQ: "Precious Metals",
-  HL: "Precious Metals",
-  // ── Leveraged / Thematic ETFs ──
-  SOXL: "Index ETF",                   // 3x semis — leveraged, behaves like index ETF
-  TNA: "Index ETF",                    // 3x small caps — leveraged, behaves like index ETF
-  XHB: "Sector ETF",                   // SPDR Homebuilders ETF
-  IBB:  "Thematic ETF",                // iShares Biotech ETF
-  INFL: "Thematic ETF",                // Horizon Kinetics Inflation Beneficiaries
-  LIT:  "Thematic ETF",                // Global X Lithium & Battery Tech
-  RPG:  "Index ETF",                   // Invesco S&P 500 Pure Growth (broad equity)
-  SPHB: "Index ETF",                   // Invesco S&P 500 High Beta (broad equity)
-  GRNJ: "Thematic ETF",                // Fundstrat Granny Shots Small-Mid Cap
-  GRNI: "Thematic ETF",                // Fundstrat Granny Shots Large Cap & Income
-  SPCX: "Thematic ETF",                // 2026-06-12 — SPAC & New Issue ETF (thin history)
-  // ── S&P Sector ETFs (tradeable) ──
-  XLB: "Sector ETF",
-  XLC: "Sector ETF",
-  XLE: "Sector ETF",
-  XLF: "Sector ETF",
-  XLI: "Sector ETF",
-  XLK: "Sector ETF",
-  XLP: "Sector ETF",
-  XLRE: "Sector ETF",
-  XLU: "Sector ETF",
-  XLV: "Sector ETF",
-  XLY: "Sector ETF",
-  // ── Commodity & Volatility ETFs (non-admin equivalents of futures) ──
-  GLD: "Commodity ETF",
-  SLV: "Commodity ETF",
-  USO: "Commodity ETF",
-  VIXY: "Commodity ETF",
-  // P0.7.133 — UNG (NG1! proxy) + CPER (HG1! proxy). Required so the
-  // futures-proxy fallback (worker/futures-proxy.js) has TD-served
-  // backup data when TradingView alerts pause for natural-gas /
-  // copper futures.
-  UNG: "Commodity ETF",
-  CPER: "Commodity ETF",
-  // ── Index ETFs (broad-market, tradeable as of Phase-E) ──
-  // Each is its OWN risk vehicle — SPY ≠ QQQ ≠ IWM ≠ DIA from a
-  // concentration standpoint. They are NOT the same "sector" as the
-  // sector-decomposition ETFs (XL*) which DO overlap with their
-  // underlying single-name sector positions.
-  DIA: "Index ETF",
-  SPY: "Index ETF",
-  RSP: "Index ETF",
-  QQQ: "Index ETF",
-  IWM: "Index ETF",
-  // ── Futures (watch-only — scored but not traded) ──
+const MARKET_PULSE_FUTURES_SECTORS = {
   "ES1!": "Futures",
   "NQ1!": "Futures",
   "GC1!": "Futures",
   "SI1!": "Futures",
   "VX1!": "Futures",
   "CL1!": "Futures",
-  "RTY1!": "Futures",                   // Russell 2000 futures
-  "YM1!": "Futures",                    // Dow Jones futures
+  "RTY1!": "Futures",
+  "YM1!": "Futures",
 };
-
-// 2026-05-28 — Unify with sector-mapping.js (THE actual systemic fix for
-// the recurring SECTOR_MAP staleness pattern).
-//
-// Background: this file used to define SECTOR_MAP inline (above), AND
-// `worker/sector-mapping.js` also defined a SECTOR_MAP. The two were
-// added independently and drifted over time — PRs #254 (CF/NOW/PM),
-// #265 (DELL), #287 (IBM) only touched the FILE map but never the
-// inline one. The runtime always used the inline map, so every one of
-// those PRs silently failed for the affected tickers.
-//
-// State at the time this merge shipped (audited via
-// `node -e "import('./sector-mapping.js')..."`):
-//   - 5 tickers in file but missing from inline: CF, DELL, IBM, NOW, PM
-//   - 5 sector mismatches between the two maps:
-//       NOC   file=Industrials              inline=Aerospace & Defense
-//       RKLB  file=Industrials              inline=Aerospace & Defense
-//       NBIS  file=Information Technology   inline=Health Care
-//       UUUU  file=Basic Materials          inline=Energy
-//       DBA   file=Thematic ETF             inline=Commodity ETF
-//
-// Fix: at module load, merge every file-map entry into the inline map
-// (file map wins on conflict — it's the human-edited source most PRs
-// touch). New SECTOR_MAP additions in either file then automatically
-// flow through to the runtime.
-//
-// To prevent future drift we also surface a `__sector_map_audit`
-// snapshot for the operator (added/overridden) and log it on cold
-// start so any silent divergence shows up in the worker logs.
-const __sectorMapAudit = { added: [], overridden: [] };
-try {
-  if (SECTOR_MAP_FILE && typeof SECTOR_MAP_FILE === "object") {
-    for (const [sym, sector] of Object.entries(SECTOR_MAP_FILE)) {
-      if (!(sym in SECTOR_MAP)) {
-        SECTOR_MAP[sym] = sector;
-        __sectorMapAudit.added.push(sym);
-      } else if (SECTOR_MAP[sym] !== sector) {
-        __sectorMapAudit.overridden.push({ sym, from: SECTOR_MAP[sym], to: sector });
-        SECTOR_MAP[sym] = sector;
-      }
-    }
-    if (__sectorMapAudit.added.length > 0 || __sectorMapAudit.overridden.length > 0) {
-      console.log(`[SECTOR_MAP MERGE] added=${__sectorMapAudit.added.length} (${__sectorMapAudit.added.join(",")}) overridden=${__sectorMapAudit.overridden.length}`);
-    }
-  }
-} catch (e) {
-  console.error("[SECTOR_MAP MERGE] failed to unify sector maps:", String(e?.message || e).slice(0, 200));
+const SECTOR_MAP = SECTOR_MAP_FILE;
+for (const [sym, sector] of Object.entries(MARKET_PULSE_FUTURES_SECTORS)) {
+  if (!SECTOR_MAP[sym]) SECTOR_MAP[sym] = sector;
 }
 
 // Tickers that go through full scoring + kanban lanes but do NOT generate trades.
@@ -48920,23 +48742,10 @@ const WATCH_ONLY = new Set([
   "ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "CL1!", "RTY1!", "YM1!",
 ]);
 
-// Current Newton Upticks — priority picks tagged as "TT Selected".
-// Aligned with the live KV upticks list at timed:admin:upticks (PUT
-// /timed/admin/upticks is the source of truth). This hardcoded Set is a
-// fallback for dev/offline contexts; runtime merges KV on top so the
-// live list always wins.
-//
-// Historical note: DELL was previously removed from this list when it
-// fell out of SECTOR_MAP. PR #265 (2026-05-22) put DELL back in
-// SECTOR_MAP; whether to re-add it as a TT_SELECTED pick is an
-// editorial call separate from the universe membership.
-const TT_SELECTED = new Set([
-  // Keep aligned with timed:admin:upticks (Aug 2026 Newton list).
-  // Adds: GOOGL, BA, VLO, CVX. Removals: MTB, TT, CLS.
-  "ALL", "AMGN", "AMZN", "APLD", "BA", "BABA", "BG", "BRK-B", "CRS", "CRWV",
-  "CSX", "CVX", "DAL", "DBA", "ETHA", "GEV", "GOOGL", "GS", "IRM", "JCI",
-  "MAR", "MRK", "PH", "PWR", "TSLA", "VLO", "VST", "WMT",
-]);
+// Current Newton Upticks / TT Selected. One curated set:
+// TT_SELECTED_DEFAULT in focus-tier.js. KV timed:admin:upticks is the
+// live +10 list. After a monthly rotation those two must match.
+const TT_SELECTED = TT_SELECTED_DEFAULT;
 
 // Canonical universe: snapshot of hardcoded SECTOR_MAP before runtime KV expansion
 const CANONICAL_UNIVERSE = new Set(Object.keys(SECTOR_MAP));
@@ -48972,7 +48781,13 @@ const SECTOR_RATINGS = {
 };
 
 function getSector(ticker) {
-  return SECTOR_MAP[ticker?.toUpperCase()] || null;
+  const t = ticker?.toUpperCase();
+  return pickTickerSector(t, { mapSector: t ? SECTOR_MAP[t] : null });
+}
+
+function stampRuntimeSector(ticker, obj, hints = {}) {
+  const t = String(ticker || "").toUpperCase();
+  return stampResolvedSector(t, obj, { ...hints, mapSector: t ? SECTOR_MAP[t] : null });
 }
 
 // Load sector mappings from KV (called on startup)
@@ -49011,16 +48826,34 @@ async function loadSectorMappingsFromKV(KV) {
         return { tickerUpper, sector };
       }));
       for (const { tickerUpper, sector } of results) {
-        if (sector && sector.trim() !== "") {
-          SECTOR_MAP[tickerUpper] = sector.trim();
+        if (isUnknownSector(sector)) {
+          try { await KV.delete(`timed:sector_map:${tickerUpper}`); } catch (_) { /* best-effort */ }
+          continue;
+        }
+        const normalized = normalizeSectorLabel(sector) || pickTickerSector(tickerUpper);
+        if (normalized) {
+          SECTOR_MAP[tickerUpper] = normalized;
           loadedCount++;
-        } else {
-          // Ticker is in watchlist but has no sector mapping — add as Unknown
-          SECTOR_MAP[tickerUpper] = "Unknown";
+        }
+        // Do not stamp Unknown. An untyped KV overlay would freeze the
+        // name and block a later GICS fill from the file map / holdings.
+      }
+    }
+
+    try {
+      const { getFsdGicsSectorMap } = await import("./cro/fsd-gics-sectors.js");
+      const fsd = await getFsdGicsSectorMap({ KV_TIMED: KV, KV });
+      const fsdMap = fsd?.tickerToSector || {};
+      for (const ticker of tickersList) {
+        const tickerUpper = String(ticker).toUpperCase();
+        if (removedSet.has(tickerUpper) || SECTOR_MAP[tickerUpper]) continue;
+        const normalized = normalizeSectorLabel(fsdMap[tickerUpper]);
+        if (normalized) {
+          SECTOR_MAP[tickerUpper] = normalized;
           loadedCount++;
         }
       }
-    }
+    } catch (_) { /* FSD GICS is a fill, not a hard dependency */ }
 
     if (loadedCount > 0) {
       console.log(
@@ -52268,6 +52101,37 @@ export default {
               await kvPutText(KV, prevFlipWatchKey, "false", 7 * 24 * 60 * 60);
             }
 
+            // Level / trendline breakout watch — activity tape only.
+            // Discord stays on the setup lane (same as flip_watch).
+            const prevBreakoutWatchKey = `timed:prev_breakout_watch:${ticker}`;
+            const prevBreakoutWatch = await KV.get(prevBreakoutWatchKey);
+            const nowBreakoutWatch = !!flags.breakout_watch;
+            if (nowBreakoutWatch && prevBreakoutWatch !== "true") {
+              const watch = payload._breakout_watch || payload.breakout_watch || {};
+              await appendActivity(KV, {
+                type: "breakout_watch",
+                ticker,
+                side: watch.dir || side,
+                price: payload.price,
+                state: payload.state,
+                rank: payload.rank,
+                setup_reason: payload.__setup_reason || breakoutWatchSetupReason(payload),
+                breakout_watch_kind: watch.kind || null,
+                breakout_watch_dir: watch.dir || null,
+                sl: payload.sl,
+                tp: payload.tp,
+                rr: payload.rr,
+                phase_pct: payload.phase_pct,
+                completion: payload.completion,
+              });
+              console.log(
+                `[BREAKOUT WATCH] ${ticker} ${watch.retest ? "retest" : (watch.kind || "unknown")} ${watch.dir || ""} (setup — look for a good entry)`,
+              );
+              await kvPutText(KV, prevBreakoutWatchKey, "true", 7 * 24 * 60 * 60);
+            } else if (!nowBreakoutWatch && prevBreakoutWatch === "true") {
+              await kvPutText(KV, prevBreakoutWatchKey, "false", 7 * 24 * 60 * 60);
+            }
+
             // Track state change to aligned
             if (enteredAligned) {
               if (!actionableOnly) {
@@ -54298,16 +54162,18 @@ export default {
               : [candleOrArray];
             for (const candle of candles) {
               if (!candle || typeof candle !== "object") continue;
-              const ts = Number(candle.ts);
+              const rawTs = Number(candle.ts);
               const o = Number(candle.o);
               const h = Number(candle.h);
               const l = Number(candle.l);
               const c = Number(candle.c);
               const v = candle.v != null ? Number(candle.v) : null;
-              if (!Number.isFinite(ts) || ![o, h, l, c].every(x => Number.isFinite(x))) {
+              if (!Number.isFinite(rawTs) || ![o, h, l, c].every(x => Number.isFinite(x))) {
                 errCount++;
                 continue;
               }
+              const write = _prepareHtCandleWrite(tfKey, rawTs);
+              const ts = write.ts;
               stmts.push(
                 db.prepare(
                   `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
@@ -54317,6 +54183,14 @@ export default {
                      updated_at=excluded.updated_at`
                 ).bind(ticker, tfKey, ts, o, h, l, c, v, updatedAt)
               );
+              if (write.siblingFrom != null) {
+                stmts.push(
+                  db.prepare(
+                    `DELETE FROM ticker_candles
+                      WHERE ticker = ?1 AND tf = ?2 AND ts >= ?3 AND ts < ?4 AND ts != ?5`,
+                  ).bind(ticker, tfKey, write.siblingFrom, write.siblingTo, ts)
+                );
+              }
             }
           }
 
@@ -57923,6 +57797,7 @@ export default {
                 await new Promise((r) => setTimeout(r, 2000));
               }
               try { await KV.delete("timed:cache:ingestion-status"); } catch (_) {}
+              await bustCandleTfCountsCache(env);
               console.log(`[META hydrate bg] hydrated=${totalHydrated} remaining~=${remaining}`);
             })());
             return sendJSON({ ok: true, status: "queued", max, onlyMissing }, 202, corsHeaders(env, req));
@@ -59570,8 +59445,16 @@ export default {
             );
           }
 
-          // Validate equity symbols against data provider (skip futures 1!, crypto, etc.)
-          const toValidate = normalized.filter(t => !t.endsWith("1!"));
+          // Validate unknown equities only. Registry / Selected / live
+          // Upticks (incl. commodity ETFs like DBA) skip the TwelveData
+          // US-stocks list — that list rejects ETFs as symbol_not_found.
+          let liveUpticks = [];
+          try { liveUpticks = (await kvGetJSON(KV, "timed:admin:upticks")) || []; } catch (_) {}
+          const toValidate = normalized.filter((t) => !shouldSkipSymbolValidation(t, {
+            sectorMap: SECTOR_MAP,
+            ttSelected: TT_SELECTED_DEFAULT,
+            liveUpticks,
+          }));
           if (toValidate.length > 0) {
             let validationResult = null;
             if (_usesTwelveData(env) && env.TWELVEDATA_API_KEY) {
@@ -59636,15 +59519,20 @@ export default {
           await kvPutJSON(KV, "timed:tickers", currentTickers);
           await kvPutJSON(KV, "timed:removed", [...blocklist]);
           try { await KV.delete("timed:cache:ingestion-status"); } catch (_) {}
+          await bustCandleTfCountsCache(env);
 
           // Ensure new tickers have a sector_map entry so ingestion-status and SECTOR_MAP show them
           for (const tickerUpper of added) {
             try {
               const existing = await KV.get(`timed:sector_map:${tickerUpper}`, "text");
-              if (!existing || existing.trim() === "") {
-                await KV.put(`timed:sector_map:${tickerUpper}`, "Unknown");
-                SECTOR_MAP[tickerUpper] = "Unknown";
+              const resolved = pickTickerSector(tickerUpper, { kvSector: existing });
+              if (resolved) {
+                await KV.put(`timed:sector_map:${tickerUpper}`, resolved);
+                SECTOR_MAP[tickerUpper] = resolved;
+              } else if (existing && !isUnknownSector(existing)) {
+                SECTOR_MAP[tickerUpper] = existing.trim();
               }
+              // Leave unmapped rather than persist Unknown.
             } catch (_) { /* best-effort */ }
           }
 
@@ -61044,6 +60932,14 @@ export default {
               : 0,
             dataVersion: storedVersion || "none",
             expectedVersion: CURRENT_DATA_VERSION,
+            // The deployed commit. `dataVersion` is a hand-bumped schema
+            // string and says nothing about which code is running, so for
+            // eleven days (2026-09-03 → 09-14) a stale worker answered
+            // ok:true on every probe while CI reported green and shipped
+            // nothing. A stale-but-healthy worker must be distinguishable
+            // from a current one without fingerprinting the bundle.
+            deployedSha: env?.ENGINE_GIT_SHA || "unset",
+            workerRole: env?.WORKER_ROLE || "monolith",
           },
           200,
           { ...corsHeaders(env, req), "Cache-Control": "public, max-age=60" },
@@ -61340,8 +61236,7 @@ export default {
         try {
           const removedSet = new Set((await kvGetJSON(KV, "timed:removed")) || []);
           _removedTickersCache = removedSet;
-          const _userAddedRebuild = await d1GetActiveUserTickersCached(env);
-          const activeSyms = [...new Set([...Object.keys(SECTOR_MAP), ..._userAddedRebuild])].filter(t => !removedSet.has(t));
+          const activeSyms = await resolveRegistryUniverseTickers(env);
 
           // Start from current snapshot (if exists) to preserve existing data
           const currentSnapshot = await kvGetJSON(KV, "timed:all:snapshot");
@@ -61871,6 +61766,8 @@ export default {
             storedVersion: storedVersion || "none",
             expectedVersion: CURRENT_DATA_VERSION,
             match: storedVersion === CURRENT_DATA_VERSION,
+            deployedSha: env?.ENGINE_GIT_SHA || "unset",
+            workerRole: env?.WORKER_ROLE || "monolith",
           },
           200,
           corsHeaders(env, req),
@@ -67989,23 +67886,7 @@ export default {
           // 5) Attach the gating _env exactly like the */5 cron (index.js ~92911).
           // Include live Upticks / granny holdings so focus-tier +10/+10 bonuses
           // match production scoring (otherwise entry-explain understates conviction).
-          try {
-            if (!env._currentUpticks) {
-              const upticksList = await kvGetJSON(_kv, "timed:admin:upticks");
-              env._currentUpticks = new Set(
-                (Array.isArray(upticksList) ? upticksList : []).map((t) => String(t || "").toUpperCase()).filter(Boolean),
-              );
-            }
-          } catch (_) { env._currentUpticks = env._currentUpticks || null; }
-          try {
-            if (!env._currentGrannyHoldings) {
-              const { loadETFWeightMap } = await import("./etf-holdings.js");
-              const wm = await loadETFWeightMap(env).catch(() => null);
-              if (wm && typeof wm === "object") {
-                env._currentGrannyHoldings = new Set(Object.keys(wm).map((t) => String(t).toUpperCase()));
-              }
-            }
-          } catch (_) { /* optional */ }
+          await loadFocusListEnv(env);
           const tickerSector = SECTOR_MAP[ticker] || "Unknown";
           result._env = {
             ...(result._env || {}),
@@ -68022,6 +67903,7 @@ export default {
             _currentUpticks: env._currentUpticks || null,
             _currentGrannyHoldings: env._currentGrannyHoldings || null,
           };
+          stampFocusConvictionOnTicker(result, env);
 
           // 6) Run the gate + the stage classifier (same calls as the cron).
           const q = qualifiesForEnter(result) || {};
@@ -68064,6 +67946,9 @@ export default {
               loop1_enabled: String(env._deepAuditConfig?.loop1_specialization_enabled ?? "false"),
               loop1_combos_with_opinion: Object.keys(env._loop1AdvisoryByCombo || {}).length,
               loop2_paused: env._loop2Pause?.paused === true,
+              breakout: result.breakout || null,
+              breakout_watch: result._breakout_watch || result.breakout_watch || null,
+              setup_reason: result.__setup_reason || null,
               portfolio_block_new_entries: env._portfolioRiskPause?.block_new_entries === true,
               regime_shock_active: !!env._regimeShockDirective,
               focus_min_entry_conviction: env._deepAuditConfig?.deep_audit_focus_min_entry_conviction ?? null,
@@ -74020,9 +73905,7 @@ export default {
       // replay-stub auto-heals and stale-stub auto-heals. Lightweight
       // probe — just a KV read.
       //
-      // Also surfaces __sectorMapAudit (the module-load merge from
-      // sector-mapping.js → inline SECTOR_MAP) so the operator can
-      // verify the two maps are in sync at runtime, not just on file.
+      // Runtime SECTOR_MAP is the file map (plus watch-only pulse futures).
       if (routeKey === "GET /timed/admin/sector-map-health") {
         const _smAuthFail = await requireKeyOrAdmin(req, env);
         if (_smAuthFail) return _smAuthFail;
@@ -74031,11 +73914,14 @@ export default {
         try {
           const blob = await kvGetJSON(KV, "timed:sector_map_health");
           const merge_audit = {
-            added: __sectorMapAudit.added,
-            added_count: __sectorMapAudit.added.length,
-            overridden: __sectorMapAudit.overridden,
-            overridden_count: __sectorMapAudit.overridden.length,
-            note: "Tickers in sector-mapping.js that were missing from index.js inline SECTOR_MAP, auto-merged at module load.",
+            unified: true,
+            same_object: SECTOR_MAP === SECTOR_MAP_FILE,
+            pulse_futures: Object.keys(MARKET_PULSE_FUTURES_SECTORS),
+            added: [],
+            added_count: 0,
+            overridden: [],
+            overridden_count: 0,
+            note: "Runtime SECTOR_MAP is worker/sector-mapping.js. Pulse futures are overlaid watch-only.",
           };
           const universe_size_runtime = Object.keys(SECTOR_MAP || {}).length;
           if (!blob) {
@@ -78761,9 +78647,10 @@ export default {
               const merged = { ...(existing || {}), ...enrichment };
               await kvPutJSON(KV, `timed:context:${sym}`, merged, 90 * 24 * 60 * 60); // 90-day TTL
               // Also update SECTOR_MAP in memory if sector provided and ticker is in universe with "Unknown" sector
-              if (enrichment.sector && SECTOR_MAP[sym] && SECTOR_MAP[sym] === "Unknown") {
-                SECTOR_MAP[sym] = enrichment.sector;
-                await KV.put(`timed:sector_map:${sym}`, enrichment.sector);
+              const _enrSector = normalizeSectorLabel(enrichment.sector);
+              if (_enrSector && (isUnknownSector(SECTOR_MAP[sym]) || !SECTOR_MAP[sym])) {
+                SECTOR_MAP[sym] = _enrSector;
+                await KV.put(`timed:sector_map:${sym}`, _enrSector);
               }
               // Patch D1 ticker_latest payload_json so context appears in /timed/all without extra KV reads
               try {
@@ -80164,6 +80051,7 @@ export default {
               prefs.re_engagement = false;
               prefs.investor_alerts = false;
               prefs.broker_daily_digest = false;
+              prefs.weekend_desk = false;
             } else {
               prefs[pref] = false;
             }
@@ -80207,6 +80095,7 @@ export default {
             "re_engagement",
             "investor_alerts",
             "broker_daily_digest",
+            "weekend_desk",
           ]);
           const current = getUserEmailPrefs(user);
           for (const [k, v] of Object.entries(updates)) {
@@ -80485,6 +80374,7 @@ export default {
             weekly_digest:       !!(mailable && prefs?.weekly_digest),
             re_engagement:       !!(mailable && prefs?.re_engagement),
             investor_alerts:     !!(mailable && prefs?.investor_alerts),
+            weekend_desk:        !!(mailable && prefs?.weekend_desk),
           };
 
           // Last brief send snapshots — written by daily-brief.js.
@@ -80613,6 +80503,7 @@ export default {
               price: 180.10, pnlPct: 2.6, exitReason: "TP_FULL", status: "WIN",
               trade_id: "AAPL-test-sample", entry: 175.50, exit: 180.10,
               pnl: 230, rank: 78, rr: 2.1,
+              conviction_score: 72, conviction_tier: "B",
               setup_name: "tt_gap_reversal_long", setup_grade: "Prime",
               action_ts: Date.now(),
             })],
@@ -80954,8 +80845,16 @@ export default {
             });
             totalCanceled += out.canceled.length;
             if (out.canceled.length) {
+              // Also normalize subscription_status. The first sweep cleared
+              // the id but left timedtrading@gmail.com reading 'active' with
+              // nothing behind it at Stripe, which is exactly the D1-vs-Stripe
+              // disagreement this endpoint exists to remove. 'manual' (not
+              // 'canceled') is the right terminal state for a comped user:
+              // it matches the admin-flip semantics the webhook guards on.
               await DB.prepare(
-                `UPDATE users SET stripe_subscription_id = NULL, updated_at = ?1 WHERE email = ?2`,
+                `UPDATE users SET stripe_subscription_id = NULL,
+                        subscription_status = 'manual', updated_at = ?1
+                  WHERE email = ?2`,
               ).bind(Date.now(), row.email).run().catch(() => null);
             }
             results.push({ email: row.email, tier: row.tier, ...out });
@@ -81717,13 +81616,14 @@ export default {
                   prefs.daily_brief_evening = false;
                   prefs.trade_alerts = false;
                   prefs.weekly_digest = false;
+                  prefs.weekend_desk = false;
                   // Strip legacy key if present so getUserEmailPrefs doesn't
                   // carry forward a meaningless value.
                   if ("daily_brief" in prefs) delete prefs.daily_brief;
                   if (prefs.marketing === undefined) prefs.marketing = true;
                   await db.prepare(`UPDATE users SET email_preferences = ?1 WHERE email = ?2`)
                     .bind(JSON.stringify(prefs), userRow.email).run();
-                  console.log(`[STRIPE] Downgraded email prefs for ${userRow.email}: brief=off (morning+evening), trade_alerts=off, weekly_digest=off`);
+                  console.log(`[STRIPE] Downgraded email prefs for ${userRow.email}: brief=off (morning+evening), trade_alerts=off, weekly_digest=off, weekend_desk=off`);
                 } catch (e) {
                   console.warn("[STRIPE] Email pref downgrade failed:", String(e?.message || e).slice(0, 100));
                 }
@@ -84334,6 +84234,7 @@ export default {
             retry_nonce: body?.retry_nonce,
             qty: body?.qty,
             user_id: body?.user_id,
+            broker_account_id: body?.broker_account_id,
             reason: body?.reason || "admin_catchup_exit",
           });
           return sendJSON({
@@ -84674,15 +84575,37 @@ export default {
             } catch (_) { /* prefs check is best-effort */ }
             // Re-render with branded emailLayout + unsubscribe when the
             // bridge queued a structured digest_summary (preferred path).
+            // House coverage belongs on the operator digest only — partner
+            // Account-today mail is that account's fills, not the model book.
             if (item?.digest_summary && typeof buildDailyOwnerDigestEmail === "function") {
               try {
                 const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
                 const unsub = (typeof buildUnsubscribeUrl === "function" && env?.EMAIL_HMAC_SECRET)
                   ? await buildUnsubscribeUrl(baseUrl, to, "broker_daily_digest", env.EMAIL_HMAC_SECRET)
                   : null;
+                const coverageOpts = {};
+                const admin = String(env?.ADMIN_EMAIL || "").toLowerCase().trim();
+                if (admin && to === admin) {
+                  try {
+                    const {
+                      COVERAGE_SNAPSHOT_KEY,
+                      summarizeCoverageForDesk,
+                      renderCoverageEmailBlock,
+                      coverageDeskPlainLines,
+                    } = await import("./mirror-coverage.js");
+                    const snap = await env?.KV_TIMED?.get(COVERAGE_SNAPSHOT_KEY, "json").catch(() => null);
+                    const desk = summarizeCoverageForDesk(snap);
+                    coverageOpts.coverageHtml = renderCoverageEmailBlock(desk, {
+                      href: `${baseUrl.replace(/\/$/, "")}/execution-review.html`,
+                      linkLabel: "Open Execution Review →",
+                    });
+                    coverageOpts.coverageText = coverageDeskPlainLines(desk);
+                  } catch (_) { /* coverage is best-effort */ }
+                }
                 const rendered = buildDailyOwnerDigestEmail(item.digest_summary, {
                   baseUrl,
                   unsubscribeUrl: unsub,
+                  ...coverageOpts,
                 });
                 if (rendered?.subject) content = rendered;
               } catch (e) {
@@ -85037,7 +84960,7 @@ export default {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         try {
-          const { REVIEW_KV_LATEST, REVIEW_KV_HISTORY, buildWeeklyExecutionReview } = await import("./execution-review.js");
+          const { REVIEW_KV_LATEST, REVIEW_KV_HISTORY, buildWeeklyExecutionReview, overlayLiveCoverage } = await import("./execution-review.js");
           if (String(url.searchParams.get("history") || "0") === "1") {
             const hist = await env.KV_TIMED.get(REVIEW_KV_HISTORY, "json").catch(() => null);
             return sendJSON({ ok: true, history: Array.isArray(hist) ? hist : [] }, 200, corsHeaders(env, req));
@@ -85048,6 +84971,7 @@ export default {
             review = await buildWeeklyExecutionReview(env);
             source = "fresh";
           }
+          review = await overlayLiveCoverage(env, review);
           return sendJSON({ ...review, source }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
@@ -85066,6 +84990,85 @@ export default {
             emailTo: url.searchParams.get("to") || null,
           });
           return sendJSON({ ok: true, stored: out.stored, email: out.email, verdict: out.review?.verdict, label: out.review?.label }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/weekend-desk") {
+        const [user, authErr] = await requireUser(req, env);
+        if (authErr) return authErr;
+        const _wdTier = computeUserDataTier(user, env);
+        if (!canAccessLivePrices(_wdTier)) {
+          return sendJSON({ ok: true, error_kind: "tier_required", desk: null }, 200, corsHeaders(env, req));
+        }
+        try {
+          const { loadWeekendDesk } = await import("./weekend-desk.js");
+          const desk = await loadWeekendDesk(env);
+          return sendJSON({ ok: true, desk }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/admin/weekend-desk") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { loadWeekendDesk, composeWeekendDeskFromEnv, WEEKEND_DESK_CURSOR_KV } = await import("./weekend-desk.js");
+          let desk = await loadWeekendDesk(env);
+          let source = "kv";
+          if (!desk || String(url.searchParams.get("fresh") || "0") === "1") {
+            desk = await composeWeekendDeskFromEnv(env);
+            source = "fresh";
+          }
+          const cursor = await env.KV_TIMED.get(WEEKEND_DESK_CURSOR_KV, "json").catch(() => null);
+          return sendJSON({ ok: true, source, desk, cursor }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/weekend-desk") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { runWeekendDesk } = await import("./weekend-desk.js");
+          const body = await req.json().catch(() => ({}));
+          const phase = String(url.searchParams.get("phase") || body?.phase || "full");
+          const wantEmail = String(url.searchParams.get("email") ?? body?.email ?? "0") === "1";
+          const wantNotify = String(url.searchParams.get("notify") ?? body?.notify ?? "0") === "1";
+          const wantRescore = String(url.searchParams.get("rescore") ?? body?.rescore ?? "0") === "1"
+            || phase === "rescore" || phase === "full";
+          const forceEmail = String(url.searchParams.get("force") ?? body?.force ?? "0") === "1";
+          const offset = Number(url.searchParams.get("offset") || body?.offset || 0);
+          const limit = Number(url.searchParams.get("limit") || body?.limit || 20);
+          const action = phase === "rescore" ? "rescore_continue"
+            : (phase === "refresh" ? "refresh" : "full");
+          const out = await runWeekendDesk(env, {
+            action,
+            rescore: wantRescore,
+            email: wantEmail,
+            forceEmail,
+            compose: phase !== "rescore",
+            continueRescore: String(url.searchParams.get("continue") || body?.continue || "0") === "1"
+              || phase === "full",
+            rescoreOffset: offset,
+            rescoreLimit: limit,
+            rescorePage: wantRescore ? (o) => rescoreStaleUniverse(env, o) : null,
+            sendFn: sendEmail,
+            notify: wantNotify ? ((embed) => notifyDiscord(env, embed, "system")) : null,
+          });
+          return sendJSON({
+            ok: true,
+            action: out.action,
+            stored: out.stored,
+            email: out.email,
+            rescore: out.rescore,
+            counts: out.desk?.counts || null,
+            weekend_key: out.desk?.weekend_key || null,
+            label: out.desk?.label || null,
+            featured: (out.desk?.featured || []).map((c) => c.ticker),
+            tt_setups: (out.desk?.featured || []).map((c) => c.ticker),
+            timed_upticks: (out.desk?.timed_upticks || []).map((c) => c.ticker),
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
@@ -85092,6 +85095,31 @@ export default {
           const { forwardOrderToBridge: _fwd } = await import("./broker-bridge-client.js");
           const { forwardOptionsClose: _fwdOpt } = await import("./convexity-mirror.js");
           const out = await drainBrokerIntents(env, { forward: _fwd, forwardOptions: _fwdOpt });
+          return sendJSON({ ok: true, ...out }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/admin/broker/coverage") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const hours = Math.min(168, Math.max(1, Number(url.searchParams.get("hours")) || 48));
+          const { loadMirrorCoverage } = await import("./mirror-coverage.js");
+          const out = await loadMirrorCoverage(env, {
+            sinceMs: Date.now() - hours * 3600 * 1000,
+          });
+          return sendJSON({ ok: true, hours, ...out }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "POST /timed/admin/index-trend/heal-entries") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { healMissedIndexTrendEntries } = await import("./index-trend-auto-mirror.js");
+          const out = await healMissedIndexTrendEntries(env, {});
           return sendJSON({ ok: true, ...out }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -86413,7 +86441,7 @@ export default {
         if (authFail) return authFail;
         try {
           const { loadRotationSnapshot } = await import("./cro/rotation-engine.js");
-          const r = await loadRotationSnapshot(env);
+          const r = await loadRotationSnapshot(env, { computeIfMissing: true });
           if (!r) return sendJSON({ ok: false, error_kind: "no_snapshot_yet" }, 200, corsHeaders(env, req));
           return sendJSON({ ok: true, ...r }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -89055,19 +89083,29 @@ export default {
           const sl = Number(url.searchParams.get("sl")) || null;
           const tp = Number(url.searchParams.get("tp")) || null;
           const subtitle = String(url.searchParams.get("subtitle") || "").slice(0, 80);
+          const styleRaw = String(url.searchParams.get("style") || "line").toLowerCase();
+          const style = (styleRaw === "candles" || styleRaw === "candle" || styleRaw === "ohlc") ? "candles" : "line";
+          const tl0 = Number(url.searchParams.get("tl0")) || null;
+          const tl1 = Number(url.searchParams.get("tl1")) || null;
+          const tlSpan = Number(url.searchParams.get("tl_span") || url.searchParams.get("tlSpan")) || null;
+          const tlLabel = String(url.searchParams.get("tl_label") || url.searchParams.get("tlLabel") || "").slice(0, 24);
+          const levelLabel = String(url.searchParams.get("level_label") || url.searchParams.get("levelLabel") || "").slice(0, 24);
 
           // Pull candles from D1 ticker_candles (cached by 5-min CF
           // cache header below). Latest N bars sorted ASC for the
           // chart renderer's left-to-right plot.
-          const { renderChartSvg } = await import("./chart-svg.js");
+          const { renderChartSvg, collapseChartCandles } = await import("./chart-svg.js");
           let candles = [];
           try {
+            const overfetch = (tfClean === "D" || tfClean === "W")
+              ? Math.min(200, Math.max(bars * 2, bars + 40))
+              : bars;
             const rows = await env.DB.prepare(
               `SELECT ts, o, h, l, c, v FROM ticker_candles
                  WHERE ticker = ?1 AND tf = ?2
                  ORDER BY ts DESC LIMIT ?3`
-            ).bind(ticker, tfClean, bars).all().catch(() => ({ results: [] }));
-            candles = (rows?.results || [])
+            ).bind(ticker, tfClean, overfetch).all().catch(() => ({ results: [] }));
+            candles = collapseChartCandles((rows?.results || [])
               .map(r => ({
                 ts: Number(r.ts) || 0,
                 o: Number(r.o) || null,
@@ -89077,13 +89115,14 @@ export default {
                 v: Number(r.v) || null,
               }))
               .filter(c => Number.isFinite(c.c))
-              .reverse(); // ASC for the chart
+              .reverse(), tfClean).slice(-bars);
           } catch (e) {
             console.warn(`[CHART_IMG] D1 read failed for ${ticker}/${tfClean}:`, String(e?.message || e).slice(0, 200));
           }
 
           const svg = renderChartSvg({
             candles, ticker, tf: tfClean, entry, sl, tp, subtitle,
+            style, tl0, tl1, tlSpan, tlLabel, levelLabel,
           });
           return new Response(svg, {
             status: 200,
@@ -93577,6 +93616,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       }
 
+      if (routeKey === "GET /timed/admin/registry-alignment") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const report = await runRegistryAlignment(env, { healUnknown: false });
+          return sendJSON({ ok: true, ...report }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "POST /timed/admin/universe") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -93586,16 +93636,43 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           if (!rawTicker || !/^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(rawTicker)) {
             return sendJSON({ ok: false, error: "invalid_ticker", detail: "Must be 1-5 uppercase letters (e.g. PLTR, BRK-B)" }, 400, corsHeaders(env, req));
           }
-          const sector = String(body?.sector || "Unknown").trim() || "Unknown";
+          const sector = normalizeSectorLabel(body?.sector) || pickTickerSector(rawTicker);
 
-          // Already in canonical SECTOR_MAP → no-op success with hint.
+          // Already in SECTOR_MAP — still lift timed:removed and ensure
+          // timed:tickers + ticker_index (DBA Sep 2026 stayed blind).
           if (SECTOR_MAP[rawTicker]) {
+            const tickersList = (await kvGetJSON(KV, "timed:tickers")) || [];
+            const removedList = (await kvGetJSON(KV, "timed:removed")) || [];
+            const plan = planRegistryReactivation({
+              ticker: rawTicker,
+              inSectorMap: true,
+              removed: Array.isArray(removedList) ? removedList : [],
+              kvTickers: Array.isArray(tickersList) ? tickersList : [],
+            });
+            if (plan.lifted_removed) {
+              await kvPutJSON(KV, "timed:removed", plan.nextRemoved);
+            }
+            if (plan.ensure_kv_tickers) {
+              await kvPutJSON(KV, "timed:tickers", plan.nextTickers);
+            }
+            try { await ensureTickerIndex(KV, rawTicker); } catch (_) { /* best-effort */ }
+            try { await d1UpsertTickerIndex(env, rawTicker, Date.now()); } catch (_) { /* best-effort */ }
+            const coreSector = SECTOR_MAP[rawTicker];
+            if (plan.shouldOnboard) {
+              await KV.put("timed:universe:version", String(Date.now()));
+              await ensureTickerUniverseAndOnboard(env, rawTicker, ctx, { sinceDays: 730, sector: coreSector });
+            }
             return sendJSON({
               ok: true,
               ticker: rawTicker,
               already_in_core: true,
-              sector: SECTOR_MAP[rawTicker],
-              detail: `${rawTicker} is already part of the hardcoded core universe.`,
+              lifted_removed: plan.lifted_removed,
+              ensured_tickers: plan.ensure_kv_tickers,
+              sector: coreSector,
+              onboarding: plan.shouldOnboard ? "started" : "skipped",
+              detail: plan.lifted_removed
+                ? `${rawTicker} is in the core map and was lifted from timed:removed.`
+                : `${rawTicker} is already part of the hardcoded core universe.`,
             }, 200, corsHeaders(env, req));
           }
 
@@ -93617,6 +93694,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
           if (!quoteSnap && validationError) {
             return sendJSON({ ok: false, error: "ticker_not_found", ticker: rawTicker, detail: validationError }, 400, corsHeaders(env, req));
+          }
+          if (!sector) {
+            return sendJSON({
+              ok: false,
+              error: "sector_required",
+              ticker: rawTicker,
+              detail: "Pass a GICS sector. Do not persist Unknown — that freezes scoring type.",
+            }, 400, corsHeaders(env, req));
           }
 
           // Persist to KV overlay
@@ -94206,10 +94291,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           if (dryRun) {
             return sendJSON({ ok: true, fired: false, dry_run: true, decision }, 200, corsHeaders(env, req));
           }
-          // Live fire.
-          const counter = await _bumpMirrorCounter(env, userEmail, prefs.daily_cap);
-          if (!counter.allowed) {
-            return sendJSON({ ok: false, error: "daily_cap_reached", counter }, 429, corsHeaders(env, req));
+          // Live fire. Cap is checked here and counted only once the
+          // broker accepts, so a failed dispatch cannot burn a slot.
+          const caps = { globalCap: Number(prefs.daily_cap) || 0 };
+          const room = await _entryCountersHaveRoom(env, userEmail, decision.vehicle, caps);
+          if (!room.ok) {
+            return sendJSON({ ok: false, error: "daily_cap_reached", counter: room.counter }, 429, corsHeaders(env, req));
           }
           const fired = await _fireAutoMirror(env, userEmail, {
             trade_id: contract.trade_id || null,
@@ -94218,6 +94305,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             confluence_verdict: decision.confluence,
             source: "manual_mirror_now",
           });
+          let counter = null;
+          if (_optionsMirrorDispatchAccepted(fired)) {
+            const committed = await _commitEntryCounters(env, userEmail, decision.vehicle, caps);
+            counter = { allowed: true, current: committed.global ?? null, cap: caps.globalCap };
+          }
           return sendJSON({ ok: true, fired, decision, counter }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -95948,6 +96040,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 }
                 if (!playRow && !openBook) continue;
 
+                const tickerRow = Array.isArray(flat)
+                  ? (flat.find((t) => String(t?.ticker || "").toUpperCase() === _itSym) || {})
+                  : {};
+
                 const _itLetf = letfTicker || String(openBook?.letf_ticker || "").toUpperCase();
                 const ulPx = Number(pm[_itSym]?.p) || Number(playRow?.price) || Number(openBook?.last_underlying_price) || 0;
                 const letfPx = Number(pm[_itLetf]?.p) || Number(openBook?.last_letf_price) || 0;
@@ -95976,12 +96072,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     const _itOpenBefore = openBook
                       && (openBook.status === "open" || openBook.status === "trimmed");
                     let _itHealedEntry = false;
-                    // Same-tick follow-through only (book just written, waitUntil
-                    // died). Do not backfill older open books — operator ask
-                    // 2026-09-03: no catch-up of UDOW/TQQQ/TJX leftovers.
-                    const _itBookAgeMs = Date.now() - (Number(openBook?.entry_ts) || 0);
-                    if (_itOpenBefore && _itSid && _itBookAgeMs >= 0 && _itBookAgeMs < 15 * 60 * 1000
-                        && await indexTrendNeedsEntryCatchUp(env, _itSid)) {
+                    // Same-tick follow-through, or a never-attempted BUY
+                    // still open in the same NY session during RTH.
+                    // Do not backfill leftover books that already tried
+                    // (UDOW/TQQQ/TJX 2026-09-03).
+                    if (_itOpenBefore && _itSid
+                        && await indexTrendShouldCatchUpOpenEntry(env, {
+                          signalId: _itSid,
+                          book: openBook,
+                          now: Date.now(),
+                        })) {
                       try {
                         const _heal = await _itAutoMirror(env, {
                           ..._itMirrorBase,
@@ -96011,6 +96111,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         activate: !!playRow,
                         now: Date.now(),
                         loadedBook: loaded,
+                        tickerData: tickerRow,
                       });
                       if (ev?.book) _itBookAfter = ev.book;
                       const _itMirrorCtx = {
@@ -96047,6 +96148,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                               book: ev.book,
                               close_qty: ev.close_qty,
                               loadedBook: { book: ev.book, bookKey: loaded.bookKey, signal_id: _itSid },
+                              tickerData: tickerRow,
                             });
                             if (_fin?.book) _itBookAfter = _fin.book;
                             if (_fin?.embed) {
@@ -97614,6 +97716,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
           const executed = [];
           const errors = [];
+          const _dcaMirrorPs = [];
           let dueCount = 0;
 
           for (const pos of dcaPositions) {
@@ -97801,7 +97904,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               // investor cash drift vs broker. Mirror every executed DCA.
               try {
                 const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
-                const _dcaMirrorP = forwardInvestorMirror(env, {
+                // Await before the HTTP response (cron self-dispatch
+                // waitUntil dies after sendJSON — PLTR 2026-09-02 / 09-11).
+                _dcaMirrorPs.push(forwardInvestorMirror(env, {
                   kind: "dca",
                   ticker: pos.ticker,
                   shares,
@@ -97812,12 +97917,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   stage: scoreRow?.stage || "accumulate",
                   score: tickerScore,
                   source: "dca_execute",
-                });
-                if (typeof ctx !== "undefined" && ctx && typeof ctx.waitUntil === "function") {
-                  ctx.waitUntil(_dcaMirrorP.catch(() => {}));
-                } else {
-                  await _dcaMirrorP.catch(() => {});
-                }
+                }));
               } catch (mirrorErr) {
                 console.warn(`[INVESTOR_MIRROR] dca ${pos.ticker} setup failed:`, String(mirrorErr?.message || mirrorErr).slice(0, 160));
               }
@@ -97835,6 +97935,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             } catch (e) {
               errors.push({ ticker: pos.ticker, error: e.message });
             }
+          }
+
+          if (_dcaMirrorPs.length) {
+            await Promise.all(_dcaMirrorPs.map((p) => p.catch((e) => {
+              console.warn("[INVESTOR_MIRROR] dca forward failed:", String(e?.message || e).slice(0, 160));
+            })));
           }
 
           return sendJSON({
@@ -105284,7 +105390,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // can die the same way — instead, EVERY */1 tick from 15:46 to 16:15
     // ET re-verifies and heals until one pass comes back fully clean (a
     // daily KV marker then short-circuits the rest, so this is normally
-    // one cheap pass). The lock inside runDcaSweepGuarded prevents
+    // one cheap pass). Do NOT mark clean on an empty window — that
+    // froze the 15:50 PLTR lot on 2026-09-11. The lock inside
+    // runDcaSweepGuarded prevents
     // concurrent passes double-firing channels. Mirror leg only runs
     // while RTH is open (Webull fractionals reject after close); a miss
     // after 16:00 is covered by the morning catch-up trust window.
@@ -105414,8 +105522,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // Paper STOP/EXIT can Discord and persist, then the isolate dies
           // before /bridge/order (TQQQ 2026-09-10). Closed books never
           // re-enter the options/all loop. Flatten leftover mirror qty.
+          // Missed same-session BUYs run first so a doomed EXIT
+          // (no_broker_position) cannot starve the live entry.
           try {
-            const { healStrandedIndexTrendCloses } = await import("./index-trend-auto-mirror.js");
+            const {
+              healMissedIndexTrendEntries,
+              healStrandedIndexTrendCloses,
+            } = await import("./index-trend-auto-mirror.js");
+            const entryHeal = await healMissedIndexTrendEntries(env, {});
+            if (entryHeal.attempted > 0) {
+              console.log(
+                `[INDEX-TREND ENTRY HEAL] scanned=${entryHeal.scanned} attempted=${entryHeal.attempted}`
+                + ` filled=${entryHeal.filled} skipped=${entryHeal.skipped}`,
+              );
+            }
             const heal = await healStrandedIndexTrendCloses(env, {});
             if (heal.attempted > 0) {
               console.log(
@@ -105483,6 +105603,32 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
+    // ── Model vs broker coverage snapshot (*/5) ──
+    //
+    // 2026-09-11 — Fail-closed join of every model lane against the
+    // client ring + intents. Pages Discord when the unmatched set
+    // changes, plus one clean confirmation per NY day when the
+    // contract is healthy. Does not place orders; existing lane
+    // heals own that.
+    if (!_isDedicatedEngine && _isEvery5Min && env?.BROKER_BRIDGE_URL) {
+      ctx.waitUntil((async () => {
+        try {
+          const { snapshotMirrorCoverage } = await import("./mirror-coverage.js");
+          const out = await snapshotMirrorCoverage(env, {
+            notify: (embed) => notifyDiscord(env, embed, "system"),
+          });
+          if (out?.summary?.fails > 0 || out?.paged || out?.paged_clean) {
+            console.log(
+              `[MIRROR COVERAGE] actions=${out.summary.actions} fails=${out.summary.fails}`
+              + ` unmatched=${out.summary.unmatched} paged=${!!out.paged} paged_clean=${!!out.paged_clean}`,
+            );
+          }
+        } catch (e) {
+          console.warn("[MIRROR COVERAGE] snapshot failed:", String(e?.message || e).slice(0, 200));
+        }
+      })());
+    }
+
     // ── Short Term EXIT catch-up (hourly RTH + ETH follow-through) ──
     //
     // 2026-08-27 — AMZN model EXIT wrote D1 then waitUntil died on a deploy
@@ -105498,11 +105644,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const out = await runTraderExitCatchup(env, {
             dry_run: false,
             hours: 72,
-            max_ops: 8,
+            // 2026-09-14 — 8 was enough only because 21 of the 30 claimed
+            // ops were stale sleeves re-claiming a residual another sleeve
+            // already owned. Those are dropped before the window now, so
+            // the window can cover the real backlog in one pass.
+            max_ops: 12,
             reason: "trader_exit_catchup_auto",
           });
           console.log(
-            `[TRADER EXIT CATCHUP] planned=${out.planned} forwarded=${out.forwarded}`
+            `[TRADER EXIT CATCHUP] claimed=${out.claimed} planned=${out.planned}`
+            + ` flat_dropped=${out.flat_dropped} forwarded=${out.forwarded}`
             + ` results=${(out.results || []).length}`,
           );
           if (out.planned > 0) {
@@ -107247,6 +107398,38 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }).catch(() => {});
         }
       })());
+      // 2026-09-12 — Weekend CMT Desk. RTH scoring is skipped outside
+      // operating hours; Saturday/Sunday 10:00 ET is the universe pass
+      // (trendlines, EMA, ST magnets, imbalance, news, Momentum Elite,
+      // screener promotions) plus one TT Setups email.
+      ctx.waitUntil((async () => {
+        try {
+          const { weekendDeskSlot, runWeekendDesk } = await import("./weekend-desk.js");
+          const slot = weekendDeskSlot();
+          if (!slot.fire) return;
+          let cursor = null;
+          try { cursor = await env.KV_TIMED.get("timed:weekend-desk:rescore-cursor", "json"); } catch (_) {}
+          if (slot.action === "rescore_continue" && !(Number(cursor?.remaining) > 0)) return;
+          const out = await runWeekendDesk(env, {
+            action: slot.action,
+            rescore: slot.action === "full" || slot.action === "rescore_continue",
+            email: slot.action === "full" || slot.action === "refresh",
+            rescoreOffset: slot.action === "rescore_continue" ? (Number(cursor?.offset) || 0) : 0,
+            rescorePage: (o) => rescoreStaleUniverse(env, o),
+            sendFn: sendEmail,
+            notify: (embed) => notifyDiscord(env, embed, "system"),
+          });
+          console.log(`[WEEKEND DESK] ${slot.action} stored=${out.stored} email=${JSON.stringify(out.email)} remaining=${out.rescore?.remaining ?? "n/a"}`);
+          recordCronSuccess(env, "weekend_desk").catch(() => {});
+        } catch (e) {
+          console.warn("[WEEKEND DESK] cron failed:", String(e?.message || e).slice(0, 200));
+          recordCronFailure(env, {
+            op: "weekend_desk",
+            error: String(e?.message || e).slice(0, 200),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
       if (_isWeeklyReviewSlot) ctx.waitUntil((async () => {
         try {
           const flagRow = await env.DB.prepare(
@@ -108289,6 +108472,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           removed: Array.isArray(_removedRegistry) ? _removedRegistry : [],
         });
 
+        // Scored-news stamp for context conviction. One D1 read. Do not
+        // load wall-clock news during replay (lookahead). Missing is 0.
+        if (!env._isReplay && env?.DB) {
+          try {
+            const { loadNewsSummariesBatch } = await import("./discovery/news-tracker.js");
+            env._newsSummaries = await loadNewsSummariesBatch(env, allTickers, { lookbackDays: 5 });
+          } catch (e) {
+            console.warn("[SCORING] news summaries preload failed:", String(e?.message || e).slice(0, 150));
+            env._newsSummaries = {};
+          }
+        }
+
         // Score ALL tickers every cycle (core + user-added)
         // With ~140+ tickers and 15-way parallelism, full cycle completes in ~10-15s
         let scored = 0, skipped = 0, errors = 0, trailWrites = 0;
@@ -108959,6 +109154,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // A4 — pass the cron's dynamic-calendar market-open answer so the
             // freshness SLO selection can never disagree with the feed gate.
             const result = await computeServerSideScores(ticker, _scoreGetCandles, env, existWithWeights, { marketOpen: stdCronMarketOpen });
+            if (result && typeof result === "object") stampRuntimeSector(ticker, result);
             if (!result) {
               freshnessDegraded++;
               const now = Date.now();
@@ -109261,6 +109457,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             } catch (_) { /* fair value must never break scoring */ }
 
+            try { attachNewsSummary(result, env._newsSummaries); } catch (_) { /* news never breaks scoring */ }
+
             // Unified model lifecycle — Watching/Queued/Bought/Held/Trimming/Exited.
             // Horizon is metadata; trader vs investor is book label, not a product fork.
             // Model play (shares|letf|options) hydrates from entry stamp, prior KV, or open trade snapshot.
@@ -109339,7 +109537,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             } catch (_) { /* lifecycle stamp must never break scoring */ }
 
             // Inject adaptive config + VIX + golden profiles + three-tier regime for qualifiesForEnter
-            const tickerSector = SECTOR_MAP[ticker] || "Unknown";
+            const tickerSector = pickTickerSector(ticker, {
+              mapSector: SECTOR_MAP[ticker],
+              payloadSector: result?.sector,
+            }) || "Unknown";
             result._env = {
               ...(result._env || {}),
               _isReplay: env._isReplay || false,
@@ -109367,6 +109568,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               _currentGrannyHoldings: env._currentGrannyHoldings || null,
             };
             if (env._currentVix != null) result._vix = env._currentVix;
+            try {
+              const _fc = computeConvictionScoreForD(result);
+              if (_fc) {
+                result.__focus_tier = _fc.tier;
+                result.__focus_conviction_score = _fc.score;
+                result.__focus_conviction_breakdown = _fc.breakdown;
+                result.focus_tier = _fc.tier;
+                result.focus_conviction_score = _fc.score;
+              }
+            } catch (_) { /* conviction stamp must never break scoring */ }
 
             // PER-INDEX market cycle: gate THIS ticker against its HOME index's
             // cycle (trailing-beta map in timed:ticker-index-map), falling back to
@@ -110298,12 +110509,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // for the most-hit endpoint.
         ctx.waitUntil((async () => {
           try {
-            const activeSyms = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedTickers])];
+            const activeSyms = allTickers;
             const snapshot = {};
             for (const sym of activeSyms) {
               const payload = await kvGetJSON(KV, `timed:latest:${sym}`);
               if (payload && typeof payload === "object") {
-                snapshot[sym] = payload;
+                snapshot[sym] = stampRuntimeSector(sym, payload);
               }
             }
 

@@ -38,11 +38,12 @@ import { resolvePlaySide } from "./ranking/play-side.js";
 // Hard-coded curated set — user-maintained, backtest-safe (no lookahead).
 // Keep aligned with TT_SELECTED in worker/index.js:~31461.
 export const TT_SELECTED_DEFAULT = new Set([
-  // Keep aligned with timed:admin:upticks + TT_SELECTED in worker/index.js.
-  // Aug 2026: +GOOGL +BA +VLO +CVX; -MTB -TT -CLS.
+  // Keep equal to KV timed:admin:upticks after every Newton monthly rotation.
+  // Sep 2026: +DDOG +LITE +NVDA; -IRM -MAR -VLO -VST.
+  // worker/index.js TT_SELECTED is this same Set (do not fork another list).
   "ALL","AMGN","AMZN","APLD","BA","BABA","BG","BRK-B","CRS","CRWV","CSX",
-  "CVX","DAL","DBA","ETHA","GEV","GOOGL","GS","IRM","JCI","MAR","MRK","PH",
-  "PWR","TSLA","VLO","VST","WMT",
+  "CVX","DAL","DBA","DDOG","ETHA","GEV","GOOGL","GS","JCI","LITE","MRK",
+  "NVDA","PH","PWR","TSLA","WMT",
 ]);
 
 function _f(v, d = 0) {
@@ -972,6 +973,28 @@ export function computeConvictionScore({
       context,
     },
   };
+}
+
+/** Attach live Upticks / Granny lists so computeConvictionScoreForD sees them. */
+export function attachFocusListEnv(tickerData, env) {
+  if (!tickerData) return tickerData;
+  tickerData._env = {
+    ...(tickerData._env || {}),
+    _currentUpticks: env?._currentUpticks ?? tickerData._env?._currentUpticks ?? null,
+    _currentGrannyHoldings: env?._currentGrannyHoldings ?? tickerData._env?._currentGrannyHoldings ?? null,
+  };
+  return tickerData;
+}
+
+/** Persist focus-tier fields the scoring cron stamps onto timed:latest. */
+export function stampFocusConvictionFields(tickerData, conviction) {
+  if (!tickerData || !conviction) return tickerData;
+  tickerData.__focus_tier = conviction.tier;
+  tickerData.__focus_conviction_score = conviction.score;
+  tickerData.__focus_conviction_breakdown = conviction.breakdown;
+  tickerData.focus_tier = conviction.tier;
+  tickerData.focus_conviction_score = conviction.score;
+  return tickerData;
 }
 
 // ─────────────────────────────────────────────────────────────────────────

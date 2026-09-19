@@ -4,6 +4,7 @@ import {
   paperEventToNotifType,
   buildPaperLaneActivityRow,
   buildPaperLaneEmailAlert,
+  mergeBookAlertScores,
 } from "./paper-lane-notify.js";
 
 describe("paper-lane-notify", () => {
@@ -63,6 +64,8 @@ describe("paper-lane-notify", () => {
     expect(alert.shares).toBe(43);
     expect(alert.setup_name).toBe("TT Index Swings LETF");
     expect(alert.sl).toBe(764.77);
+    expect(alert.rank).toBeNull();
+    expect(alert.signal_quality_lines).toBeNull();
   });
 
   it("builds day-trade exit email alert with premium entry + PnL", () => {
@@ -79,5 +82,15 @@ describe("paper-lane-notify", () => {
     expect(alert.entry).toBe(2.03);
     expect(alert.exit).toBe(1.7);
     expect(alert.pnlPct).toBeLessThan(0);
+  });
+
+  it("does not overwrite entry scores when later ticker data is weaker", () => {
+    const merged = mergeBookAlertScores(
+      { rank: 81, conviction_score: 74, conviction_tier: "B" },
+      { tickerData: { rank: 64, __focus_conviction_score: 55, __focus_tier: "C" } },
+    );
+    expect(merged.rank).toBe(81);
+    expect(merged.conviction_score).toBe(74);
+    expect(merged.conviction_tier).toBe("B");
   });
 });
