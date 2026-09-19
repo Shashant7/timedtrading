@@ -81024,6 +81024,69 @@ export default {
               billing_city: addr.city || null,
             };
           });
+          // Invoices carry the tax breakdown that charges do not. This
+          // distinguishes "billed $60, no tax" from "billed $64.80 of which
+          // $4.80 is sales tax" — and tax actually collected from a customer
+          // is held in trust and owed to the state regardless of what the
+          // seller intended, so it has to be measured, not assumed.
+          const invoices = [];
+          let invAfter = null;
+          for (let page = 0; page < 10; page++) {
+            const qs = new URLSearchParams({ limit: "100" });
+            if (invAfter) qs.set("starting_after", invAfter);
+            const r = await fetch(`https://api.stripe.com/v1/invoices?${qs}`, {
+              headers: { "Authorization": `Bearer ${stripeKey}` },
+            });
+            const d = await r.json();
+            if (!r.ok) break;
+            for (const i of d.data || []) invoices.push(i);
+            if (!d.has_more) break;
+            invAfter = d.data?.[d.data.length - 1]?.id;
+            if (!invAfter) break;
+          }
+          // Stripe moved the invoice tax field: older versions expose `tax` +
+          // `total_tax_amounts`, newer ones `total_taxes`. Reading only the
+          // old one reported $0.00 tax on invoices whose total was plainly
+          // 8% above subtotal, so take whichever exists and fall back to
+          // (total - subtotal) rather than silently under-reporting.
+          const invoiceRows = invoices.map((i) => {
+            const legacyAmounts = Array.isArray(i.total_tax_amounts) ? i.total_tax_amounts : [];
+            const modernAmounts = Array.isArray(i.total_taxes) ? i.total_taxes : [];
+            const src = legacyAmounts.length ? legacyAmounts : modernAmounts;
+            const explicit = Number.isFinite(i.tax) && i.tax !== null
+              ? i.tax
+              : src.reduce((a, t) => a + (Number(t?.amount) || 0), 0);
+            const subtotal = i.subtotal || 0;
+            const total = i.total || 0;
+            const derived = Math.max(0, total - subtotal);
+            const taxCents = explicit > 0 ? explicit : derived;
+            return {
+              invoice_id: i.id,
+              created: new Date((i.created || 0) * 1000).toISOString(),
+              email: i.customer_email || null,
+              status: i.status,
+              subtotal_usd: subtotal / 100,
+              tax_usd: taxCents / 100,
+              tax_source: explicit > 0 ? "stripe_field" : (derived > 0 ? "total_minus_subtotal" : "none"),
+              total_usd: total / 100,
+              amount_paid_usd: (i.amount_paid || 0) / 100,
+              automatic_tax: i.automatic_tax?.enabled ?? null,
+              tax_amounts: src.map((t) => {
+                const rate = t?.tax_rate_details || t?.tax_rate || {};
+                return {
+                  amount_usd: (Number(t?.amount) || 0) / 100,
+                  inclusive: t?.inclusive ?? (t?.tax_behavior === "inclusive"),
+                  rate_pct: typeof rate === "object" ? (rate.percentage_decimal ?? rate.percentage ?? null) : null,
+                  jurisdiction: typeof rate === "object" ? (rate.jurisdiction || rate.country || null) : null,
+                  display_name: typeof rate === "object" ? (rate.display_name || rate.tax_type || null) : null,
+                };
+              }),
+            };
+          });
+          const taxCollected = invoiceRows
+            .filter((i) => i.status === "paid")
+            .reduce((a, i) => a + i.tax_usd, 0);
+
           const paid = rows.filter((r) => r.paid && r.status === "succeeded");
           const netTotal = paid.reduce((a, r) => a + r.net_usd, 0);
           const byState = {};
@@ -81039,8 +81102,10 @@ export default {
             charges_total: rows.length,
             charges_succeeded: paid.length,
             net_collected_usd: Math.round(netTotal * 100) / 100,
+            sales_tax_collected_usd: Math.round(taxCollected * 100) / 100,
             by_billing_state: byState,
             charges: rows,
+            invoices: invoiceRows,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
