@@ -28,6 +28,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | User reports Discord alert didn't fire | [discord-alerts.md](discord-alerts.md) |
 | Bridge / IBKR / Robinhood automation work | [broker-bridge.md](broker-bridge.md) |
 | **Onboarding a partner (second person) to Broker Connections / verifying tenant isolation** | [partner-onboarding.md](partner-onboarding.md) |
+| **A member was charged unexpectedly / VIP still billing / revenue + PA sales tax numbers** | [billing-and-sales-tax.md](billing-and-sales-tax.md) |
 | Send/receive on `partners@` (Webull registration, vendor mail) | [partners-email.md](partners-email.md) |
 | New page failing to load OR blank-screen JSX bug | [frontend-build.md](frontend-build.md) |
 | Touching paywall, auth-gate, Stripe webhook, or any Pro-gated UI | [user-state-matrix.md](user-state-matrix.md) |

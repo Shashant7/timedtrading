@@ -1214,6 +1214,12 @@ import {
   resolveCheckoutTierGrant,
 } from "./stripe-vip-code.js";
 import {
+  BILLABLE_SUBSCRIPTION_STATUSES,
+  cancelBillingForUser,
+  isCompedTier,
+  listCustomerSubscriptions,
+} from "./stripe-billing-guard.js";
+import {
   syncAllETFHoldings,
   handleGetETFGroups,
   handleGetETFHoldings,
@@ -2436,6 +2442,8 @@ const ROUTES = [
   ["GET", "/timed/subscription", "GET /timed/subscription"],
   ["GET", "/timed/admin/stripe/subscriptions", "GET /timed/admin/stripe/subscriptions"],
   ["POST", "/timed/admin/stripe/cancel", "POST /timed/admin/stripe/cancel"],
+  ["POST", "/timed/admin/stripe/reconcile-vip", "POST /timed/admin/stripe/reconcile-vip"],
+  ["GET", "/timed/admin/stripe/revenue-audit", "GET /timed/admin/stripe/revenue-audit"],
   // ── Calibration Pipeline ──
   ["POST", "/timed/calibration/upload-moves", "POST /timed/calibration/upload-moves"],
   ["POST", "/timed/calibration/upload-autopsy", "POST /timed/calibration/upload-autopsy"],
@@ -80601,10 +80609,21 @@ export default {
 
           // Capture the prior tier so we only fire the VIP welcome email on a
           // genuine transition INTO vip (not on repeated clicks of an already-VIP user).
+          // 2026-09-19 — also capture the Stripe ids HERE, before the UPDATE
+          // below overwrites subscription_status. The cancel block used to
+          // re-read this row afterwards and skip when it saw 'manual', which
+          // the UPDATE had just written, so it never cancelled anything.
           let _prevTier = null;
+          let _prevStripe = { customerId: null, subscriptionId: null };
           try {
-            const _prevRow = await DB.prepare(`SELECT tier FROM users WHERE email = ?`).bind(email).first();
+            const _prevRow = await DB.prepare(
+              `SELECT tier, stripe_customer_id, stripe_subscription_id FROM users WHERE email = ?`,
+            ).bind(email).first();
             _prevTier = _prevRow?.tier || null;
+            _prevStripe = {
+              customerId: _prevRow?.stripe_customer_id || null,
+              subscriptionId: _prevRow?.stripe_subscription_id || null,
+            };
           } catch (_) { _prevTier = null; }
 
           // 2026-06-05 — Commit the grant BEFORE canceling Stripe. The
@@ -80616,28 +80635,35 @@ export default {
             `UPDATE users SET tier = ?, subscription_status = ?, expires_at = ?, updated_at = ? WHERE email = ?`
           ).bind(tier, subStatus, expiresAt, Date.now(), email).run();
 
-          // If promoting to VIP/admin (manual grant), cancel any active Stripe subscription
-          // so the user doesn't get a surprise charge when their trial ends or next billing cycle hits.
+          // If promoting to VIP/admin (manual grant), cancel any live Stripe
+          // subscription so the user doesn't get a surprise charge when their
+          // trial ends or the next billing cycle hits.
+          //
+          // 2026-09-19 — this asks STRIPE what the customer has rather than
+          // trusting users.stripe_subscription_id. That column was empty for
+          // accounts whose checkout webhook never stored it, so the old code
+          // had nothing to cancel while Stripe billed on. Six subscriptions
+          // were live against users already flipped to VIP.
           let stripeCanceled = null;
-          if ((tier === "vip" || tier === "admin") && env.STRIPE_SECRET_KEY) {
+          let stripeCancelResult = null;
+          if (isCompedTier(tier) && env.STRIPE_SECRET_KEY) {
             try {
-              const userRow = await DB.prepare(
-                `SELECT stripe_subscription_id, subscription_status FROM users WHERE email = ?`
-              ).bind(email).first();
-              const subId = userRow?.stripe_subscription_id;
-              const prevStatus = userRow?.subscription_status;
-              if (subId && prevStatus !== "canceled" && prevStatus !== "manual" && prevStatus !== "none") {
-                const cancelResp = await fetch(`https://api.stripe.com/v1/subscriptions/${subId}`, {
-                  method: "DELETE",
-                  headers: { "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}` },
-                });
-                const cancelData = await cancelResp.json();
-                if (cancelResp.ok) {
-                  stripeCanceled = subId;
-                  console.log(`[ADMIN] Canceled Stripe subscription ${subId} for ${email} (promoted to ${tier})`);
-                } else {
-                  console.warn(`[ADMIN] Failed to cancel Stripe sub ${subId} for ${email}:`, cancelData.error?.message);
-                }
+              stripeCancelResult = await cancelBillingForUser(env, {
+                customerId: _prevStripe.customerId,
+                subscriptionId: _prevStripe.subscriptionId,
+              });
+              stripeCanceled = stripeCancelResult.canceled.length
+                ? stripeCancelResult.canceled.join(",")
+                : null;
+              if (stripeCancelResult.canceled.length) {
+                console.log(`[ADMIN] Canceled Stripe subscription(s) ${stripeCanceled} for ${email} (promoted to ${tier})`);
+                // Keep D1 honest: the id we just cancelled must not linger.
+                await DB.prepare(
+                  `UPDATE users SET stripe_subscription_id = NULL, updated_at = ? WHERE email = ?`,
+                ).bind(Date.now(), email).run().catch(() => null);
+              }
+              for (const f of stripeCancelResult.failed) {
+                console.warn(`[ADMIN] Failed to cancel Stripe sub ${f.id} for ${email}: ${f.error}`);
               }
             } catch (e) {
               console.warn(`[ADMIN] Stripe cancellation check failed for ${email}:`, String(e?.message || e).slice(0, 150));
@@ -80658,7 +80684,7 @@ export default {
             );
           }
 
-          return sendJSON({ ok: true, email, tier, subscription_status: subStatus, expires_at: expiresAt, stripe_canceled: stripeCanceled, vip_email_sent: vipEmailSent }, 200, corsHeaders(env, req));
+          return sendJSON({ ok: true, email, tier, subscription_status: subStatus, expires_at: expiresAt, stripe_canceled: stripeCanceled, stripe_cancel_detail: stripeCancelResult, vip_email_sent: vipEmailSent }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
         }
@@ -80762,6 +80788,223 @@ export default {
             subscription_id: subId,
             stripe_status: cancelData.status,
             d1_updated: d1Updated,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/stripe/reconcile-vip — cancel live billing for every
+      // comped (VIP/admin) user. The per-user cancel on the tier flip is the
+      // fix going forward; this is the sweep that catches everyone already
+      // stranded by the version that never cancelled. Idempotent, so it is
+      // safe to re-run and safe to schedule.
+      //
+      // ?dry_run=true reports what it WOULD cancel without touching Stripe.
+      if (routeKey === "POST /timed/admin/stripe/reconcile-vip") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        if (!env.STRIPE_SECRET_KEY) return sendJSON({ ok: false, error: "stripe_not_configured" }, 503, corsHeaders(env, req));
+        const DB = env?.DB;
+        if (!DB) return sendJSON({ ok: false, error: "no_db" }, 503, corsHeaders(env, req));
+        const dryRun = String(url.searchParams.get("dry_run") || "").toLowerCase() === "true";
+        const onlyEmail = (url.searchParams.get("email") || "").trim().toLowerCase();
+        try {
+          await d1EnsureStripeSchema(env);
+          const q = onlyEmail
+            ? await DB.prepare(
+              `SELECT email, tier, stripe_customer_id, stripe_subscription_id
+                 FROM users WHERE LOWER(email) = ?1`,
+            ).bind(onlyEmail).all()
+            : await DB.prepare(
+              `SELECT email, tier, stripe_customer_id, stripe_subscription_id
+                 FROM users
+                WHERE LOWER(COALESCE(tier,'')) IN ('vip','admin')
+                  AND (stripe_customer_id IS NOT NULL OR stripe_subscription_id IS NOT NULL)`,
+            ).all();
+          const rows = q?.results || [];
+          const results = [];
+          let totalCanceled = 0;
+          for (const row of rows) {
+            if (!isCompedTier(row.tier)) {
+              results.push({ email: row.email, tier: row.tier, skipped: "not_a_comped_tier" });
+              continue;
+            }
+            if (dryRun) {
+              const subs = await listCustomerSubscriptions(env, row.stripe_customer_id);
+              const live = subs
+                .filter((s) => BILLABLE_SUBSCRIPTION_STATUSES.has(String(s?.status || "").toLowerCase()))
+                .map((s) => ({ id: s.id, status: s.status }));
+              results.push({ email: row.email, tier: row.tier, would_cancel: live });
+              totalCanceled += live.length;
+              continue;
+            }
+            const out = await cancelBillingForUser(env, {
+              customerId: row.stripe_customer_id,
+              subscriptionId: row.stripe_subscription_id,
+            });
+            totalCanceled += out.canceled.length;
+            if (out.canceled.length) {
+              // Also normalize subscription_status. The first sweep cleared
+              // the id but left timedtrading@gmail.com reading 'active' with
+              // nothing behind it at Stripe, which is exactly the D1-vs-Stripe
+              // disagreement this endpoint exists to remove. 'manual' (not
+              // 'canceled') is the right terminal state for a comped user:
+              // it matches the admin-flip semantics the webhook guards on.
+              await DB.prepare(
+                `UPDATE users SET stripe_subscription_id = NULL,
+                        subscription_status = 'manual', updated_at = ?1
+                  WHERE email = ?2`,
+              ).bind(Date.now(), row.email).run().catch(() => null);
+            }
+            results.push({ email: row.email, tier: row.tier, ...out });
+          }
+          return sendJSON({
+            ok: results.every((r) => r.ok !== false),
+            dry_run: dryRun,
+            users_checked: rows.length,
+            subscriptions_canceled: totalCanceled,
+            results,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/stripe/revenue-audit — read-only ledger of money that
+      // actually moved, with the billing address on each charge.
+      //
+      // Built for the 2026-09 PA sales-tax question: sales tax is sourced to
+      // the CUSTOMER's location, so "what did we actually collect, from whom,
+      // in which state, and was any tax charged" is the question a return
+      // turns on — and the subscription list alone cannot answer it. Reports
+      // gross, refunded and net per charge so a test transaction that was
+      // refunded does not read as revenue.
+      if (routeKey === "GET /timed/admin/stripe/revenue-audit") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const stripeKey = env.STRIPE_SECRET_KEY;
+        if (!stripeKey) return sendJSON({ ok: false, error: "stripe_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          const charges = [];
+          let startingAfter = null;
+          // Charges carry the settled amount, the refund total and the
+          // billing_details address; invoices alone would miss manual charges.
+          for (let page = 0; page < 10; page++) {
+            const qs = new URLSearchParams({ limit: "100" });
+            if (startingAfter) qs.set("starting_after", startingAfter);
+            const r = await fetch(`https://api.stripe.com/v1/charges?${qs}`, {
+              headers: { "Authorization": `Bearer ${stripeKey}` },
+            });
+            const d = await r.json();
+            if (!r.ok) return sendJSON({ ok: false, error: d.error?.message || "stripe_error" }, 502, corsHeaders(env, req));
+            for (const c of d.data || []) charges.push(c);
+            if (!d.has_more) break;
+            startingAfter = d.data?.[d.data.length - 1]?.id;
+            if (!startingAfter) break;
+          }
+          const rows = charges.map((c) => {
+            const addr = c.billing_details?.address || {};
+            return {
+              charge_id: c.id,
+              created: new Date((c.created || 0) * 1000).toISOString(),
+              email: c.billing_details?.email || c.receipt_email || null,
+              description: c.description || null,
+              status: c.status,
+              paid: !!c.paid,
+              gross_usd: (c.amount || 0) / 100,
+              refunded_usd: (c.amount_refunded || 0) / 100,
+              net_usd: ((c.amount || 0) - (c.amount_refunded || 0)) / 100,
+              currency: c.currency,
+              // Sourcing inputs: PA tax follows where the CUSTOMER is.
+              billing_state: addr.state || null,
+              billing_postal_code: addr.postal_code || null,
+              billing_country: addr.country || null,
+              billing_city: addr.city || null,
+            };
+          });
+          // Invoices carry the tax breakdown that charges do not. This
+          // distinguishes "billed $60, no tax" from "billed $64.80 of which
+          // $4.80 is sales tax" — and tax actually collected from a customer
+          // is held in trust and owed to the state regardless of what the
+          // seller intended, so it has to be measured, not assumed.
+          const invoices = [];
+          let invAfter = null;
+          for (let page = 0; page < 10; page++) {
+            const qs = new URLSearchParams({ limit: "100" });
+            if (invAfter) qs.set("starting_after", invAfter);
+            const r = await fetch(`https://api.stripe.com/v1/invoices?${qs}`, {
+              headers: { "Authorization": `Bearer ${stripeKey}` },
+            });
+            const d = await r.json();
+            if (!r.ok) break;
+            for (const i of d.data || []) invoices.push(i);
+            if (!d.has_more) break;
+            invAfter = d.data?.[d.data.length - 1]?.id;
+            if (!invAfter) break;
+          }
+          // Stripe moved the invoice tax field: older versions expose `tax` +
+          // `total_tax_amounts`, newer ones `total_taxes`. Reading only the
+          // old one reported $0.00 tax on invoices whose total was plainly
+          // 8% above subtotal, so take whichever exists and fall back to
+          // (total - subtotal) rather than silently under-reporting.
+          const invoiceRows = invoices.map((i) => {
+            const legacyAmounts = Array.isArray(i.total_tax_amounts) ? i.total_tax_amounts : [];
+            const modernAmounts = Array.isArray(i.total_taxes) ? i.total_taxes : [];
+            const src = legacyAmounts.length ? legacyAmounts : modernAmounts;
+            const explicit = Number.isFinite(i.tax) && i.tax !== null
+              ? i.tax
+              : src.reduce((a, t) => a + (Number(t?.amount) || 0), 0);
+            const subtotal = i.subtotal || 0;
+            const total = i.total || 0;
+            const derived = Math.max(0, total - subtotal);
+            const taxCents = explicit > 0 ? explicit : derived;
+            return {
+              invoice_id: i.id,
+              created: new Date((i.created || 0) * 1000).toISOString(),
+              email: i.customer_email || null,
+              status: i.status,
+              subtotal_usd: subtotal / 100,
+              tax_usd: taxCents / 100,
+              tax_source: explicit > 0 ? "stripe_field" : (derived > 0 ? "total_minus_subtotal" : "none"),
+              total_usd: total / 100,
+              amount_paid_usd: (i.amount_paid || 0) / 100,
+              automatic_tax: i.automatic_tax?.enabled ?? null,
+              tax_amounts: src.map((t) => {
+                const rate = t?.tax_rate_details || t?.tax_rate || {};
+                return {
+                  amount_usd: (Number(t?.amount) || 0) / 100,
+                  inclusive: t?.inclusive ?? (t?.tax_behavior === "inclusive"),
+                  rate_pct: typeof rate === "object" ? (rate.percentage_decimal ?? rate.percentage ?? null) : null,
+                  jurisdiction: typeof rate === "object" ? (rate.jurisdiction || rate.country || null) : null,
+                  display_name: typeof rate === "object" ? (rate.display_name || rate.tax_type || null) : null,
+                };
+              }),
+            };
+          });
+          const taxCollected = invoiceRows
+            .filter((i) => i.status === "paid")
+            .reduce((a, i) => a + i.tax_usd, 0);
+
+          const paid = rows.filter((r) => r.paid && r.status === "succeeded");
+          const netTotal = paid.reduce((a, r) => a + r.net_usd, 0);
+          const byState = {};
+          for (const r of paid) {
+            const k = `${r.billing_country || "??"}/${r.billing_state || "unknown"}`;
+            byState[k] = byState[k] || { charges: 0, net_usd: 0 };
+            byState[k].charges += 1;
+            byState[k].net_usd = Math.round((byState[k].net_usd + r.net_usd) * 100) / 100;
+          }
+          return sendJSON({
+            ok: true,
+            note: "Gross/net are what Stripe settled. No tax was itemized on these charges because automatic_tax was never enabled; tax is sourced to the customer address shown.",
+            charges_total: rows.length,
+            charges_succeeded: paid.length,
+            net_collected_usd: Math.round(netTotal * 100) / 100,
+            sales_tax_collected_usd: Math.round(taxCollected * 100) / 100,
+            by_billing_state: byState,
+            charges: rows,
+            invoices: invoiceRows,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
@@ -81072,6 +81315,29 @@ export default {
           params.set("allow_promotion_codes", "true");
           if (trialDays > 0) {
             params.set("subscription_data[trial_period_days]", String(trialDays));
+          }
+          // 2026-09-19 — Sales tax.
+          //
+          // Nothing here ever asked Stripe to compute tax, so every
+          // subscription billed at the bare price with no tax line — for PA
+          // customers and out-of-state customers alike. The absence of tax was
+          // never an address problem; tax was simply never turned on.
+          //
+          // Always collect the billing address. Sales tax on SaaS is sourced
+          // to the CUSTOMER's location, so the address is both the input to
+          // any tax calculation and the evidence for why a sale was or was not
+          // taxed. Collecting it is safe on its own and costs nothing.
+          params.set("billing_address_collection", "required");
+
+          // automatic_tax is OPT-IN via STRIPE_AUTOMATIC_TAX=true, because it
+          // cannot be switched on from here alone. Stripe rejects the session
+          // if the Price has no `tax_behavior`, which would break the paywall
+          // outright, and it only charges tax where a registration exists in
+          // the Stripe Tax dashboard. Both are dashboard-side prerequisites:
+          // set the Price tax_behavior to `exclusive` (so $60 stays the
+          // pre-tax price) and add the PA registration, then flip this var.
+          if (String(env.STRIPE_AUTOMATIC_TAX || "false").toLowerCase() === "true") {
+            params.set("automatic_tax[enabled]", "true");
           }
           const stripeResp = await fetch("https://api.stripe.com/v1/checkout/sessions", {
             method: "POST",
