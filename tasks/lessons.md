@@ -6,6 +6,56 @@
 
 ---
 
+## "VIP" never reached the system that takes the money [2026-09-19]
+
+**Symptom:** The operator set every user to VIP so nobody would be
+charged, and one of them messaged to say he had been charged anyway.
+He was not alone: six Stripe subscriptions were still `active` against
+users already flipped to VIP, trials having ended between 2026-03 and
+2026-08. The VIP welcome email had told each of them their billing was
+cancelled.
+
+**Cause:** Two independent faults, either of which was enough.
+
+1. **Ordering.** A 2026-06-05 change moved the D1 grant to *before* the
+   Stripe cancel, to remove a race with the
+   `customer.subscription.deleted` webhook. That reasoning was sound and
+   the comment explaining it is still correct. But the cancel branch then
+   re-`SELECT`ed `subscription_status` and skipped when it read
+   `'manual'` — which the `UPDATE` three lines earlier had just written.
+   The guard could never pass, so the `DELETE` never ran. The fix is not
+   to undo the ordering; it is to capture the ids *before* the write.
+
+2. **Missing id.** The cancel only ever consulted
+   `users.stripe_subscription_id`. That column is empty for accounts
+   whose checkout webhook never stored it, so even with the ordering
+   fixed there was nothing to cancel while Stripe held a live
+   subscription against the customer.
+
+**Fix:** `worker/stripe-billing-guard.js`. `cancelBillingForUser` asks
+Stripe what the customer actually has rather than trusting D1, so local
+drift cannot strand a live subscription, and is idempotent so a sweep
+can re-run. `POST /timed/admin/stripe/reconcile-vip` swept the six
+already stranded.
+
+**Lesson:** Entitlement state and billing state are two different facts
+living in two different systems, and only one of them moves money. A
+flag that means "do not charge this person" is worth nothing until it
+reaches the processor, and an email asserting the charge stopped is not
+evidence that it did. When a write and a read-back of the same column
+sit in one handler, ask which one happens first.
+
+**Second lesson, same session:** the first version of the revenue audit
+reported `$0.00 sales tax collected` on invoices whose total was plainly
+8% above subtotal. It read `invoice.tax`, which newer Stripe API
+versions replaced with `total_taxes`. A missing field read as zero
+rather than raising, and zero is a plausible-looking answer to "how much
+tax did we collect" — so it was nearly believed. Cross-foot totals
+against their components before trusting a number that happens to be
+convenient.
+
+---
+
 ## Rank/conviction ignored fundamentals on the play side [2026-09-10]
 
 **Symptom:** Mega movers printed low conviction. BE was quality-A
