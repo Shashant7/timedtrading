@@ -55,6 +55,7 @@ should read. It tells you what to look at, in what order, and why.
 | Test or debug a Discord alert | [skills/discord-alerts.md](skills/discord-alerts.md) |
 | IBKR / Broker Bridge work | [skills/broker-bridge.md](skills/broker-bridge.md) |
 | Onboard a partner / check broker tenant isolation | [skills/partner-onboarding.md](skills/partner-onboarding.md) |
+| Unexpected Stripe charge / VIP still billed / sales tax + PA filing | [skills/billing-and-sales-tax.md](skills/billing-and-sales-tax.md) |
 | Sanity check an Investor zone vs Finnhub | [skills/sanity-check-investor.md](skills/sanity-check-investor.md) |
 | Frontend blank-page / build issue | [skills/frontend-build.md](skills/frontend-build.md) |
 | Force a cache-bust after a deploy | [skills/cache-bust-rail.md](skills/cache-bust-rail.md) |
