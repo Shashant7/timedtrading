@@ -106,8 +106,17 @@ each row says which. Always cross-foot `subtotal + tax == total`.
   document an exemption claim).
 - **Zero returns are still required.** "Returns are to be filed whether or
   not taxable transactions occur in a period."
-- **New filers default to quarterly.** Periods end Mar 31 / Jun 30 / Sep 30 /
-  Dec 31; returns due Apr 20 / Jul 20 / Oct 20 / Jan 20.
+- **Frequency follows annual liability** (REV-588). New filers start
+  quarterly, but the department reviews yearly:
+  - monthly — over $600 tax per quarter
+  - quarterly — over $300 annually; periods end Mar/Jun/Sep/Dec, due the
+    20th of the following month
+  - **semi-annual — $300 or less annually**; Jan–Jun due **Aug 20**,
+    Jul–Dec due **Feb 20**
+  At current volume this business is semi-annual, which matters because a
+  semi-annual "period ending 06/30" covers **January through June**, not
+  April through June. Check the period list in myPATH before computing a
+  return; assuming quarterly understates the period by a third.
 - Filing **on time** earns a vendor discount (quarterly: lesser of $75 or 1%
   of tax). Filing late forfeits it.
 
