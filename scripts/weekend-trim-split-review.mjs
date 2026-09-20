@@ -244,12 +244,10 @@ async function main() {
   }
 }
 
-const invokedDirectly = process.argv[1]
-  && import.meta.url === (await import("node:url")).pathToFileURL(
-    (await import("node:path")).resolve(process.argv[1]),
-  ).href;
-
-if (invokedDirectly) {
+// Guarded on the argument rather than on import.meta.url: vite-node resolves
+// process.argv[1] relatively, so the usual direct-invocation check never
+// matches there and the script silently prints nothing.
+if (process.argv.includes("--trades")) {
   main().catch((e) => {
     console.error(e);
     process.exit(1);
