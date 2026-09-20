@@ -157,16 +157,43 @@ describe("learning-proposals bus", () => {
     expect(state.config.get("rank_min")).toBe("50");
   });
 
-  it("clears pending proposals whose live value already matches", async () => {
+  it("never files a proposal whose key already holds the proposed value", async () => {
+    // The nightly scorecard re-proposed a block on TT ATH Breakout every run
+    // while the family was already blocked. Each row applied as a no-op and
+    // left 'pending', so the pending-dedupe above never saw it: ids 82-88 in
+    // production were seven copies of the same non-decision.
     state.config.set("deep_audit_setup_demotion_TT ATH Breakout_long", "\"blocked\"");
     const env = makeEnv(state, { COO_AUTO_APPLY_TIER1: "true" });
+    const submit = () => submitProposal(env, {
+      source: "edge_scorecard",
+      kind: "config_change",
+      config_key: "deep_audit_setup_demotion_TT ATH Breakout_long",
+      proposed_value: "blocked", // the bare spelling of the stored "blocked"
+      tier: "tier2",
+    });
+    const first = await submit();
+    await submit();
+    expect(first).toMatchObject({ ok: true, skipped: "already_at_proposed_value" });
+    expect(state.proposals).toHaveLength(0);
+    // A genuine change to the same key is still filed.
     await submitProposal(env, {
       source: "edge_scorecard",
       kind: "config_change",
       config_key: "deep_audit_setup_demotion_TT ATH Breakout_long",
-      proposed_value: "blocked",
+      proposed_value: "allowed",
       tier: "tier2",
     });
+    expect(state.proposals).toHaveLength(1);
+  });
+
+  it("still clears a pending proposal the world caught up with", async () => {
+    // Filed while the key was unset, then an operator set it by hand. The
+    // submit-time guard cannot see that, so the apply path must still close it.
+    const key = "deep_audit_setup_demotion_TT ATH Breakout_long";
+    const env = makeEnv(state, { COO_AUTO_APPLY_TIER1: "true" });
+    await submitProposal(env, { source: "edge_scorecard", kind: "config_change", config_key: key, proposed_value: "blocked", tier: "tier2" });
+    expect(state.proposals).toHaveLength(1);
+    state.config.set(key, "\"blocked\"");
     const r = await processProposals(env);
     expect(r.applied).toHaveLength(1);
     expect(r.applied[0].already_in_effect).toBe(true);
