@@ -21,6 +21,32 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Weekend review 2026-09-20: the Cloud Pivot block proposals were
+      inert, and the long leg was an exit defect.** Proposals 79
+      (`edge_scorecard`) + 81 (`weekly_governor`) both asked to block
+      `TT Cloud Pivot Long` on 90d PF 0.24 / −$208.77. Investigated
+      instead of blocking. The family across both legs is **+$46**
+      (short leg +$255 at PF 4.00), and the separator is the trim, not
+      the side: 27 trades that reached a trim went 92.6% WR at PF 14.83,
+      the other 19 went 0-for-19. The long leg is PF 44.67 once it trims.
+      Two exit defects account for nearly all of it — 6 profit-lock
+      misses (−$123, fixed by the 2026-09-05 rework) and 4 trades on
+      2026-09-04 that never went green and ran to −5.1%/−6.5% (−$121),
+      because the family had a profit lock above the `!c512` guard and
+      nothing on the loss side. Shipped `tt_cloud_pivot_loss_cap` at
+      −2.5%, gated to unproven trades. Separately, the proposals could
+      not have worked: the paper sibling path resolved to no catalog
+      play, so the calibration guard never fired, the key was one
+      `checkSetupDemotion` never reads (the enforced key was already
+      `allowed`), and `parseDemotionKey` returned a null id so the CIO
+      rule could not run. Fixed with `sibling_paths` +
+      `resolveGovernancePlay`; the desk then rejected both itself
+      (`calibration_family`, no operator override).
+      **Next weekend:** the long leg is ~−$46 net of both defects on 24
+      trades — still unproven, not yet a bleeder. Re-run
+      `scripts/cloud-pivot-loss-cap-calibration.mjs` once there are
+      post-cap closes and revisit 2.5% vs 2.0% on evidence rather than
+      on the 46-trade sample.
 - [ ] **Operator action: add the Cloudflare CI secrets.** `deploy-*`
       workflows now fail loudly instead of silently skipping, but they
       still cannot deploy until `CLOUDFLARE_API_TOKEN` +

@@ -27,8 +27,35 @@ paths stay full size.
 
 Live management must key off the **ticket** (`tt_cloud_pivot_long` /
 `TT Cloud Pivot`), not the current card score. Profit-lock (MFE ≥ 1.2%,
-keep 50% of peak) runs even when the 10m 5/12 print is missing — that
-is how TJX +12% MFE died at the stop.
+keep peak-scaled `cloudPivotKeepFrac`) runs even when the 10m 5/12 print
+is missing — that is how TJX +12% MFE died at the stop.
+
+**The loss side gets the same treatment (2026-09-20).** Everything below
+`if (!c512) return null` needs a 10m print, so a trade that never armed
+the lock had no family exit at all and inherited the generic stop: on
+2026-09-04 four unproven tickets reached −5.1% to −6.5% (EXPE, ULTA,
+TSLA, BG — none with MFE over 1%), $121 of the family's losses.
+`tt_cloud_pivot_loss_cap` is a full exit at −2.5%, placed beside the
+profit lock so it also survives a missing print.
+
+Gated to **unproven** trades only — not trimmed, MFE below the lock arm.
+MAE is a whole-life number, so an ungated cap forfeits a runner that
+dips *after* banking half (RBLX long realized +$13.53 on a −4.37%
+drawdown). Once MFE clears the arm the profit lock and ribbon trail own
+the exit and the cap stands down.
+
+2.5% is a backstop, not a tighter stop: August's working `max_loss`
+exits all landed in the −2.0..−2.4% band, so the cap sits just outside
+it. 1.5% scores better on the 46-trade record (+$100 vs +$65) and was
+rejected for pre-empting a stop that already works on a 46-trade sample.
+Retune or disable without a deploy via
+`deep_audit_tt_cloud_pivot_loss_cap_pct` /
+`deep_audit_tt_cloud_pivot_loss_cap_enabled` (both allow-listed in
+`REPLAY_DA_KEYS`, so the knob genuinely reaches `daCfg`).
+
+Do not read the family's per-leg PF as a verdict on the setup — see
+[learning-loops.md](learning-loops.md) for why the long leg's PF 0.24
+was an exit defect, not an edge failure.
 
 The 1H/4H 34/50 (then 72/89) magnet is the **last cover** once the
 live print has passed it — never show it as "toward." Next cover
@@ -71,6 +98,9 @@ cd worker
   session. Cover is labeled ahead vs behind. Do not add cover/last
   price chips or R/S metrics on these cards.
 - Unit: `npx vitest run worker/foundation/tt-cloud-pivot.test.js`
+- Loss cap against the real tickets (caps the four 2026-09-04 losers,
+  leaves the open trimmed runners alone):
+  `npx vite-node scripts/verify-cloud-pivot-loss-cap.mjs`
 
 ## Source
 

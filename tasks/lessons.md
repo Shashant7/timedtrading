@@ -6,6 +6,116 @@
 
 ---
 
+## The block proposal could not have worked, and the setup was not the problem [2026-09-20]
+
+**Symptom:** End-of-week review. Two pending `learning_proposals` (79
+from `edge_scorecard`, 81 from `weekly_governor`) both asked to block
+`TT Cloud Pivot Long`, quoting 90d PF 0.24 over 25 trades, WR 37.5%,
+−$208.77. The operator's instinct was to investigate the trades and look
+for refinements rather than block — which turned out to match the
+`learning-loops` skill's own standing instruction ("Cloud Pivot paper
+takes the 0–10 setup-grade floor; do not catalog-pause the whole family
+to act").
+
+**What the numbers actually said.** The proposals scored one leg in
+isolation. Across all 46 closed trades the family is **+$46.32**: the
+long leg is −$208.77 but the short leg is **+$255.09** at PF 4.00. And
+the side was not the real separator — the trim was:
+
+| | n | WR | PnL | PF |
+|---|---|---|---|---|
+| trim fired | 27 | 92.6% | +$379.19 | 14.83 |
+| trim never fired | 19 | **0.0%** | −$332.87 | 0.00 |
+
+Nineteen trades, zero winners, on both legs. The long leg the proposals
+wanted blocked is **PF 44.67** once the trim fires. A setup that wins
+93% of the time when it reaches a trim does not have an edge problem, it
+has an exit problem.
+
+Two distinct exit defects, and between them almost the whole deficit:
+
+1. **Profit-lock misses** — 6 trades reached MFE ≥ 1.2% and never
+   trimmed (TJX +12.43%, CAT +21.55%), −$123.29. Five of six predate the
+   2026-09-05 peak-scaled profit-lock rework, which fixed this.
+2. **No loss cap** — 4 trades on 2026-09-04 never went green and ran to
+   −5.1%/−6.5% (EXPE, ULTA, TSLA, BG), −$121.28.
+
+**Cause of (2).** The profit lock had deliberately been hoisted above
+`if (!c512) return null` so a missing 10m 5/12 print could not let a
++12% MFE die at the stop. The loss side never got the same treatment, so
+a trade that never armed the lock fell through that guard, had no family
+exit at all, and inherited the generic stop.
+
+**Cause of the proposals themselves.** One gap with three effects. The
+edge scorecard rolls a setup up by `canonicalPlayId`, which keeps
+`tt_cloud_pivot_long` distinct from `tt_cloud_pivot` **on purpose** so
+Loop 1 and Trade Review score the paper leg on its own. But every
+*governance* read went through that same string, and the sibling path
+resolved to no catalog play at all:
+
+- `isCalibrationPlay('tt_cloud_pivot_long')` was `false`, so the weekly
+  governor's calibration guard never fired and it proposed a block on a
+  family the catalog explicitly protects from auto-demote.
+- The demotion key fell back to title-casing the path into
+  `deep_audit_setup_demotion_TT Cloud Pivot Long_long` — a key
+  `checkSetupDemotion` never reads. The *enforced* key was already
+  `allowed` from an earlier CIO restore. **Approving either proposal
+  would have changed nothing.**
+- `parseDemotionKey` returned `play_id: null`, and every high-confidence
+  desk verdict is guarded on having an id, so the CIO's own rule (reject
+  a block proposed against a calibration family) could not run and both
+  rows aged on the operator queue.
+
+**Fix:** `sibling_paths` on the play plus `resolveGovernancePlay()`, used
+for role / auto-demote / demotion keys. Siblings stay out of
+`ALIAS_INDEX`, so `resolvePlay` — and therefore `canonicalPlayId` — is
+untouched and the scoring separation survives. `findSetupStats`
+deliberately stays on `resolvePlay`: resolving governance there would
+merge the long and short legs and hide which one is weak.
+
+Then `tt_cloud_pivot_loss_cap`, a full exit at −2.5%, placed beside the
+profit lock so it also survives a missing print. Gated to **unproven**
+trades only (not trimmed, MFE below the lock arm) because
+`max_adverse_excursion` is a whole-life number: an ungated cap would
+forfeit a runner that dips *after* banking half — RBLX long realized
++$13.53 on a −4.37% whole-life drawdown.
+
+**Why 2.5% and not the best number.** The sweep says 1.5% earns more
+(+$100 vs +$65 on 46 trades) and forfeits no winner. It was still
+rejected: August's working `max_loss` exits all landed in the −2.0..−2.4%
+band, so 1.5% would pre-empt a stop that already does its job, on the
+evidence of 46 trades. The cap is a backstop that sits just outside that
+band and catches only a blow-through. Both knobs are allow-listed in
+`REPLAY_DA_KEYS` so the choice can be revisited without a deploy.
+
+**Lessons.**
+
+- **Read the trades before accepting a governor verdict.** A per-leg PF
+  is not a per-family PF, and neither is a verdict on the setup. Split
+  the record by what the exit machinery actually did (here: trim vs no
+  trim) before concluding the entry has no edge.
+- **A proposal can be inert.** Check that the key a proposal writes is
+  the key the engine reads. Two sources agreeing does not make a key
+  real — both of these derived it from the same broken resolution.
+- **Check whether the desk can decide a row before deciding it by
+  hand.** The CIO policy was already written and correct; the row was
+  pending only because the key would not resolve. After the fix,
+  `POST /timed/admin/learning/desk/run` rejected both with reason
+  `calibration_family` and no operator override.
+- **Scoring identity and governance identity are different questions.**
+  Collapsing them would have hidden the long leg's weakness; keeping
+  them fully separate left the paper family unprotected. Name the two
+  resolvers and use each deliberately.
+- **Be honest about what the ledger cannot tell you.** The counter-
+  factual gates on whole-life MFE, but live the engine only knows
+  MFE-so-far when the drawdown hits. `trade_trajectories` stores regime
+  cells, not a price path, so the ordering is unknowable. The sweep
+  reports a worst case beside the modelled one instead of assuming it
+  away; here the worst case was *better*, because every trade that armed
+  the lock and still lost would have been capped earlier.
+
+---
+
 ## "VIP" never reached the system that takes the money [2026-09-19]
 
 **Symptom:** The operator set every user to VIP so nobody would be
