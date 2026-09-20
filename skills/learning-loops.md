@@ -176,11 +176,46 @@ Range Reversal −$846, Support Bounce −$272) were **already blocked**, and
 the only positive-PnL family with a real sample was Cloud Pivot (+$46) —
 the one both proposals wanted to block.
 
+Pass `--markers <d1-json>` (second query in the file header) and the
+script does that cross-check itself instead of printing advice. Each
+family/direction leg comes back as one of:
+
+| Verdict | Meaning |
+|---|---|
+| `BLOCKED` | a live marker already holds it — do not re-propose |
+| `CALIBRATION` | protected by role; PF is not a verdict here |
+| `LOOK` | losing money with no marker — the actionable row |
+
+It then runs an **inert-marker audit**: every marker is re-canonicalized
+through `demotionProposalConfigKey`, and any key that does not
+canonicalize onto itself is reported. That is the mechanical form of both
+historical mangled-key bugs ("TT Tt Ath Breakout" in July, "TT Cloud
+Pivot Long" in September). Production audited clean on 2026-09-20.
+
+### Two follow-ups that came out of running it (2026-09-20)
+
+**A display name could still mangle the key.** The sibling fix taught the
+catalog the *path* `tt_cloud_pivot_long`, but the name map is keyed by
+path, so the *display* string "TT Cloud Pivot Long" — which is what both
+proposals actually stored as their `config_key` — still matched no entry
+and fell through to the title-case fallback. `demotionProposalConfigKey`
+now asks `resolveGovernancePlay` before giving up, so all four spellings
+(path, display, sibling path, sibling display) land on the enforced key.
+
+**A no-op proposal is still noise.** `submitProposal` dedupes *pending*
+rows per (source, key), but a no-op applies immediately and leaves
+`pending`, so the next run inserts a fresh one. The scorecard had stacked
+seven identical "block TT ATH Breakout" rows (ids 82-88) against a family
+already blocked. The bus now drops a proposal whose key already holds the
+proposed value. The downstream `already_in_effect` clearer stays — it
+still handles the race where the world changes after a row is filed.
+
 ## Verify
 
 - Loop 1 rollup: `npx vitest run worker/phase-c-loops.test.js`
 - Catalog + Cloud Pivot: `npx vitest run worker/foundation/play-catalog.test.js worker/pipeline/setup-demotion.test.js`
 - Bus hygiene: `npx vitest run worker/learning-proposals.test.js`
+- Weekend review: `npx vitest run scripts/weekend-trim-split-review.test.js`
 - Sibling governance: `npx vitest run worker/foundation/play-catalog.test.js worker/pipeline/setup-demotion.test.js`
 - Desk + heal: `npx vitest run worker/learning-desk-review.test.js worker/pipeline/setup-demotion.test.js worker/trust-spine/weekly-governor.test.js`
 - Entry explain: `GET /timed/admin/entry-explain?ticker=...` shows

@@ -6,6 +6,76 @@
 
 ---
 
+## The same weekend, two follow-ups the first fix did not cover [2026-09-20]
+
+Written after running the new weekend review against production rather
+than against the fixture that motivated it. Both findings are the same
+shape: a fix that was verified on the input that failed, and not on the
+inputs the writers actually produce.
+
+**1. The path form was fixed; the display form was not.**
+
+`sibling_paths` + `resolveGovernancePlay()` made
+`resolvePlay("tt_cloud_pivot_long")` resolve for governance. But
+`SETUP_DEMOTION_NAME_MAP` is keyed by *path*, and
+`demotionProposalConfigKey` reverse-matches an incoming display name
+against the map's *values*. The sibling's value is "TT Cloud Pivot", so
+the string `"TT Cloud Pivot Long"` normalized to `tt cloud pivot long`,
+matched no value, and still fell through to the title-case fallback:
+
+```
+"TT Cloud Pivot Long"  -> deep_audit_setup_demotion_TT Cloud Pivot Long_long   (inert)
+"tt_cloud_pivot_long"  -> deep_audit_setup_demotion_TT Cloud Pivot_long        (fixed)
+```
+
+The display string is the one that mattered — it is what proposals 79
+and 81 stored as their `config_key`. The desk rejected them for other
+reasons, so nothing broke, but the key-mangling path was still open for
+any future sibling-named proposal. `demotionProposalConfigKey` now asks
+`resolveGovernancePlay` before falling back, so all four spellings land
+on the enforced key. Verified with a test that also pins the negative
+case: an unknown name must still pass through untouched, or the fallback
+becomes a silent misroute.
+
+**2. Seven copies of a decision nobody needed to make.**
+
+Production had proposals 82-88, all `edge_scorecard`, all
+`deep_audit_setup_demotion_TT ATH Breakout_long => blocked`, all
+`applied`, against a family that has been blocked since the governor
+auto-demoted it. `submitProposal`'s dedupe only looks at rows still
+`pending`; a no-op is cleared as `already_in_effect` on the very next
+`processProposals`, so it is never pending when the next run checks, and
+a new row is inserted. Seven no-decisions in the ledger, and a genuine
+proposal has to be found among them.
+
+The bus already read the current value in order to record
+`current_value`, and already had `normalizeConfigValue` to collapse
+`"blocked"` vs `blocked`. It simply never compared the two. It does now.
+The downstream `already_in_effect` clearer stays: it covers the genuine
+race where a row is filed and then the world catches up.
+
+**Lessons.**
+
+- *Verify a resolver against the strings its callers actually produce.*
+  The sibling fix was proven on the input that had failed. The writers
+  emit a different spelling of the same thing, and that one still broke.
+  Enumerate the spellings; assert on all of them.
+- *A tool that prints advice will be ignored; a tool that prints a
+  verdict will not.* The first version of the weekend review told the
+  operator to go compare against the live markers by hand. Nobody was
+  going to, which is how an already-blocked family gets re-proposed.
+  Feeding it `--markers` and having it emit BLOCKED / CALIBRATION / LOOK
+  took one argument and turned a paragraph of instructions into three
+  words per row.
+- *Idempotent is not the same as harmless.* Re-applying a block changes
+  no behaviour, so nothing alerted for weeks. The cost was paid by the
+  queue's readability, which is exactly the surface an operator uses to
+  notice the proposals that do matter.
+- *Run the new tool against production before believing the summary.*
+  The previous session concluded the book was clean. It was — but the
+  live queue had grown seven rows since, and the display-form gap was
+  only visible by probing the real canonicalizer with the real strings.
+
 ## The block proposal could not have worked, and the setup was not the problem [2026-09-20]
 
 **Symptom:** End-of-week review. Two pending `learning_proposals` (79
