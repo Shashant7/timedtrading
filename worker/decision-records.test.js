@@ -8,6 +8,8 @@ import {
   DECISION_RECORD_COLUMNS,
   DECISION_RECORDS_DDL,
 } from "./decision-records.js";
+import { REPLAY_DA_KEYS } from "./replay-runtime-setup.js";
+import { loadCloudPivotConfig } from "./foundation/tt-cloud-pivot.js";
 
 describe("loadDeepAuditConfigFromDb", () => {
   it("filters allowed keys and returns the same hash as computeConfigHash", async () => {
@@ -32,6 +34,25 @@ describe("loadDeepAuditConfigFromDb", () => {
   it("returns empty config/hash when db or allowlist missing", async () => {
     expect(await loadDeepAuditConfigFromDb(null, ["a"])).toEqual({ config: {}, configHash: "" });
     expect(await loadDeepAuditConfigFromDb({}, [])).toEqual({ config: {}, configHash: "" });
+  });
+
+  it("carries the Cloud Pivot loss-cap knobs through to daCfg", async () => {
+    // A knob the evaluator reads but the allowlist omits is not tunable: it
+    // silently keeps its default, which is how the family's profit-lock knobs
+    // behaved. The cap needs a live off-switch, so assert the wiring, not just
+    // the constant.
+    const rows = [
+      { config_key: "deep_audit_tt_cloud_pivot_loss_cap_enabled", config_value: '"false"' },
+      { config_key: "deep_audit_tt_cloud_pivot_loss_cap_pct", config_value: "0.03" },
+    ];
+    const db = { prepare: () => ({ all: async () => ({ results: rows }) }) };
+    const { config } = await loadDeepAuditConfigFromDb(db, REPLAY_DA_KEYS);
+    expect(config.deep_audit_tt_cloud_pivot_loss_cap_enabled).toBe("false");
+    expect(config.deep_audit_tt_cloud_pivot_loss_cap_pct).toBe(0.03);
+    // And the evaluator honours what the loader handed it.
+    const cfg = loadCloudPivotConfig(config);
+    expect(cfg.lossCapEnabled).toBe(false);
+    expect(cfg.lossCapPct).toBe(0.03);
   });
 
   it("loads dynamic deep_audit_setup_demotion_* keys even when not in allowlist", async () => {
