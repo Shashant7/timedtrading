@@ -411,7 +411,7 @@
     </div>
 
     <script type="text/babel">
-      const { useState, useEffect, useMemo, useCallback } = React;
+      const { useState, useEffect, useMemo, useCallback, useRef } = React;
       const h = React.createElement;
       const API_BASE = "";
 
@@ -898,25 +898,40 @@
       // / Entry Date. Current price + Status dropped — Current is
       // implicit in the live Open P&L; Status was redundant with the
       // section header ("ACTIVE TRADER · OPEN POSITIONS").
-      function OpenPositionsTable({ rows, mode, accent, verdictMap }) {
+      function OpenPositionsTable({ rows, mode, accent, verdictMap, loaded = true, failed = false }) {
         if (!Array.isArray(rows)) return null;
         const fmtPnl = (n) => Number.isFinite(n)
           ? `${n >= 0 ? "+" : "-"}${fmtUsdDec(Math.abs(n))}`
           : "—";
-        const totalPl = rows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0);
+        const totalPl = sumOpenPl(rows);
         const VUI = window.TimedVerdictUI || {};
         const showVerdict = window._ttIsPro && mode === "trader";
+        // "0 positions" is a claim about the book. Only make it once the
+        // book has actually been read.
+        const countLabel = failed
+          ? "Couldn't load positions"
+          : !loaded
+            ? "Loading…"
+            : `${rows.length} position${rows.length === 1 ? "" : "s"}`;
+        const emptyLabel = failed
+          ? "Couldn't load open positions — refresh to try again."
+          : !loaded
+            ? "Loading…"
+            : "No open positions.";
 
         return h("div", { className: "op-pane" },
           h("div", { className: "op-head" },
             h("div", { style: { minWidth: 0 } },
               h("div", { className: "tt-sec-title" }, mode === "investor" ? "LONG TERM · OPEN POSITIONS" : "SHORT TERM · OPEN POSITIONS"),
               h("h2", { className: "tt-sec-h2" }, `Currently held — ${mode === "investor" ? "Long Term book" : "Short Term book"}`),
-              h("p", { className: "tt-sec-sub" }, `${rows.length} position${rows.length === 1 ? "" : "s"}`),
+              h("p", { className: "tt-sec-sub" }, countLabel),
             ),
             rows.length > 0 && h("div", { className: "op-total" },
               h("span", { className: "op-total-l" }, "Open P&L"),
-              h("strong", { className: totalPl >= 0 ? "up" : "dn", style: { fontSize: 16 } }, fmtPnl(totalPl)),
+              h("strong", {
+                className: totalPl == null ? "" : totalPl >= 0 ? "up" : "dn",
+                style: { fontSize: 16 },
+              }, fmtPnl(totalPl)),
             ),
           ),
           h("div", { className: "tbl-scroll", "data-accent": accent || "trader" },
@@ -934,7 +949,7 @@
               ),
               h("tbody", null,
                 rows.length === 0
-                  ? h("tr", null, h("td", { className: "empty", colSpan: showVerdict ? 7 : 6 }, "No open positions."))
+                  ? h("tr", null, h("td", { className: "empty", colSpan: showVerdict ? 7 : 6 }, emptyLabel))
                   : rows.map((r) => {
                       const openTicker = () => {
                         if (typeof r._onSelect === "function") r._onSelect(r.sym);
@@ -1005,6 +1020,21 @@
           return b.entryTs - a.entryTs;
         });
         return out;
+      }
+
+      // Total open P&L, or null when nothing in the book could be priced.
+      // Summing a book whose every row is unpriced yields 0, which then
+      // renders as a confident "+$0.00" — indistinguishable from a book that
+      // really is flat. Report "unknown" instead so the equity card can fall
+      // back to the curve's own unrealized figure.
+      function sumOpenPl(rows) {
+        if (!Array.isArray(rows) || rows.length === 0) return 0;
+        let total = 0;
+        let priced = 0;
+        for (const r of rows) {
+          if (Number.isFinite(r?.plDollar)) { total += r.plDollar; priced += 1; }
+        }
+        return priced === 0 ? null : total;
       }
 
       function buildInvestorRows(investorPositions, priceMap, onSelect) {
@@ -1115,34 +1145,38 @@
         const [monthlyMode, setMonthlyMode] = useState("trader");
         const [error, setError] = useState(null);
         const [allData, setAllData] = useState(null);
+        // A failed positions fetch is not an empty book. Tracked separately
+        // so the tables can say so instead of reporting "0 positions".
+        const [positionsFailed, setPositionsFailed] = useState(false);
+        const [investorPositionsFailed, setInvestorPositionsFailed] = useState(false);
 
         useEffect(() => {
           let alive = true;
           (async () => {
             try {
-              const [e, p, invPos, ht, hi, all] = await Promise.all([
+              const [e, p, invPos, ht, hi, prices] = await Promise.all([
                 fetchEquityCurve(),
                 fetchPositions(),
                 fetchInvestorPositions(),
                 fetchHistoryByMode("trader"),
                 fetchHistoryByMode("investor"),
-                // /timed/all gives the rail full universe context for
-                // ranking / sector rollups / market state when opened
-                // from a Portfolio row.
-                fetch(`${API_BASE}/timed/all`, { cache: "no-store", credentials: "include" })
-                  .then((r) => r.ok ? r.json() : null).catch(() => null),
+                // Prices only. The full /timed/all snapshot is ~30MB for an
+                // entitled user (~80KB with ?slim=1) and all this load needs
+                // from it is the price overlay. Pulling the full payload here
+                // held the page for 13s and starved the sibling requests, so
+                // /timed/investor/positions could fail and the Long Term
+                // table would render "0 positions". The rail's universe
+                // context is fetched lazily below instead.
+                fetchPriceMap(),
               ]);
               if (!alive) return;
               if (e?.ok) setEq(e); else setError("Failed to load equity curve");
-              if (p?.ok) setPositions(p.trades || []);
+              if (p?.ok) setPositions(p.trades || []); else setPositionsFailed(true);
               if (invPos?.ok) setInvestorPositions(invPos.positions || []);
+              else setInvestorPositionsFailed(true);
               if (ht?.ok) setTraderHistory(ht.trades || []);
               if (hi?.ok) setInvestorHistory(hi.trades || []);
-              if (all?.ok) {
-                setAllData(all.data || {});
-                // Live price overlay for the OpenPositions P&L column.
-                setPriceMap(all.data || {});
-              }
+              if (prices) setPriceMap(prices);
             } catch (err) { if (alive) setError(String(err?.message || err)); }
           })();
           return () => { alive = false; };
@@ -1205,6 +1239,24 @@
           setHighlightTradeId(p?.highlightTradeId || detail?.tradeId || null);
           setOpenAutopsyForTrade(p?.openAutopsyForTrade || null);
         }, []);
+        // The rail wants the full universe snapshot for ranking / sector
+        // rollups / market state. That payload is ~30MB, so it is not worth
+        // blocking the tables on — fetch it the first time a row actually
+        // opens the rail. Until it lands the rail falls back to the minimal
+        // per-ticker stub built above, which is what it already does when a
+        // ticker is missing from the snapshot.
+        const allDataRequested = useRef(false);
+        useEffect(() => {
+          if (!railTicker || allDataRequested.current) return;
+          allDataRequested.current = true;
+          let alive = true;
+          fetch(`${API_BASE}/timed/all`, { cache: "no-store", credentials: "include" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((all) => { if (alive && all?.ok) setAllData(all.data || {}); })
+            .catch(() => { /* rail degrades to the stub */ });
+          return () => { alive = false; };
+        }, [railTicker]);
+
         const onCloseRail = useCallback(() => {
           setRailTicker(null);
           setRailInitialTab(null);
@@ -1255,13 +1307,16 @@
           () => buildInvestorRows(investorPositions || [], priceMap, onSelectTicker),
           [investorPositions, priceMap, onSelectTicker],
         );
+        // null, not 0, while the book is unknown. 0 is a finite number, so
+        // handing it to the equity card as openPnlOverride SUPPRESSED the
+        // curve's own unrealized figure and rendered a confident "$0.00".
         const traderOpenPl = useMemo(
-          () => traderRows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0),
-          [traderRows],
+          () => (positions == null ? null : sumOpenPl(traderRows)),
+          [positions, traderRows],
         );
         const investorOpenPl = useMemo(
-          () => investorRows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0),
-          [investorRows],
+          () => (investorPositions == null ? null : sumOpenPl(investorRows)),
+          [investorPositions, investorRows],
         );
 
         const [verdictMap, setVerdictMap] = useState({});
@@ -1339,12 +1394,16 @@
                     mode: "trader",
                     accent: "trader",
                     verdictMap,
+                    loaded: positions != null,
+                    failed: positionsFailed,
                   }),
                   h(OpenPositionsTable, {
                     rows: investorRows,
                     mode: "investor",
                     accent: "investor",
                     verdictMap,
+                    loaded: investorPositions != null,
+                    failed: investorPositionsFailed,
                   }),
                 )
               : h("section", { className: "tt-row" },

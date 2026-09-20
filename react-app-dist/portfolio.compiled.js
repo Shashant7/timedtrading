@@ -3,7 +3,8 @@ const {
   useState,
   useEffect,
   useMemo,
-  useCallback
+  useCallback,
+  useRef
 } = React;
 const h = React.createElement;
 const API_BASE = "";
@@ -623,13 +624,17 @@ function OpenPositionsTable({
   rows,
   mode,
   accent,
-  verdictMap
+  verdictMap,
+  loaded = true,
+  failed = false
 }) {
   if (!Array.isArray(rows)) return null;
   const fmtPnl = n => Number.isFinite(n) ? `${n >= 0 ? "+" : "-"}${fmtUsdDec(Math.abs(n))}` : "—";
-  const totalPl = rows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0);
+  const totalPl = sumOpenPl(rows);
   const VUI = window.TimedVerdictUI || {};
   const showVerdict = window._ttIsPro && mode === "trader";
+  const countLabel = failed ? "Couldn't load positions" : !loaded ? "Loading…" : `${rows.length} position${rows.length === 1 ? "" : "s"}`;
+  const emptyLabel = failed ? "Couldn't load open positions — refresh to try again." : !loaded ? "Loading…" : "No open positions.";
   return h("div", {
     className: "op-pane"
   }, h("div", {
@@ -644,12 +649,12 @@ function OpenPositionsTable({
     className: "tt-sec-h2"
   }, `Currently held — ${mode === "investor" ? "Long Term book" : "Short Term book"}`), h("p", {
     className: "tt-sec-sub"
-  }, `${rows.length} position${rows.length === 1 ? "" : "s"}`)), rows.length > 0 && h("div", {
+  }, countLabel)), rows.length > 0 && h("div", {
     className: "op-total"
   }, h("span", {
     className: "op-total-l"
   }, "Open P&L"), h("strong", {
-    className: totalPl >= 0 ? "up" : "dn",
+    className: totalPl == null ? "" : totalPl >= 0 ? "up" : "dn",
     style: {
       fontSize: 16
     }
@@ -667,7 +672,7 @@ function OpenPositionsTable({
   }, "Open P&L $"), h("th", null, "Entry Date"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
     className: "empty",
     colSpan: showVerdict ? 7 : 6
-  }, "No open positions.")) : rows.map(r => {
+  }, emptyLabel)) : rows.map(r => {
     const openTicker = () => {
       if (typeof r._onSelect === "function") r._onSelect(r.sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(r.sym)}`;
     };
@@ -735,6 +740,18 @@ function buildTraderRows(trades, priceMap, onSelect) {
     return b.entryTs - a.entryTs;
   });
   return out;
+}
+function sumOpenPl(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return 0;
+  let total = 0;
+  let priced = 0;
+  for (const r of rows) {
+    if (Number.isFinite(r?.plDollar)) {
+      total += r.plDollar;
+      priced += 1;
+    }
+  }
+  return priced === 0 ? null : total;
 }
 function buildInvestorRows(investorPositions, priceMap, onSelect) {
   if (!Array.isArray(investorPositions)) return [];
@@ -832,24 +849,20 @@ function PortfolioApp() {
   const [monthlyMode, setMonthlyMode] = useState("trader");
   const [error, setError] = useState(null);
   const [allData, setAllData] = useState(null);
+  const [positionsFailed, setPositionsFailed] = useState(false);
+  const [investorPositionsFailed, setInvestorPositionsFailed] = useState(false);
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [e, p, invPos, ht, hi, all] = await Promise.all([fetchEquityCurve(), fetchPositions(), fetchInvestorPositions(), fetchHistoryByMode("trader"), fetchHistoryByMode("investor"), fetch(`${API_BASE}/timed/all`, {
-          cache: "no-store",
-          credentials: "include"
-        }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+        const [e, p, invPos, ht, hi, prices] = await Promise.all([fetchEquityCurve(), fetchPositions(), fetchInvestorPositions(), fetchHistoryByMode("trader"), fetchHistoryByMode("investor"), fetchPriceMap()]);
         if (!alive) return;
         if (e?.ok) setEq(e);else setError("Failed to load equity curve");
-        if (p?.ok) setPositions(p.trades || []);
-        if (invPos?.ok) setInvestorPositions(invPos.positions || []);
+        if (p?.ok) setPositions(p.trades || []);else setPositionsFailed(true);
+        if (invPos?.ok) setInvestorPositions(invPos.positions || []);else setInvestorPositionsFailed(true);
         if (ht?.ok) setTraderHistory(ht.trades || []);
         if (hi?.ok) setInvestorHistory(hi.trades || []);
-        if (all?.ok) {
-          setAllData(all.data || {});
-          setPriceMap(all.data || {});
-        }
+        if (prices) setPriceMap(prices);
       } catch (err) {
         if (alive) setError(String(err?.message || err));
       }
@@ -911,6 +924,21 @@ function PortfolioApp() {
     setHighlightTradeId(p?.highlightTradeId || detail?.tradeId || null);
     setOpenAutopsyForTrade(p?.openAutopsyForTrade || null);
   }, []);
+  const allDataRequested = useRef(false);
+  useEffect(() => {
+    if (!railTicker || allDataRequested.current) return;
+    allDataRequested.current = true;
+    let alive = true;
+    fetch(`${API_BASE}/timed/all`, {
+      cache: "no-store",
+      credentials: "include"
+    }).then(r => r.ok ? r.json() : null).then(all => {
+      if (alive && all?.ok) setAllData(all.data || {});
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [railTicker]);
   const onCloseRail = useCallback(() => {
     setRailTicker(null);
     setRailInitialTab(null);
@@ -949,8 +977,8 @@ function PortfolioApp() {
   const investorPayload = eq?.investor || null;
   const traderRows = useMemo(() => buildTraderRows(positions || [], priceMap, onSelectTicker), [positions, priceMap, onSelectTicker]);
   const investorRows = useMemo(() => buildInvestorRows(investorPositions || [], priceMap, onSelectTicker), [investorPositions, priceMap, onSelectTicker]);
-  const traderOpenPl = useMemo(() => traderRows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0), [traderRows]);
-  const investorOpenPl = useMemo(() => investorRows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0), [investorRows]);
+  const traderOpenPl = useMemo(() => positions == null ? null : sumOpenPl(traderRows), [positions, traderRows]);
+  const investorOpenPl = useMemo(() => investorPositions == null ? null : sumOpenPl(investorRows), [investorPositions, investorRows]);
   const [verdictMap, setVerdictMap] = useState({});
   useEffect(() => {
     if (!window._ttIsPro || !window.TimedVerdictUI?.fetchVerdict) return;
@@ -1019,12 +1047,16 @@ function PortfolioApp() {
     rows: traderRows,
     mode: "trader",
     accent: "trader",
-    verdictMap
+    verdictMap,
+    loaded: positions != null,
+    failed: positionsFailed
   }), h(OpenPositionsTable, {
     rows: investorRows,
     mode: "investor",
     accent: "investor",
-    verdictMap
+    verdictMap,
+    loaded: investorPositions != null,
+    failed: investorPositionsFailed
   })) : h("section", {
     className: "tt-row"
   }, h("div", {
@@ -1101,6 +1133,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1789244206254:157764095
+// cache-bust:1789935792528:304614971
 
-// cache-bust:1789244206254:157764095
+// cache-bust:1789935792528:304614971
