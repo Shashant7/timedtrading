@@ -621,6 +621,12 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_mfe_ratchet_runner_release_pct",           // default 10.0 (release to trend-hold)
   "deep_audit_mfe_ratchet_activation_pct",               // default 2.0
   "deep_audit_mfe_ratchet_lock_frac",                    // default 0.40
+  // 2026-09-20 — Cloud Pivot loss cap (worker/foundation/tt-cloud-pivot.js).
+  // Mirror of the family profit lock for a trade that never armed it, so a
+  // missing 10m 5/12 print can no longer let an unproven loser reach -6%.
+  // Allow-listed so the cap can be retuned or switched off without a deploy.
+  "deep_audit_tt_cloud_pivot_loss_cap_enabled",          // default true
+  "deep_audit_tt_cloud_pivot_loss_cap_pct",              // default 0.025
   // V15 P0.7.52 (2026-05-03) — big-winner extension levers (analysis #1, #2)
   "deep_audit_mfe_decay_giveback_pct_max_volrunner_gap_long",  // default 0.75 (vs 0.60 base)
   // V15 P0.7.53 (2026-05-03) — extend lever 1 cohort relax to PROFIT_GIVEBACK + SMART_RUNNER

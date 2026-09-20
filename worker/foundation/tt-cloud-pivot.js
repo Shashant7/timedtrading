@@ -63,6 +63,12 @@ export function loadCloudPivotConfig(daCfg = {}) {
   const plEnabled = String(daCfg.deep_audit_tt_cloud_pivot_profit_lock_enabled ?? "true") === "true";
   const plArm = Number(daCfg.deep_audit_tt_cloud_pivot_profit_lock_arm_pct);
   const plKeep = Number(daCfg.deep_audit_tt_cloud_pivot_profit_lock_keep_frac);
+  // Loss cap. The profit side had a rule that survives a missing 10m 5/12
+  // print; the loss side did not, so a trade that never went green fell
+  // through to the generic stop and ran to -6% (2026-09-04: EXPE -6.25%,
+  // BG -6.15%, TSLA -5.83%, ULTA -5.13%, none with MFE over 1%).
+  const lcEnabled = String(daCfg.deep_audit_tt_cloud_pivot_loss_cap_enabled ?? "true") === "true";
+  const lcPct = Number(daCfg.deep_audit_tt_cloud_pivot_loss_cap_pct);
   return {
     enabled,
     exitEnabled,
@@ -78,6 +84,12 @@ export function loadCloudPivotConfig(daCfg = {}) {
     // Flat keep-fraction override. When unset (default) the floor escalates
     // with the peak — see cloudPivotKeepFrac.
     profitLockKeepFrac: Number.isFinite(plKeep) && plKeep > 0 && plKeep < 1 ? plKeep : null,
+    lossCapEnabled: lcEnabled,
+    // 2.5% is a backstop, not a tighter stop: August's working max_loss
+    // exits all landed in the -2.0..-2.4% band, so the cap sits just
+    // outside it and only catches a blow-through. 1.5% scored better on
+    // the 46-trade record but would pre-empt the stop that already works.
+    lossCapPct: Number.isFinite(lcPct) && lcPct > 0 ? lcPct : 0.025,
   };
 }
 
@@ -959,6 +971,34 @@ export function evaluateTtCloudPivotExit(ctx = {}) {
       };
     }
   }
+
+  // Loss cap — the mirror of the profit lock, and for the same reason: it
+  // must not wait on a 10m 5/12 print. A trade that never armed the lock has
+  // nothing to protect, so the cap is a full exit.
+  //
+  // Only unproven trades are eligible. Once MFE clears the arm, or half is
+  // already banked, the profit lock and the ribbon trail own the exit and the
+  // cap stands down — otherwise it would cut a runner that dips late (RBLX
+  // long realized +$13.53 on a -4.37% whole-life drawdown).
+  const lossCapPct = cfg.lossCapPct * 100;
+  if (
+    cfg.lossCapEnabled
+    && age >= 5
+    && trimmed <= 0
+    && mfe < cfg.profitLockArmPct * 100
+    && Number.isFinite(pnl)
+    && pnl <= -lossCapPct
+  ) {
+    return {
+      stage: "exit",
+      reason: "tt_cloud_pivot_loss_cap",
+      family: CLOUD_PIVOT_FAMILY,
+      metadata: {
+        direction, pnlPct: pnl, mfePct: mfe, loss_cap_pct: lossCapPct, unproven: true,
+      },
+    };
+  }
+
   const c512 = rt10?.c5_12;
   if (!c512) return null;
 
