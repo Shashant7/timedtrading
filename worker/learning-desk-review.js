@@ -14,7 +14,13 @@
  * No new apply path. decideProposal() + model_config upserts only.
  */
 
-import { resolvePlay, PLAY_STATUS, isCalibrationPlay, CORE_PLAYS } from "./foundation/play-catalog.js";
+import {
+  resolvePlay,
+  resolveGovernancePlay,
+  PLAY_STATUS,
+  isCalibrationPlay,
+  CORE_PLAYS,
+} from "./foundation/play-catalog.js";
 import {
   demotionProposalConfigKey,
   setupDemotionConfigKey,
@@ -51,7 +57,14 @@ export function parseDemotionKey(configKey) {
   const raw = String(configKey || "");
   const m = raw.match(/^deep_audit_setup_demotion_(.+)_([a-z]+)$/i);
   if (!m) return null;
-  const play = resolvePlay(m[1], m[2]);
+  // Governance resolution, so a key naming a paper sibling resolves to the
+  // family whose policy the desk must apply. Without it the two Cloud Pivot
+  // block proposals parsed to play_id null, every high-confidence verdict was
+  // skipped for want of an id, and they sat pending as operator escalations.
+  // Path and title-cased spellings normalize alike ("tt_cloud_pivot_long" and
+  // "TT Cloud Pivot Long" are both "tt cloud pivot long"), so this also
+  // resolves the mangled keys already on the queue.
+  const play = resolveGovernancePlay(m[1], m[2]);
   return {
     display: m[1],
     direction: String(m[2] || "long").toLowerCase(),
