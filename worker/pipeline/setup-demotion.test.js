@@ -97,6 +97,29 @@ describe("setup-demotion heal (2026-07-23)", () => {
     expect(isDemotionKeyBlocked({}, "tt_cloud_pivot_long", "long").blocked).toBe(false);
   });
 
+  it("resolves the sibling spelled as a DISPLAY name, not just as a path", () => {
+    // The path form was fixed first, but the name map is keyed by path, so a
+    // proposal carrying the display string still matched no entry and fell to
+    // the title-case fallback. That string is the one both Cloud Pivot
+    // proposals actually stored as their config_key.
+    const enforced = "deep_audit_setup_demotion_TT Cloud Pivot_long";
+    expect(demotionProposalConfigKey("TT Cloud Pivot Long", "long")).toBe(enforced);
+    expect(demotionProposalConfigKey("tt cloud pivot short", "long")).toBe(enforced);
+    // So a marker written under the old mangled spelling is now honoured
+    // rather than sitting inert.
+    const healed = isDemotionKeyBlocked(
+      { "deep_audit_setup_demotion_TT Cloud Pivot Long_long": "blocked" },
+      "tt_cloud_pivot",
+      "long",
+    );
+    expect(healed.blocked).toBe(true);
+  });
+
+  it("does not invent a play for a name the catalog does not know", () => {
+    expect(demotionProposalConfigKey("TT Not A Real Setup", "long"))
+      .toBe("deep_audit_setup_demotion_TT Not A Real Setup_long");
+  });
+
   it("leaves unrelated paths on their own keys", () => {
     expect(setupDemotionConfigKey("tt_ath_breakout", "long"))
       .toBe("deep_audit_setup_demotion_TT ATH Breakout_long");

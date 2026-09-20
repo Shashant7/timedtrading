@@ -11,7 +11,7 @@
  *       proposals and never matched setupDemotionConfigKey().
  */
 
-import { catalogDemotionNameMap } from "../foundation/play-catalog.js";
+import { catalogDemotionNameMap, resolveGovernancePlay } from "../foundation/play-catalog.js";
 
 export const SETUP_DEMOTION_NAME_MAP = catalogDemotionNameMap();
 
@@ -50,6 +50,12 @@ export function demotionProposalConfigKey(setup, direction) {
   for (const [path, display] of Object.entries(SETUP_DEMOTION_NAME_MAP)) {
     if (norm(display) === target) return setupDemotionConfigKey(path, dir);
   }
+  // 2026-09-20: the name map is keyed by path, so a display name that spells a
+  // PAPER SIBLING ("TT Cloud Pivot Long") matches no display and fell through
+  // to the mangled key below — which is what both Cloud Pivot proposals wrote.
+  // The catalog can resolve it; ask it before giving up.
+  const play = resolveGovernancePlay(raw, dir);
+  if (play) return setupDemotionConfigKey(play.id, dir);
   return `deep_audit_setup_demotion_${raw}_${dir}`;
 }
 
