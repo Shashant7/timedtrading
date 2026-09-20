@@ -7,6 +7,9 @@ import {
   canonicalPlayId,
   canAutoDemotePlay,
   isCalibrationPlay,
+  resolveGovernancePlay,
+  demotionLabelForPath,
+  catalogDemotionNameMap,
   CORE_PLAYS,
 } from "./play-catalog.js";
 
@@ -114,5 +117,47 @@ describe("play catalog", () => {
     expect(canAutoDemotePlay("tt_cloud_pivot").reason).toBe("calibration_family");
     expect(canAutoDemotePlay("tt_ath_breakout").ok).toBe(true);
     expect(canAutoDemotePlay("tt_gap_reversal_long").ok).toBe(false);
+  });
+
+  it("paper sibling paths inherit the calibration guard", () => {
+    // The edge scorecard rolls up by canonicalPlayId, so governance was asked
+    // about "tt_cloud_pivot_long" — an unknown play. The guard evaluated false
+    // and the weekly governor proposed a block on a calibration family twice a
+    // week (proposals 79 + 81, 2026-09-19).
+    for (const sibling of ["tt_cloud_pivot_long", "tt_cloud_pivot_short"]) {
+      expect(resolveGovernancePlay(sibling)?.id, sibling).toBe("tt_cloud_pivot");
+      expect(isCalibrationPlay(sibling, "long"), sibling).toBe(true);
+      expect(canAutoDemotePlay(sibling, "long").reason, sibling).toBe("calibration_family");
+      expect(demotionLabelForPath(sibling), sibling).toBe("TT Cloud Pivot");
+    }
+  });
+
+  it("governance resolution does not collapse scoring identity", () => {
+    // resolvePlay feeds canonicalPlayId. If a sibling resolved there, Loop 1
+    // and Trade Review would stop scoring the paper leg on its own.
+    for (const sibling of ["tt_cloud_pivot_long", "tt_cloud_pivot_short"]) {
+      expect(resolvePlay(sibling), sibling).toBeNull();
+      expect(canonicalPlayId(sibling, "TT Cloud Pivot", "LONG"), sibling).toBe(sibling);
+    }
+  });
+
+  it("only Cloud Pivot declares siblings, and never its own id", () => {
+    for (const p of CORE_PLAYS) {
+      expect(Array.isArray(p.sibling_paths), p.id).toBe(true);
+      expect(p.sibling_paths, p.id).not.toContain(p.id);
+      if (p.id !== "tt_cloud_pivot") expect(p.sibling_paths, p.id).toEqual([]);
+    }
+    // A sibling must not shadow another play's id.
+    const ids = new Set(CORE_PLAYS.map((p) => p.id));
+    for (const p of CORE_PLAYS) {
+      for (const s of p.sibling_paths) expect(ids.has(s), s).toBe(false);
+    }
+  });
+
+  it("the demotion name map carries siblings onto the enforced label", () => {
+    const map = catalogDemotionNameMap();
+    expect(map.tt_cloud_pivot).toBe("TT Cloud Pivot");
+    expect(map.tt_cloud_pivot_long).toBe("TT Cloud Pivot");
+    expect(map.tt_cloud_pivot_short).toBe("TT Cloud Pivot");
   });
 });
