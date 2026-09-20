@@ -47,6 +47,33 @@
       `scripts/cloud-pivot-loss-cap-calibration.mjs` once there are
       post-cap closes and revisit 2.5% vs 2.0% on evidence rather than
       on the 46-trade sample.
+- [x] **Two follow-ups the sibling fix did not cover (2026-09-20).**
+      Found by running the new weekend review against production rather
+      than the fixture that motivated it.
+      (1) **The display form was still mangled.** `sibling_paths` taught
+      the catalog the *path* `tt_cloud_pivot_long`, but
+      `SETUP_DEMOTION_NAME_MAP` is keyed by path, so the *display* string
+      "TT Cloud Pivot Long" — the one proposals 79/81 actually stored as
+      `config_key` — matched no entry and still fell to the title-case
+      fallback. `demotionProposalConfigKey` now asks
+      `resolveGovernancePlay` before giving up; all four spellings land
+      on the enforced key, and an unknown name still passes through.
+      (2) **Seven no-op proposals in the ledger.** ids 82-88, all
+      `edge_scorecard`, all "block TT ATH Breakout" against a family
+      blocked since the governor auto-demoted it. `submitProposal`
+      dedupes only *pending* rows, and a no-op clears to
+      `already_in_effect` before the next run checks. The bus now drops a
+      submission whose key already holds the proposed value; the
+      `already_in_effect` clearer stays for the genuine race.
+      Also made the weekend review's governance cross-check mechanical
+      (`--markers` → BLOCKED / CALIBRATION / LOOK per leg, plus an
+      inert-marker audit that re-canonicalizes every key). It confirmed
+      the three worst families are already blocked and the only unmarked
+      losing legs are Pullback Reclaim (4 closes), Gap Reversal Long (1)
+      and Forming Pair (2) — all bounded, worst −2.19%, so nothing else
+      needs a loss rule. Deployed to main + tt-engine + tt-research;
+      replaying the deployed guards against tonight's live card files 0
+      proposals (was 1/night).
 - [ ] **Operator action: add the Cloudflare CI secrets.** `deploy-*`
       workflows now fail loudly instead of silently skipping, but they
       still cannot deploy until `CLOUDFLARE_API_TOKEN` +
