@@ -210,6 +210,19 @@ already blocked. The bus now drops a proposal whose key already holds the
 proposed value. The downstream `already_in_effect` clearer stays — it
 still handles the race where the world changes after a row is filed.
 
+To see what the nightly run will actually file before it fires, replay
+its guards against the live card:
+
+```
+node scripts/verify-proposal-suppression.mjs --card /tmp/card.json --markers /tmp/markers.json
+```
+
+It imports the same modules the worker does and prints FILES or
+SUPPRESSED (with the guard name) per candidate. On 2026-09-20 both live
+candidates suppressed — `tt_cloud_pivot_long` on `isCalibrationPlay`,
+`tt_ath_breakout` on `already_at_proposed_value` — so the run files
+nothing. A candidate that reports FILES is a real proposal worth reading.
+
 ## Verify
 
 - Loop 1 rollup: `npx vitest run worker/phase-c-loops.test.js`
