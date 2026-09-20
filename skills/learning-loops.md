@@ -152,6 +152,30 @@ factual with `scripts/cloud-pivot-loss-cap-calibration.mjs` (it reports
 a worst case next to the modelled one, because the ledger stores no
 price path and MFE/MAE ordering is therefore unknowable).
 
+## Weekend review cadence
+
+`npx vite-node scripts/weekend-trim-split-review.mjs --trades <d1-json>`
+(query in the file header). Splits the 90d book by whether the trim
+fired — the lens the nightly scorecard's single PF per family cannot
+show. 2026-09-20 baseline: trimmed n=61 77% WR PF 3.27 (+$1,515),
+untrimmed n=68 **5.9%** WR PF 0.01 (−$3,809), and every family the same
+shape.
+
+Read it as a diagnostic, not a verdict — "trimmed" partly means
+"worked". The actionable half is its last section: **are the untrimmed
+losses bounded?** Book-wide they are (median −1.99%, matching
+`deep_audit_max_loss_pct normal:-2`), so do NOT ship a book-wide floor;
+it would duplicate a cap that already works. A family clustered in the
+past-−5% tail is the one missing a loss rule. On 2026-09-20 that tail was
+5 trades: 4 Cloud Pivot (now capped) and 1 Range Reversal (already
+blocked).
+
+Always cross-check PnL against the live markers before proposing
+anything. That weekend the three worst families (ATH Breakout −$945,
+Range Reversal −$846, Support Bounce −$272) were **already blocked**, and
+the only positive-PnL family with a real sample was Cloud Pivot (+$46) —
+the one both proposals wanted to block.
+
 ## Verify
 
 - Loop 1 rollup: `npx vitest run worker/phase-c-loops.test.js`
