@@ -434,6 +434,7 @@
 
   let _universeP = null;
   let _universeRefreshing = false;
+  let _universeEnriched = false;
 
   function applyUniverse(items) {
     const sorted = [...items].sort((a, b) => a.ticker.localeCompare(b.ticker));
@@ -454,6 +455,7 @@
         writeUniverseCache(items);
         applyUniverse(items);
         _universeP = Promise.resolve(items);
+        _universeEnriched = true;
       } catch (e) {
         console.warn("[GLOBAL-SEARCH] universe refresh failed:", e);
       } finally {
@@ -467,13 +469,29 @@
     }
   }
 
-  function loadUniverse() {
-    if (_universeP) return _universeP;
+  // Name / sector enrichment reads the FULL /timed/all snapshot — ~7MB, and
+  // ~30MB for an entitled user — to pick up two strings per ticker. Running
+  // that on every page load put a multi-megabyte transfer in front of the
+  // host page's own fetches; on the Portfolio page that is what let
+  // /timed/investor/positions lose and the Long Term table render
+  // "0 positions". Symbol-only search works without it, so hold the
+  // enrichment until the overlay is actually opened.
+  function ensureUniverseEnriched() {
+    if (_universeEnriched || _universeRefreshing) return;
+    refreshUniverseInBackground();
+  }
+
+  function loadUniverse({ enrich = false } = {}) {
+    if (_universeP) {
+      if (enrich) ensureUniverseEnriched();
+      return _universeP;
+    }
 
     const cached = readUniverseCache();
     if (cached?.length) {
+      _universeEnriched = cached.some((it) => it.name);
       _universeP = Promise.resolve(cached);
-      refreshUniverseInBackground();
+      if (enrich) ensureUniverseEnriched();
       return _universeP;
     }
 
@@ -481,16 +499,15 @@
       try {
         const syms = await fetchTickerSymbols();
         if (!syms.length) return [];
-        let items = universeFromSymbols(syms);
+        const items = universeFromSymbols(syms);
         writeUniverseCache(items);
-        // Return symbols immediately; enrich without blocking first open.
-        refreshUniverseInBackground();
         return items;
       } catch (e) {
         console.warn("[GLOBAL-SEARCH] universe fetch failed:", e);
         return [];
       }
     })();
+    if (enrich) _universeP.then(() => ensureUniverseEnriched());
     return _universeP;
   }
 
@@ -1004,12 +1021,13 @@
       loading.className = "tt-gs-loading";
       loading.textContent = "Loading universe…";
       _resultsEl.appendChild(loading);
-      loadUniverse().then((u) => {
+      loadUniverse({ enrich: true }).then((u) => {
         _universe = u;
         // Only render if overlay is still open
         if (_overlay) onInput();
       });
     } else {
+      ensureUniverseEnriched();
       onInput();
     }
 
@@ -1072,6 +1090,8 @@
     }
     // Defer universe prefetch so Today / Active Trader critical fetches
     // win the network first. Cache makes the first open instant anyway.
+    // Symbols only (~2KB) — the name / sector enrichment waits for a real
+    // search, see ensureUniverseEnriched.
     if (typeof window.requestIdleCallback === "function") {
       window.requestIdleCallback(() => { loadUniverse(); }, { timeout: 5000 });
     } else {
@@ -1132,4 +1152,4 @@
   }
 })();
 
-// cache-bust:1789935792528:304614971
+// cache-bust:1789936652903:875261041
