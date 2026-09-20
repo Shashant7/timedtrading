@@ -6,6 +6,76 @@
 
 ---
 
+## The page said zero because it never got to ask [2026-09-20]
+
+Reported as "the Portfolio page open positions say 0 for Long Term".
+
+Every server number was right, and checking that first is what made the
+rest tractable. `/timed/investor/positions` returned 18 OPEN rows with
++$3,966.58 unrealized, and `/timed/portfolio/equity-curve` independently
+agreed (`openPositions: 18`). So the data was never the problem — the
+page was.
+
+**The cause: a 30MB payload fetched to supply a price overlay.**
+
+`PortfolioApp` loaded six endpoints in one `Promise.all`, and one was the
+**full** `/timed/all`:
+
+```
+FULL  http=200 bytes=29850056 time=13.460891s
+SLIM  http=200 bytes=80244    time=6.128462s
+```
+
+The page used that payload for nothing but a price map.
+`fetchPriceMap()` — already written, already asking for `?slim=1`, 372x
+smaller — was **dead code**. Nothing called it. The effect had been
+changed to inline a full `/timed/all` and the helper was left behind.
+
+A multi-megabyte transfer running against the sibling requests makes
+`/timed/investor/positions` (~170KB, 3-4s server time) the one that
+loses on a slow or contended connection. `/timed/trades?source=positions`
+is 18KB and survives — which is exactly why the symptom is *asymmetric*:
+Short Term fills in, Long Term reads zero. That asymmetry was the tell,
+and I nearly missed it by trying to reproduce "0" directly instead of
+asking which of the two endpoints was the fragile one.
+
+**The second cause: the UI dressed a failure up as a fact.**
+
+`fetchInvestorPositions()` swallows its error and returns `null`; the
+caller only assigns on `ok`, so `investorPositions` stays `null`; the
+table renders `${rows.length} positions`. A fetch that never landed and
+a book that is genuinely empty produce identical UI. Same shape in the
+money: an all-unpriced book sums to `0`, and `0` is finite, so it was
+handed to the equity card as `openPnlOverride` and **suppressed the
+card's own unrealized figure** in favour of a confident `$0.00`.
+
+**What I got wrong on the way.** I could not reproduce the zero locally
+and spent a long time theorising about auth and tier redaction. The
+local harness was anonymous, so `/timed/all` came back redacted and
+small — the very condition that hides the bug. Only after injecting the
+admin key into the dev proxy did the real 30MB payload appear. A repro
+harness that is cheaper than production is not a repro harness; when the
+symptom is "something lost a race", shrinking the race away guarantees a
+green run. Relatedly, I twice read a Short Term `+$0.00` as a bug when
+it was just my own unauthenticated harness having no prices.
+
+**Fixes.** Initial load uses `?slim=1`; the full snapshot is deferred to
+first rail open and reused. Load failure is tracked separately from
+emptiness. `sumOpenPl()` returns `null` when nothing could be priced so
+the equity card's fallback still fires. Separately,
+`tt-global-search.js` pulled the full `/timed/all` on *every* page load
+to enrich tickers with a name and a sector — `requestIdleCallback` with
+an 8s timeout does not keep that off the wire during a slow load — so
+that enrichment now waits for a real search.
+
+**Lesson.** When a surface reports "none", establish whether it means
+"I asked and the answer was none" or "I never got an answer". Those need
+different code paths and different words on screen. And when one of two
+sibling requests fails, suspect what they are competing with before
+suspecting either of them.
+
+---
+
 ## The same weekend, two follow-ups the first fix did not cover [2026-09-20]
 
 Written after running the new weekend review against production rather

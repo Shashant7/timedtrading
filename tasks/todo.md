@@ -21,6 +21,23 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Portfolio "0 positions" for Long Term was a starved fetch
+      (2026-09-20).** The book was fine — `/timed/investor/positions`
+      returned 18 OPEN rows at +$3,966.58 and the equity curve agreed.
+      The page fetched the FULL `/timed/all` (29.85MB / 13.5s for an
+      entitled user) in the same `Promise.all` as its two position
+      endpoints, purely for a price overlay; `fetchPriceMap()` already
+      asked for `?slim=1` (80KB) and was dead code. That transfer starves
+      `/timed/investor/positions` (~170KB, 3-4s) while the 18KB trader
+      endpoint survives, which is why only the Long Term pane zeroed.
+      Switched the initial load to `?slim=1`, deferred the full snapshot
+      to first rail open, and stopped the UI reporting a failed fetch as
+      `0 positions` / `$0.00` (unknown open P&L is now `null`, so the
+      equity card falls back to the curve). Also held
+      `tt-global-search.js`'s universe enrichment — the full `/timed/all`
+      on EVERY page load for a name + sector — until a real search.
+      PR #1476. Follow-up if it ever matters: give `?slim=1` a
+      name/sector so search enrichment can stop using the full blob.
 - [x] **Weekend review 2026-09-20: the Cloud Pivot block proposals were
       inert, and the long leg was an exit defect.** Proposals 79
       (`edge_scorecard`) + 81 (`weekly_governor`) both asked to block
