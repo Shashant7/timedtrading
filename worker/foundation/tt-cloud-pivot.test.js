@@ -293,6 +293,102 @@ describe("tt_cloud_pivot", () => {
     expect(exit?.metadata?.keep_floor_pct).toBe(1.5);
   });
 
+  it("loss cap exits an unproven trade at the cap", () => {
+    // EXPE long 2026-09-04: MFE 0.96%, never armed the lock, ran to -6.25%.
+    const res = evaluateTtCloudPivotExit({
+      tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" },
+      direction: "LONG", currentPrice: 100, pnlPct: -2.6, mfePct: 0.96,
+      positionAgeMin: 200, trimmedPct: 0,
+    });
+    expect(res?.reason).toBe("tt_cloud_pivot_loss_cap");
+    expect(res?.stage).toBe("exit");
+    expect(res?.metadata?.loss_cap_pct).toBe(2.5);
+    expect(res?.metadata?.unproven).toBe(true);
+  });
+
+  it("loss cap fires on a short leg too", () => {
+    // BG short 2026-09-04: MFE 0.00%, ran to -6.15%.
+    const td = payload();
+    td.tf_tech["10"].ripster.c5_12 = { bull: false, bear: true, below: true, crossUp: false, crossDn: false };
+    td.tf_tech["1H"].ripster.c34_50 = { bull: false, bear: true, below: true };
+    const res = evaluateTtCloudPivotExit({
+      tickerData: td, openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "SHORT" },
+      direction: "SHORT", currentPrice: 100, pnlPct: -3, mfePct: 0,
+      positionAgeMin: 200, trimmedPct: 0,
+    });
+    expect(res?.reason).toBe("tt_cloud_pivot_loss_cap");
+  });
+
+  it("loss cap does not wait on a 10m 5/12 print", () => {
+    // The whole point: a missing ripster print used to return null before any
+    // loss-side rule could run, which is how -6% drawdowns survived.
+    const td = payload();
+    td.tf_tech["10"].ripster.c5_12 = null;
+    const res = evaluateTtCloudPivotExit({
+      tickerData: td, openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" },
+      direction: "LONG", currentPrice: 100, pnlPct: -4, mfePct: 0.1,
+      positionAgeMin: 200, trimmedPct: 0,
+    });
+    expect(res?.reason).toBe("tt_cloud_pivot_loss_cap");
+  });
+
+  it("loss cap holds inside the cap and the working stop band", () => {
+    const base = {
+      tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" },
+      direction: "LONG", currentPrice: 100, mfePct: 0.5, positionAgeMin: 200, trimmedPct: 0,
+    };
+    // -2.3%: inside the cap, where the generic max_loss already works.
+    expect(evaluateTtCloudPivotExit({ ...base, pnlPct: -2.3 })?.reason)
+      .not.toBe("tt_cloud_pivot_loss_cap");
+    expect(evaluateTtCloudPivotExit({ ...base, pnlPct: -2.5 })?.reason)
+      .toBe("tt_cloud_pivot_loss_cap");
+  });
+
+  it("loss cap stands down once the trade proved itself", () => {
+    const base = {
+      tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" },
+      direction: "LONG", currentPrice: 100, pnlPct: -4, positionAgeMin: 200,
+    };
+    // RBLX long 2026-09-04 realized +$13.53 on a -4.37% whole-life drawdown:
+    // it had already armed the lock and banked half. The cap must not cut it.
+    expect(evaluateTtCloudPivotExit({ ...base, mfePct: 5.68, trimmedPct: 0.5 })?.reason)
+      .not.toBe("tt_cloud_pivot_loss_cap");
+    // Armed but not yet trimmed: the profit lock owns the exit, not the cap.
+    expect(evaluateTtCloudPivotExit({ ...base, mfePct: 5.68, trimmedPct: 0 })?.reason)
+      .not.toBe("tt_cloud_pivot_loss_cap");
+  });
+
+  it("loss cap is flag-gated and configurable", () => {
+    const base = {
+      tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" },
+      direction: "LONG", currentPrice: 100, pnlPct: -2.6, mfePct: 0.5,
+      positionAgeMin: 200, trimmedPct: 0,
+    };
+    expect(evaluateTtCloudPivotExit({
+      ...base, daCfg: { deep_audit_tt_cloud_pivot_loss_cap_enabled: "false" },
+    })?.reason).not.toBe("tt_cloud_pivot_loss_cap");
+    // Widen to 3%: -2.6% no longer breaches.
+    expect(evaluateTtCloudPivotExit({
+      ...base, daCfg: { deep_audit_tt_cloud_pivot_loss_cap_pct: "0.03" },
+    })?.reason).not.toBe("tt_cloud_pivot_loss_cap");
+    const tight = evaluateTtCloudPivotExit({
+      ...base, pnlPct: -1.6, daCfg: { deep_audit_tt_cloud_pivot_loss_cap_pct: "0.015" },
+    });
+    expect(tight?.reason).toBe("tt_cloud_pivot_loss_cap");
+    expect(tight?.metadata?.loss_cap_pct).toBe(1.5);
+  });
+
+  it("loss cap leaves the profit lock in charge of a peak giveback", () => {
+    // A +5% run retraced to -4% must still read as a profit-lock event, not
+    // a loss cap: ordering inside the evaluator matters.
+    const res = evaluateTtCloudPivotExit({
+      tickerData: payload(), openPosition: { slice_family: CLOUD_PIVOT_FAMILY, direction: "LONG" },
+      direction: "LONG", currentPrice: 100, pnlPct: -4, mfePct: 5,
+      positionAgeMin: 200, trimmedPct: 0,
+    });
+    expect(String(res?.reason || "")).toContain("profit_lock");
+  });
+
   it("identifies the paper ticket even when the live card scores a different setup", () => {
     const tickerNow = { setup_name: "TT ATH Breakout", setupName: "TT ATH Breakout" };
     expect(isTtCloudPivotTrade({

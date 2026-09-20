@@ -21,6 +21,10 @@ function play(row) {
     aliases: [],
     demotion_label: null,
     role: "core",
+    // Executed paths that score as their own id (see canonicalPlayId) but
+    // inherit this play's GOVERNANCE — role, demotion label, auto-demote
+    // protection. Not aliases: an alias would collapse the scoring identity.
+    sibling_paths: [],
     ...row,
   });
 }
@@ -149,6 +153,12 @@ export const CORE_PLAYS = Object.freeze([
       "tt cloud pivot",
       "tt tt cloud pivot",
     ],
+    // The live tickets execute under these paths, and the edge scorecard
+    // rolls up by canonicalPlayId, so every governance read arrived as an
+    // unknown play: the calibration guard evaluated false and the demotion
+    // key fell back to "TT Cloud Pivot Long", which checkSetupDemotion()
+    // never reads. Two block proposals a week, unprotected and inert.
+    sibling_paths: ["tt_cloud_pivot_long", "tt_cloud_pivot_short"],
   }),
   play({
     id: "tt_pullback",
@@ -240,6 +250,14 @@ for (const p of CORE_PLAYS) {
   for (const a of p.aliases) ALIAS_INDEX.set(norm(a), p);
 }
 
+// Sibling paths are deliberately NOT in ALIAS_INDEX: resolvePlay feeds
+// canonicalPlayId, which must keep tt_cloud_pivot_long distinct from
+// tt_cloud_pivot so Loop 1 and Trade Review score the paper leg on its own.
+const SIBLING_INDEX = new Map();
+for (const p of CORE_PLAYS) {
+  for (const s of p.sibling_paths) SIBLING_INDEX.set(norm(s), p);
+}
+
 const DIRECTION_PAIRS = Object.freeze({
   tt_gap_reversal_long: "tt_gap_reversal_short",
   tt_gap_reversal_short: "tt_gap_reversal_long",
@@ -271,6 +289,18 @@ export function resolvePlay(raw, direction = null) {
   return play;
 }
 
+/**
+ * Governance identity: like resolvePlay, but a paper sibling path resolves to
+ * the play whose policy it inherits. Use this for role / auto-demote / demotion
+ * keys. Never use it where scoring identity matters — see canonicalPlayId.
+ */
+export function resolveGovernancePlay(raw, direction = null) {
+  const direct = resolvePlay(raw, direction);
+  if (direct) return direct;
+  if (raw == null || raw === "") return null;
+  return SIBLING_INDEX.get(norm(raw)) || null;
+}
+
 export function playLabel(raw, direction = null) {
   return resolvePlay(raw, direction)?.label || null;
 }
@@ -287,7 +317,7 @@ export function isPlayRestricted(raw, direction = null) {
 export const NO_AUTO_DEMOTE_ROLES = Object.freeze(["workhorse", "calibration", "live_family"]);
 
 export function isCalibrationPlay(raw, direction = null) {
-  const play = typeof raw === "object" && raw?.id ? raw : resolvePlay(raw, direction);
+  const play = typeof raw === "object" && raw?.id ? raw : resolveGovernancePlay(raw, direction);
   return play?.role === "calibration" || play?.role === "live_family";
 }
 
@@ -296,7 +326,7 @@ export function isCalibrationPlay(raw, direction = null) {
  * A new paper family stays on the refinement path.
  */
 export function canAutoDemotePlay(raw, direction = null) {
-  const play = typeof raw === "object" && raw?.id ? raw : resolvePlay(raw, direction);
+  const play = typeof raw === "object" && raw?.id ? raw : resolveGovernancePlay(raw, direction);
   if (!play) return { ok: false, reason: "unknown_play" };
   if (play.role === "workhorse") return { ok: false, reason: "workhorse_protected" };
   if (isCalibrationPlay(play)) return { ok: false, reason: "calibration_family" };
@@ -317,7 +347,7 @@ export function canonicalPlayId(entryPath, setupName, direction = null) {
 }
 
 export function demotionLabelForPath(path) {
-  const play = resolvePlay(path);
+  const play = resolveGovernancePlay(path);
   if (play?.demotion_label) return play.demotion_label;
   const raw = String(path || "").trim();
   if (!raw) return null;
@@ -327,7 +357,11 @@ export function demotionLabelForPath(path) {
 export function catalogDemotionNameMap() {
   const out = {};
   for (const p of CORE_PLAYS) {
-    if (p.demotion_label) out[p.id] = p.demotion_label;
+    if (!p.demotion_label) continue;
+    out[p.id] = p.demotion_label;
+    // A sibling shares the parent's demotion key so the desk compares a
+    // proposal against the value the engine actually enforces.
+    for (const s of p.sibling_paths) out[s] = p.demotion_label;
   }
   return out;
 }

@@ -82,6 +82,24 @@ describe("deskTriageProposal", () => {
     expect(v).toMatchObject({ action: "reject", desk: "cio", reason: "calibration_family" });
   });
 
+  it("CIO rejects the sibling-keyed Cloud Pivot blocks sitting on the queue", () => {
+    // Proposals 79 (edge_scorecard) and 81 (weekly_governor), 2026-09-19.
+    // The key came from canonicalPlayId, so it named the paper sibling and
+    // parsed to play_id null: every high-confidence verdict needs an id, so
+    // both rows fell through to the operator queue instead of being rejected.
+    for (const key of [
+      "deep_audit_setup_demotion_TT Cloud Pivot Long_long",
+      "deep_audit_setup_demotion_tt_cloud_pivot_long_long",
+      "deep_audit_setup_demotion_TT Cloud Pivot Short_short",
+    ]) {
+      expect(parseDemotionKey(key)?.play_id, key).toBe("tt_cloud_pivot");
+      expect(deskTriageProposal(
+        { config_key: key, proposed_value: "blocked" },
+        { liveValue: "allowed", now: NOW },
+      ), key).toMatchObject({ action: "reject", desk: "cio", reason: "calibration_family" });
+    }
+  });
+
   it("CRO restores a workhorse that is already blocked", () => {
     const v = deskTriageProposal(
       { config_key: "deep_audit_setup_demotion_TT Gap Reversal (Long)_long", proposed_value: "blocked" },

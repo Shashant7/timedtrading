@@ -75,4 +75,55 @@ describe("setup-demotion heal (2026-07-23)", () => {
     expect(demotionProposalConfigKey("TT Cloud Pivot", "LONG"))
       .toBe("deep_audit_setup_demotion_TT Cloud Pivot_long");
   });
+
+  it("collapses the paper sibling paths onto the enforced Cloud Pivot key", () => {
+    // The scorecard passes canonicalPlayId, so the key was built from
+    // "tt_cloud_pivot_long" with no map entry: the title-case fallback wrote
+    // "TT Cloud Pivot Long", a key checkSetupDemotion never reads, while the
+    // enforced key stayed "allowed". Approving the block would have changed
+    // nothing (proposals 79 + 81, 2026-09-19).
+    const enforced = "deep_audit_setup_demotion_TT Cloud Pivot_long";
+    expect(setupDemotionConfigKey("tt_cloud_pivot_long", "long")).toBe(enforced);
+    expect(demotionProposalConfigKey("tt_cloud_pivot_long", "long")).toBe(enforced);
+    expect(demotionProposalConfigKey("tt_cloud_pivot_short", "long")).toBe(enforced);
+    // The mangled key must no longer be producible from a live path.
+    expect(setupDemotionConfigKey("tt_cloud_pivot_long", "long"))
+      .not.toContain("TT Cloud Pivot Long");
+    // A marker under the enforced key now governs the sibling path too, so an
+    // operator who does decide to pause the family only has one key to write.
+    const blocked = isDemotionKeyBlocked({ [enforced]: "blocked" }, "tt_cloud_pivot_long", "long");
+    expect(blocked.blocked).toBe(true);
+    expect(blocked.key).toBe(enforced);
+    expect(isDemotionKeyBlocked({}, "tt_cloud_pivot_long", "long").blocked).toBe(false);
+  });
+
+  it("resolves the sibling spelled as a DISPLAY name, not just as a path", () => {
+    // The path form was fixed first, but the name map is keyed by path, so a
+    // proposal carrying the display string still matched no entry and fell to
+    // the title-case fallback. That string is the one both Cloud Pivot
+    // proposals actually stored as their config_key.
+    const enforced = "deep_audit_setup_demotion_TT Cloud Pivot_long";
+    expect(demotionProposalConfigKey("TT Cloud Pivot Long", "long")).toBe(enforced);
+    expect(demotionProposalConfigKey("tt cloud pivot short", "long")).toBe(enforced);
+    // So a marker written under the old mangled spelling is now honoured
+    // rather than sitting inert.
+    const healed = isDemotionKeyBlocked(
+      { "deep_audit_setup_demotion_TT Cloud Pivot Long_long": "blocked" },
+      "tt_cloud_pivot",
+      "long",
+    );
+    expect(healed.blocked).toBe(true);
+  });
+
+  it("does not invent a play for a name the catalog does not know", () => {
+    expect(demotionProposalConfigKey("TT Not A Real Setup", "long"))
+      .toBe("deep_audit_setup_demotion_TT Not A Real Setup_long");
+  });
+
+  it("leaves unrelated paths on their own keys", () => {
+    expect(setupDemotionConfigKey("tt_ath_breakout", "long"))
+      .toBe("deep_audit_setup_demotion_TT ATH Breakout_long");
+    expect(setupDemotionConfigKey("tt_pullback", "long"))
+      .toBe("deep_audit_setup_demotion_TT Pullback Reclaim_long");
+  });
 });

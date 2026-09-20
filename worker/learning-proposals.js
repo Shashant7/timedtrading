@@ -63,6 +63,14 @@ export async function ensureLearningProposalsSchema(env) {
  * same source for the same config_key is updated in place (latest
  * evidence wins) instead of stacking duplicates.
  *
+ * Also drops no-ops — a proposal whose key ALREADY holds the proposed
+ * value changes nothing if applied. The pending-dedupe above does not
+ * catch these because each one leaves 'pending' as soon as it applies,
+ * so the next run inserts a fresh row: the nightly scorecard stacked
+ * seven identical "block TT ATH Breakout" proposals (ids 82-88) against
+ * a family that was already blocked, and real proposals have to be
+ * found among them. See skills/learning-loops.md.
+ *
  * @param {object} p { source, kind, config_key, proposed_value,
  *                     evidence (object), tier ("tier1"|"tier2"), note }
  */
@@ -74,14 +82,6 @@ export async function submitProposal(env, p) {
   const now = Date.now();
   const tier = p.tier === "tier1" ? "tier1" : "tier2";
   try {
-    const existing = p.config_key
-      ? await env.DB.prepare(
-        `SELECT id FROM learning_proposals
-          WHERE status = 'pending' AND source = ?1 AND config_key = ?2
-          ORDER BY created_at DESC LIMIT 1`
-      ).bind(String(p.source), String(p.config_key)).first()
-      : null;
-
     let currentValue = null;
     if (p.config_key) {
       try {
@@ -91,6 +91,22 @@ export async function submitProposal(env, p) {
         currentValue = row?.config_value ?? null;
       } catch (_) { /* key may not exist yet */ }
     }
+
+    if (
+      p.config_key
+      && currentValue != null
+      && normalizeConfigValue(currentValue) === normalizeConfigValue(p.proposed_value)
+    ) {
+      return { ok: true, id: null, skipped: "already_at_proposed_value" };
+    }
+
+    const existing = p.config_key
+      ? await env.DB.prepare(
+        `SELECT id FROM learning_proposals
+          WHERE status = 'pending' AND source = ?1 AND config_key = ?2
+          ORDER BY created_at DESC LIMIT 1`
+      ).bind(String(p.source), String(p.config_key)).first()
+      : null;
 
     if (existing?.id) {
       await env.DB.prepare(

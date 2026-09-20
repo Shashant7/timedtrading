@@ -47998,6 +47998,7 @@ const TRADE_EXIT_REASON_DISPLAY_MAP = {
   tt_cloud_pivot_ribbon_trail: "Cloud Pivot — ride still held; trailing the stop to the last held 5/12 then 34/50 ribbon",
   tt_cloud_pivot_profit_lock: "Cloud Pivot — locked the run; price gave back past the peak-keep floor, so banking the move instead of round-tripping to the stop",
   tt_cloud_pivot_profit_lock_trim: "Cloud Pivot — price gave back past the peak-keep floor while the 1H cloud still backs the trade; banking half and trailing the runner",
+  tt_cloud_pivot_loss_cap: "Cloud Pivot — the ride never went in favour and the drawdown reached the family loss cap; closing before it becomes a deep loser",
   KANBAN_EXIT: "Engine exit lane triggered — model recommends closing the position",
 };
 
@@ -48497,6 +48498,7 @@ function createTradeClosedEmbed(
   exitReasonMap.tt_cloud_pivot_ribbon_trail = "Cloud Pivot — ride still held; trailing the stop to the last held 5/12 then 34/50 ribbon";
   exitReasonMap.tt_cloud_pivot_profit_lock = "Cloud Pivot — locked the run; price gave back past the peak-keep floor, so banking the move instead of round-tripping to the stop";
   exitReasonMap.tt_cloud_pivot_profit_lock_trim = "Cloud Pivot — price gave back past the peak-keep floor while the 1H cloud still backs the trade; banking half and trailing the runner";
+  exitReasonMap.tt_cloud_pivot_loss_cap = "Cloud Pivot — the ride never went in favour and the drawdown reached the family loss cap; closing before it becomes a deep loser";
   const rawReason = exitReason || "";
   // Fallback: strip 'ripster' / 'saty' indicator-author jargon entirely
   // (was previously rewritten as 'TT ' which still looked odd).

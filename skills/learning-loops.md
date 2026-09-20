@@ -59,6 +59,20 @@ approved).
 1. **Catalog-blind.** Governor + demotion keys come from
    `worker/foundation/play-catalog.js`. A live `setup_name` that is not
    a catalog id cannot be auto-demoted. Cloud Pivot was the Aug hole.
+   **Sibling paths were the Sep hole (2026-09-20).** The scorecard rolls
+   up by `canonicalPlayId`, which deliberately keeps
+   `tt_cloud_pivot_long` distinct from `tt_cloud_pivot` so Loop 1 scores
+   the paper leg on its own — but the sibling resolved to *no play*, so
+   `isCalibrationPlay` was false (guard never fired), the key title-cased
+   to `…_TT Cloud Pivot Long_long` (a key `checkSetupDemotion` never
+   reads), and `parseDemotionKey` returned `play_id: null` (every
+   high-confidence desk verdict is guarded on having an id). Result: two
+   block proposals a week that were unprotected, inert **and**
+   untriageable. Fix: `sibling_paths` on the play +
+   `resolveGovernancePlay()`. **Use `resolveGovernancePlay` for role /
+   auto-demote / demotion keys; `resolvePlay` only where scoring identity
+   matters** — `findSetupStats` must stay on `resolvePlay`, or the long
+   and short legs merge and hide which one is weak.
 2. **Loop 1 too sparse.** Combo = setup × regime × personality × side.
    Exact keys rarely reach min samples. Use the setup rollup.
 3. **Queue rot.** Edge scorecard re-proposes blocks that the governor
@@ -120,11 +134,102 @@ unpause Support Bounce from a 30d-green CIO restore (catalog status is
 the hard stop). Cloud Pivot paper takes the 0–10 setup-grade floor;
 do not catalog-pause the whole family to "act."
 
+**Before deciding a block proposal by hand, check whether the desk can
+decide it.** If a row is pending only because the key does not resolve,
+fix the resolution and run `POST /timed/admin/learning/desk/run` — the
+policy is already written (CIO rejects a block against a calibration
+family). Both 2026-09-19 Cloud Pivot rows cleared that way, with no
+operator override.
+
+**And read the trades before accepting the verdict.** A per-leg PF is
+not a per-family PF: those proposals quoted the long leg's PF 0.24 /
+−$208.77, while the family across both legs was **+$46** and the short
+leg +$255. The separator was not the side — it was whether the trim
+fired: 27 trades that reached a trim were 92.6% WR at PF 14.83, the 19
+that never did were 0-for-19. A leg that is PF 44.67 once it trims does
+not have a setup problem, it has an exit problem. Sweep the counter-
+factual with `scripts/cloud-pivot-loss-cap-calibration.mjs` (it reports
+a worst case next to the modelled one, because the ledger stores no
+price path and MFE/MAE ordering is therefore unknowable).
+
+## Weekend review cadence
+
+`npx vite-node scripts/weekend-trim-split-review.mjs --trades <d1-json>`
+(query in the file header). Splits the 90d book by whether the trim
+fired — the lens the nightly scorecard's single PF per family cannot
+show. 2026-09-20 baseline: trimmed n=61 77% WR PF 3.27 (+$1,515),
+untrimmed n=68 **5.9%** WR PF 0.01 (−$3,809), and every family the same
+shape.
+
+Read it as a diagnostic, not a verdict — "trimmed" partly means
+"worked". The actionable half is its last section: **are the untrimmed
+losses bounded?** Book-wide they are (median −1.99%, matching
+`deep_audit_max_loss_pct normal:-2`), so do NOT ship a book-wide floor;
+it would duplicate a cap that already works. A family clustered in the
+past-−5% tail is the one missing a loss rule. On 2026-09-20 that tail was
+5 trades: 4 Cloud Pivot (now capped) and 1 Range Reversal (already
+blocked).
+
+Always cross-check PnL against the live markers before proposing
+anything. That weekend the three worst families (ATH Breakout −$945,
+Range Reversal −$846, Support Bounce −$272) were **already blocked**, and
+the only positive-PnL family with a real sample was Cloud Pivot (+$46) —
+the one both proposals wanted to block.
+
+Pass `--markers <d1-json>` (second query in the file header) and the
+script does that cross-check itself instead of printing advice. Each
+family/direction leg comes back as one of:
+
+| Verdict | Meaning |
+|---|---|
+| `BLOCKED` | a live marker already holds it — do not re-propose |
+| `CALIBRATION` | protected by role; PF is not a verdict here |
+| `LOOK` | losing money with no marker — the actionable row |
+
+It then runs an **inert-marker audit**: every marker is re-canonicalized
+through `demotionProposalConfigKey`, and any key that does not
+canonicalize onto itself is reported. That is the mechanical form of both
+historical mangled-key bugs ("TT Tt Ath Breakout" in July, "TT Cloud
+Pivot Long" in September). Production audited clean on 2026-09-20.
+
+### Two follow-ups that came out of running it (2026-09-20)
+
+**A display name could still mangle the key.** The sibling fix taught the
+catalog the *path* `tt_cloud_pivot_long`, but the name map is keyed by
+path, so the *display* string "TT Cloud Pivot Long" — which is what both
+proposals actually stored as their `config_key` — still matched no entry
+and fell through to the title-case fallback. `demotionProposalConfigKey`
+now asks `resolveGovernancePlay` before giving up, so all four spellings
+(path, display, sibling path, sibling display) land on the enforced key.
+
+**A no-op proposal is still noise.** `submitProposal` dedupes *pending*
+rows per (source, key), but a no-op applies immediately and leaves
+`pending`, so the next run inserts a fresh one. The scorecard had stacked
+seven identical "block TT ATH Breakout" rows (ids 82-88) against a family
+already blocked. The bus now drops a proposal whose key already holds the
+proposed value. The downstream `already_in_effect` clearer stays — it
+still handles the race where the world changes after a row is filed.
+
+To see what the nightly run will actually file before it fires, replay
+its guards against the live card:
+
+```
+node scripts/verify-proposal-suppression.mjs --card /tmp/card.json --markers /tmp/markers.json
+```
+
+It imports the same modules the worker does and prints FILES or
+SUPPRESSED (with the guard name) per candidate. On 2026-09-20 both live
+candidates suppressed — `tt_cloud_pivot_long` on `isCalibrationPlay`,
+`tt_ath_breakout` on `already_at_proposed_value` — so the run files
+nothing. A candidate that reports FILES is a real proposal worth reading.
+
 ## Verify
 
 - Loop 1 rollup: `npx vitest run worker/phase-c-loops.test.js`
 - Catalog + Cloud Pivot: `npx vitest run worker/foundation/play-catalog.test.js worker/pipeline/setup-demotion.test.js`
 - Bus hygiene: `npx vitest run worker/learning-proposals.test.js`
+- Weekend review: `npx vitest run scripts/weekend-trim-split-review.test.js`
+- Sibling governance: `npx vitest run worker/foundation/play-catalog.test.js worker/pipeline/setup-demotion.test.js`
 - Desk + heal: `npx vitest run worker/learning-desk-review.test.js worker/pipeline/setup-demotion.test.js worker/trust-spine/weekly-governor.test.js`
 - Entry explain: `GET /timed/admin/entry-explain?ticker=...` shows
   `loop1_enabled`, `loop1_combos_with_opinion`, and the combo advisory.
