@@ -188,6 +188,22 @@ See `skills/frontend-performance.md` for the full playbook. Invariants:
   per-file content hashes.
 - Journey pages prerender each other on nav hover (speculation rules in
   `tt-nav-extras.js`).
+- **Never pull the full `/timed/all` for a price overlay (2026-09-20)**:
+  the entitled payload is ~30MB / ~13s (`?slim=1` is ~80KB and carries
+  `price`/`prev_close`/`day_change*`). Portfolio fetched the full blob in
+  the same `Promise.all` as its two position endpoints — `fetchPriceMap()`
+  already asked for `?slim=1` but nothing called it. A multi-MB transfer
+  racing the page's own requests is what let `/timed/investor/positions`
+  lose, and the Long Term pane then rendered `0 positions`. Fetch the full
+  snapshot only where the wider universe is genuinely needed (the rail),
+  and lazily. Same fix in `tt-global-search.js`, whose universe
+  enrichment pulled the full blob on EVERY page load for a name + sector.
+- **A failed fetch is not an empty result (2026-09-20)**: `null`
+  positions rendered as a confident `0 positions`, and an all-unpriced
+  book summed to `0` — which, being finite, was passed as
+  `openPnlOverride` and SUPPRESSED the equity card's own unrealized
+  figure to print `$0.00`. Track load failure separately and let
+  "unknown" stay `null` so downstream fallbacks still fire.
 
 ## Product entry point (post May 2026)
 
