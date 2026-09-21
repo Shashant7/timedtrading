@@ -4644,13 +4644,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 6.7478
+        "sql_duration_ms": 5.0515
       },
-      "duration": 6.7478,
+      "duration": 5.0515,
       "changes": 0,
-      "last_row_id": 26112,
+      "last_row_id": 9816,
       "changed_db": false,
-      "size_after": 4702003200,
+      "size_after": 4529831936,
       "rows_read": 309,
       "rows_written": 0,
       "total_attempts": 1

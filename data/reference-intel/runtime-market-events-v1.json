@@ -55413,13 +55413,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 69.4516
+        "sql_duration_ms": 73.7623
       },
-      "duration": 69.4516,
+      "duration": 73.7623,
       "changes": 0,
-      "last_row_id": 26112,
+      "last_row_id": 9816,
       "changed_db": false,
-      "size_after": 4702003200,
+      "size_after": 4529831936,
       "rows_read": 6156,
       "rows_written": 0,
       "total_attempts": 1
