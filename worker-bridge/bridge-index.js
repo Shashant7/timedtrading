@@ -866,6 +866,16 @@ export default {
                   JSON.stringify({ ts: Date.now(), positions }),
                   { expirationTtl: 3600 }).catch(() => {}));
               }
+            } else {
+              // A rate-limited fetch returns ok:false without throwing, so
+              // the catch below never sees it and `positions` stayed null —
+              // the empty loop then reported "this account is flat", which
+              // is a claim about the broker we never got to make.
+              return json({
+                ok: false,
+                error: `positions_unavailable:${String(res?.error || "positions_fetch_failed").slice(0, 120)}`,
+                note: "Could not read this account's positions, so there is nothing to compare against. Try again shortly.",
+              }, 200);
             }
           }
           for (const p of positions || []) {
@@ -3145,8 +3155,17 @@ async function loadOptionsPositionsForGuard(env, user, broker) {
       return { positions: r.positions || [] };
     }
     const r = await IbkrAdapter.getEquityPositions(env, user);
+    // Fail closed like the Webull branch above. A failed IBKR call still
+    // shapes into `rows = []`, which the caller cannot tell from "holds no
+    // contracts" — and this guard decides whether a SELL may proceed.
+    if (r && r.ok === false) {
+      return { positions: null, error: r.error || "ibkr_positions_failed" };
+    }
     const raw = r?.response ?? r?.positions ?? r;
-    const rows = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+    if (!Array.isArray(raw) && !Array.isArray(raw?.data)) {
+      return { positions: null, error: "ibkr_positions_unparseable" };
+    }
+    const rows = Array.isArray(raw) ? raw : raw.data;
     return { positions: rows };
   } catch (e) {
     return { positions: null, error: String(e?.message || e).slice(0, 160) };
