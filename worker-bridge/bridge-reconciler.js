@@ -1190,9 +1190,13 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
     }
   }
   // An adapter that resolves `ok` without an array is not a flat broker.
+  // `response` is IBKR's carrier (`callIbkr` returns `{ ok, http_status,
+  // response }`), so accept it before declaring the payload unreadable.
   if (hasEquity && equityRes?.ok
       && !Array.isArray(equityRes.positions) && !Array.isArray(equityRes.results)) {
-    equityRes = { ok: false, error: "equity_positions_missing_from_response" };
+    equityRes = Array.isArray(equityRes.response)
+      ? { ...equityRes, positions: equityRes.response }
+      : { ok: false, error: "equity_positions_missing_from_response" };
   }
 
   // A failed fetch leaves us with NO position truth for that instrument
