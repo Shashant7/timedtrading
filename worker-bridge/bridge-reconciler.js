@@ -31,11 +31,15 @@
 //
 // Failure behavior
 // ─────────────────────────────────────────────────────────────────────
-//   - Broker API failure → set sync_state='reconcile_error', bump
-//     drift count; after 3 consecutive failures the row is flagged
-//     for operator attention (Phase E).
+//   - Broker API failure → set sync_state='reconcile_error' for the rows
+//     we are blind to, per instrument class. It does NOT bump
+//     sync_drift_count: failing to read the broker is not the mirror
+//     drifting, and counting it walked healthy rows toward auto-suppress.
 //   - D1 read/write failure → log + continue with next row. Reconciler
-//     is best-effort; missed cycles recover on the next run.
+//     is best-effort; missed cycles recover on the next run. The one
+//     exception is the open-claim read: an empty claim map is a positive
+//     statement ("no other trade owns these shares") that a CLOSED row
+//     orphans on, so a failed claim read defers those rows instead.
 //   - Schema mismatch (e.g. column missing) → caught and logged once
 //     per process; subsequent rows continue.
 
@@ -784,9 +788,20 @@ async function _readOpenRowsForUser(env, userId, limit, brokerAccountId = null) 
  * (otherwise Mirror Sync pages "model closed, close leftover" while the
  * model card still shows Open Long — DPZ 2026-09-03).
  */
+/**
+ * Returns null — not `[]` — when the claim query could not be run.
+ *
+ * An empty claim map and a failed claim query look identical downstream,
+ * and they mean opposite things: "no other trade owns these shares" makes
+ * a CLOSED row's leftover an orphan worth paging about, while "I could not
+ * check" makes that conclusion unsupported. This query is the ONLY thing
+ * that sees rejected / suppressed re-entries — the reconcile scan filters
+ * them out — so swallowing a D1 error into `[]` silently re-opens the very
+ * bug the function was added for (DPZ 2026-09-03).
+ */
 async function _readOpenClaimRowsForUser(env, userId, brokerAccountId = null) {
   const db = env?.BRIDGE_DB;
-  if (!db) return [];
+  if (!db) return null;
   await ensureMirrorManifestSchema(env);
   try {
     const r = await db.prepare(`
@@ -800,12 +815,12 @@ async function _readOpenClaimRowsForUser(env, userId, brokerAccountId = null) {
     `).bind(
       String(userId).toLowerCase(),
       brokerAccountId ? String(brokerAccountId) : null,
-    ).all().catch(() => ({ results: [] }));
+    ).all();
     return r?.results || [];
   } catch (e) {
     console.warn(`[RECONCILER] read open-claim rows failed for ${userId}:`,
       String(e?.message || e).slice(0, 200));
-    return [];
+    return null;
   }
 }
 
@@ -832,7 +847,17 @@ async function _persistRowUpdate(env, row, classification) {
     String(row.sync_state || "") === newSyncState || // chronic
     !wasDrifting                                     // new
   );
-  const newDriftCount = (Number(row.sync_drift_count) || 0) + (bumpDrift ? 1 : 0);
+  // A clean reconcile ends the run. `AUTO_SUPPRESS_AFTER_DRIFT`, the
+  // `auto_suppressed_after_N_drifts` reason, the design doc ("drift count
+  // > 3 on same trade") and Mission Control's "drift cycle count" tooltip
+  // all describe a CONSECUTIVE run, but nothing ever reset the column —
+  // so it was a lifetime tally, and a row that drifted three times in July
+  // would auto-suppress on its first drift in September. `sync_last_drift_at`
+  // keeps the forensic record of when the last drift happened.
+  const healed = !driftDetected && newSyncState === "in_sync";
+  const newDriftCount = healed
+    ? 0
+    : (Number(row.sync_drift_count) || 0) + (bumpDrift ? 1 : 0);
   const shouldAutoSuppress = bumpDrift
     && newDriftCount > AUTO_SUPPRESS_AFTER_DRIFT
     && Number(row.mirror_suppressed) !== 1;
@@ -1203,36 +1228,49 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
     };
   }
 
-  // One class answered and the other did not. Reconcile what we can see
-  // and error only the rows we are blind to, rather than reading their
-  // missing positions as flat.
-  let classifiable = eligible;
-  let blindErrCount = 0;
-  if (equityFailed || optionsFailed) {
-    const blind = [];
-    const seeing = [];
-    for (const row of eligible) {
-      const rowIsOptions = String(row.instrument_type || "").toLowerCase() === "options";
-      ((rowIsOptions ? optionsFailed : equityFailed) ? blind : seeing).push(row);
-    }
-    for (const row of blind) {
-      if (await _persistReconcileError(env, row, fetchError)) blindErrCount++;
-    }
-    classifiable = seeing;
-  }
-
-  const positionsByTicker = _indexByTicker(equityRes?.positions || equityRes?.results || []);
-  const optionsByContract = _indexOptionsByContract(optionsRes?.positions || optionsRes?.results || []);
   // OPEN-mode claims (investor + trader) so CLOSED rows don't orphan
   // shares that belong to another mode — or a rejected/suppressed
   // re-entry — on the same brokerage account (DPZ 2026-09-03).
   const openClaimRows = await _readOpenClaimRowsForUser(
     env, userId, resolveBrokerAccountId(user),
   );
+  const claimsUnknown = openClaimRows === null;
   const openClaimsByTicker = claimedOpenEquityByTicker([
     ...rows,
-    ...openClaimRows,
+    ...(openClaimRows || []),
   ]);
+
+  // One class answered and the other did not. Reconcile what we can see
+  // and error only the rows we are blind to, rather than reading their
+  // missing positions as flat.
+  //
+  // A row is also blind when it needs the claim map and we could not read
+  // it: only CLOSED / EXPIRED equity rows consult `claimed_elsewhere_qty`,
+  // and without it their leftover looks unclaimed and pages as an orphan.
+  const needsClaims = (row) => {
+    const status = String(row.model_status || "OPEN").toUpperCase();
+    return (status === "CLOSED" || status === "EXPIRED")
+      && String(row.instrument_type || "equity").toLowerCase() !== "options";
+  };
+  let classifiable = eligible;
+  let blindErrCount = 0;
+  const blindError = (equityFailed || optionsFailed) ? fetchError : "open_claim_read_failed";
+  if (equityFailed || optionsFailed || claimsUnknown) {
+    const blind = [];
+    const seeing = [];
+    for (const row of eligible) {
+      const rowIsOptions = String(row.instrument_type || "").toLowerCase() === "options";
+      const positionsBlind = rowIsOptions ? optionsFailed : equityFailed;
+      ((positionsBlind || (claimsUnknown && needsClaims(row))) ? blind : seeing).push(row);
+    }
+    for (const row of blind) {
+      if (await _persistReconcileError(env, row, blindError)) blindErrCount++;
+    }
+    classifiable = seeing;
+  }
+
+  const positionsByTicker = _indexByTicker(equityRes?.positions || equityRes?.results || []);
+  const optionsByContract = _indexOptionsByContract(optionsRes?.positions || optionsRes?.results || []);
 
   // Per (mode × instrument) tolerance.
   function _tolerance(row) {
@@ -1252,7 +1290,7 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
   if (blindErrCount > 0) {
     stats.rows_reconcile_error = blindErrCount;
     stats.by_state.reconcile_error = blindErrCount;
-    stats.fetch_error = fetchError;
+    stats.fetch_error = blindError;
   }
 
   for (const row of classifiable) {
