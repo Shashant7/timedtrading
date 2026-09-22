@@ -10,6 +10,7 @@ import {
   fetchBrokerManifestRows,
   loadBrokerHeldEquity,
   heldQtyFor,
+  heldAvgCostFor,
 } from "./broker-held-equity.js";
 import {
   isNyRegularMarketOpenStatic,
@@ -20,6 +21,35 @@ const NOTE_PREFIX = "timed:trader-exit-catchup:";
 
 /** Residual too small for the broker to sell. */
 export const EXIT_CATCHUP_FLAT_EPSILON = 1e-6;
+
+/**
+ * Webull declines a fractional sell worth less than a cent:
+ * "The minimum notional amount of a fractional sell order is $0.01".
+ */
+export const EXIT_CATCHUP_MIN_SELL_USD = 0.01;
+
+/**
+ * Is this residual worth less than the broker will transact?
+ *
+ * `EXIT_CATCHUP_FLAT_EPSILON` is a SHARE count, but the broker's floor is a
+ * NOTIONAL one, so the two only agree by accident. DPZ finished its 09-15
+ * exit holding 1e-05 sh — ten times the share epsilon, and four tenths of a
+ * cent against a ~$400 print. Catch-up therefore re-offered it every hour
+ * from 09-16 to 09-22, collecting an identical rejection each RTH pass and
+ * a `fractional_trim_deferred_to_rth` skip each night. Nothing was wrong
+ * and nothing could ever go right: no quantity of retries makes $0.004
+ * clear a $0.01 floor.
+ *
+ * Unknown price is NOT dust. Without a price this returns false and the
+ * share epsilon decides, so a missing quote can never strand a real exit.
+ */
+export function exitResidualBelowBrokerMinimum(qty, price, minUsd = EXIT_CATCHUP_MIN_SELL_USD) {
+  const q = Number(qty);
+  const p = Number(price);
+  const floor = Number(minUsd);
+  if (!(q > 0) || !Number.isFinite(p) || p <= 0 || !(floor > 0)) return false;
+  return q * p < floor;
+}
 
 export function rowHoldsReducerQty(row) {
   if (!row) return false;
@@ -96,7 +126,9 @@ export function planTraderExitCatchup({ exits = [], manifests = [], closedTradeI
  * broker could not be asked: fall back to the single largest claim, which
  * under-sells (recoverable next hour) rather than over-sells (not).
  */
-export function clampExitOpsToHoldings(ops = [], held = null) {
+export function clampExitOpsToHoldings(ops = [], held = null, {
+  minSellUsd = EXIT_CATCHUP_MIN_SELL_USD,
+} = {}) {
   const ordered = [...(ops || [])].sort((a, b) => (
     (Number(b?.exit_ts) || 0) - (Number(a?.exit_ts) || 0)
     || (Number(b?.qty) || 0) - (Number(a?.qty) || 0)
@@ -125,6 +157,18 @@ export function clampExitOpsToHoldings(ops = [], held = null) {
         ...op,
         held_qty: heldQtyFor(held, ticker),
         skip: "broker_position_already_flat",
+      });
+      continue;
+    }
+    // Cost basis stands in for a quote here on purpose: the question is
+    // whether the residual is worth a cent, not what it is worth.
+    const px = Number(op?.price) > 0 ? Number(op.price) : heldAvgCostFor(held, ticker);
+    if (exitResidualBelowBrokerMinimum(qty, px, minSellUsd)) {
+      dropped.push({
+        ...op,
+        held_qty: heldQtyFor(held, ticker),
+        residual_usd: qty * Number(px),
+        skip: "broker_min_notional_dust",
       });
       continue;
     }
@@ -204,7 +248,9 @@ export async function runTraderExitCatchup(env, opts = {}) {
   const held = opts.held !== undefined
     ? opts.held
     : await loadBrokerHeldEquity(env, { nowMs: Date.now() });
-  const { ops: planned, dropped } = clampExitOpsToHoldings(claimed, held);
+  const minSellUsd = Number(opts.min_sell_usd ?? env?.BROKER_MIN_SELL_NOTIONAL_USD)
+    || EXIT_CATCHUP_MIN_SELL_USD;
+  const { ops: planned, dropped } = clampExitOpsToHoldings(claimed, held, { minSellUsd });
   const rth = isNyRegularMarketOpenStatic(now);
   const eth = isEquityBrokerFollowThroughStatic(now);
   const results = dropped.map((op) => ({ ...op, ok: false }));
@@ -256,6 +302,7 @@ export async function runTraderExitCatchup(env, opts = {}) {
     planned: planned.length,
     claimed: claimed.length,
     flat_dropped: dropped.length,
+    dust_dropped: dropped.filter((op) => op.skip === "broker_min_notional_dust").length,
     held_known: held != null,
     results,
     forwarded: results.filter((r) => r.ok && !r.dry_run && !r.skip).length,

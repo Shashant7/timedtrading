@@ -155,6 +155,19 @@ export function heldQtyFor(held, ticker) {
 }
 
 /**
+ * The broker's own average cost for a held ticker, or null.
+ *
+ * Only good enough to answer order-of-magnitude questions ("is this residual
+ * worth a cent?"), never to price an order — cost basis is not a quote.
+ */
+export function heldAvgCostFor(held, ticker) {
+  if (!held || typeof held !== "object") return null;
+  const row = held[String(ticker || "").toUpperCase().trim()];
+  const avg = Number(row?.avg_cost);
+  return Number.isFinite(avg) && avg > 0 ? avg : null;
+}
+
+/**
  * Manifest rows: one sleeve per (model trade, broker account). Callers that
  * need per-account detail use these directly; callers that only need "did
  * the broker ever hold this trade" use `loadBrokerSleeves`.
