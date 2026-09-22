@@ -58,6 +58,15 @@ const TRANSIENT_PATTERNS = [
   /unavailable|503|502|504|500/i,
   /token|auth|login|session/i,
   /fetch_error|network|ECONN|socket/i,
+  // Webull OAUTH_OPENAPI_TRADE_PLACE_ORDER_REPEAT. A throttle on how fast
+  // the account may submit, NOT a duplicate-order report: on 2026-09-18 the
+  // investor trim batch collected it on eight tickers inside twenty seconds
+  // (KO, NVDA, PLTR, CF, LLY, EXEL, AMZN, GS) and all eight then placed on
+  // the next pass at the same qty, so nothing had reached the broker. It
+  // arrives as HTTP 200 + ok:false with no recognised token, which fell
+  // through to the 2xx "will not heal on retry" rule and retired the intent
+  // — the model trim stood while the broker kept the shares (MU 09-22).
+  /do not place an order repeatedly|place_order_repeat/i,
 ];
 
 export function isReducerOrder(order) {
