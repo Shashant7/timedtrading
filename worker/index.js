@@ -98054,8 +98054,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // the auto-rebalance would try to OPEN A SECOND ROW on every
           // run instead of recognizing it as an existing position to
           // gap-add to.
+          // `peak_price` must be in this SELECT. The MFE-extension lane
+          // advances the high-water mark with
+          // Math.max(pos.peak_price || 0, price, avg_entry) — reading it
+          // off a row that never carried the column made the stored peak
+          // look like 0 every run, so the "high-water mark" was rewritten
+          // to whatever spot happened to be. CF closed 2026-09-21 with
+          // peak_price 125.21 recorded against a real peak of 141.66, and
+          // the trim-into-strength rule it feeds never saw the extension.
           const existingPos = (await env.DB.prepare(
-            "SELECT id, ticker, total_shares, cost_basis, avg_entry, notes, first_entry_ts, thesis, thesis_invalidation FROM investor_positions WHERE status = 'OPEN'"
+            "SELECT id, ticker, total_shares, cost_basis, avg_entry, notes, first_entry_ts, thesis, thesis_invalidation, peak_price FROM investor_positions WHERE status = 'OPEN'"
           ).all())?.results || [];
           const existingByTicker = {};
           let totalInvested = 0;
