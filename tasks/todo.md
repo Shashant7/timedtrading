@@ -21,6 +21,35 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Three inbox complaints, one shape: an unread value treated as a
+      measured one (2026-09-22).** (a) Mothership Orphan pages for TQQQ /
+      UDOW / TNA / NBIS / P, all five held in the Roth and `in_sync`. The
+      reconciler's outage guard `(hasEquity && !equityRes.ok) &&
+      (hasOptions && !optionsRes.ok)` can never fire for an equity-only
+      row set, so a rate-limited Webull `/positions` call classified
+      against an empty map and orphaned the account. Now fails closed per
+      instrument class, and the shared `try/catch` actually catches (it
+      guarded on `if (!equityRes)` against a pre-seeded `{ok:true,
+      positions:[]}`). `reconcile_error` no longer bumps
+      `sync_drift_count` — being blind is not drift, and counting it
+      walked healthy rows toward `AUTO_SUPPRESS_AFTER_DRIFT`.
+      (b) LLY + DE daily CRITICAL Execution Drift. The 6h repeat throttle
+      slowed re-reporting but never ended it, and neither drift could
+      heal (DE's trim was superseded by a catch-up full exit; LLY's
+      ~$40 sleeve went to 0). `classifyPostExecResolution` retires both —
+      `superseded_by_model_close` silently, `broker_flat_after_over-
+      execution` after one final-flagged alert. Underexecution and
+      replenishment deliberately stay open.
+      (c) CF review found `peak_price` was never a high-water mark: the
+      auto-rebalance SELECT omitted the column, so the `Math.max` scored
+      the stored peak as 0 and rewrote it to spot every run. All 20 open
+      Long Term rows carried a fake peak. CF ran +22.2% and closed +5.07%
+      with `peak_price` 125.21 against a real 141.66.
+      `worker/investor-peak-price-contract.test.js` guards the query.
+      Follow-ups NOT taken (policy, needs the learning loop): the MFE
+      extension trim is one-shot per position, and the monthly DCA does
+      not know a de-risking lane just sold — CF trimmed 11.78 sh @ 128.98
+      and DCA'd 15.31 sh @ 130.63 five hours later the same session.
 - [x] **Portfolio "0 positions" for Long Term was a starved fetch
       (2026-09-20).** The book was fine — `/timed/investor/positions`
       returned 18 OPEN rows at +$3,966.58 and the equity curve agreed.

@@ -6,6 +6,178 @@
 
 ---
 
+## Three ways to mistake "I could not see it" for "it is not there" [2026-09-22]
+
+Three inbox complaints in one message — Mothership Orphan emails for
+TQQQ / UDOW / TNA / NBIS / P that were all sitting in the Roth, daily
+Execution Drift pages for LLY and DE, and a CF trade that round-tripped
++22% back to +5%. Different subsystems, one shape: a value that could not
+be read got treated as a value that was measured.
+
+### 1. The outage guard that could never fire
+
+```js
+if ((hasEquity && !equityRes?.ok) && (hasOptions && !optionsRes?.ok)) {
+  // every eligible row -> reconcile_error
+}
+```
+
+Read it with an equity-only row set. `hasOptions` is `false`, so the
+right-hand clause is `false`, so the whole condition is `false` — no
+matter what the equity fetch did. The intent was "if everything we needed
+failed, stand down"; the code said "if BOTH classes failed", and when only
+one class is in play "both" is unreachable.
+
+Downstream, `_indexByTicker(equityRes?.positions || equityRes?.results || [])`
+turns a failed fetch into an empty Map, `classifyDrift` sees `brokerQty`
+0 against a positive expectation, and every OPEN row in the account comes
+back `mothership_orphan` — "model_open expected N but broker holds 0 (user
+closed manually?)".
+
+The reconciler calls Webull once per account per 5-min cycle with no
+cache (`/bridge/positions` got a 60s KV cache in August; this path never
+did), across 6 accounts. Webull rate limits are the documented failure
+mode here. So the trigger was routine.
+
+**What made it look like a trickle rather than an outage:** drift
+notifications dedup one warn per trade per day. A cycle that orphans 20
+tickers only emails the ones that have not spoken today, so the inbox got
+TQQQ at 2:35 PM ET and UDOW/TNA/NBIS/P at 2:50 — five separate-looking
+incidents that were one repeated event. **A per-item dedup window
+disguises a whole-account fault as a handful of unrelated ones.** When
+alerts arrive in dribs from one account, ask what they share before
+debugging each ticker.
+
+Two more of the same family were sitting in the same function:
+
+- The fetch `try/catch` recovered with `if (hasEquity && !equityRes)`,
+  but `equityRes` was pre-seeded to `{ ok: true, positions: [] }` and so
+  was never falsy. A **thrown** fetch left that ok-looking empty object
+  in place — the exact "flat broker" reading, from the handler written to
+  prevent it. Pre-seeded defaults and `if (!x)` recovery do not mix; give
+  each fetch its own `try/catch` and assign the failure directly.
+- `_persistReconcileError` bumped `sync_drift_count`. Not being able to
+  read the broker is not the mirror drifting, and that counter feeds
+  `AUTO_SUPPRESS_AFTER_DRIFT` — a run of rate limits could suppress a
+  mirror that was never out of sync. Now that the guard actually catches
+  these, the miscount would have started doing damage.
+
+Fix: fail closed per instrument class. The class we could not read gets
+`reconcile_error`; the class that answered still reconciles.
+`worker-bridge/bridge-reconciler-fetch-failure.test.js` — 6 of its 8 cases
+fail against the old code.
+
+### 2. A throttle is not a terminator
+
+On 2026-09-15 the same DE trade taught us to split re-CHECKING a drift
+from re-REPORTING it, and `POST_EXEC_DRIFT_REPEAT_MS` capped it at one
+report per 6h. That was the right fix to the wrong depth: 4 pages a day
+instead of 288 is still a page a day forever, which is what LLY and DE
+were doing a week later.
+
+The giveaway is that both rows reconcile CLEAN:
+
+| | DE | LLY |
+|---|---|---|
+| `sync_state` | `in_sync` | `in_sync` |
+| `sync_note` | model_closed and broker flat — consistent | pending_entry_no_broker_position_yet |
+| audit | trim 08-21, wanted 2.0427 sh held | trim 09-18, wanted 0.0510 sh held |
+| live | 0 | 0 |
+
+`shouldDispatchDriftNotification` refuses to email a row whose state is
+healthy or whose note says "consistent" — but the post-exec path calls
+`emitDriftNotification` with `{...row, sync_state: "execution_drift"}`,
+overriding the very field the guard reads. **If you synthesize the field a
+guard keys on, you have opted out of the guard.**
+
+Neither drift could ever come true. DE's trim wanted 2.04 sh kept; a
+catch-up exit closed the whole trade on 09-14, so the model gave that
+leftover up on purpose. LLY's entire investor sleeve was 0.0556 sh (~$40)
+and the broker sold it to zero — selling cannot be undone and there is no
+leftover for catch-up to act on.
+
+`classifyPostExecResolution` names the two terminal shapes:
+`superseded_by_model_close` (retire silently — `broker_orphan` is the
+channel if the broker still holds) and `broker_flat_after_overexecution`
+(one alert, marked final, then retire). Underexecution and replenishment
+are deliberately untouched: leftover shares can still be sold and a
+surprise lot still needs reconciling.
+
+An audit that keeps `verified:false` so it can heal needs a third state
+for "it cannot heal". `resolved` is that state, and it is honoured
+everywhere the audit is read — leftover reservation
+(`isUnverifiedReducerLeftover`) and the reducer-in-flight expected-qty
+override (`pendingReducerAudit`), not just the verify loop.
+
+### 3. peak_price was never a peak
+
+CF: entered 2026-07-15 at $115.90, peaked $141.66 on 09-10 (+22.2%),
+exited 09-21 at $124.16 on a primary invalidation breach for +$355 on
+$7,000 (+5.07%). Buying 43.1406 shares on day one and never touching it
+returns +$356.34. Sixty-eight days of trims, a DCA and event-risk
+reductions netted **$1.34 less than doing nothing**, and tied up an extra
+$2,000 for a month to do it.
+
+Two causes, and the second is a bug.
+
+**The one real profit-take was reversed the same session.** On 08-21 at
+14:04 UTC the MFE extension lane sold 10.2459 sh at $128.98 (plus 1.5368
+on OpEx). At 19:45 UTC — 5h41m later, same day — the scheduled monthly
+DCA bought 15.3104 sh at $130.63. More shares back than the trim sold,
+$1.65/sh higher. Share count went 43.14 → 29.20 → 44.51, *above* the
+opening position, and average cost rose $115.90 → $120.97. The DCA
+calendar and the de-risking lanes do not know about each other.
+
+**And the peak that sizes trim-into-strength was fake.** CF closed with
+`peak_price` 125.21 against a real peak of 141.66 — while the position's
+own notes blob still recorded the 128.98 that the August trim had seen.
+A `Math.max` high-water mark cannot fall from 128.98 to 125.21. That
+impossibility is what located the bug:
+
+```js
+// the maintenance loop
+const peakPrice = Math.max(Number(pos.peak_price) || 0, price, avgEntry);
+if (peakPrice > (Number(pos.peak_price) || 0)) UPDATE ... peak_price
+
+// the query feeding it
+SELECT id, ticker, total_shares, cost_basis, avg_entry, notes,
+       first_entry_ts, thesis, thesis_invalidation
+  FROM investor_positions WHERE status = 'OPEN'
+```
+
+No `peak_price` in the SELECT, so `pos.peak_price` is `undefined`,
+`Number(undefined) || 0` is 0, the stored mark scores as zero, every run
+beats it, and the column becomes `max(spot, avg_entry)`. 125.21 is just a
+quote from CF's last session (09-21 ranged 122.21–127.65).
+
+The live book confirms it 20 for 20: every open position's `peak_price`
+equals spot, or equals `avg_entry` to the cent when underwater (LLY,
+AMZN, EMR, GS, DINO). Checked against real highs, every one understates —
+WTS by 10.9%, IWM 6.4%, LLY 5.9%, KO 5.6%.
+
+So `resolveInvestorMfeExtensionTrim` could only ever see the extension the
+market happened to be showing *today*, never the excursion. Through CF's
+entire $130 → $141.66 → $124 round trip the only sells were two calendar
+event trims totalling 4.34 sh (~10% of the book).
+
+**A column read through `Number(x) || 0` cannot tell "absent" from
+"zero".** Every silent-default read of a persisted field is a place a
+missing column becomes a plausible number instead of a crash. The query
+and the reader here sit ~1,000 lines apart inside the auto-rebalance
+cron, which is why `worker/investor-peak-price-contract.test.js` is a
+source contract rather than a behavioural test.
+
+Still open after this (deliberately not changed here — they alter live
+trading behaviour and belong on the learning bus, not in a silent edit):
+
+- `resolveInvestorMfeExtensionTrim` is one-shot per position
+  (`priorTrimmed = !!notes._mfe_extension_trim`). CF banked 25% at +11.3%
+  and the lane was disarmed for the remaining +11% of the run.
+- Nothing stops a scheduled DCA from re-buying a position that de-risked
+  hours earlier.
+
+---
+
 ## The page said zero because it never got to ask [2026-09-20]
 
 Reported as "the Portfolio page open positions say 0 for Long Term".
