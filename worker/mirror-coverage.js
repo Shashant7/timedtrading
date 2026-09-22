@@ -126,15 +126,32 @@ export function ringQty(row) {
 }
 
 /**
- * Reason string when the bridge placed materially less than we sent.
+ * Account-fit ceilings the bridge names when one actually bites. Every other
+ * reduction is the bridge doing its job (see `ringScaleShortfall`).
+ */
+const SCALE_CAP_REASON_RE = /cap_per_order|cash_buffer|cash|concentration|vehicle_cap|daily_cap/i;
+
+/**
+ * Reason string when an account-fit CAP cut the order down.
  *
- * Deliberately keyed off the ring row's own requested-vs-accepted pair and
- * NOT off the model's book qty. The bridge is supposed to size a model
- * position down to the account, so comparing against the model book would
- * flag every normal order. Every successful order in the live ring is
- * already account-sized (fractional reduces of real holdings; index-trend
- * entries pre-sized to `max_per_order_usd`), so a reduction recorded HERE
- * means an account-fit cap actually bit — the case worth reporting.
+ * The premise this check was built on — "the ring row's own qty is already
+ * account-sized, so a reduction recorded here means a cap bit" — is false.
+ * The ring records the MODEL qty; relational sizing (equity / model-book
+ * ratio) happens bridge-side and mutates the order without setting
+ * `scaling`, which `bridge-index.js` documents at the `accepted_qty` stamp.
+ * So `accepted < requested` is the NORMAL state of a mirrored order, not an
+ * exception: 62 of the 200 rows in the 2026-09-22 live ring were scaled, all
+ * 200 with a null reason, at ratios that are stable per ticker across days
+ * (MU 0.245 on 09-17, 09-18 and 09-22; EXEL 0.159 on all three) — the
+ * signature of a proportion, not a ceiling. It paged NBIS 3-of-9.98, P
+ * 3-of-13.30 and MSFT 3-of-10.09 as "mirrored only in part" when each was a
+ * correctly sized ~30% sleeve.
+ *
+ * `bridge_scale_reason` is the discriminator the bridge already provides:
+ * the cap paths (per-order notional, cash ceiling, concentration) each name
+ * themselves in `scaling.reason`, and relational sizing leaves it null. Only
+ * a named cap is worth an operator's attention — a sleeve sized to the
+ * account is the mirror working.
  *
  * The 0.5% floor keeps fractional-share rounding from reading as a partial.
  */
@@ -143,9 +160,10 @@ export function ringScaleShortfall(row) {
   const requested = Number(row?.qty ?? row?.shares ?? row?.contracts);
   if (!(accepted > 0) || !(requested > 0)) return null;
   if (accepted >= requested * 0.995) return null;
-  const pct = Math.round((accepted / requested) * 100);
   const why = String(row?.bridge_scale_reason || "").trim();
-  return `broker_scaled_to_${accepted}_of_${requested}_${pct}pct${why ? `_${why}` : ""}`;
+  if (!SCALE_CAP_REASON_RE.test(why)) return null;
+  const pct = Math.round((accepted / requested) * 100);
+  return `broker_scaled_to_${accepted}_of_${requested}_${pct}pct_${why}`;
 }
 
 export function isCoverageTerminalReject(reason, event) {
