@@ -121,6 +121,22 @@ export function evaluateRegistryAlignment(diff, { unknownHealed = [] } = {}) {
   return anomalies;
 }
 
+/**
+ * Delete `timed:sector_map:<T>` overlays that carry a non-sector ("Unknown",
+ * "N/A", ""). The overlay is OPTIONAL — SECTOR_MAP in code is the source of
+ * truth — so the overwhelming majority of tickers have no key at all.
+ *
+ * `isUnknownSector` answers true for null, because a blank label is not a
+ * sector. That makes it the wrong question to ask of a raw `kv.get`, which
+ * also returns null for "no such key": every ticker without an overlay read
+ * as an Unknown overlay, got a pointless `kv.delete`, and was reported as
+ * healed on every sweep. The 2026-09-22 sweep "deleted" ~100 overlays that
+ * were never there and re-reported the same list an hour later, so the
+ * registry_alignment incident could never close.
+ *
+ * A missing key is nothing to heal. Only a key that EXISTS and holds a
+ * non-sector value is.
+ */
 export async function healUnknownSectorMapKeys(kv, tickers) {
   const healed = [];
   if (!kv) return healed;
@@ -134,6 +150,7 @@ export async function healUnknownSectorMapKeys(kv, tickers) {
     } catch (_) {
       continue;
     }
+    if (value == null) continue;
     if (!isUnknownSector(value)) continue;
     try {
       await kv.delete(key);
