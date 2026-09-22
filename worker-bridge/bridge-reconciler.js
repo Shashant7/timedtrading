@@ -927,19 +927,20 @@ async function _persistReconcileError(env, row, errMsg) {
   const db = env?.BRIDGE_DB;
   if (!db) return false;
   const now = Date.now();
-  const newDriftCount = (Number(row.sync_drift_count) || 0) + 1;
   try {
+    // `sync_drift_count` is deliberately left alone: not being able to
+    // read the broker is not the mirror drifting. Counting it pushed
+    // rows toward AUTO_SUPPRESS_AFTER_DRIFT, so a run of Webull rate
+    // limits could suppress a mirror that was never out of sync.
     await db.prepare(`
       UPDATE mirror_trade_manifest
          SET sync_state = 'reconcile_error',
              sync_last_checked_at = ?4,
-             sync_last_drift_at = ?4,
-             sync_drift_count = ?5,
-             sync_note = ?6,
+             sync_note = ?5,
              updated_at = ?4
        WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
     `).bind(
-      row.user_id, row.trade_id, row.broker_account_id, now, newDriftCount,
+      row.user_id, row.trade_id, row.broker_account_id, now,
       String(errMsg || "reconcile_error").slice(0, 200),
     ).run();
     return true;
@@ -1107,15 +1108,24 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
   const hasOptions = eligible.some(r => String(r.instrument_type || "").toLowerCase() === "options");
 
   // Fetch broker positions ONCE per user (not per row).
+  // Each class gets its own try/catch. A shared one could only tell that
+  // *something* threw, and the pre-seeded `{ ok: true, positions: [] }`
+  // defaults were never falsy, so the old handler's `if (!equityRes)`
+  // guards never ran — a thrown fetch left an ok-looking empty result
+  // behind and every row downstream read as "broker holds nothing".
   let equityRes = { ok: true, positions: [] };
   let optionsRes = { ok: true, positions: [] };
-  try {
-    if (hasEquity) {
+  if (hasEquity) {
+    try {
       equityRes = typeof brokerAdapter?.getEquityPositions === "function"
         ? await brokerAdapter.getEquityPositions(env, user)
         : { ok: false, error: "adapter_lacks_getEquityPositions" };
+    } catch (e) {
+      equityRes = { ok: false, error: String(e?.message || e).slice(0, 200) };
     }
-    if (hasOptions) {
+  }
+  if (hasOptions) {
+    try {
       optionsRes = typeof brokerAdapter?.getOptionsPositions === "function"
         ? await brokerAdapter.getOptionsPositions(env, user)
         // Fallback: some adapters return options inside getPortfolio.
@@ -1128,25 +1138,65 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
               error: r.error,
             }))
           : { ok: false, error: "adapter_lacks_getOptionsPositions" };
+    } catch (e) {
+      optionsRes = { ok: false, error: String(e?.message || e).slice(0, 200) };
     }
-  } catch (e) {
-    if (hasEquity && !equityRes) equityRes = { ok: false, error: String(e?.message || e).slice(0, 200) };
-    if (hasOptions && !optionsRes) optionsRes = { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+  // An adapter that resolves `ok` without an array is not a flat broker.
+  if (hasEquity && equityRes?.ok
+      && !Array.isArray(equityRes.positions) && !Array.isArray(equityRes.results)) {
+    equityRes = { ok: false, error: "equity_positions_missing_from_response" };
   }
 
-  // If BOTH fetches failed, treat as a full broker outage — every
-  // eligible row gets reconcile_error.
-  if ((hasEquity && !equityRes?.ok) && (hasOptions && !optionsRes?.ok)) {
+  // A failed fetch leaves us with NO position truth for that instrument
+  // class, and an empty position map reads exactly like "the broker holds
+  // nothing" — which classifies every live row as mothership_orphan. So
+  // fail closed, per class.
+  //
+  // The previous guard required BOTH fetches to have failed, a condition
+  // an equity-only row set can never meet: `hasOptions` is false, so the
+  // second half of the AND is false however badly the equity fetch went.
+  // A rate-limited Webull positions call therefore fell straight through
+  // to classification and orphaned the whole account — TQQQ, UDOW, TNA,
+  // NBIS and P on 2026-09-21, every one of them still held at the broker.
+  const equityFailed = hasEquity && !equityRes?.ok;
+  const optionsFailed = hasOptions && !optionsRes?.ok;
+  const fetchError = String(
+    (equityFailed ? equityRes?.error : null)
+    || (optionsFailed ? optionsRes?.error : null)
+    || "broker_fetch_failed",
+  ).slice(0, 200);
+
+  // Nothing we actually needed came back → full outage for this account.
+  if ((!hasEquity || equityFailed) && (!hasOptions || optionsFailed)) {
     let errCount = 0;
     for (const row of eligible) {
-      if (await _persistReconcileError(env, row, equityRes?.error || optionsRes?.error || "broker_fetch_failed")) errCount++;
+      if (await _persistReconcileError(env, row, fetchError)) errCount++;
     }
     return {
       user_id: userId, rows_scanned: rows.length, rows_eligible: eligible.length,
       rows_reconcile_error: errCount,
-      fetch_error: String(equityRes?.error || optionsRes?.error || "unknown").slice(0, 200),
+      fetch_error: fetchError,
       by_state: { reconcile_error: errCount },
     };
+  }
+
+  // One class answered and the other did not. Reconcile what we can see
+  // and error only the rows we are blind to, rather than reading their
+  // missing positions as flat.
+  let classifiable = eligible;
+  let blindErrCount = 0;
+  if (equityFailed || optionsFailed) {
+    const blind = [];
+    const seeing = [];
+    for (const row of eligible) {
+      const rowIsOptions = String(row.instrument_type || "").toLowerCase() === "options";
+      ((rowIsOptions ? optionsFailed : equityFailed) ? blind : seeing).push(row);
+    }
+    for (const row of blind) {
+      if (await _persistReconcileError(env, row, fetchError)) blindErrCount++;
+    }
+    classifiable = seeing;
   }
 
   const positionsByTicker = _indexByTicker(equityRes?.positions || equityRes?.results || []);
@@ -1177,8 +1227,13 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
     expiration_warnings: 0,
     by_state: {}, cadence_skipped: rows.length - eligible.length,
   };
+  if (blindErrCount > 0) {
+    stats.rows_reconcile_error = blindErrCount;
+    stats.by_state.reconcile_error = blindErrCount;
+    stats.fetch_error = fetchError;
+  }
 
-  for (const row of eligible) {
+  for (const row of classifiable) {
     const isOptions = String(row.instrument_type || "").toLowerCase() === "options";
     const isInvestor = String(row.mode || "trader").toLowerCase() === "investor";
 
