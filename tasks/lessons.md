@@ -6,6 +6,153 @@
 
 ---
 
+## A merged stacked PR delivered nothing [2026-09-22]
+
+Asked "is everything fixed and deployed?", the honest check is ancestry
+on `origin/main`, not PR state. It found a miss.
+
+The five blind-read fixes shipped as PR #1479, opened against
+`cursor/mirror-sync-false-orphans-7ffc` (PR #1478's branch) because they
+built on that work. The timeline:
+
+| time (UTC) | event |
+|---|---|
+| 12:53 | #1478 merges `cursor/mirror-sync-false-orphans-7ffc` -> `main` (f9b004053); all four worker deploys go green |
+| 13:12 | #1479 merges `cursor/failed-read-followups-7ffc` -> `cursor/mirror-sync-false-orphans-7ffc` (cc69037d7) |
+
+Both PRs read `state: MERGED`. Both had green CI. The base branch tip
+carried all five commits. And `main` had none of them, because the base
+branch stopped being a route to `main` nineteen minutes before the merge
+into it. Nothing failed; the delivery just terminated in a cul-de-sac.
+
+Two things to keep:
+
+1. **Confirm a deploy by ancestry, not by PR state.**
+ `git merge-base --is-ancestor <sha> origin/main` is the only answer
+ that means "this code is running". `gh pr view` cannot distinguish a
+ merge into `main` from a merge into a spent branch, and the deploy
+ workflows key off pushes to `main`, so their absence is silent — there
+ is no failed run to notice, just no run at all.
+
+2. **`check-branch-merge-state.sh` was blind to this by construction.**
+ It asked "does THIS branch have an already-merged PR?" — written for
+ the 2026-08-12 / 08-18 misses, where the agent pushed new commits to a
+ branch it had already landed. Here the head branch was clean and its PR
+ was open and healthy right up until it landed nowhere; the rot was one
+ level up, in the base. It now also checks the base of any OPEN PR from
+ this branch and exits 3 when that base's own PR has already merged.
+ Verified against a stubbed `gh` reproducing the exact 09-22 state, and
+ verified silent for a PR based on `main`, a PR based on a still-open
+ branch, and a branch with no PR.
+
+Recovery was a clean cherry-pick of `2591fb542^..8d2ad0d50` onto
+`origin/main` — the stack's parent commit was already an ancestor, so
+the range applied without conflict and diffed byte-identical to the
+stranded branch across `worker/`, `worker-bridge/`, `CONTEXT.md` and
+`tasks/`. Prefer basing on `main` unless a stack genuinely needs the
+parent's code to compile; the review convenience is not worth a delivery
+path that can expire underneath it.
+
+Also, separately: `git checkout -- <path>` to undo a test fixture threw
+away uncommitted edits to that same file. Commit before running a test
+that restores paths, or copy the file aside.
+
+---
+
+## Auditing a bug shape finds the expensive instance [2026-09-22]
+
+Having fixed the reconciler's "failed fetch reads as flat broker", the
+obvious next move was to ask where else that shape lived in the broker
+path. Five more, and the worst one spends money rather than sending email.
+
+### The module written to prevent the bug had the bug
+
+`worker/broker-held-equity.js` exists for one reason. SPYU W38 dispatched
+at 13:50:52Z, the isolate died before the response landed, and every
+model-side record said "never attempted" while the broker said "you own 9
+shares". Positions are the one record the broker writes rather than us, so
+they are the tiebreaker. The docblock is explicit:
+
+> Returns null — never `{}` — when the broker could not be reached, so a
+> caller can tell "holds nothing" from "do not know". Guarding money on an
+> unknown must fail closed, and `{}` reads as "holds nothing".
+
+It returned `{}`. The reason is that `/bridge/positions` reports success
+**per account**, not per request:
+
+```js
+// bridge-index.js — per account
+else entry.positions_error = res?.error || "positions_unavailable";
+...
+if (brokerPositions === null) brokerPositions = [];   // <- items become []
+// and the handler still answers { ok: true, accounts: [...] }
+```
+
+```js
+// broker-held-equity.js — checked only the envelope
+if (!body?.ok || !Array.isArray(body.accounts)) return null;
+const held = heldEquityFromAccounts(body.accounts);   // {} for a blind acct
+```
+
+`ok` means the bridge answered. It says nothing about whether the broker
+did. From there every single guard downstream is correct and the chain is
+still wrong: `heldQtyFor({}, "SPYU")` is 0 rather than null,
+`adoptBrokerHeldSleeve` defers only on `held == null` so `{}` walks past
+it, `!(0 >= ADOPT_MIN_SHARES)` makes adopt return null, the caller's
+`if (adopted) return adopted;` falls through, `planEntryQty` runs, and the
+catch-up places a duplicate BUY. The `{}` was then cached for the 90-second
+freshness window, so the rest of the heal loops in that window read "the
+broker holds nothing" too.
+
+`positions_stale` had to count as not answering as well. It means the live
+fetch failed and the endpoint degraded to a snapshot up to an hour old —
+good enough to render a page, and able to predate the exact fill being
+guarded against. Deferring costs one tick. Double-buying is real money.
+
+**Test the seam, not the mock.** `index-trend-auto-mirror.test.js` mocks
+`loadBrokerHeldEquity` with `vi.fn(async () => ({}))`, commented "Default:
+nothing, which is the safe to buy case". That comment IS the bug: `{}`
+from a reachable empty broker and `{}` from an unreadable one were the
+same value. No amount of consumer testing finds that, because the mock
+asserts the contract instead of checking it.
+`index-trend-adopt-blind-broker.test.js` mocks only the network, and fails
+on the pre-fix code with "expected vi.fn() to not be called at all, but
+actually been called 1 times".
+
+### An empty result can be a positive claim
+
+`_readOpenClaimRowsForUser` swallowed D1 errors into `[]`. That is not a
+neutral default: it is the only query that sees rejected and suppressed
+re-entries (the reconcile scan filters those states out), and `[]` asserts
+"no other trade owns these shares" — which is what makes a CLOSED row's
+leftover an orphan worth paging about. So a transient D1 error silently
+re-opened DPZ 2026-09-03. `.catch(() => ({ results: [] }))` is fine when
+emptiness is inert and lethal when emptiness is an argument. Now it
+returns null and only the rows that consult the map defer.
+
+### A counter nobody resets is not the counter it claims to be
+
+`AUTO_SUPPRESS_AFTER_DRIFT = 3`, the `auto_suppressed_after_N_drifts`
+reason string, the design doc's "drift count > 3 on same trade", this
+file's own "4 consecutive cycles (20 minutes)" and Mission Control's
+"drift cycle count" tooltip all describe a consecutive run. Nothing reset
+it — only operator unsuppress and adopt-position zeroed the column — so it
+was a lifetime tally, and a row that drifted three times in July would
+auto-suppress on its first drift in September. Worth noting the fix pays a
+second debt for free: the five rows carrying a false 1 from the
+fetch-failure bug spend it on their first clean reconcile, so no migration
+was needed.
+
+### Left alone on purpose
+
+`verifyReducerHoldsPosition` fails OPEN when positions are unreadable — it
+places the TRIM/EXIT and lets the broker reject it. That is deliberate,
+has an env switch (`BROKER_REDUCER_REQUIRE_POSITION`), and errs toward
+selling rather than buying, which is the recoverable direction. Not every
+fail-open is a bug; the question is always which way the money flows.
+
+---
+
 ## Three ways to mistake "I could not see it" for "it is not there" [2026-09-22]
 
 Three inbox complaints in one message — Mothership Orphan emails for

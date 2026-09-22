@@ -608,8 +608,15 @@ export default {
               const res = typeof adapter.getEquityPositions === "function"
                 ? await adapter.getEquityPositions(env, acct).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 200) }))
                 : { ok: false, error: "broker_no_positions_method" };
+              // `response` is IBKR's carrier (callIbkr returns `{ ok,
+              // http_status, response }`), so a SUCCESSFUL IBKR read had no
+              // `.positions` and fell to the else — labelling a good fetch
+              // `positions_unavailable`. Harmless while that read was then
+              // coerced to `[]`; now that callers fail closed on an
+              // unreadable account it would defer an IBKR sleeve forever.
               if (Array.isArray(res)) brokerPositions = res;
               else if (res?.ok && Array.isArray(res.positions)) brokerPositions = res.positions;
+              else if (res?.ok && Array.isArray(res.response)) brokerPositions = res.response;
               else entry.positions_error = res?.error || "positions_unavailable";
               // Prefer options bundled on the equity fetch (one Webull GET).
               // Fall back to a separate getOptionsPositions only when the
@@ -866,6 +873,16 @@ export default {
                   JSON.stringify({ ts: Date.now(), positions }),
                   { expirationTtl: 3600 }).catch(() => {}));
               }
+            } else {
+              // A rate-limited fetch returns ok:false without throwing, so
+              // the catch below never sees it and `positions` stayed null —
+              // the empty loop then reported "this account is flat", which
+              // is a claim about the broker we never got to make.
+              return json({
+                ok: false,
+                error: `positions_unavailable:${String(res?.error || "positions_fetch_failed").slice(0, 120)}`,
+                note: "Could not read this account's positions, so there is nothing to compare against. Try again shortly.",
+              }, 200);
             }
           }
           for (const p of positions || []) {
@@ -3145,8 +3162,17 @@ async function loadOptionsPositionsForGuard(env, user, broker) {
       return { positions: r.positions || [] };
     }
     const r = await IbkrAdapter.getEquityPositions(env, user);
+    // Fail closed like the Webull branch above. A failed IBKR call still
+    // shapes into `rows = []`, which the caller cannot tell from "holds no
+    // contracts" — and this guard decides whether a SELL may proceed.
+    if (r && r.ok === false) {
+      return { positions: null, error: r.error || "ibkr_positions_failed" };
+    }
     const raw = r?.response ?? r?.positions ?? r;
-    const rows = Array.isArray(raw) ? raw : (Array.isArray(raw?.data) ? raw.data : []);
+    if (!Array.isArray(raw) && !Array.isArray(raw?.data)) {
+      return { positions: null, error: "ibkr_positions_unparseable" };
+    }
+    const rows = Array.isArray(raw) ? raw : raw.data;
     return { positions: rows };
   } catch (e) {
     return { positions: null, error: String(e?.message || e).slice(0, 160) };
