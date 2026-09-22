@@ -6,6 +6,13 @@
 //
 // Also: convenience-field heal (thesis / invalidation / stage / notes / DCA)
 // so auto-opened rows never stay null after scores exist (CF 2026-07-15).
+//
+// And peak_price heal — the auto-rebalance SELECT omitted the column for
+// months, so the Math.max high-water mark scored the stored peak as 0 and
+// rewrote it to spot every run. Fixing the query stops the corruption but
+// cannot recover a peak the book already forgot: all 20 OPEN rows were
+// carrying spot (or avg_entry when underwater), understated by up to 10.9%.
+// Daily candles remember, so rebuild from them.
 
 import { replayInvestorLots } from "./investor-lot-ledger.js";
 import { compactInvestorScoreProvenance } from "./investor.js";
@@ -304,5 +311,109 @@ export async function healInvestorPositionConvenience(db, scores = {}, opts = {}
     skipped_count: skipped.length,
     healed,
     skipped: skipped.filter((s) => s.reason !== "already_complete"),
+  };
+}
+
+/** A peak only ever ratchets up — never let a heal walk one back down. */
+export function planInvestorPeakHeal(pos = {}, candleHigh = null) {
+  const stored = Number(pos.peak_price) || 0;
+  const high = Number(candleHigh);
+  if (!Number.isFinite(high) || high <= 0) return null;
+  // avg_entry is the floor the live loop already applies, so a row that has
+  // never traded above its cost still reports a peak instead of a 0.
+  const target = Math.max(high, Number(pos.avg_entry) || 0);
+  if (!(target > stored)) return null;
+  return { peak_price: target, before: stored, after: target };
+}
+
+/**
+ * Rebuild `investor_positions.peak_price` from daily candle highs since each
+ * position's first entry. Idempotent and monotonic: a row already carrying a
+ * peak at or above its true high is left alone, so this is safe on every run
+ * and degrades to a no-op once the book has healed.
+ */
+export async function healInvestorPositionPeaks(db, opts = {}) {
+  const dryRun = opts.dryRun === true;
+  const now = Number(opts.now) || Date.now();
+  const empty = {
+    dryRun, open_count: 0, healed_count: 0, skipped_count: 0, healed: [], skipped: [],
+  };
+  if (!db) return empty;
+
+  const posRes = await db.prepare(
+    `SELECT id, ticker, avg_entry, peak_price, first_entry_ts
+       FROM investor_positions
+      WHERE status = 'OPEN' AND total_shares > 0`,
+  ).all().catch(() => ({ results: [] }));
+  const positions = posRes?.results || [];
+  if (!positions.length) return empty;
+
+  const dated = positions.filter((p) => Number(p.first_entry_ts) > 0);
+  const skipped = positions
+    .filter((p) => !(Number(p.first_entry_ts) > 0))
+    .map((p) => ({ id: p.id, ticker: p.ticker, reason: "no_first_entry_ts" }));
+  if (!dated.length) {
+    return { ...empty, open_count: positions.length, skipped_count: skipped.length, skipped };
+  }
+
+  // One pull covering the whole book: every ticker from the earliest entry
+  // onward, then windowed per position in JS. Each row's own first_entry_ts
+  // still bounds its peak — a ticker re-entered later must not inherit the
+  // high of a previous hold.
+  const tickers = [...new Set(dated.map((p) => String(p.ticker || "").toUpperCase()).filter(Boolean))];
+  const earliest = Math.min(...dated.map((p) => Number(p.first_entry_ts)));
+  const placeholders = tickers.map((_, i) => `?${i + 2}`).join(", ");
+  const candleRes = await db.prepare(
+    `SELECT ticker, ts, h FROM ticker_candles
+      WHERE tf = 'D' AND ts >= ?1 AND ticker IN (${placeholders})`,
+  ).bind(earliest, ...tickers).all().catch(() => ({ results: [] }));
+
+  const barsByTicker = new Map();
+  for (const row of candleRes?.results || []) {
+    const sym = String(row.ticker || "").toUpperCase();
+    const h = Number(row.h);
+    if (!Number.isFinite(h) || h <= 0) continue;
+    if (!barsByTicker.has(sym)) barsByTicker.set(sym, []);
+    barsByTicker.get(sym).push({ ts: Number(row.ts) || 0, h });
+  }
+
+  const healed = [];
+  for (const pos of dated) {
+    const sym = String(pos.ticker || "").toUpperCase();
+    const bars = barsByTicker.get(sym) || [];
+    const entryTs = Number(pos.first_entry_ts);
+    let high = 0;
+    for (const b of bars) {
+      if (b.ts < entryTs) continue;
+      if (b.h > high) high = b.h;
+    }
+    if (!(high > 0)) {
+      skipped.push({ id: pos.id, ticker: sym, reason: "no_candles_since_entry" });
+      continue;
+    }
+    const patch = planInvestorPeakHeal(pos, high);
+    if (!patch) {
+      skipped.push({ id: pos.id, ticker: sym, reason: "already_at_peak" });
+      continue;
+    }
+    healed.push({
+      id: pos.id,
+      ticker: sym,
+      before: round2(patch.before),
+      after: round2(patch.after),
+    });
+    if (dryRun) continue;
+    await db.prepare(
+      `UPDATE investor_positions SET peak_price = ?1, updated_at = ?2 WHERE id = ?3`,
+    ).bind(patch.peak_price, now, pos.id).run();
+  }
+
+  return {
+    dryRun,
+    open_count: positions.length,
+    healed_count: healed.length,
+    skipped_count: skipped.length,
+    healed,
+    skipped: skipped.filter((s) => s.reason !== "already_at_peak"),
   };
 }

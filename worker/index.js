@@ -1241,6 +1241,7 @@ import {
   loadInvestorPositionLotDerived,
   repairInvestorPositionsFromLots,
   healInvestorPositionConvenience,
+  healInvestorPositionPeaks,
   convenienceFieldsFromInvestorScore,
 } from "./investor-positions-repair.js";
 import { replayInvestorLots } from "./investor-lot-ledger.js";
@@ -92903,6 +92904,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             } catch (convErr) {
               console.warn("[INVESTOR COMPUTE] convenience heal failed:", String(convErr?.message || convErr).slice(0, 200));
             }
+
+            // peak_price heal — the rebalance SELECT dropped the column, so
+            // the high-water mark was overwritten with spot on every run and
+            // the whole book forgot its peaks. Rebuilding the query cannot
+            // recover them; daily candle highs can. Monotonic, so this is a
+            // no-op once a row is carrying its real peak.
+            try {
+              const _peakHeal = await healInvestorPositionPeaks(env.DB, { now: _computedAt });
+              if (_peakHeal?.healed_count > 0) {
+                console.log(`[INVESTOR COMPUTE] peak heal: ${_peakHeal.healed_count}/${_peakHeal.open_count} rows`
+                  + ` (${_peakHeal.healed.slice(0, 6).map(h => `${h.ticker} ${h.before}->${h.after}`).join(", ")})`);
+              }
+            } catch (peakErr) {
+              console.warn("[INVESTOR COMPUTE] peak heal failed:", String(peakErr?.message || peakErr).slice(0, 200));
+            }
           }
 
           // Merge investor stages into timed:all:snapshot so Table View investor column is consistent.
@@ -98054,8 +98070,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // the auto-rebalance would try to OPEN A SECOND ROW on every
           // run instead of recognizing it as an existing position to
           // gap-add to.
+          // `peak_price` must be in this SELECT. The MFE-extension lane
+          // advances the high-water mark with
+          // Math.max(pos.peak_price || 0, price, avg_entry) — reading it
+          // off a row that never carried the column made the stored peak
+          // look like 0 every run, so the "high-water mark" was rewritten
+          // to whatever spot happened to be. CF closed 2026-09-21 with
+          // peak_price 125.21 recorded against a real peak of 141.66, and
+          // the trim-into-strength rule it feeds never saw the extension.
           const existingPos = (await env.DB.prepare(
-            "SELECT id, ticker, total_shares, cost_basis, avg_entry, notes, first_entry_ts, thesis, thesis_invalidation FROM investor_positions WHERE status = 'OPEN'"
+            "SELECT id, ticker, total_shares, cost_basis, avg_entry, notes, first_entry_ts, thesis, thesis_invalidation, peak_price FROM investor_positions WHERE status = 'OPEN'"
           ).all())?.results || [];
           const existingByTicker = {};
           let totalInvested = 0;
