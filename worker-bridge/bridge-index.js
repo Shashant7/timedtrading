@@ -608,8 +608,15 @@ export default {
               const res = typeof adapter.getEquityPositions === "function"
                 ? await adapter.getEquityPositions(env, acct).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 200) }))
                 : { ok: false, error: "broker_no_positions_method" };
+              // `response` is IBKR's carrier (callIbkr returns `{ ok,
+              // http_status, response }`), so a SUCCESSFUL IBKR read had no
+              // `.positions` and fell to the else — labelling a good fetch
+              // `positions_unavailable`. Harmless while that read was then
+              // coerced to `[]`; now that callers fail closed on an
+              // unreadable account it would defer an IBKR sleeve forever.
               if (Array.isArray(res)) brokerPositions = res;
               else if (res?.ok && Array.isArray(res.positions)) brokerPositions = res.positions;
+              else if (res?.ok && Array.isArray(res.response)) brokerPositions = res.response;
               else entry.positions_error = res?.error || "positions_unavailable";
               // Prefer options bundled on the equity fetch (one Webull GET).
               // Fall back to a separate getOptionsPositions only when the

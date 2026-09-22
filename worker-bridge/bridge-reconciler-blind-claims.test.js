@@ -191,6 +191,38 @@ describe("a failed open-claim read defers instead of orphaning", () => {
   });
 });
 
+describe("an adapter that carries positions on `response`", () => {
+  it("reads an IBKR-shaped payload instead of calling it unreadable", async () => {
+    // callIbkr returns { ok, http_status, response }. A successful read had
+    // no `.positions`, so the shape guard declared it
+    // equity_positions_missing_from_response — fine while that was then
+    // coerced to an empty list, but now that we fail closed it would defer
+    // an IBKR sleeve forever.
+    const db = makeDb({ rows: [row("TQQQ", 4.58644)] });
+    const stats = await reconcileUser({ BRIDGE_DB: db }, USER, {
+      getEquityPositions: async () => ({
+        ok: true,
+        http_status: 200,
+        response: [{ ticker: "TQQQ", qty: 4.58644, avgCost: 70.34 }],
+      }),
+    });
+
+    expect(stats.rows_in_sync).toBe(1);
+    expect(stats.rows_reconcile_error).toBeUndefined();
+    expect(statesByTrade(db).get("TQQQ-1789481038069-abc")).toBe("in_sync");
+  });
+
+  it("still fails closed when `ok` carries no array at all", async () => {
+    const db = makeDb({ rows: [row("TQQQ", 4.58644)] });
+    const stats = await reconcileUser({ BRIDGE_DB: db }, USER, {
+      getEquityPositions: async () => ({ ok: true, response: "<html>maintenance</html>" }),
+    });
+
+    expect(stats.rows_reconcile_error).toBe(1);
+    expect(stats.fetch_error).toContain("equity_positions_missing_from_response");
+  });
+});
+
 describe("sync_drift_count is a consecutive run, not a lifetime tally", () => {
   const IN_SYNC_BROKER = brokerHolding([{ ticker: "TQQQ", qty: 4.58644, avgCost: 70.34 }]);
   const FLAT_BROKER = brokerHolding([]);
