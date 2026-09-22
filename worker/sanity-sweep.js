@@ -724,13 +724,50 @@ const checkAlertDelivery = timed(async function checkAlertDelivery(env, ctx) {
 // 2026-09-11 — Do not treat expected broker rejects as a bindings outage:
 // already-flat `no_broker_position`, and ETH "only limit orders" (the
 // healer must not fire overnight market sells to "fix" those).
+// 2026-09-22 — This list had drifted far behind the rest of the repo. A
+// reject the intent drain and mirror coverage both call TERMINAL was still
+// counted here as an unresolved mirror failure, so the sweep paged for
+// conditions no retry could ever clear.
+
+/**
+ * Rejects that are the broker correctly declining an order we should never
+ * have sent, or a state no retry can change. They are not bindings failures.
+ *
+ * `no_manifest_for_trade` is already `/no_manifest/i`-terminal in both
+ * `mirror-coverage.js` (TERMINAL_EXIT_RE) and `broker-intents.js`
+ * (TERMINAL_PATTERNS), and the operator copy in `broker-connections.html`
+ * reads "This trade never opened on the broker — nothing to sell". Only
+ * this check disagreed, so JD's 2026-09-22 exit counted toward the density
+ * threshold while every other lane had already retired it.
+ *
+ * The min-notional message is Webull declining sub-cent dust: DPZ carried
+ * 1e-05 sh (~$0.004 against a ~$400 print) and was re-offered every few
+ * hours from 09-16 to 09-22, failing identically each time. The dispatch
+ * loop itself is fixed in `trader-exit-catchup.js`; this keeps the rows
+ * already in the ring from paging for the six hours they stay in-window.
+ */
+const EXPECTED_BRIDGE_REJECTS = [
+  // Nothing at the broker to act on.
+  "no_broker_position",
+  "no_manifest",
+  "already_flat",
+  "nothing_to_sell",
+  "position_flat",
+  "position_zero",
+  "qty_zero",
+  "no_mirrored_entry",
+  // Session shape, not a binding fault — the healer must not fire overnight
+  // market sells to "fix" these.
+  "only limit orders are supported for extended-hours",
+  // Dust below what the broker will transact. Not retryable at any size.
+  "minimum notional",
+  "below_min_notional",
+];
 
 export function isExpectedBridgeReject(row) {
   const reason = String(row?.reject_reason || row?.error || "").toLowerCase();
   if (!reason) return false;
-  if (reason.includes("no_broker_position")) return true;
-  if (reason.includes("only limit orders are supported for extended-hours")) return true;
-  return false;
+  return EXPECTED_BRIDGE_REJECTS.some((frag) => reason.includes(frag));
 }
 
 export function isSupersededBridgeReject(row, ring = []) {
