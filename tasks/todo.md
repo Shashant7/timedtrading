@@ -21,6 +21,21 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Cleared the four open Sanity Sweep incidents (2026-09-22).** Three
+      were the sweep misreading a healthy system. `ringScaleShortfall`
+      compared the bridge's account-sized fill against the MODEL qty, so
+      every mirrored order looked partial (62 of 200 live ring rows,
+      all with a null reason, ratios stable per ticker) — it now needs a
+      cap the bridge NAMED. `isExpectedBridgeReject` knew two substrings
+      while two other modules had already made `no_manifest` terminal.
+      `healUnknownSectorMapKeys` read a missing KV key as an Unknown
+      overlay and "deleted" 106 keys that were never there, every sweep —
+      the reported list was exactly the 106 tickers with no overlay. The
+      fourth was real: Webull's submit throttle looked terminal to
+      `classifyBridgeOutcome`, so MU's trim was retired instead of
+      retried and the broker kept the shares; it is transient now. Also
+      stopped the DPZ 1e-05 sh exit that catch-up had re-offered hourly
+      since 09-16 — a share epsilon cannot express a $0.01 notional floor.
 - [x] **Re-delivered the blind-read fixes that a stacked merge stranded
       (2026-09-22).** PR #1479 targeted PR #1478's branch, and #1478
       merged that branch into `main` nineteen minutes before #1479 merged

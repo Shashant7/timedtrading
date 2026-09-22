@@ -6,6 +6,146 @@
 
 ---
 
+## Four sweep incidents, three of them the sweep's own fault [2026-09-22]
+
+The 09:04 Sanity Sweep read "1 fails · 3 warns · 4 open". Taken at face
+value that is a broker integration coming apart. Replaying the sweep's
+own live inputs — the 200-row `bridge:client:recent` ring, `timed:tickers`,
+and the `timed:sector_map:*` keyspace, all pulled from production —
+showed three of the four incidents were the checks misreading a system
+that was working, and the fourth was real but classified so that it could
+never heal.
+
+### 1. `model_broker_coverage` (the FAIL): sized correctly, reported as partial
+
+`ringScaleShortfall` flagged NBIS 3-of-9.98, P 3-of-13.30 and MSFT
+3-of-10.09 as "mirrored only in part". Its docblock explained why that was
+supposed to be safe:
+
+> Deliberately keyed off the ring row's own requested-vs-accepted pair and
+> NOT off the model's book qty. [...] Every successful order in the live
+> ring is already account-sized [...] so a reduction recorded HERE means an
+> account-fit cap actually bit.
+
+The premise is false, and `bridge-index.js` says so at the `accepted_qty`
+stamp it reads from:
+
+> `scaling` alone is not enough: relational sizing (equity/model-book
+> ratio) mutates payload.qty WITHOUT setting scalingMeta, and the Webull
+> whole-share retry re-places at _wholeQty, so both reduce the order while
+> `scaling` stays null.
+
+The ring records the MODEL qty; the bridge sizes to the account after the
+fact. So `accepted < requested` is the normal condition of a mirrored
+order, not an exception — **62 of the 200 rows in the live ring were
+scaled, and all 200 had a null reason**. The ratios are the tell: stable
+per ticker across days (MU 0.245 on 09-17, 09-18 and 09-22; EXEL 0.159 on
+all three; CF ~0.30-0.35), which is what a proportion looks like. A
+ceiling that "bit" would move around with price and position size.
+
+`bridge_scale_reason` already discriminates: the per-order notional, cash
+and concentration caps each name themselves in `scaling.reason`,
+relational sizing leaves it null. Gate on a named cap.
+
+### 2. `broker_bridge_bindings`: terminal everywhere except where it paged
+
+`isExpectedBridgeReject` carried two substrings (`no_broker_position`,
+the ETH limit-order message) and had not kept up. JD's exit rejected
+`no_manifest_for_trade`, which is `/no_manifest/i`-terminal in BOTH
+`mirror-coverage.js` (`TERMINAL_EXIT_RE`) and `broker-intents.js`
+(`TERMINAL_PATTERNS`), and which `broker-connections.html` shows the
+operator as "This trade never opened on the broker — nothing to sell".
+Every lane had retired it except the one sending mail.
+
+When several modules each keep a private list of "rejects that mean stop",
+they drift, and the one that drifts is the one you hear from.
+
+### 3. `registry_alignment`: deleting ~100 keys that were never there
+
+`healUnknownSectorMapKeys` did this:
+
+```js
+value = await kv.get(key, "text");
+if (!isUnknownSector(value)) continue;
+await kv.delete(key);
+healed.push(t);
+```
+
+`isUnknownSector(null)` is **true** — correctly, since a blank label is not
+a sector. But `kv.get` also returns null for "no such key", and the sector
+overlay is OPTIONAL (SECTOR_MAP in code is the source of truth). So every
+ticker without an overlay read as a ticker WITH an Unknown overlay, took a
+real `kv.delete` against nothing, and was reported as healed — forever,
+because deleting a key that does not exist does not make it exist less.
+
+The live numbers settle it: 329 tickers in `timed:tickers`, 224 overlay
+keys exist, **106 tickers have no key — and the sweep reported exactly
+those 106**. Of 100 overlays that do exist, zero hold an Unknown value.
+100% phantom, plus 106 wasted KV writes per sweep.
+
+This is the same shape as the reconciler's blind reads two days earlier
+(`_readOpenClaimRowsForUser` returning `[]`, `loadBrokerHeldEquity`
+returning `{}`): **absence read as a value**. Worth grepping for
+`kv.get(...)` feeding any predicate that treats null as meaningful.
+
+### 4. DPZ: a share epsilon cannot express a notional floor
+
+`EXIT_CATCHUP_FLAT_EPSILON = 1e-6` is a share count. The broker's floor is
+"$0.01 minimum notional on a fractional sell". The two only agree by
+accident, and for DPZ they did not: its 09-15 exit finished holding
+**1e-05 sh**, ten times the epsilon and four tenths of a cent against a
+~$400 print. Trader exit catch-up therefore re-offered it every hour from
+09-16 to 09-22, collecting the identical Webull rejection on each RTH pass
+and writing a `fractional_trim_deferred_to_rth` skip each night. Six days,
+zero chance of success at any point.
+
+Fixed by pricing the residual before dispatch — the exit-ledger price when
+there is one, otherwise the broker's own `avg_cost` (cost basis is not a
+quote, but the question is only "is this worth a cent?"). An unknown price
+is explicitly NOT dust: without one the share epsilon still decides, so a
+missing quote can never strand a real exit.
+
+### 5. MU: the real one, filed as unfixable
+
+`Please do not place an order repeatedly` is Webull's
+`OAUTH_OPENAPI_TRADE_PLACE_ORDER_REPEAT`. It reads like "you already sent
+this", so it looks terminal. It is not — it is a rate limit on submission,
+and the ring proves it: on 09-18 the investor trim batch collected it on
+**eight different tickers inside twenty seconds** (KO, NVDA, PLTR, CF,
+LLY, EXEL, AMZN, GS), and on the next pass all eight placed at the same
+quantities. Eight tickers in twenty seconds cannot all be duplicates;
+nothing had reached the broker.
+
+`classifyBridgeOutcome` did not recognise the text, so it fell past the
+terminal and transient patterns to the 2xx rule:
+
+```js
+// 2xx + ok:false with no skip/reject (reason stored as http_200) will not
+// heal on retry. */5 drain was re-firing and Discord-spamming (BG EXIT).
+if (http >= 200 && http < 300) return "terminal";
+```
+
+That rule is right for a BARE 200 and wrong for a named transient carried
+inside one. The intent was retired, so MU's trim was never retried: the
+model had trimmed and the broker still held the shares. LITE hit the same
+throttle 40 minutes earlier and recovered only because a different lane
+happened to re-derive it.
+
+Note this is why `investor_signal_bridge_coverage` also fired on MU — that
+warning was **true** and should not be suppressed. It clears when the
+retry lands.
+
+### The through-line
+
+Three of these four are a check asserting something it had no evidence
+for: that a reduction implies a cap, that a null implies a value, that a
+share count implies a price. Before trusting an alert, replay it against
+the data it actually read — the BEFORE column of
+`sanity_sweep_incidents_replay.log` reproduces the Slack text verbatim
+from production inputs, which is what made each premise falsifiable.
+
+---
+
 ## A merged stacked PR delivered nothing [2026-09-22]
 
 Asked "is everything fixed and deployed?", the honest check is ancestry
