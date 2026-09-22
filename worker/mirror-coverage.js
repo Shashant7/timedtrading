@@ -259,13 +259,17 @@ export function classifyActionCoverage(action, {
         order_id: orderId,
       };
     }
-    // A place that only took part of the sleeve is not a clean mirror. The
-    // bridge scales a buy to fit the account (concentration ceiling, cash
-    // buffer, per-order cap), so on 2026-09-15 TNA W37 and UDOW W38 each
-    // went out for 31 / 28 shares and were placed as 5 — and this returned
-    // "mirrored" with no qualifier, which is the one thing the operator
-    // reads to decide whether a signal reached the broker. Report it so a
-    // 16%-filled sleeve is visible instead of green.
+    // A place a CAP cut down is not a clean mirror: on 2026-09-15 TNA W37
+    // and UDOW W38 went out for 31 / 28 shares, the concentration ceiling
+    // on a $14.8k Roth placed 5, and this returned "mirrored" with no
+    // qualifier — the one thing the operator reads to decide whether a
+    // signal reached the broker. Report those so a 16%-filled sleeve is
+    // visible instead of green.
+    //
+    // Routine relational sizing is NOT a shortfall (see ringScaleShortfall),
+    // and either way `broker_qty` above is already `ringQty`'s accepted
+    // number, so the sleeve is recorded at what the broker took. The only
+    // question here is whether it is worth an operator's attention.
     const shortfall = ringScaleShortfall(lastPlaced);
     if (shortfall) {
       return {
