@@ -1241,6 +1241,7 @@ import {
   loadInvestorPositionLotDerived,
   repairInvestorPositionsFromLots,
   healInvestorPositionConvenience,
+  healInvestorPositionPeaks,
   convenienceFieldsFromInvestorScore,
 } from "./investor-positions-repair.js";
 import { replayInvestorLots } from "./investor-lot-ledger.js";
@@ -92902,6 +92903,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
             } catch (convErr) {
               console.warn("[INVESTOR COMPUTE] convenience heal failed:", String(convErr?.message || convErr).slice(0, 200));
+            }
+
+            // peak_price heal — the rebalance SELECT dropped the column, so
+            // the high-water mark was overwritten with spot on every run and
+            // the whole book forgot its peaks. Rebuilding the query cannot
+            // recover them; daily candle highs can. Monotonic, so this is a
+            // no-op once a row is carrying its real peak.
+            try {
+              const _peakHeal = await healInvestorPositionPeaks(env.DB, { now: _computedAt });
+              if (_peakHeal?.healed_count > 0) {
+                console.log(`[INVESTOR COMPUTE] peak heal: ${_peakHeal.healed_count}/${_peakHeal.open_count} rows`
+                  + ` (${_peakHeal.healed.slice(0, 6).map(h => `${h.ticker} ${h.before}->${h.after}`).join(", ")})`);
+              }
+            } catch (peakErr) {
+              console.warn("[INVESTOR COMPUTE] peak heal failed:", String(peakErr?.message || peakErr).slice(0, 200));
             }
           }
 
