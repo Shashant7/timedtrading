@@ -45,7 +45,11 @@
       the stored peak as 0 and rewrote it to spot every run. All 20 open
       Long Term rows carried a fake peak. CF ran +22.2% and closed +5.07%
       with `peak_price` 125.21 against a real 141.66.
-      `worker/investor-peak-price-contract.test.js` guards the query.
+      `worker/investor-peak-price-contract.test.js` guards the query, and
+      `healInvestorPositionPeaks` rebuilds the stored peaks from daily
+      candle highs since each row's own `first_entry_ts` — a `Math.max`
+      can only ratchet up from a fake value, so the query fix alone would
+      have left all 17 understated. 17 of 17 candled rows recover.
       Follow-ups NOT taken (policy, needs the learning loop): the MFE
       extension trim is one-shot per position, and the monthly DCA does
       not know a de-risking lane just sold — CF trimmed 11.78 sh @ 128.98

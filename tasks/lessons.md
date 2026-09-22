@@ -167,6 +167,21 @@ and the reader here sit ~1,000 lines apart inside the auto-rebalance
 cron, which is why `worker/investor-peak-price-contract.test.js` is a
 source contract rather than a behavioural test.
 
+**And fixing the writer is not fixing the data** — the same trap as the
+09-15 `instrument_type` reclassify. Putting `peak_price` back in the
+SELECT stops the overwrite, but a `Math.max` can only ratchet *up* from
+whatever it finds, so WTS would have sat at 351.41 forever while its real
+high of 394.54 receded. Daily candles still remember, so
+`healInvestorPositionPeaks` rebuilds each OPEN row from `MAX(h)` since
+**its own** `first_entry_ts` — not the ticker's, or a re-entered position
+inherits the high of a hold that already closed — floors at `avg_entry`
+so an underwater row reports a peak instead of a 0, and only ever raises.
+Monotonic means it is safe on every investor compute and settles to a
+no-op, which is what makes it a heal rather than a migration someone has
+to remember to run. Dry run: 17 of 17 candled rows recovered (WTS
++12.3%, IWM +6.8%, LLY +6.3%); the three opened 09-21 have no bar yet and
+skip as `no_candles_since_entry`.
+
 Still open after this (deliberately not changed here — they alter live
 trading behaviour and belong on the learning bus, not in a silent edit):
 
