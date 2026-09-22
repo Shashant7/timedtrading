@@ -6,6 +6,100 @@
 
 ---
 
+## Auditing a bug shape finds the expensive instance [2026-09-22]
+
+Having fixed the reconciler's "failed fetch reads as flat broker", the
+obvious next move was to ask where else that shape lived in the broker
+path. Five more, and the worst one spends money rather than sending email.
+
+### The module written to prevent the bug had the bug
+
+`worker/broker-held-equity.js` exists for one reason. SPYU W38 dispatched
+at 13:50:52Z, the isolate died before the response landed, and every
+model-side record said "never attempted" while the broker said "you own 9
+shares". Positions are the one record the broker writes rather than us, so
+they are the tiebreaker. The docblock is explicit:
+
+> Returns null — never `{}` — when the broker could not be reached, so a
+> caller can tell "holds nothing" from "do not know". Guarding money on an
+> unknown must fail closed, and `{}` reads as "holds nothing".
+
+It returned `{}`. The reason is that `/bridge/positions` reports success
+**per account**, not per request:
+
+```js
+// bridge-index.js — per account
+else entry.positions_error = res?.error || "positions_unavailable";
+...
+if (brokerPositions === null) brokerPositions = [];   // <- items become []
+// and the handler still answers { ok: true, accounts: [...] }
+```
+
+```js
+// broker-held-equity.js — checked only the envelope
+if (!body?.ok || !Array.isArray(body.accounts)) return null;
+const held = heldEquityFromAccounts(body.accounts);   // {} for a blind acct
+```
+
+`ok` means the bridge answered. It says nothing about whether the broker
+did. From there every single guard downstream is correct and the chain is
+still wrong: `heldQtyFor({}, "SPYU")` is 0 rather than null,
+`adoptBrokerHeldSleeve` defers only on `held == null` so `{}` walks past
+it, `!(0 >= ADOPT_MIN_SHARES)` makes adopt return null, the caller's
+`if (adopted) return adopted;` falls through, `planEntryQty` runs, and the
+catch-up places a duplicate BUY. The `{}` was then cached for the 90-second
+freshness window, so the rest of the heal loops in that window read "the
+broker holds nothing" too.
+
+`positions_stale` had to count as not answering as well. It means the live
+fetch failed and the endpoint degraded to a snapshot up to an hour old —
+good enough to render a page, and able to predate the exact fill being
+guarded against. Deferring costs one tick. Double-buying is real money.
+
+**Test the seam, not the mock.** `index-trend-auto-mirror.test.js` mocks
+`loadBrokerHeldEquity` with `vi.fn(async () => ({}))`, commented "Default:
+nothing, which is the safe to buy case". That comment IS the bug: `{}`
+from a reachable empty broker and `{}` from an unreadable one were the
+same value. No amount of consumer testing finds that, because the mock
+asserts the contract instead of checking it.
+`index-trend-adopt-blind-broker.test.js` mocks only the network, and fails
+on the pre-fix code with "expected vi.fn() to not be called at all, but
+actually been called 1 times".
+
+### An empty result can be a positive claim
+
+`_readOpenClaimRowsForUser` swallowed D1 errors into `[]`. That is not a
+neutral default: it is the only query that sees rejected and suppressed
+re-entries (the reconcile scan filters those states out), and `[]` asserts
+"no other trade owns these shares" — which is what makes a CLOSED row's
+leftover an orphan worth paging about. So a transient D1 error silently
+re-opened DPZ 2026-09-03. `.catch(() => ({ results: [] }))` is fine when
+emptiness is inert and lethal when emptiness is an argument. Now it
+returns null and only the rows that consult the map defer.
+
+### A counter nobody resets is not the counter it claims to be
+
+`AUTO_SUPPRESS_AFTER_DRIFT = 3`, the `auto_suppressed_after_N_drifts`
+reason string, the design doc's "drift count > 3 on same trade", this
+file's own "4 consecutive cycles (20 minutes)" and Mission Control's
+"drift cycle count" tooltip all describe a consecutive run. Nothing reset
+it — only operator unsuppress and adopt-position zeroed the column — so it
+was a lifetime tally, and a row that drifted three times in July would
+auto-suppress on its first drift in September. Worth noting the fix pays a
+second debt for free: the five rows carrying a false 1 from the
+fetch-failure bug spend it on their first clean reconcile, so no migration
+was needed.
+
+### Left alone on purpose
+
+`verifyReducerHoldsPosition` fails OPEN when positions are unreadable — it
+places the TRIM/EXIT and lets the broker reject it. That is deliberate,
+has an env switch (`BROKER_REDUCER_REQUIRE_POSITION`), and errs toward
+selling rather than buying, which is the recoverable direction. Not every
+fail-open is a bug; the question is always which way the money flows.
+
+---
+
 ## Three ways to mistake "I could not see it" for "it is not there" [2026-09-22]
 
 Three inbox complaints in one message — Mothership Orphan emails for

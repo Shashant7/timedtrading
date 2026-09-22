@@ -21,6 +21,28 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Audited the rest of the broker path for the same shape and found
+      the expensive one (2026-09-22).** `loadBrokerHeldEquity` is the
+      module written to prevent SPYU W38 and its docblock promises "null
+      — never `{}` — when the broker could not be reached"; it returned
+      `{}`, because `/bridge/positions` reports success PER ACCOUNT and
+      `ok` only means the bridge answered. A rate-limited read therefore
+      told the index-trend catch-up the Roth was flat and it placed a
+      duplicate BUY. `positions_stale` counts as not answering too (an
+      hour-old snapshot can predate the fill being guarded against), and
+      the unknown is no longer cached. Also: a failed claim read returned
+      `[]`, which asserts "nobody owns these shares" and re-opened the
+      DPZ false orphan; `sync_drift_count` never reset despite every doc
+      calling it a consecutive run; adopt-position reported an unread
+      account as "flat in the ticker"; the IBKR options guard did not
+      fail closed like the Webull one; and `response` (IBKR's carrier)
+      was not read, which the fail-closed change would have turned into
+      a permanent deferral. Left alone: `verifyReducerHoldsPosition`
+      fails open by design, and errs toward selling.
+      `index-trend-adopt-blind-broker.test.js` mocks only the network —
+      the existing suite mocked `loadBrokerHeldEquity` as
+      `async () => ({})` and called it "the safe to buy case", which was
+      the wrong assumption itself.
 - [x] **Three inbox complaints, one shape: an unread value treated as a
       measured one (2026-09-22).** (a) Mothership Orphan pages for TQQQ /
       UDOW / TNA / NBIS / P, all five held in the Roth and `in_sync`. The
