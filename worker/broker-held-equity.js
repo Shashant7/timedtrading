@@ -61,6 +61,37 @@ async function getBridgeJson(env, path) {
 }
 
 /**
+ * Did every mirror-enabled account actually answer with its positions?
+ *
+ * `/bridge/positions` reports per-account success, not per-request: a
+ * rate-limited or throwing `getEquityPositions` sets `positions_error` on
+ * that account, coerces its positions to `[]` (`if (brokerPositions ===
+ * null) brokerPositions = []`), and STILL returns `{ ok: true, accounts:
+ * [...] }` overall — the envelope is about the bridge being reachable, not
+ * about the broker having answered. Summing `items` across those accounts
+ * yields `{}`, which is the one value this module promises never to
+ * return.
+ *
+ * `positions_stale` counts as not answering too. It means the live fetch
+ * failed and the endpoint degraded to a snapshot up to an hour old. For
+ * rendering a page an aged number beats an error, but this module exists
+ * to guard money against records that say "never attempted" while the
+ * broker says "you own 9 shares" — and a snapshot taken before the fill
+ * says exactly that. Deferring costs one tick; double-buying is real
+ * money and cannot be undone.
+ */
+export function heldAccountsAnswered(accounts = []) {
+  const blind = [];
+  for (const acct of accounts || []) {
+    if (acct?.mirror_enabled !== true) continue;
+    const reason = acct?.positions_error
+      || (acct?.positions_stale ? (acct?.positions_stale_reason || "positions_stale") : null);
+    if (reason) blind.push({ account: String(acct?.account_id || acct?.label || "?"), reason: String(reason) });
+  }
+  return { ok: blind.length === 0, blind };
+}
+
+/**
  * Held equity per ticker for the owner's mirror-enabled accounts.
  *
  * Returns null — never `{}` — when the broker could not be reached, so a
@@ -89,6 +120,16 @@ export async function loadBrokerHeldEquity(env, { owner, nowMs = Date.now(), ref
     return null;
   }
   if (!body?.ok || !Array.isArray(body.accounts)) return null;
+  const answered = heldAccountsAnswered(body.accounts);
+  if (!answered.ok) {
+    // Unknown, so return unknown — and do NOT cache it. Caching `{}` for
+    // the 90s freshness window would keep every heal loop reading "the
+    // broker holds nothing" long after the broker started answering.
+    console.warn("[HELD-EQUITY] positions unavailable for "
+      + `${answered.blind.length} mirror-enabled account(s): `
+      + answered.blind.map(b => `${b.account}=${b.reason}`).join(", ").slice(0, 300));
+    return null;
+  }
   const held = heldEquityFromAccounts(body.accounts);
   if (KV) {
     try {
