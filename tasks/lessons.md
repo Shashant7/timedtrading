@@ -6,6 +6,59 @@
 
 ---
 
+## A merged stacked PR delivered nothing [2026-09-22]
+
+Asked "is everything fixed and deployed?", the honest check is ancestry
+on `origin/main`, not PR state. It found a miss.
+
+The five blind-read fixes shipped as PR #1479, opened against
+`cursor/mirror-sync-false-orphans-7ffc` (PR #1478's branch) because they
+built on that work. The timeline:
+
+| time (UTC) | event |
+|---|---|
+| 12:53 | #1478 merges `cursor/mirror-sync-false-orphans-7ffc` -> `main` (f9b004053); all four worker deploys go green |
+| 13:12 | #1479 merges `cursor/failed-read-followups-7ffc` -> `cursor/mirror-sync-false-orphans-7ffc` (cc69037d7) |
+
+Both PRs read `state: MERGED`. Both had green CI. The base branch tip
+carried all five commits. And `main` had none of them, because the base
+branch stopped being a route to `main` nineteen minutes before the merge
+into it. Nothing failed; the delivery just terminated in a cul-de-sac.
+
+Two things to keep:
+
+1. **Confirm a deploy by ancestry, not by PR state.**
+ `git merge-base --is-ancestor <sha> origin/main` is the only answer
+ that means "this code is running". `gh pr view` cannot distinguish a
+ merge into `main` from a merge into a spent branch, and the deploy
+ workflows key off pushes to `main`, so their absence is silent — there
+ is no failed run to notice, just no run at all.
+
+2. **`check-branch-merge-state.sh` was blind to this by construction.**
+ It asked "does THIS branch have an already-merged PR?" — written for
+ the 2026-08-12 / 08-18 misses, where the agent pushed new commits to a
+ branch it had already landed. Here the head branch was clean and its PR
+ was open and healthy right up until it landed nowhere; the rot was one
+ level up, in the base. It now also checks the base of any OPEN PR from
+ this branch and exits 3 when that base's own PR has already merged.
+ Verified against a stubbed `gh` reproducing the exact 09-22 state, and
+ verified silent for a PR based on `main`, a PR based on a still-open
+ branch, and a branch with no PR.
+
+Recovery was a clean cherry-pick of `2591fb542^..8d2ad0d50` onto
+`origin/main` — the stack's parent commit was already an ancestor, so
+the range applied without conflict and diffed byte-identical to the
+stranded branch across `worker/`, `worker-bridge/`, `CONTEXT.md` and
+`tasks/`. Prefer basing on `main` unless a stack genuinely needs the
+parent's code to compile; the review convenience is not worth a delivery
+path that can expire underneath it.
+
+Also, separately: `git checkout -- <path>` to undo a test fixture threw
+away uncommitted edits to that same file. Commit before running a test
+that restores paths, or copy the file aside.
+
+---
+
 ## Auditing a bug shape finds the expensive instance [2026-09-22]
 
 Having fixed the reconciler's "failed fetch reads as flat broker", the

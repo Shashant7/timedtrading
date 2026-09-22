@@ -21,6 +21,17 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Re-delivered the blind-read fixes that a stacked merge stranded
+      (2026-09-22).** PR #1479 targeted PR #1478's branch, and #1478
+      merged that branch into `main` nineteen minutes before #1479 merged
+      into it — so GitHub said MERGED, CI was green, the branch tip held
+      every commit, and `main` had none of the five fixes. Only
+      `git merge-base --is-ancestor <sha> origin/main` shows this; PR
+      state cannot, and the deploy workflows never ran so there was no
+      failure to notice. Cherry-picked onto `main` (byte-identical to the
+      stranded branch) and taught `check-branch-merge-state.sh` to refuse
+      (exit 3) when an OPEN PR from the branch targets a base whose own
+      PR has already merged. Confirm deploys by ancestry, not PR state.
 - [x] **Audited the rest of the broker path for the same shape and found
       the expensive one (2026-09-22).** `loadBrokerHeldEquity` is the
       module written to prevent SPYU W38 and its docblock promises "null
