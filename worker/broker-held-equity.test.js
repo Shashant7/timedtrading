@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   heldEquityFromAccounts,
+  heldAccountsAnswered,
   heldQtyFor,
   loadBrokerHeldEquity,
   loadBrokerSleeves,
@@ -84,6 +85,36 @@ describe("heldEquityFromAccounts", () => {
   });
 });
 
+describe("heldAccountsAnswered", () => {
+  it("passes a clean payload", () => {
+    expect(heldAccountsAnswered(LIVE_ACCOUNTS)).toEqual({ ok: true, blind: [] });
+  });
+
+  it("flags a mirror-enabled account that errored or went stale", () => {
+    const err = heldAccountsAnswered([{ account_id: "roth", mirror_enabled: true, positions_error: "429" }]);
+    expect(err.ok).toBe(false);
+    expect(err.blind).toEqual([{ account: "roth", reason: "429" }]);
+
+    const stale = heldAccountsAnswered([{ account_id: "roth", mirror_enabled: true, positions_stale: true }]);
+    expect(stale.ok).toBe(false);
+    expect(stale.blind[0].reason).toBe("positions_stale");
+  });
+
+  it("ignores accounts the mirror never trades", () => {
+    expect(heldAccountsAnswered([
+      { account_id: "margin", mirror_enabled: false, positions_error: "429" },
+    ]).ok).toBe(true);
+  });
+
+  it("treats a cached-but-fresh account as answered", () => {
+    // positions_cached without positions_stale is a <60s snapshot the
+    // endpoint served deliberately. That is a real measurement.
+    expect(heldAccountsAnswered([
+      { account_id: "roth", mirror_enabled: true, positions_cached: true, items: [] },
+    ]).ok).toBe(true);
+  });
+});
+
 describe("heldQtyFor", () => {
   // The difference between "holds nothing" and "could not ask" is the
   // difference between a safe buy and a double buy.
@@ -111,6 +142,74 @@ describe("loadBrokerHeldEquity", () => {
     const env = envWithStore();
     global.fetch = vi.fn(async () => new Response(JSON.stringify({ ok: false, error: "nope" })));
     expect(await loadBrokerHeldEquity(env, { owner: "op@x.com" })).toBe(null);
+  });
+
+  // 2026-09-22 — the envelope is about the BRIDGE being reachable, not the
+  // BROKER having answered. /bridge/positions sets positions_error on the
+  // account, coerces its positions to [], and still returns ok:true. Summing
+  // items over that gives {}, and heldQtyFor({}, "SPYU") is 0 — so a
+  // rate-limited Webull read told the index-trend catch-up that the Roth was
+  // flat, which is precisely the SPYU W38 double buy this module exists to
+  // prevent.
+  it("returns null when a mirror-enabled account could not be read", async () => {
+    const env = envWithStore();
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      accounts: [{
+        account_id: "op@x.com#webull#roth-ira",
+        mirror_enabled: true,
+        positions_error: "Too many requests",
+        items: [],
+      }],
+    })));
+    expect(await loadBrokerHeldEquity(env, { owner: "op@x.com" })).toBe(null);
+  });
+
+  it("returns null when the endpoint degraded to a stale snapshot", async () => {
+    // A snapshot up to an hour old can predate the very fill we are
+    // guarding against. Good enough to render, not good enough to buy on.
+    const env = envWithStore();
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      accounts: [{
+        account_id: "op@x.com#webull#roth-ira",
+        mirror_enabled: true,
+        positions_stale: true,
+        positions_stale_reason: "Too many requests",
+        items: [{ ticker: "TQQQ", instrument: "equity", broker_qty: 4.58644 }],
+      }],
+    })));
+    expect(await loadBrokerHeldEquity(env, { owner: "op@x.com" })).toBe(null);
+  });
+
+  it("does not cache an unknown, so the next tick can see a healthy broker", async () => {
+    const env = envWithStore();
+    const now = 1_700_000_000_000;
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      accounts: [{ account_id: "a", mirror_enabled: true, positions_error: "rate limited", items: [] }],
+    })));
+    expect(await loadBrokerHeldEquity(env, { owner: "op@x.com", nowMs: now })).toBe(null);
+    expect(env.store["timed:broker:held-equity"]).toBeUndefined();
+
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ ok: true, accounts: LIVE_ACCOUNTS })));
+    const healthy = await loadBrokerHeldEquity(env, { owner: "op@x.com", nowMs: now + 1000 });
+    expect(healthy.SPYU.qty).toBe(9);
+  });
+
+  it("still answers when only a non-mirrored account failed", async () => {
+    // The mirror never trades those accounts, so their holdings are not
+    // ours and their outages are not ours either.
+    const env = envWithStore();
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      accounts: [
+        { account_id: "margin", mirror_enabled: false, positions_error: "boom", items: [] },
+        ...LIVE_ACCOUNTS.filter(a => a.mirror_enabled),
+      ],
+    })));
+    const held = await loadBrokerHeldEquity(env, { owner: "op@x.com" });
+    expect(held.SPYU.qty).toBe(9);
   });
 
   it("serves a fresh cache without calling the broker again", async () => {
