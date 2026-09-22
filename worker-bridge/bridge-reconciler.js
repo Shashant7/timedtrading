@@ -204,6 +204,57 @@ export function pendingReducerAudit(row, nowMs = Date.now()) {
 }
 
 /**
+ * Shares a DIFFERENT manifest row is selling right now out of the same
+ * broker account and ticker.
+ *
+ * The broker reports one position per ticker, not one per model lot, so
+ * every row on an account reads the same number. `pendingReducerAudit`
+ * already knows that a just-placed TRIM/EXIT makes a row's own expected
+ * qty stale — but it only ever asked the row that OWNS the reducer. A
+ * sibling lot on the same ticker has no audit of its own, keeps the
+ * pre-sale account total as its expected, and reads the sibling's sale
+ * as its own shortfall.
+ *
+ * HOOD 2026-09-22: two investor rows on one Webull account. The old lot
+ * (CLOSED, suppressed, 0.69144 residual) exited at 19:07; its audit
+ * recorded pre_held 16 -> expected_post 15.30856. The open lot's expected
+ * was that same 16, so the 19:31 pass reported "partial: broker 15.30856
+ * < expected 16 (diff 0.69)" and emailed — 0.69144 being, to five
+ * decimals, exactly what the other row had just sold. Nothing was wrong;
+ * three hours later it converged to 15.30856 on its own.
+ *
+ * Note this deliberately spans suppressed and CLOSED rows: the seller in
+ * that incident was both, so neither the reconcile scan nor the OPEN
+ * claim map could see it.
+ */
+export function siblingReducerInFlightQty(row, siblings, nowMs = Date.now()) {
+  const ticker = String(row?.ticker || "").toUpperCase().trim();
+  const acct = String(row?.broker_account_id || "").trim();
+  if (!ticker || !acct) return 0;
+  const selfTrade = String(row?.trade_id || "");
+  const selfUser = String(row?.user_id || "").toLowerCase();
+  let total = 0;
+  for (const sib of siblings || []) {
+    if (!sib) continue;
+    if (String(sib.trade_id || "") === selfTrade
+      && String(sib.user_id || "").toLowerCase() === selfUser) continue;
+    if (String(sib.ticker || "").toUpperCase().trim() !== ticker) continue;
+    if (String(sib.broker_account_id || "").trim() !== acct) continue;
+    const audit = pendingReducerAudit(sib, nowMs);
+    if (!audit) continue;
+    const kind = String(audit.kind || audit.action || "").toLowerCase();
+    if (!["trim", "exit", "close", "sell", "reduce"].includes(kind)) continue;
+    const intended = Number(audit.intended_qty);
+    const derived = Number(audit.pre_held_qty) - Number(audit.expected_post_held_qty);
+    const qty = (Number.isFinite(intended) && intended > 0)
+      ? intended
+      : ((Number.isFinite(derived) && derived > 0) ? derived : 0);
+    if (qty > 0) total += qty;
+  }
+  return total;
+}
+
+/**
  * Normalize a broker position object into { qty, avgCost }. Different
  * broker adapters return different shapes — try every field we've seen.
  */
@@ -293,7 +344,8 @@ export function isGhostUntrackedBrokerFlat(row, brokerState, cfg = {}) {
  * @param {object} row    Manifest row
  * @param {object} brokerState  { qty, avgCost } | null (null = ticker
  *                              not in broker positions)
- * @param {object} cfg    { tolerance, mode, claimed_elsewhere_qty? }
+ * @param {object} cfg    { tolerance, mode, claimed_elsewhere_qty?,
+ *                          pending_reducer?, sibling_reducer_qty? }
  */
 export function classifyDrift(row, brokerState, cfg = {}) {
   const tolerance = Number(cfg.tolerance) || TOLERANCE.trader_equity;
@@ -420,6 +472,23 @@ export function classifyDrift(row, brokerState, cfg = {}) {
   // it's likely the user added shares (which is fine — we treat the
   // excess as untracked).
   if (brokerQty < expected) {
+    // Another lot on this account is mid-sale (see siblingReducerInFlightQty).
+    // A shortfall no bigger than what that lot is selling is its sale, not
+    // this row's fill. Converge on the live qty instead of paging: the
+    // seller's own post-exec audit is what alerts if the sell hangs.
+    const siblingReducerQty = Math.max(0, Number(cfg.sibling_reducer_qty) || 0);
+    if (siblingReducerQty > 0 && diff <= siblingReducerQty + tolerance) {
+      return {
+        sync_state: SYNC_STATES.IN_SYNC,
+        drift_detected: false,
+        severity: "info",
+        note: `sibling reducer in flight — broker ${brokerQty} vs expected ${expected}; the ${diff.toFixed(5)} gap is another lot selling ${siblingReducerQty} on this account`,
+        broker_state: {
+          qty: brokerQty, avgCost: brokerAvgCost, expected: brokerQty,
+          sibling_reducer_qty: siblingReducerQty,
+        },
+      };
+    }
     return {
       sync_state: SYNC_STATES.PARTIAL_FILL,
       drift_detected: true,
@@ -821,6 +890,50 @@ async function _readOpenClaimRowsForUser(env, userId, brokerAccountId = null) {
     console.warn(`[RECONCILER] read open-claim rows failed for ${userId}:`,
       String(e?.message || e).slice(0, 200));
     return null;
+  }
+}
+
+/**
+ * Rows on this account that carry a last-action audit recent enough to
+ * still be in flight, for `siblingReducerInFlightQty`.
+ *
+ * Neither existing read can answer this. The reconcile scan filters out
+ * suppressed and terminal rows, and the claim query only returns OPEN
+ * ones — the HOOD seller was CLOSED *and* suppressed, so it was invisible
+ * to both while its sell was still moving the account position.
+ *
+ * `updated_at` is only a loose bound to keep the scan small; whether an
+ * audit is actually in flight is decided per row by `pendingReducerAudit`
+ * against the audit's own timestamp.
+ *
+ * Returning `[]` on failure is deliberate and is NOT the usual
+ * absence-as-value mistake: the only thing lost is the suppression of a
+ * false warn, which is exactly where this started. Blinding the row
+ * instead would send mail of its own.
+ */
+async function _readRecentReducerRowsForUser(env, userId, brokerAccountId = null, nowMs = Date.now()) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return [];
+  await ensureMirrorManifestSchema(env);
+  try {
+    const r = await db.prepare(`
+      SELECT user_id, trade_id, ticker, broker_account_id, sync_last_action_json
+        FROM mirror_trade_manifest
+       WHERE (user_id = ?1 OR (?2 IS NOT NULL AND broker_account_id = ?2))
+         AND LOWER(COALESCE(instrument_type, 'equity')) = 'equity'
+         AND sync_last_action_json IS NOT NULL
+         AND COALESCE(updated_at, 0) >= ?3
+       LIMIT 200
+    `).bind(
+      String(userId).toLowerCase(),
+      brokerAccountId ? String(brokerAccountId) : null,
+      nowMs - 24 * 60 * 60 * 1000,
+    ).all();
+    return r?.results || [];
+  } catch (e) {
+    console.warn(`[RECONCILER] read reducer-audit rows failed for ${userId}:`,
+      String(e?.message || e).slice(0, 200));
+    return [];
   }
 }
 
@@ -1244,6 +1357,12 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
     ...(openClaimRows || []),
   ]);
 
+  // Lots mid-sale elsewhere on this account — their shares leave the
+  // shared broker position while a sibling row still expects them.
+  const reducerAuditRows = await _readRecentReducerRowsForUser(
+    env, userId, resolveBrokerAccountId(user),
+  );
+
   // One class answered and the other did not. Reconcile what we can see
   // and error only the rows we are blind to, rather than reading their
   // missing positions as flat.
@@ -1321,6 +1440,8 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
         // 2026-08-13 — a just-placed TRIM/EXIT makes broker_remaining_qty
         // stale; the unverified audit carries the true expected qty.
         pending_reducer: pendingReducerAudit(row),
+        // 2026-09-22 — and a sibling lot's TRIM/EXIT makes it stale too.
+        sibling_reducer_qty: siblingReducerInFlightQty(row, reducerAuditRows),
       });
       if (isInvestor && row.dca_tranches) {
         const dca = aggregateDcaTranches(row);
