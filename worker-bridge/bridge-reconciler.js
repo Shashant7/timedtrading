@@ -44,6 +44,8 @@ import {
   readLastActionAudit,
   markLastActionVerified,
   markLastActionDrift,
+  markLastActionResolved,
+  classifyPostExecResolution,
   shouldReportPostExecDrift,
   claimQtyFromManifestRow,
   POST_EXEC_VERIFY_DELAY_MS,
@@ -173,7 +175,7 @@ export function isUnverifiedReducerLeftover(audit, brokerQty, {
   nowMs = Date.now(),
   maxAgeMs = UNVERIFIED_REDUCER_LEFTOVER_MS,
 } = {}) {
-  if (!audit || audit.verified === true) return false;
+  if (!audit || audit.verified === true || audit.resolved === true) return false;
   const kind = String(audit.kind || audit.action || "").toLowerCase();
   if (!["trim", "exit", "close", "sell", "reduce"].includes(kind)) return false;
   const ts = Number(audit.ts) || 0;
@@ -189,7 +191,7 @@ export function isUnverifiedReducerLeftover(audit, brokerQty, {
  */
 export function pendingReducerAudit(row, nowMs = Date.now()) {
   const audit = readLastActionAudit(row);
-  if (!audit || audit.verified === true) return null;
+  if (!audit || audit.verified === true || audit.resolved === true) return null;
   const ts = Number(audit.ts) || 0;
   if (!(ts > 0) || nowMs - ts > PENDING_REDUCER_GRACE_MS) return null;
   const expectedPost = Number(audit.expected_post_held_qty);
@@ -970,12 +972,14 @@ async function _persistReconcileError(env, row, errMsg) {
  * @param {object} env
  * @param {object} row              Manifest row (already updated w/ heldQty)
  * @param {number} liveHeldQty      Fresh broker held qty for this trade
- * @returns {Promise<'skip_not_due'|'skip_verified'|'skip_no_audit'|'verified'|'drift'>}
+ * @returns {Promise<'skip_not_due'|'skip_verified'|'skip_resolved'|'skip_no_audit'
+ *   |'verified'|'drift'|'drift_retired'|'drift_resolved'|'drift_repeat'>}
  */
 async function _verifyPostExecutionAudit(env, row, liveHeldQty) {
   const audit = readLastActionAudit(row);
   if (!audit) return "skip_no_audit";
   if (audit.verified === true) return "skip_verified";
+  if (audit.resolved === true) return "skip_resolved";
   const verifyAfter = Number(audit.verify_after_ms || 0);
   if (verifyAfter > 0 && Date.now() < verifyAfter) return "skip_not_due";
 
@@ -1019,8 +1023,22 @@ async function _verifyPostExecutionAudit(env, row, liveHeldQty) {
   // `verified:false`, so an unconditional report re-fired every reconcile
   // pass: DE 0.226964 sh held 6 of the 6 newest audit rows for days and put
   // real placements 26 rows deep.
-  const repeat = shouldReportPostExecDrift(audit, drift);
-  await markLastActionDrift(env, row, live, { reported: repeat.report });
+  // Some drifts can never come true — the model gave up the leftover, or
+  // the broker sold the sleeve to zero. Those were re-paging on a 6h loop
+  // forever (LLY + DE, daily, against rows whose own classification read
+  // "consistent"). Say it once if it is news, then retire the audit.
+  const resolution = classifyPostExecResolution(row, audit, classified);
+  if (resolution) {
+    const speak = resolution.report && shouldReportPostExecDrift(audit, drift).report;
+    await markLastActionResolved(env, row, live, resolution.reason);
+    if (!speak) {
+      console.log(`[POST_EXEC_AUDIT] retired ${row.ticker}/${row.trade_id} audit — ${resolution.reason}`);
+      return "drift_resolved";
+    }
+  }
+
+  const repeat = resolution ? { report: true } : shouldReportPostExecDrift(audit, drift);
+  if (!resolution) await markLastActionDrift(env, row, live, { reported: repeat.report });
   if (!repeat.report) {
     console.log(`[POST_EXEC_AUDIT] drift unchanged on ${row.ticker}/${row.trade_id} (${drift.toFixed(4)} sh) — already reported, re-check only (${Math.round((repeat.suppressed_for_ms || 0) / 60000)}m to next)`);
     return "drift_repeat";
@@ -1050,6 +1068,7 @@ async function _verifyPostExecutionAudit(env, row, liveHeldQty) {
         client_order_id: audit.client_order_id,
         broker_order_id: audit.broker_order_id,
         tolerance_qty: POST_EXEC_TOLERANCE_QTY,
+        resolved_reason: resolution?.reason || null,
       },
     });
   } catch (_) { /* audit best-effort */ }
@@ -1057,13 +1076,16 @@ async function _verifyPostExecutionAudit(env, row, liveHeldQty) {
     // `reconcile_error` told the operator "the bridge could not fetch broker
     // positions" — the opposite of what happened here: positions were read
     // fine and the fill did not match. Its own state gets its own explanation.
+    const finalNote = resolution
+      ? " — sleeve is flat, nothing left to recover; this alert is final"
+      : "";
     await emitDriftNotification(env, {
       ...row,
       sync_state: "execution_drift",
-      sync_note: `post-exec drift on ${audit.kind}: expected ~${expected.toFixed(4)} held, live ${live.toFixed(4)} (drift ${drift.toFixed(4)} sh, ${reason})`,
+      sync_note: `post-exec drift on ${audit.kind}: expected ~${expected.toFixed(4)} held, live ${live.toFixed(4)} (drift ${drift.toFixed(4)} sh, ${reason})${finalNote}`,
     }, notifySeverity);
   } catch (_) { /* notify best-effort */ }
-  return "drift";
+  return resolution ? "drift_retired" : "drift";
 }
 
 /**
@@ -1312,12 +1334,19 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
       const userAdded = Number(bs.user_added) || 0;
       const liveHeld = Math.max(0, (Number.isFinite(accountQty) ? accountQty : rowQty) - userAdded);
       const audit = readLastActionAudit(row);
-      if (audit && !audit.verified) {
+      if (audit && !audit.verified && !audit.resolved) {
         const outcome = await _verifyPostExecutionAudit(env, row, liveHeld);
         if (outcome === "verified") {
           stats.post_exec_verified = (stats.post_exec_verified || 0) + 1;
         } else if (outcome === "drift") {
           stats.post_exec_drift = (stats.post_exec_drift || 0) + 1;
+        } else if (outcome === "drift_retired") {
+          // Reported once AND closed out — a drift did happen this pass.
+          stats.post_exec_drift = (stats.post_exec_drift || 0) + 1;
+          stats.post_exec_drift_retired = (stats.post_exec_drift_retired || 0) + 1;
+        } else if (outcome === "drift_resolved") {
+          // Retired without a word: the expectation was superseded.
+          stats.post_exec_drift_resolved = (stats.post_exec_drift_resolved || 0) + 1;
         } else if (outcome === "drift_repeat") {
           // Still drifting, already reported. Counted separately so the
           // cycle stats show the gap persists without implying a new one.

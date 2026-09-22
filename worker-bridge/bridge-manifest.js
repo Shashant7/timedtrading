@@ -928,6 +928,86 @@ export async function markLastActionVerified(env, row, liveHeldQty) {
 }
 
 /**
+ * Retire a last-action audit that can no longer be satisfied, so the
+ * reconciler stops re-checking (and re-paging) an expectation nothing
+ * will ever meet. Keeps the drift fields for forensics and records why
+ * it was closed out.
+ *
+ * `resolved` is deliberately a separate flag from `verified`: the broker
+ * did NOT do what we asked here, and a later reader should still be able
+ * to tell a converged trim from an abandoned one.
+ */
+export async function markLastActionResolved(env, row, liveHeldQty, resolvedReason) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return false;
+  const audit = _parseAudit(row?.sync_last_action_json);
+  if (!audit) return false;
+  const now = Date.now();
+  const updated = {
+    ...audit,
+    verified: false,
+    resolved: true,
+    resolved_at: now,
+    resolved_reason: String(resolvedReason || "unresolvable").slice(0, 120),
+    drift_qty: (Number(liveHeldQty) || 0) - (Number(audit.expected_post_held_qty) || 0),
+    live_held_qty: Number(liveHeldQty) || 0,
+  };
+  try {
+    await db.prepare(`
+      UPDATE mirror_trade_manifest
+         SET sync_last_action_json = ?4,
+             updated_at = ?5
+       WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
+    `).bind(row.user_id, row.trade_id, row.broker_account_id, JSON.stringify(updated), now).run();
+    return true;
+  } catch (e) {
+    console.warn(`[MANIFEST] markLastActionResolved failed for ${row?.user_id}/${row?.trade_id}:`,
+      String(e?.message || e).slice(0, 200));
+    return false;
+  }
+}
+
+/**
+ * Can this post-exec expectation still come true, or is it spent?
+ *
+ * Two shapes are terminal, and both were paging the operator on a 6h
+ * loop against rows the reconciler itself had already called consistent:
+ *
+ *   - `model_closed` — the model exited the rest of the position after
+ *     the audit was stamped, so the leftover the trim meant to keep was
+ *     deliberately given up. DE's 2026-08-21 trim wanted 2.0427 sh held;
+ *     a catch-up exit flattened the trade on 09-14 and the row settled at
+ *     "model_closed and broker flat — consistent". The expectation
+ *     describes a position the model no longer wants. If the broker is
+ *     somehow still holding, `broker_orphan` is the channel that says so.
+ *   - `broker_flat` — the reducer sold past its intent and the sleeve is
+ *     now empty. Selling cannot be undone and there is no leftover for
+ *     catch-up to act on, so after one alert there is nothing further to
+ *     say. LLY's investor sleeve was 0.0556 sh (~$40) and the trim meant
+ *     to keep 0.051 of it.
+ *
+ * Underexecution and replenishment are NOT terminal: leftover shares can
+ * still be sold and a surprise lot can still be reconciled.
+ */
+export function classifyPostExecResolution(row, audit, classified, {
+  toleranceQty = POST_EXEC_TOLERANCE_QTY,
+} = {}) {
+  if (!audit || !classified || classified.status !== "drift") return null;
+  const modelStatus = String(row?.model_status || "OPEN").toUpperCase();
+  const auditTs = Number(audit.ts) || 0;
+  const exitTs = Number(row?.model_exit_ts) || 0;
+  if ((modelStatus === "CLOSED" || modelStatus === "EXPIRED")
+      && auditTs > 0 && exitTs > 0 && exitTs >= auditTs) {
+    return { reason: "superseded_by_model_close", report: false };
+  }
+  if (classified.reason === "reducer_overexecuted"
+      && Math.abs(Number(classified.live) || 0) <= toleranceQty) {
+    return { reason: "broker_flat_after_overexecution", report: true };
+  }
+  return null;
+}
+
+/**
  * Stamp a drift on the last-action audit (live held did NOT converge
  * to expected within tolerance). Preserves the original expectation
  * so the operator can see intended vs actual side-by-side; sets
