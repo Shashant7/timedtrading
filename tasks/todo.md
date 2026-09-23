@@ -32,14 +32,44 @@
       inside `if (!dedupe.deduped)`, ahead of Discord/email/activity;
       `diagnoseCronTick` reads the start heartbeat against
       `timed:scoring:last_run` so a tick that fires and never finishes is an
-      anomaly; `computeTradeRelativeQty` stops calling NBIS's cross-tenant
-      fan-out exit a qty drift. Notes in `tasks/lessons.md`.
-- [ ] **Shed per-tick memory in the `*/5` engine lane.** 34 scored tickers
-      should not approach the 128 MB ceiling, and CPU only spent 51 s of its
-      300 s budget, so this is allocation and not compute. Needs live heap
-      instrumentation on `tt-engine` — do not guess at it. Until it is fixed
-      every market-hours tick still dies partway through; the fixes above only
-      make that visible and keep the money-moving step ahead of the kill.
+      anomaly. Notes in `tasks/lessons.md`. (The same commit taught
+      `computeTradeRelativeQty` to forgive NBIS's cross-tenant exit as a
+      non-drift — REVERTED 2026-09-23, the page was real. See below.)
+- [x] **Shed per-tick memory in the `*/5` engine lane (2026-09-23).** It was
+      allocation, not compute, and it was one key. `timed:all:snapshot` held
+      the full scoring payload per ticker: 26,195,645 bytes on 2026-08-14
+      against KV's 26,214,400-byte value ceiling, so every write since was
+      rejected and the blob served 40-day-old scores; and ONE rebuild cost
+      182.1 MB against a 128 MB isolate. Today's universe would need
+      52,687,072 bytes, 201% of the ceiling. Shipped `worker/all-snapshot.js`
+      — a slim index (1.75 MB at 333 tickers, 7.9 MB per build, peak
+      retention = index + ONE payload), a byte budget that degrades instead
+      of failing the write, `readAllSnapshot` with a mandatory age gate,
+      `hydrateSnapshotRows` for the handful of callers that need full
+      payloads, the Cloud Pivot desk ranked inside the tick instead of at
+      serve time, and the `pendingTrailPoints` accumulator no longer carrying
+      329 payloads into the tail. Verified on the live universe: Today queue,
+      desk and `extractSliceFields` byte-identical to the full-payload path
+      for all 333 tickers. See [skills/all-snapshot.md](../skills/all-snapshot.md).
+- [x] **Reduces now reach every mirrored tenant (2026-09-23).** Operator
+      correction: every mirror-enabled account tracks the model on every
+      position it held at activation, with quantity relational to account
+      size. `clampExitOpsToHoldings` budgeted per TICKER against a pot filled
+      from ONE account's `/bridge/positions`, so three broker accounts shared
+      one number — 10 real reduces worth ~$2,656 cancelled, and one phantom
+      sold against an account holding zero. Now budgets per (account, ticker)
+      with `loadBrokerHeldEquityForOwners` asking every tenant and failing
+      closed per owner. `/bridge/positions` also exposes `broker_account_id`,
+      the only id the manifest and the broker agree on.
+- [ ] **Recover the 10 stranded partner reduces (~$2,656).** DE, FLR, IYT, J,
+      NBIS, RBLX, USO, WTS, XYZ in `shahpritesh206#webull#individual-cash`
+      and UNP in the owner's Roth. The fixed catch-up should plan them on its
+      next RTH pass — confirm it does rather than assuming.
+- [ ] **Consider making `mirror-coverage.js`'s holdings read multi-tenant.**
+      Line ~869 still calls the owner-only `loadBrokerHeldEquity(env, {nowMs})`.
+      Deliberately deferred: coverage only reports, it does not place orders,
+      so a wrong answer there pages rather than trades. Lower risk than the
+      reduce path but the same blind spot.
 - [x] **Cleared the four open Sanity Sweep incidents (2026-09-22).** Three
       were the sweep misreading a healthy system. `ringScaleShortfall`
       compared the bridge's account-sized fill against the MODEL qty, so

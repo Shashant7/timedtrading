@@ -6,6 +6,79 @@
 
 ---
 
+## The snapshot outgrew its key, and the tick died rebuilding it [2026-09-23]
+
+`tt-engine` and the monolith both ended every `*/5` scoring tick in
+`outcome: exceededMemory` — 41 failures in six hours on
+`timed-trading-ingest`, 14 on `tt-engine`, at cpu=15.5s / wall=21.9s. The
+cause was one key.
+
+`timed:all:snapshot` held the FULL scoring payload for every ticker. Two
+hard platform limits sat behind that, and the universe grew into both:
+
+1. **A KV value cannot exceed 26,214,400 bytes (25 MiB).** On 2026-08-14 the
+   blob reached 26,195,645 — 18,755 bytes of headroom — and every write
+   after that was silently rejected. The snapshot then sat frozen for FORTY
+   DAYS while the cron logged success: `built_at` stayed
+   2026-08-14T08:03:11.385Z with NVDA at $225.30.
+2. **A Worker isolate cannot exceed 128 MB.** Measured on the live blob, ONE
+   build cost 182.1 MB: 37.7 MB for the assembled object graph, 36.7 MB for
+   the payloads read to fill it, 57.7 MB to `JSON.stringify` it for the put.
+
+Replayed against today's live 333-ticker universe, a full snapshot would be
+**52,687,072 bytes — 201% of the ceiling**, because a `timed:latest:` payload
+now averages 158 KB (CDNS is 213 KB; `tf_tech` alone is 27 KB). It does not
+fit and never will again.
+
+**Lessons:**
+
+- **A cron that "succeeds" while its write is rejected is invisible.** KV does
+  not fail a too-large put loudly enough for a `try`/`catch` around
+  `kvPutJSON` to notice. Anything that writes a growing value needs a byte
+  budget checked BEFORE the put, well under the platform limit, that degrades
+  (drop rows) instead of failing the write.
+- **A reader with no freshness gate will serve a frozen blob forever.** Four
+  lanes had none and served 2026-08-14 scores for 40 days:
+  `loadLatestPredictionTicker` (the right rail), the convexity scanner, the
+  options plays lane, and the index-trend / day-trade dispatch. That is the
+  likely answer to "the model has not taken an options day trade in a week or
+  two". `readAllSnapshot` deliberately has NO default max age — a caller must
+  state how stale it can accept.
+- **"Read 25 MB because it is what `/timed/all` serves" was the whole
+  anti-pattern.** Every such caller already narrowed to a handful: the options
+  and index-trend lanes to the 4 index tickers
+  (`INDEX_TREND_TICKERS === DAY_TRADE_TICKERS === {SPY,QQQ,IWM,DIA}`), the
+  convexity scanner to its top 20. Reading those per ticker is 74x cheaper
+  than the blob it replaced. `hydrateSnapshotRows` chunks and caps at 60 so a
+  careless caller still cannot hold the universe.
+- **Module-level caches outlive the invocation.** `cro/fsd-rewriter.js` cached
+  the whole blob in a module-scope variable for 60s, so a 25 MB retention
+  survived in whatever isolate ran a rewrite. Isolates are reused; module
+  state is not per-request.
+- **Accumulating "just the rows" still accumulates the payloads.**
+  `pendingTrailPoints` collected a row per ticker but held a reference to each
+  full scored payload, carrying all 329 into the tail of the tick, where a
+  second pass then rewrote all 329 to KV again. Build the finished bind row at
+  collection time.
+- **Rank where the data already is.** `/timed/plays/today` read the whole blob
+  because ranking a Cloud Pivot desk row needs the deep 10m/1h ripster clouds.
+  The scoring tick already holds each payload for a moment — rank there and
+  retain only the ranked row (69 KB for the whole desk, against 52 MB of
+  payloads). The desk is now fresh every five minutes instead of only when
+  someone loads the page.
+- **A `{data, count, built_at}` envelope is not a map.** `/timed/futures-pairs`
+  (both copies) read `all[sym]` instead of `all.data[sym]`, so every field
+  silently came from `timed:prices` alone. Found while migrating; unrelated to
+  the OOM.
+
+The snapshot is a slim index now (`worker/all-snapshot.js`): 1,745,792 bytes
+at 333 tickers (6.7% of the ceiling), one build costs 7.9 MB instead of
+182.1 MB, and peak retention is the index plus a SINGLE payload. Verified on
+the live universe: the Today queue, the desk and `extractSliceFields` are
+byte-identical to the full-payload path for all 333 tickers.
+
+---
+
 ## Four sweep incidents, three of them the sweep's own fault [2026-09-22]
 
 The 09:04 Sanity Sweep read "1 fails · 3 warns · 4 open". Taken at face
@@ -8795,17 +8868,34 @@ Takeaways:
   real Webull share orders. So `mode='trader'` ledger rows from a paper-family
   entry belong in broker coverage, and `paperLaneId` is right not to exclude
   them — only `it:` / `dt:` / `cx:` prefixes are simulated.
-- **A cross-tenant fan-out makes every later reduce look under-sized.** NBIS
-  opened 3 shares across two Webull accounts — 1 in a partner's cash account, 2
-  in the owner's Roth — so the entry ratio was `3 / 9.98335901386749` and the
-  exit's 2 shares paged `expected 3.0000 at entry ratio` hourly. The exit was
-  complete: `clampExitOpsToHoldings` budgets a reduce against
-  `loadBrokerHeldEquity`, which covers only the OWNER's mirror-enabled
-  accounts, so the partner's share was never the model's to sell. The residual
-  already has its own channel (`sync_state: broker_orphan`, auto-suppressed
-  after 4 drifts, operator emailed). `computeTradeRelativeQty` now forgives a
-  reduce *shortfall* when the owner holds none of the ticker, and still pages
-  an over-sell, which also ends flat but is a short.
+- **Every mirror-enabled account is in sync with the model; only the qty is
+  relational (2026-09-22, corrected 2026-09-23).** The NBIS drift page was
+  first read as a false alarm — "`clampExitOpsToHoldings` budgets against
+  `loadBrokerHeldEquity`, which covers only the OWNER's accounts, so the
+  partner's share was never the model's to sell" — and `computeTradeRelativeQty`
+  was taught to forgive the shortfall. That was backwards, and the operator
+  said so: every account activated for mirroring tracks the model on every
+  position it held at activation, with quantity scaled to account size. A
+  reduce that cannot reach a tenant is a defect in the reduce path, not a
+  reporting artefact.
+
+  The real bug: the clamp budgeted per TICKER against a pot filled from ONE
+  account's `/bridge/positions`, so three broker accounts shared one number.
+  Replayed against the live book (66 manifest rows, 32 sleeves claiming a
+  reduce) the old clamp planned 3 sells and dropped 29; the fixed clamp plans
+  12. It had stranded 10 real reduces worth ~$2,656 — and sold one phantom,
+  because UNP appears in BOTH lists: it cancelled the owner's real 1.90357
+  UNP and sold the partner's 1.90357 against an account holding zero. It had
+  the accounts exactly backwards.
+
+  Fix: budget per (account, ticker); `loadBrokerHeldEquityForOwners` asks every
+  tenant's broker and fails closed per owner; `resolveHeldAccount` returns null
+  for "unknown", never "flat". Two identity traps to know about — the owner's
+  fan-out sleeves carry the BARE `user_id` while a partner's carry the
+  `#`-suffixed form, so `broker_account_id` is the only id the manifest and the
+  broker agree on (`/bridge/positions` did not expose it until this change);
+  and `heldEquityByAccount` must alias every key onto ONE object per account,
+  or the budgets split and the clamp under-sells.
 - **Webull's `place_order_repeat` throttle needs a retry vehicle, not just a
   reclassification.** MU's investor TRIM hit "Please do not place an order
   repeatedly" at 15:04; `32aec4ba5` taught `classifyBridgeOutcome` to call that
