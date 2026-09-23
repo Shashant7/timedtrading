@@ -369,14 +369,14 @@ describe("sweepPendingIndexDtEntries", () => {
   });
 
   it("is a no-op without KV or an operator", async () => {
-    expect(await sweepPendingIndexDtEntries({}, OP)).toEqual({ checked: 0, resolved: [], fresh: 0 });
-    expect(await sweepPendingIndexDtEntries({ KV_TIMED: kvMock() }, "")).toEqual({ checked: 0, resolved: [], fresh: 0 });
+    expect(await sweepPendingIndexDtEntries({}, OP)).toEqual({ checked: 0, resolved: [], fresh: 0, youngestMs: Infinity });
+    expect(await sweepPendingIndexDtEntries({ KV_TIMED: kvMock() }, "")).toEqual({ checked: 0, resolved: [], fresh: 0, youngestMs: Infinity });
   });
 
   it("survives a KV list failure without throwing into the cron", async () => {
     const kv = kvMock();
     kv.list = async () => { throw new Error("kv down"); };
-    await expect(sweepPendingIndexDtEntries({ KV_TIMED: kv }, OP)).resolves.toEqual({ checked: 0, resolved: [], fresh: 0 });
+    await expect(sweepPendingIndexDtEntries({ KV_TIMED: kv }, OP)).resolves.toEqual({ checked: 0, resolved: [], fresh: 0, youngestMs: Infinity });
   });
 
   it("bounds how many orders one pass will resolve", async () => {
@@ -428,6 +428,21 @@ describe("runPendingIndexDtReconcileLoop — every second counts", () => {
     expect(r.passes).toBeGreaterThan(5);
     expect(r.reason).toBe("budget_exhausted");
     expect(h.sleeps.every((ms) => ms === 5000)).toBe(true);
+  });
+
+  it("backs off once the order is past its first minute", async () => {
+    // A marketable limit either fills in seconds or it is not going to.
+    // After that, asking every five seconds for the rest of the order's
+    // life would triple the load on a broker LIST endpoint for nothing,
+    // and getting rate-limited would stop reconciliation altogether.
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    put(kv, "dt:SPY:p", pendingMirror({ entry_placed_at: NOW - 120_000 }), { pe: 1 });
+    const h = harness();
+    const r = await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, h);
+    expect(h.sleeps.every((ms) => ms === 15000)).toBe(true);
+    expect(r.passes).toBeGreaterThan(1);
+    expect(r.passes).toBeLessThan(5);
   });
 
   it("stops the moment the order resolves, rather than burning the budget", async () => {

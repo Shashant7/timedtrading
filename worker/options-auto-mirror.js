@@ -1096,7 +1096,7 @@ export async function resolvePendingIndexDtEntry(env, operatorEmail, signalId, m
 export async function sweepPendingIndexDtEntries(env, operatorEmail, {
   now = Date.now(), staleMs = PENDING_ENTRY_STALE_MS, maxPages = 4, maxResolve = 10,
 } = {}) {
-  if (!env?.KV_TIMED || !operatorEmail) return { checked: 0, resolved: [], fresh: 0 };
+  if (!env?.KV_TIMED || !operatorEmail) return { checked: 0, resolved: [], fresh: 0, youngestMs: Infinity };
   // `indexDtMirrorKey("")` is `timed:opt-dt-mirror:` with the colon, which
   // does NOT match the hyphenated decision-log key `timed:opt-dt-mirror-log`.
   const prefix = indexDtMirrorKey("");
@@ -1125,6 +1125,7 @@ export async function sweepPendingIndexDtEntries(env, operatorEmail, {
   const resolved = [];
   let checked = 0;
   let fresh = 0;
+  let youngestMs = Infinity;
   for (const signalId of candidates) {
     if (checked >= maxResolve) break;
     const mirror = await loadIndexDtMirror(env, signalId);
@@ -1136,6 +1137,7 @@ export async function sweepPendingIndexDtEntries(env, operatorEmail, {
     // that. The loop below uses this to decide whether to keep spinning.
     const placedAt = Number(mirror.entry_placed_at) || Number(mirror.ts) || 0;
     if (placedAt > 0 && (now - placedAt) < staleMs) fresh++;
+    if (placedAt > 0) youngestMs = Math.min(youngestMs, Math.max(0, now - placedAt));
     try {
       const r = await resolvePendingIndexDtEntry(env, operatorEmail, signalId, mirror, { now, staleMs });
       if (r.outcome !== "working") resolved.push({ signal_id: signalId, outcome: r.outcome });
@@ -1143,13 +1145,23 @@ export async function sweepPendingIndexDtEntries(env, operatorEmail, {
       resolved.push({ signal_id: signalId, outcome: `error:${String(e?.message || e).slice(0, 60)}` });
     }
   }
-  return { checked, resolved, fresh };
+  return { checked, resolved, fresh, youngestMs };
 }
 
 /** Per-isolate guard so two cron ticks cannot run overlapping loops. */
 let _dtReconcileLoopBusy = false;
 
-export const DT_RECONCILE_TICK_MS = 5000;
+// Two cadences, because the two situations are different. A marketable
+// limit either fills within seconds or it is not going to, so the first
+// minute of an order's life is worth asking about constantly. After that a
+// fill is a price event that could land at any time, and catching it within
+// fifteen seconds is plenty — while asking every five would triple the load
+// on a broker LIST endpoint for the rest of the order's life. Getting
+// rate-limited would stop reconciliation altogether, which is the failure
+// this whole lane exists to prevent.
+export const DT_RECONCILE_FAST_TICK_MS = 5000;
+export const DT_RECONCILE_SLOW_TICK_MS = 15000;
+export const DT_RECONCILE_FAST_WINDOW_MS = 60000;
 export const DT_RECONCILE_BUDGET_MS = 50000;
 
 /**
@@ -1169,7 +1181,9 @@ export const DT_RECONCILE_BUDGET_MS = 50000;
  * loop stops with it.
  */
 export async function runPendingIndexDtReconcileLoop(env, operatorEmail, {
-  tickMs = DT_RECONCILE_TICK_MS,
+  fastTickMs = DT_RECONCILE_FAST_TICK_MS,
+  slowTickMs = DT_RECONCILE_SLOW_TICK_MS,
+  fastWindowMs = DT_RECONCILE_FAST_WINDOW_MS,
   budgetMs = DT_RECONCILE_BUDGET_MS,
   staleMs = PENDING_ENTRY_STALE_MS,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -1191,6 +1205,7 @@ export async function runPendingIndexDtReconcileLoop(env, operatorEmail, {
       // Nothing pending, or nothing that could still fill in the next few
       // seconds. Either way another poll now buys nothing.
       if (!r.checked || !r.fresh) return { passes, watched, resolved, reason: "settled" };
+      const tickMs = r.youngestMs < fastWindowMs ? fastTickMs : slowTickMs;
       if ((clock() - started) + tickMs >= budgetMs) {
         return { passes, watched, resolved, reason: "budget_exhausted" };
       }
