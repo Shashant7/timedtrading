@@ -6,6 +6,47 @@
 
 ---
 
+## A cache keyed to skip a write was holding the whole universe [2026-09-23]
+
+The `*/5` kept dying after the `*/1` was fixed, and the ticks that died
+were indistinguishable from the ticks that lived — 73-86s wall, 12-14.5s
+CPU, either way. One died ALONE in its isolate. Nothing about the
+invocation explained it, because nothing about the invocation was the
+problem: `_d1LatestFingerprintCache` was already holding 52 MB of the
+isolate's 128 MB before the invocation started.
+
+- **A fingerprint that contains the thing it fingerprints is not a
+  fingerprint.** `d1UpsertTickerLatest` elides a D1 write when the row
+  has not changed, and stored `` `${stage}|${len}|${payloadJson}` `` per
+  ticker to decide. The elision is worth having (the TV ingest path
+  would otherwise rewrite the same ~157 KB row every bar). Storing the
+  payload to get it is not. `SELECT COUNT(*), SUM(length(payload_json))
+  FROM ticker_latest` → **332 rows, 52,291,932 bytes**, avg 157 KB, max
+  196 KB. A 128-bit digest answers the identical question in ~40 bytes:
+  52 MB → 13 KB, measured, for 87 ms of CPU against a 12-14s budget.
+- **"Bounded" was true and irrelevant.** The cache capped itself at 500
+  ENTRIES and the comment said so, which reads as safe right up until
+  you multiply by the entry size. The universe is 332 tickers, so the
+  cap never even engaged. Bound a cache by BYTES, or keep the entries
+  small enough that the count is a real bound.
+- **Module scope outlives the invocation, so a per-isolate cache is a
+  floor under every later invocation's budget.** Each tick's own peak
+  then has to fit in what is left. That is the whole explanation for two
+  identical ticks disagreeing about whether they fit, and for a `*/5`
+  dying with no one else in the room.
+- **When the victims are indistinguishable, stop profiling the victim.**
+  Wall, CPU and log position were the same on both sides. The question
+  that actually moved was "what does this isolate carry BEFORE the
+  invocation starts", which is answered by reading module-scope
+  declarations, not by reading the trace.
+- **Fix the tenant, then re-measure the RATE.** The `*/1` fix cut
+  invocations killed from 19 to 5 and left teardowns per minute
+  unchanged, which is exactly what removing collateral looks like. Had
+  the rate been the headline number from the start, the `*/5` would have
+  been named an hour earlier.
+
+---
+
 ## The kill count was seven, not nineteen [2026-09-23]
 
 With `tt-engine` finally green, `timed-trading-ingest` was still failing

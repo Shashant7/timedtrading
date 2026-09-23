@@ -320,6 +320,7 @@ export { CandleChainShard } from "./foundation/candle-chain-do.js";
 export { DeltaOneStream } from "./discovery/delta-one-stream.js";
 import { candleShardStub as _candleShardStub } from "./foundation/candle-chain-do.js";
 import { ingestChainSubBatch } from "./candle-chain-feed-batch.js";
+import { d1PayloadFingerprint } from "./d1-payload-fingerprint.js";
 import { prepareHtCandleWrite as _prepareHtCandleWrite } from "./foundation/candle-chain.js";
 // Phase 2 seam: chain-backed getCandles for shadow scoring (live-vs-chain diff).
 import { makeChainGetCandles as _makeChainGetCandles, getSeriesFromBases as _getSeriesFromBases, makeHybridGetCandles as _makeHybridGetCandles, HYBRID_CHAIN_TFS as _HYBRID_CHAIN_TFS, resolveScoreGetCandles as _resolveScoreGetCandles } from "./foundation/chain-series-adapter.js";
@@ -41334,6 +41335,9 @@ async function d1GetCandlesAsOf(env, ticker, tf, limit = 200, asOfTs = null) {
 // already wrote an equivalent row within the staleness window.
 // The cache is per isolate (lost on respawn — that's a feature, it
 // guarantees a fresh write after a deploy/eviction).
+// The fingerprint is a DIGEST of the payload, never the payload (see
+// d1-payload-fingerprint.js). Holding the strings cost the isolate 52 MB of
+// its 128 MB before an invocation did anything, which is what killed the */5.
 const _d1IndexLastSeenCache = new Map();      // sym -> last_seen_ts we last wrote
 const _d1LatestFingerprintCache = new Map();  // sym -> last payload fingerprint
 const D1_INDEX_STALENESS_MS = 60 * 60 * 1000; // 1h — last_seen is just for ordering
@@ -41467,7 +41471,7 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
   // fingerprint — they tick on every call by design and have no
   // observable effect on the row's UI/scoring usefulness.
   try {
-    const fp = `${stage || ""}|${payloadJson ? payloadJson.length : 0}|${payloadJson || ""}`;
+    const fp = d1PayloadFingerprint(stage, payloadJson);
     const cached = _d1LatestFingerprintCache.get(sym);
     if (cached && cached === fp) {
       return { ok: true, skipped: true, reason: "fingerprint_match" };
@@ -41490,7 +41494,7 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
       .bind(sym, ts, updatedAt, stage, prevStage, payloadJson)
       .run();
     try {
-      const fp = `${stage || ""}|${payloadJson ? payloadJson.length : 0}|${payloadJson || ""}`;
+      const fp = d1PayloadFingerprint(stage, payloadJson);
       _d1LatestFingerprintCache.set(sym, fp);
       // Keep cache bounded — keep the ~500 most recently written.
       if (_d1LatestFingerprintCache.size > 500) {
@@ -111381,7 +111385,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   // payload that would be written matches what we
                   // last wrote, skip the row.
                   try {
-                    const _fp = `${_stage || ""}|${_pj.length}|${_pj}`;
+                    const _fp = d1PayloadFingerprint(_stage, _pj);
                     const _cached = _d1LatestFingerprintCache.get(_sym);
                     if (_cached && _cached === _fp) {
                       _d1FpSkipped++;
