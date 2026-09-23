@@ -31835,7 +31835,7 @@ function calculatePctChange(current, previous) {
 }
 
 // Check if ticker meets Momentum Elite criteria
-async function computeMomentumElite(KV, ticker, payload) {
+async function computeMomentumElite(KV, ticker, payload, env = null) {
   const cacheKey = `timed:momentum:${ticker}`;
   const now = Date.now();
 
@@ -31860,7 +31860,10 @@ async function computeMomentumElite(KV, ticker, payload) {
   if (marketCapCache && now - marketCapCache.timestamp < 24 * 60 * 60 * 1000) {
     marketCapOver1B = marketCapCache.value;
   } else {
-    // Fetch fresh market cap
+    // Fetch fresh market cap. `env` used to be read free here, which is a
+    // ReferenceError in a module — every capture threw
+    // `[CAPTURE MOMENTUM] Failed for <sym>: ReferenceError: env is not defined`
+    // and no capture ever got a momentum_elite flag.
     const marketCap = await fetchMarketCap(ticker, env);
     if (marketCap !== null) {
       marketCapOver1B = marketCap >= 1000000000;
@@ -51118,6 +51121,7 @@ export default {
             KV,
             ticker,
             payload,
+            env,
           );
           if (ticker === "ETHT") {
             console.log(`[ETHT DEBUG] Momentum Elite computed:`, {
@@ -53663,7 +53667,7 @@ export default {
               payload.flags && typeof payload.flags === "object"
                 ? payload.flags
                 : {};
-            const m = await computeMomentumElite(KV, ticker, payload);
+            const m = await computeMomentumElite(KV, ticker, payload, env);
             if (m) {
               payload.flags.momentum_elite = !!m.momentum_elite;
               payload.momentum_elite_criteria = m.criteria;
@@ -58933,7 +58937,7 @@ export default {
               }
             }
             if (base && Object.keys(base).length > 0) {
-              data = await computeMomentumElite(KV, ticker, base);
+              data = await computeMomentumElite(KV, ticker, base, env);
             }
           } catch {
             // ignore
