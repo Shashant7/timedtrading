@@ -83,16 +83,37 @@ export function formatExpirationShort(expiration) {
   return "";
 }
 
+/**
+ * Epoch ms for a session predicate, or null when the caller handed over
+ * something no clock can be read from.
+ *
+ * Omitting `ts` means now: callers ask "is the window open?" far more often
+ * than they ask about a specific instant. An unusable `ts` means no instant
+ * at all, so no window contains it — the one thing it must not do is throw.
+ * It used to: a missing `ts` reached `new Date(NaN)`, Intl threw RangeError,
+ * and that killed the per-minute cron's day-trade lane for 25 days (see the
+ * gate in worker/index.js scheduled()).
+ */
+function resolveSessionTs(ts) {
+  if (ts === undefined || ts === null) return Date.now();
+  const n = Number(ts instanceof Date ? ts.getTime() : ts);
+  return Number.isFinite(n) ? n : null;
+}
+
 /** New index-option buys: cash session after the 09:45 open-print wait. */
 export function isOptionsBuyWindowEt(ts) {
-  if (!isNyRegularMarketOpenStatic(new Date(Number(ts)))) return false;
-  const m = nyMinutes(ts);
+  const at = resolveSessionTs(ts);
+  if (at == null) return false;
+  if (!isNyRegularMarketOpenStatic(new Date(at))) return false;
+  const m = nyMinutes(at);
   return m != null && m >= OPEN_PRINT_END_MIN && m < CASH_CLOSE_MIN;
 }
 
 /** US equity session day (weekday, non-holiday) — not necessarily RTH-open at `ts`. */
 function isNyEquityTradingDayStatic(ts) {
-  const now = new Date(Number(ts));
+  const at = resolveSessionTs(ts);
+  if (at == null) return false;
+  const now = new Date(at);
   const { weekday } = getEasternParts(now);
   if (["Sat", "Sun"].includes(weekday)) return false;
   const cal = getStaticCalendar();
@@ -102,8 +123,10 @@ function isNyEquityTradingDayStatic(ts) {
 
 /** Flatten / trim / exit: 09:30 ET until before 16:15 ET. Not premarket. */
 export function isOptionsSellWindowEt(ts) {
-  if (!isNyEquityTradingDayStatic(ts)) return false;
-  const m = nyMinutes(ts);
+  const at = resolveSessionTs(ts);
+  if (at == null) return false;
+  if (!isNyEquityTradingDayStatic(at)) return false;
+  const m = nyMinutes(at);
   return m != null && m >= OPEN_PRINT_START_MIN && m < SELL_WINDOW_END_MIN;
 }
 
