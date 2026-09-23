@@ -6,11 +6,11 @@
 
 ---
 
-## The kill count was six, not eighteen [2026-09-23]
+## The kill count was seven, not nineteen [2026-09-23]
 
 With `tt-engine` finally green, `timed-trading-ingest` was still failing
-its RTH crons. Grouping every scheduled invocation by outcome said 18
-`exceededMemory` in two hours, split 11 on the `*/1` and 7 on the `*/5`.
+its RTH crons. Grouping every scheduled invocation by outcome said 19
+`exceededMemory` in two hours, split 11 on the `*/1` and 8 on the `*/5`.
 Both numbers are artifacts.
 
 - **Group memory kills by their END instant before you read anything
@@ -27,7 +27,7 @@ Both numbers are artifacts.
       */1  sched 16:03:54  wall=72s   cpu=2092ms
   ```
 
-  Eighteen kills were six teardowns. Bucket within ~2s — the cascade
+  Nineteen kills were seven teardowns. Bucket within ~2s — the cascade
   reports each resident invocation a few ms apart (`.416 .421 .566 .638
   .671`), so exact-millisecond grouping splits one death into five.
 - **The victim tells you nothing about the cause.** A `*/1` killed with
