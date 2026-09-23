@@ -23,10 +23,12 @@ import {
   resolvePendingIndexDtEntry,
   sweepPendingIndexDtEntries,
   PENDING_ENTRY_STALE_MS,
+  runPendingIndexDtReconcileLoop,
   indexDtMirrorKey,
   vehicleCounterKeyFor,
   maybeAutoMirrorIndexDayTradeEvent,
 } from "./options-auto-mirror.js";
+import { RISK_STATE_KEY, riskBudgetSnapshot, commitRisk } from "./options-risk-budget.js";
 
 const OP = "op@x.com";
 const CAPS = { vehicleCap: 2, globalCap: 6 };
@@ -367,14 +369,14 @@ describe("sweepPendingIndexDtEntries", () => {
   });
 
   it("is a no-op without KV or an operator", async () => {
-    expect(await sweepPendingIndexDtEntries({}, OP)).toEqual({ checked: 0, resolved: [] });
-    expect(await sweepPendingIndexDtEntries({ KV_TIMED: kvMock() }, "")).toEqual({ checked: 0, resolved: [] });
+    expect(await sweepPendingIndexDtEntries({}, OP)).toEqual({ checked: 0, resolved: [], fresh: 0 });
+    expect(await sweepPendingIndexDtEntries({ KV_TIMED: kvMock() }, "")).toEqual({ checked: 0, resolved: [], fresh: 0 });
   });
 
   it("survives a KV list failure without throwing into the cron", async () => {
     const kv = kvMock();
     kv.list = async () => { throw new Error("kv down"); };
-    await expect(sweepPendingIndexDtEntries({ KV_TIMED: kv }, OP)).resolves.toEqual({ checked: 0, resolved: [] });
+    await expect(sweepPendingIndexDtEntries({ KV_TIMED: kv }, OP)).resolves.toEqual({ checked: 0, resolved: [], fresh: 0 });
   });
 
   it("bounds how many orders one pass will resolve", async () => {
@@ -382,6 +384,222 @@ describe("sweepPendingIndexDtEntries", () => {
     for (let i = 0; i < 12; i++) put(kv, `dt:SPY:${i}`, pendingMirror({ entry_order_id: `O${i}` }), { pe: 1 });
     const r = await sweepPendingIndexDtEntries({ KV_TIMED: kv }, OP, { now: NOW, maxResolve: 3 });
     expect(r.checked).toBe(3);
+  });
+});
+
+describe("runPendingIndexDtReconcileLoop — every second counts", () => {
+  const put = (kv, id, mirror, meta) => {
+    kv.store.set(indexDtMirrorKey(id), JSON.stringify(mirror));
+    if (meta) kv.meta.set(indexDtMirrorKey(id), meta);
+  };
+
+  function harness() {
+    let t = NOW;
+    const sleeps = [];
+    return {
+      clock: () => t,
+      sleep: async (ms) => { sleeps.push(ms); t += ms; },
+      sleeps,
+      advance: (ms) => { t += ms; },
+    };
+  }
+
+  it("costs one KV list when nothing is pending", async () => {
+    const kv = kvMock();
+    let lists = 0;
+    const realList = kv.list;
+    kv.list = async (a) => { lists++; return realList(a); };
+    const h = harness();
+    const r = await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, h);
+    expect(r.passes).toBe(1);
+    expect(r.reason).toBe("settled");
+    expect(lists).toBe(1);
+    expect(h.sleeps).toEqual([]);
+  });
+
+  it("keeps polling within the same minute while an order could still fill", async () => {
+    // Cloudflare's cron floor is 60s. A 0/1 DTE fill that goes unnoticed
+    // for a minute has already missed its first management decision.
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    put(kv, "dt:SPY:p", pendingMirror({ entry_placed_at: NOW }), { pe: 1 });
+    const h = harness();
+    const r = await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, h);
+    expect(r.passes).toBeGreaterThan(5);
+    expect(r.reason).toBe("budget_exhausted");
+    expect(h.sleeps.every((ms) => ms === 5000)).toBe(true);
+  });
+
+  it("stops the moment the order resolves, rather than burning the budget", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    const mirror = pendingMirror({ entry_placed_at: NOW });
+    put(kv, "dt:SPY:p", mirror, { pe: 1 });
+    const h = harness();
+    // Flip the mirror to filled after the second pass, the way a real fill
+    // landing between polls would.
+    let passes = 0;
+    const realGet = kv.get;
+    kv.get = async (k) => {
+      if (k === indexDtMirrorKey("dt:SPY:p") && ++passes > 2) {
+        return JSON.stringify({ ...mirror, entry_pending: false, entry_fired: true });
+      }
+      return realGet(k);
+    };
+    const r = await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, h);
+    expect(r.reason).toBe("settled");
+    expect(r.passes).toBeLessThan(5);
+  });
+
+  it("does not spin on an order that is already past the stale window", async () => {
+    // Re-asking every five seconds will not un-stick it; the once-per-pass
+    // cancel is what resolves it.
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    put(kv, "dt:SPY:p", pendingMirror({ entry_placed_at: NOW - PENDING_ENTRY_STALE_MS - 1 }), { pe: 1 });
+    const h = harness();
+    const r = await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, h);
+    expect(r.passes).toBe(1);
+    expect(r.reason).toBe("settled");
+    expect(h.sleeps).toEqual([]);
+  });
+
+  it("refuses to run two loops at once in the same isolate", async () => {
+    const kv = kvMock();
+    put(kv, "dt:SPY:p", pendingMirror({ entry_placed_at: NOW }), { pe: 1 });
+    const h = harness();
+    const first = runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, h);
+    const second = await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, harness());
+    expect(second.reason).toBe("already_running");
+    await first;
+  });
+
+  it("releases the busy guard even when a pass throws", async () => {
+    const kv = kvMock();
+    kv.list = async () => { throw new Error("kv down"); };
+    await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, harness());
+    const again = await runPendingIndexDtReconcileLoop({ KV_TIMED: kvMock() }, OP, harness());
+    expect(again.reason).toBe("settled");
+  });
+
+  it("is a no-op without an operator", async () => {
+    const r = await runPendingIndexDtReconcileLoop({ KV_TIMED: kvMock() }, "");
+    expect(r.reason).toBe("not_configured");
+  });
+});
+
+describe("no count caps on the day-trade lane, one loss limit instead", () => {
+  const SIG = "dt:SPY:2026-09-23:2026-09-24:P:768";
+  const today = new Date().toISOString().slice(0, 10);
+
+  const prefsWith = (over = {}) => JSON.stringify({
+    enabled: true,
+    daily_cap: 5,
+    vehicles: { long_put: { enabled: true, daily_cap: 2, max_per_order_usd: 300, max_loss_per_order_usd: 250 } },
+    ...over,
+  });
+
+  function buyCtx() {
+    return {
+      event: "BUY",
+      ticker: "SPY",
+      signal_id: SIG,
+      indicesFlagOn: true,
+      tier: "gamma",
+      strike: 768,
+      execution: { premium_band: { display_buy_ceil: 0.68 } },
+      play: {
+        archetype: "day_trade_put",
+        _day_trade_flavor: "put",
+        strikes: { primary: 768 },
+        expiration: { iso: "2026-09-24" },
+        legs: [{ action: "BUY", optionType: "PUT", strike: 768, expiration: "2026-09-24", qty: 1 }],
+        premium: { mid: 0.59 },
+        contracts: 1,
+        max_loss_usd: 59,
+      },
+    };
+  }
+
+  function env(kv, calls, fillStatus = "working") {
+    return {
+      ADMIN_EMAIL: OP,
+      KV_TIMED: kv,
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      BROKER_BRIDGE_URL: "https://bridge.example.workers.dev",
+      BROKER_BRIDGE: {
+        fetch: async (req) => {
+          const path = new URL(req.url).pathname;
+          calls.push(path);
+          return new Response(
+            JSON.stringify({ ok: true, order_id: "OID", fill: { status: fillStatus, filled_qty: 0, order_id: "OID" } }),
+            { status: 200 },
+          );
+        },
+      },
+    };
+  }
+
+  const budget = (kv) => {
+    const raw = kv.store.get(RISK_STATE_KEY(OP, today));
+    return raw ? riskBudgetSnapshot(JSON.parse(raw), 1000) : null;
+  };
+
+  it("places the eleventh trade of the day — a count cap no longer blocks anything", async () => {
+    const kv = kvMock();
+    kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith());
+    // Both legacy counters already blown past their caps. On 2026-09-23
+    // this exact state refused nine entries in a row.
+    kv.store.set(vehicleCounterKeyFor(OP, "long_put", today), "10");
+    kv.store.set(`timed:options:auto-mirror:count:${OP}:${today}`, "10");
+    const calls = [];
+    const r = await maybeAutoMirrorIndexDayTradeEvent(env(kv, calls), buyCtx());
+    expect(r.skipped).toBe(false);
+    expect(calls).toContain("/bridge/options/order");
+  });
+
+  it("charges the budget the debit it is willing to pay, not the mid", async () => {
+    const kv = kvMock();
+    kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith());
+    await maybeAutoMirrorIndexDayTradeEvent(env(kv, []), buyCtx());
+    // Ceiling $0.68 x 100 x 1 lot. The $0.59 mid is a price we might not get.
+    expect(budget(kv).open_usd).toBe(68);
+    expect(budget(kv).remaining_usd).toBe(932);
+  });
+
+  it("refuses the entry that would breach the day's loss limit", async () => {
+    const kv = kvMock();
+    kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith({ daily_loss_limit_usd: 100 }));
+    await commitRisk({ KV_TIMED: kv }, OP, "earlier", { usd: 60 });
+    const calls = [];
+    const r = await maybeAutoMirrorIndexDayTradeEvent(env(kv, calls), buyCtx());
+    expect(r.skipped).toBe(true);
+    expect(r.reason).toMatch(/^daily_loss_budget_40_left_of_100_needs_68$/);
+    expect(calls).toEqual([]); // nothing reached the broker
+  });
+
+  it("never blocks when the operator sets the limit to 0", async () => {
+    const kv = kvMock();
+    kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith({ daily_loss_limit_usd: 0 }));
+    await commitRisk({ KV_TIMED: kv }, OP, "earlier", { usd: 99999 });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(env(kv, []), buyCtx());
+    expect(r.skipped).toBe(false);
+  });
+
+  it("gives the money back when the order never becomes a position", async () => {
+    // The whole 2026-09-23 failure, end to end: place, never fill, resolve.
+    const kv = kvMock();
+    kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith());
+    await maybeAutoMirrorIndexDayTradeEvent(env(kv, []), buyCtx());
+    expect(budget(kv).open_usd).toBe(68);
+
+    const mirror = JSON.parse(kv.store.get(indexDtMirrorKey(SIG)));
+    expect(mirror.entry_pending).toBe(true);
+    await resolvePendingIndexDtEntry({ KV_TIMED: kv }, OP, SIG, mirror, {
+      deps: { pollFill: pollsWith("cancelled") },
+    });
+    expect(budget(kv).open_usd).toBe(0);
+    expect(budget(kv).remaining_usd).toBe(1000);
   });
 });
 

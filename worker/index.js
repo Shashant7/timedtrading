@@ -94390,9 +94390,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const prefs = await _loadAutoMirrorPrefs(env, userEmail);
           const today = new Date().toISOString().slice(0, 10);
           const todayCount = Number(await env.KV_TIMED.get(`timed:options:auto-mirror:count:${userEmail.toLowerCase()}:${today}`)) || 0;
+          // The day-trade lane is governed by dollars now, not by
+          // `today_count`, so surface what is actually left to lose.
+          let lossBudget = null;
+          try {
+            const rb = await import("./options-risk-budget.js");
+            lossBudget = rb.riskBudgetSnapshot(
+              await rb.loadRiskState(env, userEmail),
+              rb.dailyLossLimitFor(prefs),
+            );
+          } catch (_) { /* telemetry only */ }
           return sendJSON({
             ok: true, user: userEmail, prefs,
             today_count: todayCount, today_remaining: Math.max(0, (prefs.daily_cap || 0) - todayCount),
+            loss_budget: lossBudget,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -96175,27 +96186,6 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               } catch (_dtErr) {
                 console.warn(`[OPTIONS-ALL] day-trade build failed for ${_dtSym}:`, String(_dtErr?.message || _dtErr).slice(0, 120));
               }
-            }
-
-            // Resolve entry orders that were placed but never filled. This
-            // runs per PASS, not per event, because the signal whose entry
-            // never filled is exactly the one that stops producing events —
-            // on 2026-09-23 two orders sat `working` from 13:46 to the close,
-            // holding the whole 2/day long_put budget and blocking the next
-            // nine entries, because nothing ever looked at them again.
-            if (_dtDispatchAllowed) {
-              try {
-                const { sweepPendingIndexDtEntries } = await import("./options-auto-mirror.js");
-                queueBackground(
-                  sweepPendingIndexDtEntries(env, env.ADMIN_EMAIL)
-                    .then((r) => {
-                      if (r?.resolved?.length) {
-                        console.log(`[OPT-DT-SWEEP] resolved ${JSON.stringify(r.resolved)} of ${r.checked} pending`);
-                      }
-                    })
-                    .catch((e) => console.warn("[OPT-DT-SWEEP]", String(e?.message || e).slice(0, 120))),
-                );
-              } catch (_) { /* never block the section on the sweep */ }
             }
 
             return {
@@ -104444,6 +104434,34 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     //      forever (the bridge worker has no SendGrid key).
     // The engine skips ALL of these (memory cap); the monolith runs them.
     const _skipHeavyFiveMinPrewarm = _isDedicatedEngine;
+
+    // 2026-09-23 — Index day-trade reconciliation runs FIRST and runs
+    // CONTINUOUSLY. It is the one lane where being a minute behind is
+    // already too late: a 0/1 DTE entry that filled without the model
+    // noticing has no TRIM, no EXIT and no stop, and the daily loss budget
+    // behind it stays spent.
+    //
+    // Deliberately ahead of every other block and not attached to the
+    // options build. On 2026-09-23 the only thing that re-read a pending
+    // entry ran at the END of an options pass that itself only fired inside
+    // the sell window — so two orders placed at the open were never looked
+    // at again. Reconciliation must not depend on the thing it is checking.
+    //
+    // Free when idle: with nothing pending this is one KV list and it
+    // returns. It only spins while an order is young enough to still fill.
+    if ((_isEveryMin || _isEvery5Min) && !_isDedicatedEngine && env.ADMIN_EMAIL) {
+      ctx.waitUntil((async () => {
+        try {
+          const { runPendingIndexDtReconcileLoop } = await import("./options-auto-mirror.js");
+          const r = await runPendingIndexDtReconcileLoop(env, env.ADMIN_EMAIL);
+          if (r?.resolved?.length) {
+            console.log(`[OPT-DT-RECONCILE] ${JSON.stringify(r.resolved)} after ${r.passes} passes (${r.reason})`);
+          }
+        } catch (e) {
+          console.warn("[OPT-DT-RECONCILE] threw:", String(e?.message || e).slice(0, 160));
+        }
+      })());
+    }
 
     // 2026-06-02 — Cron-tick heartbeat. The sanity-sweep
     // `cron_tick_alive` check reads this to detect a stalled cron.
