@@ -108,6 +108,12 @@ export async function fetchBars(env, symbols, tfKey, start, end = null, limit = 
 export async function fetchAllBars(env, symbols, tfKey, start, end = null, limit = 1000, opts = {}) {
   if (getProvider(env) !== "twelvedata") return null;
   const tdResult = await _tdFetchBars(env, symbols, tfKey, start, end, limit, opts);
+  // A deadlined fetch leaves most of the universe unfetched, and the fallback
+  // treats "no bars" as "TwelveData dropped this symbol" and retries it
+  // against Alpaca ONE AT A TIME. Running it here would replace a bounded
+  // stop with an unbounded per-symbol heal past the same deadline, which is
+  // the opposite of the point.
+  if (tdResult?.stoppedAtDeadline) return tdResult;
   return _withAlpacaBarsFallback(env, tdResult, symbols, tfKey, start, end, limit);
 }
 
@@ -172,6 +178,8 @@ async function _tdFetchBarsChunked(env, symbols, interval, start, end, chunkDays
   const chunkMs = chunkDays * 24 * 60 * 60 * 1000;
   const interChunkDelayMs = Math.max(0, Number(opts.interChunkDelayMs ?? opts.batchDelayMs ?? 8000));
 
+  let stoppedAtDeadline = false;
+
   while (chunkStart < targetEnd) {
     const chunkEnd = Math.min(chunkStart + chunkMs, targetEnd);
     const chunkStartISO = new Date(chunkStart).toISOString();
@@ -184,12 +192,15 @@ async function _tdFetchBarsChunked(env, symbols, interval, start, end, chunkDays
       if (!allBars[sym]) allBars[sym] = [];
       allBars[sym].push(...barArr);
     }
+    // The inner fetch stops between batches on the caller's deadline, so a
+    // further chunk would only re-enter and stop again.
+    if (raw.stoppedAtDeadline) { stoppedAtDeadline = true; break; }
     chunkStart = chunkEnd;
     if (chunkStart < targetEnd && interChunkDelayMs > 0) {
       await new Promise((r) => setTimeout(r, interChunkDelayMs));
     }
   }
-  return { bars: allBars };
+  return { bars: allBars, stoppedAtDeadline };
 }
 
 async function _tdFetchBars(env, symbols, tfKey, start, end, limit, opts = {}) {
@@ -203,7 +214,7 @@ async function _tdFetchBars(env, symbols, tfKey, start, end, limit, opts = {}) {
     for (const [sym, barArr] of Object.entries(raw.bars || {})) {
       bars[sym] = aggregate5mTo10m(barArr);
     }
-    return { bars };
+    return { bars, stoppedAtDeadline: raw.stoppedAtDeadline };
   }
 
   // 15min: chunked fetch (for 15m vs 10m leading_ltf experiment)
@@ -514,7 +525,7 @@ export async function _batchUpsertBars(db, barsBySymbol, tf) {
   return { upserted, errors };
 }
 
-export async function cronFetchLatest(env, allTickers) {
+export async function cronFetchLatest(env, allTickers, opts = {}) {
   if (getProvider(env) !== "twelvedata") return null;
 
   const db = env?.DB;
@@ -568,15 +579,47 @@ export async function cronFetchLatest(env, allTickers) {
   console.log(`[TD CRON] critical_intraday=[${criticalIntradayTfs}] (full ${allTickers.length}) redundant=[${streamRedundantTfs}] (half=${halfIdx}, ${halfTickers.length}/${allTickers.length}) uncovered_intraday=[${streamUncoveredIntradayTfs}] (${uncoveredIntradayTickers.length}/${allTickers.length}${isTopOfHour ? ", full @ top-of-hour" : ", half"}) slot=${slotIdx}${isTopOfHour ? ` + aggregated=[${aggregatedTfs}] full` : ""}`);
 
   let totalUpserted = 0, totalErrors = 0;
+  // Absolute ms deadline for the whole pass, or 0 for the old unbounded
+  // behaviour.
+  //
+  // 2026-09-23 — the tier arithmetic has always put this over the wall at
+  // top-of-hour and nobody had multiplied it out: 10/15/30 across the full
+  // ~383-symbol universe is 48 batches x 2.5s x 3 TFs = 360s, the 5m half
+  // slice at its deliberate 8s pacing is ~190s, 60/240 another ~120s, and
+  // D/W/M adds ~360s more on the top-of-hour cycle. That is ~670s off-hour
+  // (observed: 677-714s) and ~1030s at the top of the hour, against a hard
+  // 900s cron wall — 17:00:54 came back `exceededWallTime wall=900s`.
+  //
+  // Being killed there is worse than stopping, twice over: the tail tier's
+  // upserts are lost anyway, AND the kill takes down the isolate with every
+  // other invocation resident in it. So the pass now stops itself. Tier
+  // order was already chosen for exactly this (see the ordering note below),
+  // with the 5m tier last because the WS stream covers it.
+  const _deadlineMs = Number(opts.deadlineMs) || 0;
+  const _timeLeft = () => (_deadlineMs ? _deadlineMs - Date.now() : Infinity);
+  const _skippedTfs = [];
+  let _stoppedTf = null;
 
-  const runTfBatch = async (tfs, tickers, opts = {}) => {
+  const runTfBatch = async (tfs, tickers, fetchOpts = {}) => {
     for (const tf of tfs) {
+      // Don't start a tier there is no time for. A single full-universe TF is
+      // ~120s of paced fetching, so starting one with less than that left
+      // just spends the remaining wall to be cut off mid-way.
+      if (_timeLeft() <= 0) { _skippedTfs.push(tf); continue; }
       try {
         const lookback = CRON_TF_LOOKBACK_MS[tf] || 24 * 60 * 60 * 1000;
         const start = new Date(Date.now() - lookback).toISOString();
-        const result = await fetchAllBars(env, tickers, tf, start, null, 10000, opts);
+        const result = await fetchAllBars(env, tickers, tf, start, null, 10000, {
+          ...fetchOpts,
+          ...(_deadlineMs ? { deadlineMs: _deadlineMs } : {}),
+        });
         if (!result?.bars) continue;
+        if (result.stoppedAtDeadline) {
+          _stoppedTf = `${tf}@${result.batchesDone ?? "?"}/${result.batchesTotal ?? "?"}`;
+        }
 
+        // Upsert what was fetched even on a short tier — those bars are
+        // already paid for.
         const { upserted, errors } = await _batchUpsertBars(db, result.bars, tf);
         totalUpserted += upserted;
         totalErrors += errors;
@@ -621,7 +664,20 @@ export async function cronFetchLatest(env, allTickers) {
   await runTfBatch(criticalIntradayTfs, allTickers, _fastPace);
   await runTfBatch(streamRedundantTfs, halfTickers);
 
-  return { ok: true, upserted: totalUpserted, errors: totalErrors };
+  if (_stoppedTf || _skippedTfs.length) {
+    console.warn(`[TD CRON] stopped at the tick deadline — cut off in TF ${_stoppedTf || "none"}`
+      + (_skippedTfs.length ? `, skipped TFs [${_skippedTfs}]` : "")
+      + `. ${totalUpserted} bars upserted before the stop; the next pass picks these up.`);
+  }
+
+  return {
+    ok: true,
+    upserted: totalUpserted,
+    errors: totalErrors,
+    stoppedAtDeadline: Boolean(_stoppedTf) || _skippedTfs.length > 0,
+    stoppedTf: _stoppedTf,
+    skippedTfs: _skippedTfs,
+  };
 }
 
 export async function cronFetchCrypto(env) {

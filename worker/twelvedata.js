@@ -156,8 +156,22 @@ export async function tdFetchTimeSeries(env, symbols, interval, start, end = nul
   const errors = [];
   const BATCH = 8; // TwelveData supports batch, but safer in small groups
   const filtered = symbols.filter(s => !SKIP_TICKERS.has(s));
+  // Absolute ms deadline from the caller, or none. Every bar path funnels
+  // through here, so this is the one place a paced fetch can be stopped.
+  const _deadlineMs = Number(opts.deadlineMs) || 0;
+  let _stoppedAtDeadline = false;
+  let _batchesDone = 0;
 
   for (let i = 0; i < filtered.length; i += BATCH) {
+    // Between batches, never mid-batch: whatever is already fetched is
+    // returned and upserted. The bar cron sleeps 2.5-8s between batches by
+    // design, so a full-universe tier is minutes of mostly waiting — and an
+    // invocation killed at the 900s wall loses every upsert still queued
+    // behind it, which is strictly worse than a short pass.
+    if (_deadlineMs && Date.now() >= _deadlineMs) {
+      _stoppedAtDeadline = true;
+      break;
+    }
     const batch = filtered.slice(i, i + BATCH);
     const tdSyms = batch.map(toTdSymbol);
     const params = new URLSearchParams({
@@ -197,16 +211,18 @@ export async function tdFetchTimeSeries(env, symbols, interval, start, end = nul
         result[ourSym] = symData.values.map(tdBarToAlpacaBar);
       }
     }
+    _batchesDone++;
     const batchDelayMs = Math.max(0, Number(opts.batchDelayMs) || 8000);
     if (batchDelayMs > 0 && i + BATCH < filtered.length) {
       await new Promise((r) => setTimeout(r, batchDelayMs));
     }
   }
 
+  const _totalBatches = Math.ceil(filtered.length / BATCH);
   if (Object.keys(result).length === 0 && errors.length > 0) {
-    return { bars: result, error: errors[0] };
+    return { bars: result, error: errors[0], stoppedAtDeadline: _stoppedAtDeadline, batchesDone: _batchesDone, batchesTotal: _totalBatches };
   }
-  return { bars: result };
+  return { bars: result, stoppedAtDeadline: _stoppedAtDeadline, batchesDone: _batchesDone, batchesTotal: _totalBatches };
 }
 
 // Convert TwelveData bar to Alpaca-compatible shape { t, o, h, l, c, v }

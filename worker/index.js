@@ -108110,11 +108110,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               blocklist: CHART_SYMBOL_BLOCKLIST,
             });
             ctx.waitUntil(
-              DataProvider.cronFetchLatest(env, allTickers)
+              // Deadlined against THIS invocation's wall, not the pass's own
+              // start: it is dispatched with `ctx.waitUntil`, which in a cron
+              // handler keeps the invocation alive rather than deferring
+              // anything, so the pass and the wall run out together.
+              DataProvider.cronFetchLatest(env, allTickers, {
+                deadlineMs: _now.getTime() + TICK_WALL_MS - TICK_SAFETY_MS,
+              })
                 .then(result => {
                   if (result) {
                     console.log(`[TD CRON] Bars: ${result.upserted} upserted, ${result.errors} errors`);
-                    if (_isTopOfHour) recordCronSuccess(env, "bar_cron_aggregated").catch(() => {});
+                    // A deadlined pass is not a successful aggregated pass —
+                    // recording it as one would let the freshness check read
+                    // healthy while D/W/M went unfetched.
+                    if (_isTopOfHour && !result.stoppedAtDeadline) recordCronSuccess(env, "bar_cron_aggregated").catch(() => {});
                   }
                 })
                 .catch(err => {

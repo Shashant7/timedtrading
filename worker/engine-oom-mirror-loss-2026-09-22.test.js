@@ -438,7 +438,7 @@ describe("the monolith pre-warms one endpoint at a time", () => {
     expect(src).toContain("let _barCronSince = 0;");
     expect(src).toContain("const BAR_CRON_LEASE_MS =");
     expect(src).toContain("[TD CRON] skipped: the previous bar pass has been running");
-    const dispatch = src.indexOf("DataProvider.cronFetchLatest(env, allTickers)");
+    const dispatch = src.indexOf("DataProvider.cronFetchLatest(env, allTickers, {");
     expect(dispatch).toBeGreaterThan(-1);
     // Claimed before the dispatch and released when the pass settles —
     // `.finally`, not `.then`, or a failed fetch wedges the lane.
