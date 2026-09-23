@@ -159,6 +159,10 @@ export function buildTodayPlaysQueue({
   cloudPivotTickers = [],
   continuationTickers = [],
   cloudDeskRows = null,
+  // Ranking a desk row needs the deep 10m/1h cloud technicals, so the caller
+  // may hand over a desk the scoring tick already built while it had each
+  // full payload in hand. `cloudDeskRows` stays the fallback.
+  desk: prebuiltDesk = null,
   limit = 20,
 } = {}) {
   const items = [];
@@ -363,10 +367,12 @@ export function buildTodayPlaysQueue({
   const contPlays = deduped.filter((p) => p.slice_family === CONTINUATION_FAMILY);
   const familyPlays = [...confirmPlays, ...cloudPlays, ...contPlays];
 
-  const desk = buildCloudPivotDesk(cloudDeskRows || cloudPivotTickers || [], {
-    limit: Math.min(limit + 4, 28),
-    minScore: 30,
-  });
+  const desk = prebuiltDesk?.watching
+    ? prebuiltDesk
+    : buildCloudPivotDesk(cloudDeskRows || cloudPivotTickers || [], {
+      limit: Math.min(limit + 4, 28),
+      minScore: 30,
+    });
 
   return {
     generated_at: Date.now(),

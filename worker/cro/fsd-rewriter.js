@@ -61,21 +61,7 @@ async function loadTickersForPub(env, pubId) {
   } catch (_) { return []; }
 }
 
-let _snapCache = { ts: 0, blob: null };
 let _pricesCache = { ts: 0, blob: null };
-
-async function loadAllSnapshot(env) {
-  const now = Date.now();
-  if (_snapCache.blob && (now - _snapCache.ts) < 60000) return _snapCache.blob;
-  try {
-    const kv = resolveTimedKv(env);
-    const raw = await kv?.get("timed:all:snapshot");
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    _snapCache = { ts: now, blob: parsed };
-    return parsed;
-  } catch (_) { return null; }
-}
 
 async function loadTimedPricesMap(env) {
   const now = Date.now();
@@ -116,7 +102,7 @@ async function loadTimedLatestPayload(env, sym) {
 /**
  * @returns {{ line: string|null, meta: object|null }}
  */
-async function loadTickerModelContext(env, sym, snap, pricesMap) {
+async function loadTickerModelContext(env, sym, pricesMap) {
   const S = String(sym || "").toUpperCase();
   if (!S) return { line: null, meta: null };
 
@@ -124,9 +110,12 @@ async function loadTickerModelContext(env, sym, snap, pricesMap) {
   const timedLatest = await loadTimedLatestPayload(env, S);
   const priceRow = pricesMap?.[S] || pricesMap?.prices?.[S] || null;
 
+  // `timed:all:snapshot` used to be a third source here, cached whole at
+  // module scope for 60s — a 25 MB retention that outlived the invocation in
+  // whatever isolate ran a rewrite. It is a slim index now, and it is
+  // projected FROM `timed:latest:<SYM>`, so it can never be the freshest of
+  // the three. Dropped rather than narrowed.
   const built = buildFreshTickerContext(S, {
-    snapshotPayload: snap?.data?.[S] || null,
-    snapshotTs: snap?.ts || snap?.generated_at || snap?.updated_at || null,
     latestPayload: latestRow?.payload || null,
     latestTs: latestRow?.ts || null,
     timedLatestPayload: timedLatest,
@@ -175,7 +164,6 @@ async function loadModelContextForTickers(env, tickers, { focusTicker = null, so
     return { text: "(no tickers extracted from publication)", metaByTicker: {} };
   }
 
-  const snap = await loadAllSnapshot(env);
   const pricesMap = await loadTimedPricesMap(env);
   const lines = [];
   const metaByTicker = {};
@@ -183,7 +171,7 @@ async function loadModelContextForTickers(env, tickers, { focusTicker = null, so
   if (wantsMemory) lines.push(memoryThemeHeaderLine());
 
   if (mentionsSpx) {
-    const spyCtx = await loadTickerModelContext(env, "SPY", snap, pricesMap);
+    const spyCtx = await loadTickerModelContext(env, "SPY", pricesMap);
     if (spyCtx.meta) metaByTicker.SPY = spyCtx.meta;
     const spyCto = await loadCTOLineForTicker(env, "SPY");
     lines.push(await buildSpxIndexContextBlock(env, {
@@ -194,7 +182,7 @@ async function loadModelContextForTickers(env, tickers, { focusTicker = null, so
 
   for (const sym of ordered.slice(0, 6)) {
     if (mentionsSpx && sym === "SPY" && lines.some((l) => l.includes("SPY (tradeable proxy)"))) continue;
-    const ctx = await loadTickerModelContext(env, sym, snap, pricesMap);
+    const ctx = await loadTickerModelContext(env, sym, pricesMap);
     if (ctx.meta) metaByTicker[sym] = ctx.meta;
     if (ctx.line) lines.push(ctx.line);
     else lines.push(`${sym}: (limited model data — treat source levels as primary until desk snapshot refreshes)`);
