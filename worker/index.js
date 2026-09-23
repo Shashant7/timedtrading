@@ -1023,6 +1023,11 @@ let _fiveMinHeavyPassSince = 0;
 // Long enough that no healthy pass trips it, short enough that a pass which
 // dies without releasing costs at most one skipped tick.
 const FIVE_MIN_HEAVY_LEASE_MS = 10 * 60 * 1000;
+// Same lease, for the monolith's */5 pre-warm chain. Separate variable
+// because the two lanes are on different workers and neither should be
+// able to skip the other.
+let _fiveMinPrewarmSince = 0;
+const FIVE_MIN_PREWARM_LEASE_MS = 10 * 60 * 1000;
 // NY-session day key ("YYYY-MM-DD") for a ms timestamp or Date.
 //
 // 2026-09-05: this helper was referenced (calibration guards, re-confirm
@@ -104503,22 +104508,34 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // serial buildTraderPredictionContract); with parallelization
     // it's ~1.5s, and the prewarm makes it instant.
     if (_isEvery5Min) {
-      if (!_skipHeavyFiveMinPrewarm) ctx.waitUntil((async () => {
-        try {
-          // 2026-06-10 — the Today page fetches /timed/options/all
-          // WITHOUT a profile param, which resolves to the DEFAULT
-          // profile (speculator) — a cache slot this pre-warm never
-          // touched, so the page's actual request was always cold
-          // (~9s observed; 503s under fan-out). Warm the default slot
-          // FIRST, then the explicit profiles.
+      // ── One sequential pre-warm chain, not five concurrent ones ──
+      //
+      // 2026-09-23 — every step below re-enters THIS worker in-process
+      // (`_selfDispatch` is `this.fetch`), so a step's entire request graph
+      // lives in this isolate for as long as the step runs. Dispatched as
+      // separate `ctx.waitUntil` chains they were all resident at once, and
+      // the 128 MB cap counts the sum rather than the largest. The
+      // monolith's */5 was dying with `exceededMemory` 9-14s after firing —
+      // on every tick, including overnight with no user traffic on the
+      // isolate at all, which rules out serve-time load. Same steps, same
+      // order, one at a time; a step that throws no longer takes the rest
+      // of the chain with it either.
+      if (!_skipHeavyFiveMinPrewarm) {
+        const _prewarmSteps = [];
+
+        // 2026-06-10 — the Today page fetches /timed/options/all
+        // WITHOUT a profile param, which resolves to the DEFAULT
+        // profile (speculator) — a cache slot this pre-warm never
+        // touched, so the page's actual request was always cold
+        // (~9s observed; 503s under fan-out). Warm the default slot
+        // FIRST, then the explicit profiles.
+        _prewarmSteps.push(["options_all", async () => {
           for (const qs of ["", "profile=moderate&", "profile=aggressive&"]) {
             await _selfDispatch(`/timed/options/all?${qs}limit=10&_nocache=1`)
               .catch(() => {});
           }
-        } catch (_) {}
-      })());
+        }]);
 
-      if (!_skipHeavyFiveMinPrewarm) {
         // 2026-06-10 — /timed/all micro-cache pre-warm. The Today-page
         // hang root cause: the snapshot assembly is ~20s of D1 reads +
         // JSON work, and the old 30s cache window was shorter than the
@@ -104539,14 +104556,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // per-value ceiling, so that cache slot has not populated since
         // the universe outgrew it — the dispatch was pure cost, warming a
         // key it could never write. The slim slot is ~70 KB and does warm.
-        ctx.waitUntil((async () => {
-          try {
-            await _selfDispatch(`/timed/all?slim=1&nocache=1`).catch(() => {});
-            // Anonymous variant for the public tier bucket (no API key).
-            const base = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
-            await this.fetch(new Request(`${base}/timed/all?slim=1&nocache=1`), env, ctx).catch(() => {});
-          } catch (_) {}
-        })());
+        _prewarmSteps.push(["timed_all_slim", async () => {
+          await _selfDispatch(`/timed/all?slim=1&nocache=1`).catch(() => {});
+          // Anonymous variant for the public tier bucket (no API key).
+          const base = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
+          await this.fetch(new Request(`${base}/timed/all?slim=1&nocache=1`), env, ctx).catch(() => {});
+        }]);
 
         // 2026-06-05 — Near-real-time macro ACTUALS from FRED. During the US
         // release window (≈8am–3pm ET = 12–19 UTC weekdays) refresh the
@@ -104555,30 +104570,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // cadence. Cheap (9 series) + best-effort; no-op without FRED_API_KEY.
         // Then detect fresh prints → Discord #general + KV overlay for Today strip.
         if (_isWeekday && _utcH >= 12 && _utcH <= 19) {
-          ctx.waitUntil((async () => {
-            try {
-              const { refreshMacroActualsFromFRED } = await import("./macro-actuals-fred.js");
-              await refreshMacroActualsFromFRED(env);
-              const { getUpcomingMacroEvents } = await import("./macro-events-calendar.js");
-              const cal = await getUpcomingMacroEvents(env, { days: 3 });
-              const { processMacroReleaseAlerts } = await import("./macro-release-alerts.js");
-              await processMacroReleaseAlerts(env, { events: cal.events, today: cal.today });
-            } catch (_) {}
-          })());
+          _prewarmSteps.push(["macro_actuals", async () => {
+            const { refreshMacroActualsFromFRED } = await import("./macro-actuals-fred.js");
+            await refreshMacroActualsFromFRED(env);
+            const { getUpcomingMacroEvents } = await import("./macro-events-calendar.js");
+            const cal = await getUpcomingMacroEvents(env, { days: 3 });
+            const { processMacroReleaseAlerts } = await import("./macro-release-alerts.js");
+            await processMacroReleaseAlerts(env, { events: cal.events, today: cal.today });
+          }]);
           // X wire accounts — macro prints land within minutes of release.
           // Skipped when filtered stream is healthy (stream delivers in seconds).
-          ctx.waitUntil((async () => {
-            try {
-              const utcMin = new Date().getUTCMinutes();
-              if (!await _shouldPollDeltaOneFallback(env, utcMin)) return;
-              const XWire = await import("./discovery/x-wire-tracker.js");
-              const r = await XWire.fetchDeltaOnePosts(env, { delayMs: 300 });
-              if (r.ok && r.persisted > 0) {
-                const NewsTracker = await import("./discovery/news-tracker.js");
-                await NewsTracker.scoreUnscoredNews(env, { limit: 40 }).catch(() => {});
-              }
-            } catch (_) {}
-          })());
+          _prewarmSteps.push(["x_wire", async () => {
+            const utcMin = new Date().getUTCMinutes();
+            if (!await _shouldPollDeltaOneFallback(env, utcMin)) return;
+            const XWire = await import("./discovery/x-wire-tracker.js");
+            const r = await XWire.fetchDeltaOnePosts(env, { delayMs: 300 });
+            if (r.ok && r.persisted > 0) {
+              const NewsTracker = await import("./discovery/news-tracker.js");
+              await NewsTracker.scoreUnscoredNews(env, { limit: 40 }).catch(() => {});
+            }
+          }]);
         }
 
         // 2026-06-01 — Phase E: drain the bridge notify queue + send
@@ -104588,15 +104599,39 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // 5 min. Best-effort + ctx.waitUntil so it doesn't block other
         // cron work. Pings the same proxy route Mission Control uses
         // ({ send: true }) so the bridge gets the operator key.
-        ctx.waitUntil((async () => {
-          try {
-            await _selfDispatch(`/timed/admin/broker-bridge/notify/drain`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ send: true, limit: 100 }),
-            }).catch(() => {});
-          } catch (_) {}
-        })());
+        _prewarmSteps.push(["bridge_notify_drain", async () => {
+          await _selfDispatch(`/timed/admin/broker-bridge/notify/drain`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ send: true, limit: 100 }),
+          }).catch(() => {});
+        }]);
+
+        // One chain per isolate. A pre-warm pass that outlives its tick
+        // would otherwise be joined by the next one, which is the same
+        // "two of everything in one isolate" the engine tick had.
+        const _pwAge = _fiveMinPrewarmSince ? Date.now() - _fiveMinPrewarmSince : 0;
+        if (_fiveMinPrewarmSince && _pwAge < FIVE_MIN_PREWARM_LEASE_MS) {
+          console.warn(`[CRON PREWARM] skipped: the previous chain has been running ${Math.round(_pwAge / 1000)}s in this isolate`);
+        } else {
+          if (_fiveMinPrewarmSince) {
+            console.warn(`[CRON PREWARM] lease expired after ${Math.round(_pwAge / 1000)}s — the holder died without releasing. Proceeding.`);
+          }
+          _fiveMinPrewarmSince = Date.now();
+          ctx.waitUntil((async () => {
+            try {
+              for (const [_pwName, _pwStep] of _prewarmSteps) {
+                try {
+                  await _pwStep();
+                } catch (e) {
+                  console.warn(`[CRON PREWARM] ${_pwName} failed:`, String(e?.message || e).slice(0, 160));
+                }
+              }
+            } finally {
+              _fiveMinPrewarmSince = 0;
+            }
+          })());
+        }
       }
 
       // 2026-08-18 — Stage 1 options-marks snapshot cron.

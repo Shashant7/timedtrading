@@ -276,3 +276,52 @@ describe("only one heavy phase of the tick at a time", () => {
     expect(src).not.toContain("_thinKvPatches.push([_sym, _kvPatch, _plForD1]);");
   });
 });
+
+describe("the monolith pre-warms one endpoint at a time", () => {
+  // The same disease on the other worker. `timed-trading-ingest`'s */5 fanned
+  // its pre-warms out as separate `ctx.waitUntil` chains, and every one of
+  // them re-enters the worker in-process (`_selfDispatch` is `this.fetch`),
+  // so each one's whole request graph was resident at the same time. That
+  // isolate was dying with `exceededMemory` 9-14s after the tick fired —
+  // 10 of 10 consecutive ticks overnight, with no user traffic on it at all,
+  // which rules out serve-time load as the cause.
+  const src = readFileSync(join(root, "index.js"), "utf8");
+
+  const steps = src.indexOf("const _prewarmSteps = [];");
+  const runner = src.indexOf("for (const [_pwName, _pwStep] of _prewarmSteps) {");
+
+  it("collects the pre-warm steps and runs them from one place", () => {
+    expect(steps).toBeGreaterThan(-1);
+    expect(runner).toBeGreaterThan(runner === -1 ? 0 : steps);
+    expect(src.indexOf("const _prewarmSteps = [];", steps + 1)).toBe(-1);
+    expect(src.indexOf("for (const [_pwName, _pwStep] of _prewarmSteps) {", runner + 1)).toBe(-1);
+  });
+
+  it("routes every heavy pre-warm through the chain, not its own waitUntil", () => {
+    const chain = src.slice(steps, runner);
+    for (const name of ["options_all", "timed_all_slim", "macro_actuals", "x_wire", "bridge_notify_drain"]) {
+      expect(chain).toContain(`_prewarmSteps.push(["${name}"`);
+    }
+    // Five names, five pushes — a step added later must join the chain.
+    expect(chain.match(/_prewarmSteps\.push\(\[/g)).toHaveLength(5);
+    // Exactly one dispatch in the whole region: the chain itself. Any
+    // second one is a step that went back to running concurrently.
+    expect(chain.match(/ctx\.waitUntil\(/g)).toHaveLength(1);
+  });
+
+  it("awaits each step so two are never resident at once", () => {
+    const body = src.slice(runner, runner + 400);
+    expect(body).toContain("await _pwStep();");
+    // A step that throws must not take the rest of the chain with it.
+    expect(body).toContain("[CRON PREWARM]");
+  });
+
+  it("holds a per-isolate lease so a slow chain is not joined by the next tick", () => {
+    expect(src).toContain("let _fiveMinPrewarmSince = 0;");
+    expect(src).toContain("const FIVE_MIN_PREWARM_LEASE_MS =");
+    expect(src).toContain("[CRON PREWARM] skipped: the previous chain has been running");
+    // Released in a `finally`, or one dead chain wedges the lane until the
+    // lease expires.
+    expect(src.slice(runner, runner + 600)).toMatch(/finally\s*\{\s*_fiveMinPrewarmSince = 0;/);
+  });
+});
