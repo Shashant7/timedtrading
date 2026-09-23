@@ -231,6 +231,32 @@ dying rather than an invocation. Two more lanes were overlapping themselves.
   never deferred, because that is open risk rather than a new position.
   Live: `Processed 216 actionable, DEFERRED 52 lowest-ranked, in 368s` and
   the tail then ran in 94s inside a 699s tick.
+- **A "changed rows only" throttle is not a throttle if everything changes.**
+  The tail's D1 `ticker_latest` sync carried a comment saying "most ticks only
+  have ~30-80 tickers whose score/stage/price actually changed". True
+  overnight (`32 written, 297 unchanged-skipped`), false from the opening
+  bell: every price moves every tick, so the changed set IS the universe and
+  the pass went from 73-132s to 280s+. It is the last phase, so it is where
+  every upstream overrun lands and the only phase whose work is lost
+  completely when the 900s kill arrives — `[SCORING] deferred tail done`
+  stopped appearing at 13:30 UTC and did not return. Cap it and rotate
+  (`D1_LATEST_SYNC_CAP`, `worker/d1-latest-sync-plan.js`): open positions and
+  this tick's stage flips sync every tick, the quiet remainder sweeps in
+  three. Check any per-tick budget's stated assumption against RTH numbers,
+  not overnight ones.
+- **`prev_kanban_stage` does not mean "the stage changed this tick".** It
+  holds the last transition's SOURCE lane and is carried forward
+  indefinitely, so `kanban_stage !== prev_kanban_stage` is true for nearly
+  every ticker that has ever moved lanes. Using it as the must-sync predicate
+  would have exempted the whole universe and quietly restored the unbounded
+  pass. The scoring loop's own `_stageFlip` comparison is the real per-tick
+  signal; it populates a `stageFlipped` set now.
+- **Reading an interleaved log without asking how many isolates are alive
+  wastes an hour.** `[SCORING] ... 269ms` at 14:10:25 and `[KANBAN] ... 311s`
+  at 14:11:07 both back-compute to a 14:05:56 start, which is impossible in
+  one invocation — until you notice two isolates are serving the cron and the
+  logs are one merged stream. Attribute every line to a lease claim before
+  drawing a timeline.
 - **Two schedules doing the same work need one lane, not two leases.** The
   hourly `runChartCandleCalendar` backfill is the same universe-wide REST
   fetch plus D1 upsert as the `*/5` bar pass, and both fire at :05 past the
