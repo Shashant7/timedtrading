@@ -6,6 +6,53 @@
 
 ---
 
+## A lane that only wakes on an event cannot heal the event that stopped [2026-09-23]
+
+Eleven index day trades were alerted, zero reached the broker as
+positions. The first guess — "the options mirror must be disabled" — was
+wrong, and reading `timed:opt-dt-mirror-log` out of production instead of
+reasoning from the code is what found the real bug. The mirror was
+enabled and it fired twice.
+
+- **Read the decision log before theorising.** The log said 11x
+  `no_mirrored_entry`, 9x `vehicle_daily_cap_2_reached_for_long_put`, 4x
+  `entry_fill_pending`, 4x `ticker_not_index`, 2x `order_working`. Two
+  real Webull limit buys went out 74 seconds apart at the open (13:46:23
+  QQQ 741P, 13:47:00 SPY 768P) and consumed the whole 2/day `long_put`
+  budget. The nine cap rejections are the *symptom*; the two working
+  orders are the *cause*. A subagent asked to reason from the source
+  concluded the mirror was gated off and returning `{skipped:true,
+  reason:"disabled"}`. Production said the opposite.
+- **The only thing that re-read a pending entry was a close event for
+  the SAME signal id.** That is circular: the signal whose entry never
+  filled is precisely the one that stops producing events. Both mirrors
+  sat frozen on `entry_fill_status:"working"` for seven hours while the
+  paper book exited at 14:08 and 14:09. Any self-healing step hung off
+  an event stream can only heal things the stream still mentions — it
+  needs a sweep that runs on a SCHEDULE, over state, not over events.
+- **A counter that only bumps is a countdown to a wedged lane.**
+  `commitEntryCounters` fired on `rec.pending` (correct — a live limit
+  does occupy the broker) but nothing anywhere released. Two unfilled
+  orders permanently spent the day's budget.
+- **Releasing is safe when it is not the deleted reserve-then-release.**
+  That pattern (removed in June after wedging `index_trend_letf` at 2/2)
+  bumped on INTENT and released on a GUESS, so a lost release wedged the
+  lane. The new one bumps only on a confirmed broker place and releases
+  only on a second confirmed broker fact, and a lost release leaves the
+  slot consumed — the restrictive direction. When adding a release, ask
+  which way it fails, not whether it can fail.
+- **A cancel that comes back not-ok may have lost a race with a fill.**
+  Treat it as "still live" and re-poll. Releasing there would hand out a
+  cap slot against a real position.
+- **Mirrors written before a new field exists still have to work.** The
+  resolver falls back to live prefs when `entry_caps` is absent and to
+  `ts` when `entry_placed_at` is. Without that, the two orders this was
+  written to unwedge would have resolved and still never returned their
+  slots. Verified in production: `long_put` 2 → 0.
+- **`timed:opt-dt-mirror-log` shares a stem with `timed:opt-dt-mirror:`
+  but not the colon.** A sweep prefixed on the stem would eat the
+  decision log. There is a test pinning the colon.
+
 ## A cache keyed to skip a write was holding the whole universe [2026-09-23]
 
 The `*/5` kept dying after the `*/1` was fixed, and the ticks that died

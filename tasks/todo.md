@@ -21,6 +21,30 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Eleven day trades, zero broker positions (2026-09-23).** Not
+      "disabled" — the mirror fired twice. Two Webull limit buys went out 74 s
+      apart at the open (13:46:23 QQQ 741P, 13:47:00 SPY 768P), both came back
+      `working`, and both counted against the 2/day `long_put` cap, which is
+      right. Neither filled, neither was re-read, neither was cancelled: the
+      only thing that ever re-read a pending entry was a close event for the
+      SAME signal id, and that signal stops producing events. Nine later
+      entries died on `vehicle_daily_cap_2_reached_for_long_put`, and both
+      buys were still live hours after the paper book exited at 14:08/14:09.
+      Shipped: `resolvePendingIndexDtEntry` +
+      `sweepPendingIndexDtEntries` (runs per PASS, not per event),
+      `releaseEntryCounters`, EXIT/STOP cancel a working buy, and a new
+      `POST /bridge/options/order/cancel`. Verified in production — the
+      sweep resolved both stuck mirrors (`gone`, i.e. Webull had already
+      terminated them, so neither filled) and `long_put` went 2 → 0.
+      33 tests; 32 of them fail without the fix. PR #1488.
+      **Open follow-ups from this:** (a) DIA is in `DAY_TRADE_TICKERS` but
+      `shouldIndexAutoMirror` allows SPY/QQQ/IWM only, so DIA day trades are
+      alerted and can never mirror (4x `ticker_not_index` today) — widen the
+      gate or stop alerting it; (b) entries price against a passive FMV
+      ceiling (`display_buy_ceil`) with no marketable floor, unlike
+      `marketableCloseLimit` on the exit side. Not proven to be the cause here
+      ($0.68 ceiling vs $0.59 mid should have filled), but it is the obvious
+      reason a limit sits unfilled and it needs real fill data to settle.
 - [x] **The engine never finished a market-hours tick (2026-09-22).** DDOG's
       0.1× Cloud Pivot entry scored, wrote D1 and sent its Discord card, then
       the `tt-engine` `*/5` isolate was killed with `outcome:

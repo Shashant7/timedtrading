@@ -463,6 +463,22 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   `guardOptionsSellQty` rejects SELL > live held qty as defense-in-depth.
 - Persist `entry_fired` / `exit_fired` only after fill reconcile. Working
   limits stay pending and are polled via `/bridge/options/order/status`.
+- **A pending entry is resolved on a SCHEDULE, not on an event (2026-09-23)**:
+  `sweepPendingIndexDtEntries` runs every day-trade pass and calls
+  `resolvePendingIndexDtEntry` (→ `filled | gone | cancelled | working`).
+  Before it, the only re-read was a close event for the SAME signal id — and
+  the signal whose entry never filled is the one that stops producing events.
+  Two working orders 74s apart at the open ate the whole 2/day `long_put` cap
+  and blocked the next nine entries; both sat frozen on `working` for seven
+  hours. `commitEntryCounters` bumps on `rec.pending` (a live limit does
+  occupy the broker) and `releaseEntryCounters` gives the slot back only on a
+  second CONFIRMED broker fact — not the deleted reserve-then-release, which
+  released on a guess. A lost release leaves the slot consumed (restrictive).
+  EXIT/STOP cancel a still-working buy via `/bridge/options/order/cancel`; a
+  cancel that comes back not-ok may have lost a race with a fill, so re-poll
+  and never release. Pre-field mirrors fall back to live prefs for caps and
+  `ts` for the staleness clock. Sweep prefix is `timed:opt-dt-mirror:` — the
+  colon is what keeps it off `timed:opt-dt-mirror-log`.
 - EXIT/STOP price the bid (or mid − 1 tick). Paper sizing is opt-in
   (`index_dt_follow_paper_size`, default OFF = 1 lot).
 - Trader `closeTradeAtPrice` must vehicle-gate like ENTRY/TRIM
