@@ -149,11 +149,12 @@ export function findDemotionCandidates(perSetup, opts = {}) {
     // because the cost of wrongly deleting a signal is higher than the cost
     // of looking at the exits one more week.
     const entryAtFault = edge === "absent";
-    // ...unless the pooled "absent" is an average of a regime where the
-    // entries work and a regime where they do not. That is a missing gate,
-    // and retiring the detector throws away the half that works.
+    // A pooled "absent" can be an average of a regime where the entries work
+    // and one where they do not. That does NOT earn a stay of execution: the
+    // detector has no regime gate, so leaving it armed means it keeps firing
+    // in the regime that bleeds. Demote now, and record the way back in.
     const regimeFit = entryAtFault ? (s.regime_fit || null) : null;
-    const base = {
+    return {
       setup: s.setup,
       direction: s.direction,
       n: s.stats.n,
@@ -164,40 +165,38 @@ export function findDemotionCandidates(perSetup, opts = {}) {
       mfe_mae_ratio: s.entry_quality?.mfe_mae_ratio ?? null,
       hit_rate_2pct: s.entry_quality?.hit_rate_2pct ?? null,
       mfe_capture_rate: s.mfe_capture_rate ?? null,
-    };
-    if (regimeFit) {
-      return {
-        ...base,
-        owner: "entry",
-        action: "gate_by_regime",
-        works_in: regimeFit.works_in,
-        fails_in: regimeFit.fails_in,
-        off_regime_share_pct: regimeFit.off_regime_share_pct,
-        why: regimeFit.why,
-      };
-    }
-    return {
-      ...base,
       owner: entryAtFault ? "entry" : "management",
       action: entryAtFault ? "demote" : "fix_management",
+      // Present only when the demote is throwing away a regime that works.
+      reinstate_behind_regime_gate: regimeFit
+        ? {
+          works_in: regimeFit.works_in,
+          fails_in: regimeFit.fails_in,
+          off_regime_share_pct: regimeFit.off_regime_share_pct,
+          why: regimeFit.why,
+        }
+        : null,
       why: entryAtFault
         ? (s.entry_quality?.why || "entries are not finding moves")
+          + (regimeFit ? ` — but ${regimeFit.why}` : "")
         : `losing money but the entries hold up (${s.entry_quality?.why || "entry grade unavailable"})`
           + " — fix the exits, do not demote the signal",
     };
   });
 }
 
-/** The subset that should actually be demoted — the signal finds nothing in
- *  any regime. Regime-selective detectors are an entry fault too, but the fix
- *  is a gate, so they are excluded here. */
+/** The subset of demotion candidates whose SIGNAL is the problem. */
 export function entryFaultDemotions(candidates) {
   return (candidates || []).filter((c) => c.action === "demote");
 }
 
-/** Detectors that work in some regimes and not others — gate, do not retire. */
+/**
+ * Demoted detectors that still have a regime where the entries work. The block
+ * stands — nothing gates them to that regime yet — but these are the ones
+ * worth reinstating behind a gate rather than deleting.
+ */
 export function regimeGateCandidates(candidates) {
-  return (candidates || []).filter((c) => c.action === "gate_by_regime");
+  return (candidates || []).filter((c) => c.reinstate_behind_regime_gate);
 }
 
 /** Honest one-line flags about the current edge state. Pure. */

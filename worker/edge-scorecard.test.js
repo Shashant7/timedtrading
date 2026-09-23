@@ -138,22 +138,27 @@ describe("findDemotionCandidates", () => {
     mfe_capture_rate: -0.385,
   };
 
-  it("asks for a regime gate instead of a demote when the edge is seasonal", () => {
+  // A seasonal edge does NOT earn a stay of execution. Nothing gates the
+  // detector to the regime that works, so leaving it armed keeps it firing in
+  // the 75% of cases that bleed. Demote, and record the route back.
+  it("still demotes a seasonal detector, because nothing gates it yet", () => {
     const out = findDemotionCandidates([REGIME_SELECTIVE]);
-    expect(out[0].action).toBe("gate_by_regime");
+    expect(out[0].action).toBe("demote");
     expect(out[0].owner).toBe("entry");
-    expect(out[0].works_in).toEqual(["risk_on"]);
-    expect(out[0].off_regime_share_pct).toBe(75);
   });
 
-  it("keeps a regime gate out of the list of things to actually demote", () => {
-    const flat = {
-      ...REGIME_SELECTIVE,
-      setup: "tt_atl_breakdown",
-      regime_fit: null,
-    };
-    const out = findDemotionCandidates([REGIME_SELECTIVE, flat]);
-    expect(entryFaultDemotions(out).map((c) => c.setup)).toEqual(["tt_atl_breakdown"]);
+  it("records the regime the demote is throwing away", () => {
+    const out = findDemotionCandidates([REGIME_SELECTIVE]);
+    expect(out[0].reinstate_behind_regime_gate.works_in).toEqual(["risk_on"]);
+    expect(out[0].reinstate_behind_regime_gate.off_regime_share_pct).toBe(75);
+    expect(out[0].why).toMatch(/rather than retiring it/);
+  });
+
+  it("separates the salvageable blocks from the dead ones", () => {
+    const dead = { ...REGIME_SELECTIVE, setup: "tt_atl_breakdown", regime_fit: null };
+    const out = findDemotionCandidates([REGIME_SELECTIVE, dead]);
+    expect(entryFaultDemotions(out).map((c) => c.setup).sort())
+      .toEqual(["tt_ath_breakout", "tt_atl_breakdown"]);
     expect(regimeGateCandidates(out).map((c) => c.setup)).toEqual(["tt_ath_breakout"]);
   });
 
@@ -163,6 +168,7 @@ describe("findDemotionCandidates", () => {
       entry_quality: { entry_edge: "confirmed", mfe_mae_ratio: 1.9, hit_rate_2pct: 55, why: "beats the book" },
     }]);
     expect(out[0].action).toBe("fix_management");
+    expect(out[0].reinstate_behind_regime_gate).toBe(null);
   });
 });
 

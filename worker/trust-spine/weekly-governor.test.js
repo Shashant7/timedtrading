@@ -70,27 +70,39 @@ describe("weekly governor pure helpers", () => {
     expect(severe[0].config_key).toBeTruthy();
   });
 
-  // Same pooled "absent", but it is 11 risk-on entries that work averaged
-  // with 33 balanced-regime ones that do not. Blocking the play deletes the
-  // half that works.
-  it("holds back a blind-looking detector whose edge is really seasonal", () => {
+  // The pooled "absent" is 6 risk-on entries that work averaged with 25
+  // balanced-regime ones that do not. The block still applies — nothing gates
+  // the detector to risk-on, so leaving it armed keeps 80% of its fires in the
+  // regime that bleeds — but the route back is recorded.
+  it("still blocks a seasonal bleeder and records how to reinstate it", () => {
     const severe = planSevereDemotions([{
       setup: "tt_ath_breakout",
       direction: "long",
-      stats: { n: 44, profit_factor: 0.3, win_rate_pct: 29, pnl_usd: -900 },
+      stats: { n: 31, profit_factor: 0.25, win_rate_pct: 29, pnl_usd: -900 },
       entry_quality: { entry_edge: "absent", mfe_mae_ratio: 0.78, hit_rate_2pct: 30 },
       regime_fit: {
         works_in: ["risk_on"],
         fails_in: ["balanced"],
-        off_regime_share_pct: 75,
+        off_regime_share_pct: 80.6,
         why: "gate the detector by regime rather than retiring it",
       },
       mfe_capture_rate: -0.385,
     }], { minN: 10, maxPf: 0.5, allowPaths: ["tt_ath_breakout"] });
-    expect(severe[0].action).toBe("gate_by_regime");
-    expect(severe[0].works_in).toEqual(["risk_on"]);
-    // No config_key means the apply loop cannot touch it even by accident.
-    expect(severe[0].config_key).toBeUndefined();
+    expect(severe[0].action).toBe("auto_demote_blocked");
+    expect(severe[0].config_key).toBeTruthy();
+    expect(severe[0].reinstate_behind_regime_gate.works_in).toEqual(["risk_on"]);
+    expect(severe[0].reinstate_behind_regime_gate.off_regime_share_pct).toBe(80.6);
+  });
+
+  it("leaves the reinstatement hint null when the signal fails everywhere", () => {
+    const severe = planSevereDemotions([{
+      setup: "tt_ath_breakout",
+      direction: "long",
+      stats: { n: 20, profit_factor: 0.13, win_rate_pct: 35, pnl_usd: -945 },
+      entry_quality: { entry_edge: "absent", mfe_mae_ratio: 0.78, hit_rate_2pct: 35 },
+    }], { minN: 10, maxPf: 0.5, allowPaths: ["tt_ath_breakout"] });
+    expect(severe[0].action).toBe("auto_demote_blocked");
+    expect(severe[0].reinstate_behind_regime_gate).toBe(null);
   });
 
   it("stays armed on rows with no entry grade, rather than silently disarming", () => {

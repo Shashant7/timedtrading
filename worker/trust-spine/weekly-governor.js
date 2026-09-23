@@ -132,26 +132,6 @@ export function planSevereDemotions(perSetup, opts = {}) {
       });
       continue;
     }
-    // A pooled "absent" that splits by regime is a detector firing out of
-    // season, not a detector that finds nothing. Auto-demoting it deletes the
-    // in-regime half that works.
-    if (entryEdge === "absent" && s.regime_fit) {
-      out.push({
-        setup: s.setup,
-        direction: String(s.direction || "long").toLowerCase(),
-        n,
-        profit_factor: pf,
-        win_rate_pct: stats.win_rate_pct,
-        pnl_usd: stats.pnl_usd,
-        entry_edge: entryEdge,
-        works_in: s.regime_fit.works_in,
-        fails_in: s.regime_fit.fails_in,
-        off_regime_share_pct: s.regime_fit.off_regime_share_pct,
-        action: "gate_by_regime",
-        why: `PF ${pf} and the pooled entry grade is absent, but ${s.regime_fit.why}`,
-      });
-      continue;
-    }
     const key = demotionProposalConfigKey(s.setup, s.direction || "long");
     // Prefer path-keyed severe list when we can resolve.
     let path = null;
@@ -175,6 +155,17 @@ export function planSevereDemotions(perSetup, opts = {}) {
       win_rate_pct: stats.win_rate_pct,
       pnl_usd: stats.pnl_usd,
       action: "auto_demote_blocked",
+      // The block still applies — nothing gates this detector to the regime
+      // where its entries work, so leaving it armed would keep it firing in
+      // the one where they do not. This is the route back, for a human.
+      reinstate_behind_regime_gate: s.regime_fit
+        ? {
+          works_in: s.regime_fit.works_in,
+          fails_in: s.regime_fit.fails_in,
+          off_regime_share_pct: s.regime_fit.off_regime_share_pct,
+          why: s.regime_fit.why,
+        }
+        : null,
     });
   }
   return out;
@@ -272,7 +263,7 @@ export async function runWeeklyGovernor(env, opts = {}) {
   // blocking a play.
   const severe = severeLive.filter((s) => s.action === "auto_demote_blocked");
   const managementLeaks = severeLive.filter((s) => s.action === "fix_management");
-  const regimeGates = severeLive.filter((s) => s.action === "gate_by_regime");
+  const regimeGates = severe.filter((s) => s.reinstate_behind_regime_gate);
 
   const actions = [];
   const applied = [];
@@ -329,11 +320,18 @@ export async function runWeeklyGovernor(env, opts = {}) {
     actions.push({ type: "management_leak_not_demoted", ...s });
   }
 
-  // 2b) Bleeders whose entries work in one regime and not another. The fix is
-  //     a regime gate on the detector, which is an operator decision, so these
-  //     are surfaced and never applied either.
+  // 2b) Blocks that are throwing away a regime where the entries DO work.
+  //     The block below still applies; this is the route back, so a detector
+  //     with a seasonal edge is reinstated behind a gate rather than forgotten.
   for (const s of regimeGates) {
-    actions.push({ type: "regime_gate_not_demoted", ...s });
+    actions.push({
+      type: "demoted_but_reinstatable_by_regime",
+      setup: s.setup,
+      direction: s.direction,
+      n: s.n,
+      profit_factor: s.profit_factor,
+      ...s.reinstate_behind_regime_gate,
+    });
   }
 
   // 2) Auto-demote severe scorecard bleeders (extra to the static heal list).

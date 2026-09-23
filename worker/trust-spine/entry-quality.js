@@ -156,9 +156,12 @@ export function aggregateMfeCapture(closed) {
  *                          MFE:MAE means nothing on its own.
  * @returns {{ ...stats, baseline, vs_baseline, entry_edge, why }|null}
  */
-export function gradeEntryQuality(closed, baseline = null) {
+export function gradeEntryQuality(closed, baseline = null, opts = {}) {
   const stats = summarizeEntryExcursions(closed);
   if (!stats) return null;
+  const minN = Number.isFinite(Number(opts.minN)) && Number(opts.minN) > 0
+    ? Number(opts.minN)
+    : ENTRY_GRADE_MIN_N;
 
   const base = baseline && Number(baseline.n) > 0 ? baseline : null;
   const ratio = stats.mfe_mae_ratio;
@@ -174,9 +177,9 @@ export function gradeEntryQuality(closed, baseline = null) {
 
   let edge = null;
   let why = null;
-  if (stats.n < ENTRY_GRADE_MIN_N) {
+  if (stats.n < minN) {
     edge = "insufficient";
-    why = `${stats.n} closed trades — need ${ENTRY_GRADE_MIN_N} before the entries mean anything`;
+    why = `${stats.n} closed trades — need ${minN} before the entries mean anything`;
   } else if (!comparable) {
     edge = "ungraded";
     why = "no comparable book baseline for this window";
@@ -207,7 +210,15 @@ export function gradeEntryQuality(closed, baseline = null) {
   };
 }
 
-/** A regime bucket below this many trades describes weather, not a detector. */
+/**
+ * A regime bucket below this many trades describes weather, not a detector.
+ *
+ * Deliberately below ENTRY_GRADE_MIN_N: a regime slice is by construction a
+ * fraction of the pooled sample, so holding it to the pooled bar would mean no
+ * slice is ever gradeable and the pooled verdict always wins. The asymmetry is
+ * the point — this bar only ever HOLDS BACK a retirement for a human to look
+ * at, it never admits, sizes up, or applies anything on its own.
+ */
 export const REGIME_GRADE_MIN_N = 6;
 
 /**
@@ -266,7 +277,7 @@ export function gradeEntryQualityByRegime(closed, cohort = null) {
     const base = baseByRegime.has(regime)
       ? summarizeEntryExcursions(baseByRegime.get(regime))
       : null;
-    const grade = gradeEntryQuality(list, base);
+    const grade = gradeEntryQuality(list, base, { minN: REGIME_GRADE_MIN_N });
     if (!grade) continue;
     out[regime] = { ...grade, share_pct: round((list.length / total) * 100, 1) };
   }
@@ -277,8 +288,10 @@ export function gradeEntryQualityByRegime(closed, cohort = null) {
  * Does this detector have an edge that only exists in some regimes?
  *
  * Distinguishes "the signal does not work" from "the signal works but nothing
- * stops it firing in the wrong tape" — the second is a missing gate, and the
- * fix is a gate, not a retirement.
+ * stops it firing in the wrong tape". This does NOT excuse a bleeder: until a
+ * gate exists the detector keeps firing out of season, so the block still
+ * applies. What it buys is a route back — a seasonal detector is reinstatable
+ * behind a regime gate, where a blind one is just gone.
  */
 export function diagnoseRegimeFit(byRegime) {
   if (!byRegime || typeof byRegime !== "object") return null;
@@ -300,7 +313,6 @@ export function diagnoseRegimeFit(byRegime) {
     fails_in: failsIn.sort(),
     off_regime_share_pct: round(offRegimeShare, 1),
     owner: "entry",
-    verdict: "gate_by_regime",
     why: `entries are confirmed in ${worksIn.join(", ")} and absent in ${failsIn.join(", ")}, `
       + `and ${round(offRegimeShare, 1)}% of them fire in the regimes where the edge is absent `
       + "— gate the detector by regime rather than retiring it",

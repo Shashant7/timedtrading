@@ -266,7 +266,6 @@ describe("regime-selective detectors are gated, not retired", () => {
     expect(fit.works_in).toEqual(["risk_on"]);
     expect(fit.fails_in).toEqual(["balanced"]);
     expect(fit.off_regime_share_pct).toBe(75);
-    expect(fit.verdict).toBe("gate_by_regime");
     expect(fit.why).toMatch(/rather than retiring it/);
   });
 
