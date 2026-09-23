@@ -436,6 +436,38 @@ export async function commitEntryCounters(env, userEmail, vehicle, { vehicleCap 
   return out;
 }
 
+/**
+ * Give a slot back when an entry order ended WITHOUT becoming a position.
+ *
+ * This is not the reserve-then-release pattern deleted above, and the
+ * difference is what makes it safe. That one bumped on INTENT and released on
+ * a guess, so losing the release wedged the lane. This one bumps only on a
+ * confirmed broker place and releases only on a second confirmed broker fact —
+ * the order is cancelled, rejected, or gone. Losing the release leaves the
+ * slot consumed, which is the restrictive direction: it can never hand out
+ * more orders than the cap allows, only fewer.
+ *
+ * Floors at 0 so a double release cannot mint slots.
+ */
+export async function releaseEntryCounters(env, userEmail, vehicle, { vehicleCap = 0, globalCap = 0, now = Date.now() } = {}) {
+  const date = new Date(Number(now) || Date.now()).toISOString().slice(0, 10);
+  const drop = async (key) => {
+    if (!env?.KV_TIMED || !key) return 0;
+    const current = Number(await env.KV_TIMED.get(key)) || 0;
+    const next = Math.max(0, current - 1);
+    await env.KV_TIMED.put(key, String(next), { expirationTtl: 86400 * 2 });
+    return next;
+  };
+  const out = {};
+  if (Number(vehicleCap) > 0) {
+    out.vehicle = await drop(DAILY_VEHICLE_COUNTER_KEY(userEmail, vehicle, date));
+  }
+  if (Number(globalCap) > 0) {
+    out.global = await drop(DAILY_COUNTER_KEY(userEmail, date));
+  }
+  return out;
+}
+
 /** HTTP success alone is not an accepted broker order. */
 export function optionsMirrorDispatchAccepted(fired) {
   return bridgeResponseIsOk(fired?.response, fired?.ok === true);
@@ -525,6 +557,10 @@ export async function queryAutoMirrorOrderStatus(env, userEmail, { order_id, req
     order_id,
     requested_qty,
   });
+}
+
+export async function cancelAutoMirrorOrder(env, userEmail, { order_id } = {}) {
+  return signedBridgePost(env, userEmail, "/bridge/options/order/cancel", { order_id });
 }
 
 /**
@@ -910,7 +946,170 @@ async function saveIndexDtMirror(env, signalId, patch) {
   if (!env?.KV_TIMED || !signalId) return;
   const prev = await loadIndexDtMirror(env, signalId) || {};
   const merged = { ...prev, ...patch, signal_id: signalId, ts: Date.now() };
-  await env.KV_TIMED.put(indexDtMirrorKey(signalId), JSON.stringify(merged), { expirationTtl: 3 * 86400 });
+  // Mirror the pending flag into KV metadata. `list` returns metadata for
+  // free, so the sweep can find the handful of unfilled orders without a
+  // GET per mirror — three days of signals is ~100 keys and the sweep runs
+  // every pass.
+  const pendingEntry = !!(merged.entry_pending && !merged.entry_fired && merged.entry_order_id);
+  await env.KV_TIMED.put(indexDtMirrorKey(signalId), JSON.stringify(merged), {
+    expirationTtl: 3 * 86400,
+    metadata: { pe: pendingEntry ? 1 : 0 },
+  });
+}
+
+// A 0/1 DTE entry limit that has not filled in this long is stale. The setup
+// that justified the price is gone, the lane re-evaluates every ~5 minutes, so
+// two missed passes is the signal. Leaving it working is not the neutral
+// choice: it holds a daily-cap slot AND it can still fill hours later into a
+// thesis the model has already abandoned.
+export const PENDING_ENTRY_STALE_MS = 10 * 60 * 1000;
+
+/**
+ * What a pending entry consumed. New mirrors record `entry_caps` at place
+ * time, which is the honest answer — the caps in force when the slot was
+ * taken. Mirrors written before that field existed have to fall back to the
+ * caps in force NOW, because the alternative is releasing nothing and leaving
+ * the lane wedged on the exact orders this was written to unwedge.
+ */
+async function entryCapsForMirror(env, operatorEmail, mirror, vehicle) {
+  if (mirror?.entry_caps && (mirror.entry_caps.vehicleCap || mirror.entry_caps.globalCap)) {
+    return mirror.entry_caps;
+  }
+  try {
+    const prefs = await loadAutoMirrorPrefs(env, operatorEmail);
+    return mirrorCapsFor(prefs, prefs?.vehicles?.[vehicle]);
+  } catch (_) {
+    return {};
+  }
+}
+
+/**
+ * Decide what a pending (placed, unfilled) entry order IS now, and make the
+ * broker and the counters agree with the answer.
+ *
+ * 2026-09-23 — before this, the only thing that ever re-read a pending entry
+ * was a close event arriving for the SAME signal id. When the paper book
+ * closed a signal whose entry had not filled, the close was skipped with
+ * `entry_fill_pending` and nothing looked at the order again: the mirror sat
+ * on `working` forever, the broker kept a live buy, and the daily-cap slot it
+ * had consumed was never returned. Two such orders at 13:46 and 13:47 used up
+ * the whole 2/day `long_put` budget and blocked the next nine entries.
+ *
+ * Returns { outcome, mirror } with outcome one of:
+ *   not_pending | filled | gone | cancelled | working
+ */
+export async function resolvePendingIndexDtEntry(env, operatorEmail, signalId, mirror, {
+  cancelIfWorking = false,
+  now = Date.now(),
+  staleMs = PENDING_ENTRY_STALE_MS,
+  deps = {},
+} = {}) {
+  const poll = deps.pollFill || pollFillIfNeeded;
+  const cancel = deps.cancelOrder || cancelAutoMirrorOrder;
+  if (!mirror?.entry_pending || mirror.entry_fired || !mirror.entry_order_id) {
+    return { outcome: "not_pending", mirror };
+  }
+
+  const qty = Number(mirror.contracts) || 1;
+  const orderId = mirror.entry_order_id;
+  const vehicle = mirror.vehicle || (mirror.flavor === "call" ? "long_call" : "long_put");
+  const caps = deps.caps || await entryCapsForMirror(env, operatorEmail, mirror, vehicle);
+
+  const markFilled = async (rec) => {
+    const patch = {
+      entry_fired: true,
+      entry_pending: false,
+      contracts: rec.filledQty,
+      contracts_remaining: rec.filledQty,
+      entry_fill_status: rec.status,
+    };
+    await saveIndexDtMirror(env, signalId, patch);
+    return { outcome: "filled", mirror: { ...mirror, ...patch } };
+  };
+
+  // Clearing state and releasing the slot must happen together — a cleared
+  // mirror with a consumed slot is exactly the wedge this function exists to
+  // undo.
+  const markGone = async (outcome, status) => {
+    const patch = { entry_placed: false, entry_pending: false, entry_fired: false, entry_fill_status: status };
+    await saveIndexDtMirror(env, signalId, patch);
+    try { await releaseEntryCounters(env, operatorEmail, vehicle, { ...caps, now }); } catch (_) { /* slot stays consumed — fails restrictive */ }
+    return { outcome, mirror: { ...mirror, ...patch } };
+  };
+
+  const polled = await poll(env, operatorEmail, { status: "working", order_id: orderId }, qty);
+  const rec = reconcileIndexDtFill({ event: "BUY", requestedQty: qty, fill: polled });
+  if (rec.persist) return markFilled(rec);
+  if (rec.status === "rejected" || rec.status === "cancelled") return markGone("gone", rec.status);
+
+  const placedAt = Number(mirror.entry_placed_at) || Number(mirror.ts) || 0;
+  const stale = placedAt > 0 && (now - placedAt) >= staleMs;
+  if (!cancelIfWorking && !stale) return { outcome: "working", mirror };
+
+  const res = await cancel(env, operatorEmail, { order_id: orderId });
+  if (res?.ok && res?.response?.cancelled !== false) return markGone("cancelled", "cancelled");
+
+  // The cancel lost a race with a fill, or the broker refused. Either way the
+  // order may now be a real position, so re-read it before deciding. Never
+  // release a slot on a failed cancel.
+  const after = await poll(env, operatorEmail, { status: "working", order_id: orderId }, qty);
+  const recAfter = reconcileIndexDtFill({ event: "BUY", requestedQty: qty, fill: after });
+  if (recAfter.persist) return markFilled(recAfter);
+  if (recAfter.status === "rejected" || recAfter.status === "cancelled") return markGone("gone", recAfter.status);
+  return { outcome: "working", mirror };
+}
+
+/**
+ * Resolve every pending entry, independent of whether the paper book still
+ * has anything to say about it. This is the half that makes the lane
+ * self-healing: the per-signal path below only runs when a close event
+ * arrives, and the signal whose entry never filled is precisely the one that
+ * stops producing events.
+ */
+export async function sweepPendingIndexDtEntries(env, operatorEmail, {
+  now = Date.now(), staleMs = PENDING_ENTRY_STALE_MS, maxPages = 4, maxResolve = 10,
+} = {}) {
+  if (!env?.KV_TIMED || !operatorEmail) return { checked: 0, resolved: [] };
+  // `indexDtMirrorKey("")` is `timed:opt-dt-mirror:` with the colon, which
+  // does NOT match the hyphenated decision-log key `timed:opt-dt-mirror-log`.
+  const prefix = indexDtMirrorKey("");
+
+  // Candidates come from list metadata where it exists. Mirrors written
+  // before the metadata was added have none, so an absent flag means
+  // "unknown, go read it" rather than "not pending".
+  const candidates = [];
+  let cursor;
+  for (let page = 0; page < maxPages; page++) {
+    let listed;
+    try {
+      listed = await env.KV_TIMED.list({ prefix, limit: 1000, cursor });
+    } catch (_) {
+      break;
+    }
+    for (const k of listed?.keys || []) {
+      if (k?.metadata && Object.prototype.hasOwnProperty.call(k.metadata, "pe") && !k.metadata.pe) continue;
+      const signalId = String(k?.name || "").slice(prefix.length);
+      if (signalId) candidates.push(signalId);
+    }
+    if (listed?.list_complete !== false || !listed?.cursor) break;
+    cursor = listed.cursor;
+  }
+
+  const resolved = [];
+  let checked = 0;
+  for (const signalId of candidates) {
+    if (checked >= maxResolve) break;
+    const mirror = await loadIndexDtMirror(env, signalId);
+    if (!mirror?.entry_pending || mirror.entry_fired || !mirror.entry_order_id) continue;
+    checked++;
+    try {
+      const r = await resolvePendingIndexDtEntry(env, operatorEmail, signalId, mirror, { now, staleMs });
+      if (r.outcome !== "working") resolved.push({ signal_id: signalId, outcome: r.outcome });
+    } catch (e) {
+      resolved.push({ signal_id: signalId, outcome: `error:${String(e?.message || e).slice(0, 60)}` });
+    }
+  }
+  return { checked, resolved };
 }
 
 async function gateIndexDayTradeMirror(env, ctx = {}) {
@@ -1187,6 +1386,13 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
         flavor: play._day_trade_flavor,
         entry_order_id: fill.order_id || rec.order_id || null,
         entry_fill_status: rec.status,
+        // What this order consumed, so whatever resolves it later can give
+        // the slot back without having to re-derive the prefs it was sized
+        // against. `entry_placed_at` is the staleness clock — `ts` moves on
+        // every save, so it cannot answer "how long has this been working".
+        entry_placed_at: Date.now(),
+        vehicle: vehicleKey,
+        entry_caps: counterOk.caps || null,
       });
     }
 
@@ -1204,29 +1410,19 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
   let mirror = await loadIndexDtMirror(env, signalId);
 
   if (mirror?.entry_pending && !mirror.entry_fired && mirror.entry_order_id) {
-    const polled = await pollFillIfNeeded(env, operatorEmail, {
-      status: "working", order_id: mirror.entry_order_id,
-    }, Number(mirror.contracts) || 1);
-    const rec = reconcileIndexDtFill({
-      event: "BUY", requestedQty: Number(mirror.contracts) || 1, fill: polled,
+    // EXIT and STOP are the model abandoning the thesis. A buy that is still
+    // working at that moment must not survive it — on a 0/1 DTE contract it
+    // can fill hours later with nothing left to manage it. TRIM is not
+    // terminal, so it only lets a stale order age out.
+    const terminal = event === "EXIT" || event === "STOP";
+    const r = await resolvePendingIndexDtEntry(env, operatorEmail, signalId, mirror, {
+      cancelIfWorking: terminal,
     });
-    if (rec.persist) {
-      mirror = {
-        ...mirror,
-        entry_fired: true,
-        entry_pending: false,
-        contracts: rec.filledQty,
-        contracts_remaining: rec.filledQty,
-      };
-      await saveIndexDtMirror(env, signalId, {
-        entry_fired: true,
-        entry_pending: false,
-        contracts: rec.filledQty,
-        contracts_remaining: rec.filledQty,
-        entry_fill_status: rec.status,
-      });
-    } else if (rec.status === "rejected" || rec.status === "cancelled") {
-      await saveIndexDtMirror(env, signalId, { entry_placed: false, entry_pending: false, entry_fired: false });
+    if (r.outcome === "filled") {
+      mirror = r.mirror;
+    } else if (r.outcome === "cancelled") {
+      return { skipped: true, reason: "entry_order_cancelled_unfilled" };
+    } else if (r.outcome === "gone") {
       return { skipped: true, reason: "entry_fill_rejected" };
     } else {
       return { skipped: true, reason: "entry_fill_pending" };

@@ -1,0 +1,458 @@
+// 2026-09-23 — A day of index day trades produced zero broker positions.
+//
+// Two limit buys were placed 74 seconds apart at the open (QQQ 741P at
+// 13:46:23, SPY 768P at 13:47:00). Both came back `working`. Both counted
+// against the 2/day `long_put` cap, which is correct — a live limit does
+// occupy the broker. Neither ever filled, neither was ever re-read, and
+// neither was ever cancelled. The next nine entries of the day were rejected
+// with `vehicle_daily_cap_2_reached_for_long_put`, and both buys were still
+// live hours after the model had exited the thesis on paper.
+//
+// The gap was structural: the ONLY thing that re-read a pending entry was a
+// close event for the SAME signal id, and the signal whose entry never filled
+// is precisely the one that stops producing events.
+//
+// These tests pin the three properties that failure needed:
+//   1. a pending entry is resolved on a schedule, not on an event
+//   2. an entry that never became a position gives its cap slot back
+//   3. a working buy does not outlive the model's EXIT / STOP
+import { describe, it, expect } from "vitest";
+import {
+  releaseEntryCounters,
+  commitEntryCounters,
+  resolvePendingIndexDtEntry,
+  sweepPendingIndexDtEntries,
+  PENDING_ENTRY_STALE_MS,
+  indexDtMirrorKey,
+  vehicleCounterKeyFor,
+  maybeAutoMirrorIndexDayTradeEvent,
+} from "./options-auto-mirror.js";
+
+const OP = "op@x.com";
+const CAPS = { vehicleCap: 2, globalCap: 6 };
+const DAY = "2026-09-23";
+const NOW = Date.parse(`${DAY}T17:46:23Z`);
+
+function kvMock(seed = {}) {
+  const store = new Map(Object.entries(seed));
+  const meta = new Map();
+  return {
+    store,
+    meta,
+    get: async (k) => (store.has(k) ? store.get(k) : null),
+    put: async (k, v, opts) => {
+      store.set(k, v);
+      if (opts && "metadata" in opts) meta.set(k, opts.metadata);
+    },
+    delete: async (k) => { store.delete(k); meta.delete(k); },
+    list: async ({ prefix = "" } = {}) => ({
+      keys: [...store.keys()]
+        .filter((k) => k.startsWith(prefix))
+        .map((k) => (meta.has(k) ? { name: k, metadata: meta.get(k) } : { name: k })),
+      list_complete: true,
+    }),
+  };
+}
+
+function pendingMirror(over = {}) {
+  return {
+    signal_id: "dt:SPY:2026-09-23:2026-09-24:P:768",
+    ticker: "SPY",
+    entry_placed: true,
+    entry_pending: true,
+    entry_fired: false,
+    entry_order_id: "I3I87Q92ISRM5FPJMMU0LMR38A",
+    entry_fill_status: "working",
+    contracts: 2,
+    contracts_remaining: 0,
+    flavor: "put",
+    vehicle: "long_put",
+    entry_caps: CAPS,
+    entry_placed_at: NOW,
+    ts: NOW,
+    ...over,
+  };
+}
+
+/** A fake bridge poll that answers with one fixed status. */
+const pollsWith = (status, extra = {}) => async () => ({ status, order_id: "OID", ...extra });
+
+function seedCounters(kv, { vehicle = 2, global: g = 2 } = {}) {
+  kv.store.set(vehicleCounterKeyFor(OP, "long_put", DAY), String(vehicle));
+  kv.store.set(`timed:options:auto-mirror:count:${OP}:${DAY}`, String(g));
+}
+const readVehicle = (kv) => Number(kv.store.get(vehicleCounterKeyFor(OP, "long_put", DAY)));
+const readGlobal = (kv) => Number(kv.store.get(`timed:options:auto-mirror:count:${OP}:${DAY}`));
+
+describe("releaseEntryCounters", () => {
+  it("gives back one vehicle slot and one global slot", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 5 });
+    await releaseEntryCounters({ KV_TIMED: kv }, OP, "long_put", { ...CAPS, now: NOW });
+    expect(readVehicle(kv)).toBe(1);
+    expect(readGlobal(kv)).toBe(4);
+  });
+
+  it("floors at 0 — a double release cannot mint slots", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 1, global: 1 });
+    const opts = { ...CAPS, now: NOW };
+    await releaseEntryCounters({ KV_TIMED: kv }, OP, "long_put", opts);
+    await releaseEntryCounters({ KV_TIMED: kv }, OP, "long_put", opts);
+    await releaseEntryCounters({ KV_TIMED: kv }, OP, "long_put", opts);
+    expect(readVehicle(kv)).toBe(0);
+    expect(readGlobal(kv)).toBe(0);
+  });
+
+  it("is the exact inverse of a commit", async () => {
+    const kv = kvMock();
+    const env = { KV_TIMED: kv };
+    const opts = { ...CAPS, now: NOW };
+    await commitEntryCounters(env, OP, "long_put", opts);
+    await commitEntryCounters(env, OP, "long_put", opts);
+    expect(readVehicle(kv)).toBe(2);
+    await releaseEntryCounters(env, OP, "long_put", opts);
+    expect(readVehicle(kv)).toBe(1);
+  });
+
+  it("leaves an uncapped dimension alone", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 5 });
+    await releaseEntryCounters({ KV_TIMED: kv }, OP, "long_put", { vehicleCap: 2, globalCap: 0, now: NOW });
+    expect(readVehicle(kv)).toBe(1);
+    expect(readGlobal(kv)).toBe(5);
+  });
+});
+
+describe("resolvePendingIndexDtEntry", () => {
+  it("ignores a mirror that is not a pending entry", async () => {
+    const kv = kvMock();
+    let polled = false;
+    const r = await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", pendingMirror({ entry_pending: false, entry_fired: true }),
+      { deps: { pollFill: async () => { polled = true; } } },
+    );
+    expect(r.outcome).toBe("not_pending");
+    expect(polled).toBe(false);
+  });
+
+  it("promotes a fill to a real position and KEEPS the slot", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    const r = await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", pendingMirror(),
+      { now: NOW, deps: { pollFill: pollsWith("filled", { filled_qty: 2 }) } },
+    );
+    expect(r.outcome).toBe("filled");
+    expect(r.mirror.entry_fired).toBe(true);
+    expect(r.mirror.entry_pending).toBe(false);
+    expect(r.mirror.contracts_remaining).toBe(2);
+    // A fill IS a position. The slot it took stays taken.
+    expect(readVehicle(kv)).toBe(2);
+  });
+
+  it("releases the slot when the broker rejected the order", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    const r = await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", pendingMirror(),
+      { now: NOW, deps: { pollFill: pollsWith("rejected") } },
+    );
+    expect(r.outcome).toBe("gone");
+    expect(r.mirror.entry_placed).toBe(false);
+    expect(readVehicle(kv)).toBe(1);
+    expect(readGlobal(kv)).toBe(1);
+  });
+
+  it("leaves a fresh working order alone — no cancel, no release", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    let cancels = 0;
+    const r = await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", pendingMirror({ entry_placed_at: NOW - 60_000 }),
+      { now: NOW, deps: { pollFill: pollsWith("working"), cancelOrder: async () => { cancels++; return { ok: true }; } } },
+    );
+    expect(r.outcome).toBe("working");
+    expect(cancels).toBe(0);
+    expect(readVehicle(kv)).toBe(2);
+  });
+
+  it("cancels an order that has been working past the stale window", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    let cancelledId = null;
+    const r = await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", pendingMirror({ entry_placed_at: NOW - PENDING_ENTRY_STALE_MS - 1 }),
+      {
+        now: NOW,
+        deps: {
+          pollFill: pollsWith("working"),
+          cancelOrder: async (_e, _u, { order_id }) => { cancelledId = order_id; return { ok: true, response: { ok: true, cancelled: true } }; },
+        },
+      },
+    );
+    expect(r.outcome).toBe("cancelled");
+    expect(cancelledId).toBe("I3I87Q92ISRM5FPJMMU0LMR38A");
+    expect(readVehicle(kv)).toBe(1);
+  });
+
+  it("cancels a still-fresh order when the caller says the thesis is over", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    let cancels = 0;
+    const r = await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", pendingMirror({ entry_placed_at: NOW - 30_000 }),
+      {
+        now: NOW,
+        cancelIfWorking: true,
+        deps: { pollFill: pollsWith("working"), cancelOrder: async () => { cancels++; return { ok: true, response: { cancelled: true } }; } },
+      },
+    );
+    expect(r.outcome).toBe("cancelled");
+    expect(cancels).toBe(1);
+    expect(readVehicle(kv)).toBe(1);
+  });
+
+  it("does NOT release when a cancel loses the race with a fill", async () => {
+    // The dangerous case: cancel comes back not-ok because the order just
+    // filled. Releasing here would hand out a slot against a real position.
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    let polls = 0;
+    const r = await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", pendingMirror(),
+      {
+        now: NOW,
+        cancelIfWorking: true,
+        deps: {
+          pollFill: async () => (++polls === 1 ? { status: "working", order_id: "OID" } : { status: "filled", filled_qty: 2, order_id: "OID" }),
+          cancelOrder: async () => ({ ok: false, response: { ok: false, error: "already_filled" } }),
+        },
+      },
+    );
+    expect(r.outcome).toBe("filled");
+    expect(polls).toBe(2);
+    expect(readVehicle(kv)).toBe(2);
+  });
+
+  it("does NOT release when the cancel is refused and the order is still working", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    const r = await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", pendingMirror(),
+      {
+        now: NOW,
+        cancelIfWorking: true,
+        deps: { pollFill: pollsWith("working"), cancelOrder: async () => ({ ok: false, response: { ok: false } }) },
+      },
+    );
+    expect(r.outcome).toBe("working");
+    expect(readVehicle(kv)).toBe(2);
+  });
+
+  it("treats a bridge cancel that reports cancelled:false as a failed cancel", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    const r = await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", pendingMirror(),
+      {
+        now: NOW,
+        cancelIfWorking: true,
+        deps: { pollFill: pollsWith("working"), cancelOrder: async () => ({ ok: true, response: { ok: false, cancelled: false } }) },
+      },
+    );
+    expect(r.outcome).toBe("working");
+    expect(readVehicle(kv)).toBe(2);
+  });
+
+  it("falls back to live prefs for a mirror written before entry_caps existed", async () => {
+    // Today's two stuck orders predate the field. Without this they would
+    // resolve but never give their slots back.
+    const kv = kvMock({
+      [`timed:options:auto-mirror:${OP}`]: JSON.stringify({
+        enabled: true, daily_cap: 6,
+        vehicles: { long_put: { enabled: true, daily_cap: 2 } },
+      }),
+    });
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    const legacy = pendingMirror();
+    delete legacy.entry_caps;
+    delete legacy.vehicle;
+    delete legacy.entry_placed_at;
+    const r = await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", legacy,
+      { now: NOW, deps: { pollFill: pollsWith("cancelled") } },
+    );
+    expect(r.outcome).toBe("gone");
+    expect(readVehicle(kv)).toBe(1);
+    expect(readGlobal(kv)).toBe(1);
+  });
+
+  it("uses ts as the staleness clock when entry_placed_at is absent", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    const legacy = pendingMirror({ ts: NOW - PENDING_ENTRY_STALE_MS - 1 });
+    delete legacy.entry_placed_at;
+    let cancels = 0;
+    const r = await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", legacy,
+      { now: NOW, deps: { pollFill: pollsWith("working"), cancelOrder: async () => { cancels++; return { ok: true, response: { cancelled: true } }; } } },
+    );
+    expect(cancels).toBe(1);
+    expect(r.outcome).toBe("cancelled");
+  });
+});
+
+describe("sweepPendingIndexDtEntries", () => {
+  const put = (kv, id, mirror, meta) => {
+    kv.store.set(indexDtMirrorKey(id), JSON.stringify(mirror));
+    if (meta) kv.meta.set(indexDtMirrorKey(id), meta);
+  };
+
+  it("resolves a pending entry with no close event in sight", async () => {
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    put(kv, "dt:SPY:p", pendingMirror({ entry_placed_at: NOW - PENDING_ENTRY_STALE_MS - 1 }), { pe: 1 });
+    const r = await sweepPendingIndexDtEntries(
+      { KV_TIMED: kv }, OP,
+      { now: NOW, deps: {} },
+    );
+    // No injected deps here: the real poll path runs, the bridge call throws
+    // (no binding, no HMAC key) and pollFillIfNeeded swallows it, leaving the
+    // order `working` and therefore stale -> cancel is attempted.
+    expect(r.checked).toBe(1);
+  });
+
+  it("skips mirrors that are not pending entries", async () => {
+    const kv = kvMock();
+    put(kv, "dt:QQQ:filled", pendingMirror({ entry_pending: false, entry_fired: true }), { pe: 0 });
+    put(kv, "dt:IWM:none", { ticker: "IWM", entry_placed: false }, { pe: 0 });
+    const r = await sweepPendingIndexDtEntries({ KV_TIMED: kv }, OP, { now: NOW });
+    expect(r.checked).toBe(0);
+    expect(r.resolved).toEqual([]);
+  });
+
+  it("reads mirrors with no metadata rather than assuming they are settled", async () => {
+    // Pre-deploy mirrors carry no `pe` flag. Absent must mean "go look".
+    const kv = kvMock();
+    put(kv, "dt:SPY:legacy", pendingMirror());
+    const r = await sweepPendingIndexDtEntries({ KV_TIMED: kv }, OP, { now: NOW });
+    expect(r.checked).toBe(1);
+  });
+
+  it("does not touch the decision log, which shares the key stem", async () => {
+    // `timed:opt-dt-mirror-log` vs the `timed:opt-dt-mirror:` prefix. The
+    // colon is load-bearing.
+    const kv = kvMock();
+    kv.store.set("timed:opt-dt-mirror-log", JSON.stringify([{ signal_id: "x" }]));
+    const r = await sweepPendingIndexDtEntries({ KV_TIMED: kv }, OP, { now: NOW });
+    expect(r.checked).toBe(0);
+    expect(JSON.parse(kv.store.get("timed:opt-dt-mirror-log"))).toHaveLength(1);
+  });
+
+  it("is a no-op without KV or an operator", async () => {
+    expect(await sweepPendingIndexDtEntries({}, OP)).toEqual({ checked: 0, resolved: [] });
+    expect(await sweepPendingIndexDtEntries({ KV_TIMED: kvMock() }, "")).toEqual({ checked: 0, resolved: [] });
+  });
+
+  it("survives a KV list failure without throwing into the cron", async () => {
+    const kv = kvMock();
+    kv.list = async () => { throw new Error("kv down"); };
+    await expect(sweepPendingIndexDtEntries({ KV_TIMED: kv }, OP)).resolves.toEqual({ checked: 0, resolved: [] });
+  });
+
+  it("bounds how many orders one pass will resolve", async () => {
+    const kv = kvMock();
+    for (let i = 0; i < 12; i++) put(kv, `dt:SPY:${i}`, pendingMirror({ entry_order_id: `O${i}` }), { pe: 1 });
+    const r = await sweepPendingIndexDtEntries({ KV_TIMED: kv }, OP, { now: NOW, maxResolve: 3 });
+    expect(r.checked).toBe(3);
+  });
+});
+
+describe("close path — a working buy must not outlive the model's exit", () => {
+  const PREFS = JSON.stringify({
+    enabled: true, daily_cap: 6,
+    vehicles: { long_put: { enabled: true, daily_cap: 2, max_per_order_usd: 300, max_loss_per_order_usd: 250 } },
+  });
+  const SIG = "dt:SPY:2026-09-23:2026-09-24:P:768";
+
+  function exitCtx(event) {
+    return {
+      event,
+      ticker: "SPY",
+      signal_id: SIG,
+      premium: 0.42,
+      book: { contracts: 2, contracts_remaining: 2 },
+      play: {
+        archetype: "day_trade_put",
+        _day_trade_flavor: "put",
+        strikes: { primary: 768 },
+        expiration: { iso: "2026-09-24" },
+        legs: [{ action: "BUY", optionType: "PUT", strike: 768, expiration: "2026-09-24", qty: 2 }],
+        premium: { mid: 0.42 },
+        max_loss_usd: 118,
+      },
+      indicesFlagOn: true,
+    };
+  }
+
+  function env(kv, calls) {
+    return {
+      ADMIN_EMAIL: OP,
+      KV_TIMED: kv,
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      BROKER_BRIDGE_URL: "https://bridge.example.workers.dev",
+      BROKER_BRIDGE: {
+        fetch: async (req) => {
+          const path = new URL(req.url).pathname;
+          calls.push(path);
+          if (path === "/bridge/options/order/status") {
+            return new Response(JSON.stringify({ ok: true, fill: { status: "working", order_id: "OID" } }), { status: 200 });
+          }
+          if (path === "/bridge/options/order/cancel") {
+            return new Response(JSON.stringify({ ok: true, cancelled: true, order_id: "OID" }), { status: 200 });
+          }
+          return new Response(JSON.stringify({ ok: true, order_id: "OID" }), { status: 200 });
+        },
+      },
+    };
+  }
+
+  function seed(kv) {
+    kv.store.set(`timed:options:auto-mirror:${OP}`, PREFS);
+    kv.store.set(indexDtMirrorKey(SIG), JSON.stringify(pendingMirror({ signal_id: SIG, entry_placed_at: Date.now() })));
+    kv.store.set(vehicleCounterKeyFor(OP, "long_put", new Date().toISOString().slice(0, 10)), "2");
+  }
+
+  it("EXIT cancels the working buy instead of skipping it forever", async () => {
+    const kv = kvMock();
+    seed(kv);
+    const calls = [];
+    const r = await maybeAutoMirrorIndexDayTradeEvent(env(kv, calls), exitCtx("EXIT"));
+    expect(calls).toContain("/bridge/options/order/cancel");
+    expect(r.reason).toBe("entry_order_cancelled_unfilled");
+    const after = JSON.parse(kv.store.get(indexDtMirrorKey(SIG)));
+    expect(after.entry_pending).toBe(false);
+    expect(after.entry_placed).toBe(false);
+    // No SELL was sent — there was never a position to close.
+    expect(calls).not.toContain("/bridge/options/order");
+  });
+
+  it("STOP cancels it too", async () => {
+    const kv = kvMock();
+    seed(kv);
+    const calls = [];
+    const r = await maybeAutoMirrorIndexDayTradeEvent(env(kv, calls), exitCtx("STOP"));
+    expect(calls).toContain("/bridge/options/order/cancel");
+    expect(r.reason).toBe("entry_order_cancelled_unfilled");
+  });
+
+  it("TRIM is not terminal — a fresh working buy is left alone", async () => {
+    const kv = kvMock();
+    seed(kv);
+    const calls = [];
+    const r = await maybeAutoMirrorIndexDayTradeEvent(env(kv, calls), exitCtx("TRIM"));
+    expect(calls).not.toContain("/bridge/options/order/cancel");
+    expect(r.reason).toBe("entry_fill_pending");
+  });
+});
