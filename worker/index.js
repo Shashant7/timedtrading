@@ -55849,11 +55849,16 @@ export default {
               // 2026-05-31 — Populate the 30s micro-cache so subsequent
               // requests skip the full snapshot assembly. Fire-and-
               // forget so we don't block the response.
-              if (_wantMicroCache) {
-                try {
-                  ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data: slimData, built_at: _snapFreshTs }, 60, { label: "/timed/all micro slim" }));
-                } catch (_) {}
-              }
+              //
+              // 2026-09-23 — write unconditionally. `nocache=1` is the cron
+              // pre-warm, and gating the WRITE on it meant the one caller
+              // whose entire job is to refresh this key was the one caller
+              // that never did. It only bypasses the READ. (The D1 path below
+              // has always had it right; these two branches disagreed, and
+              // which one ran depended on whether a snapshot existed.)
+              try {
+                ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data: slimData, built_at: _snapFreshTs }, 420, { label: "/timed/all micro slim" }));
+              } catch (_) {}
               const _redactedSlim = redactTickerMapForTier(slimData, _reqTier);
               return sendJSON(
                 { ok: true, data: _redactedSlim, count: Object.keys(_redactedSlim).length, source: "kv_snapshot_slim", built_at: snapshot.built_at, freshness_ts: _snapFreshTs },
@@ -55863,14 +55868,15 @@ export default {
             }
 
             // Same micro-cache write for the full path.
-            if (_wantMicroCache) {
-              try {
-                ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data, built_at: _snapFreshTs }, 60, {
-                  label: "/timed/all micro full",
-                  estimateBytes: estimateMapBytes(data),
-                }));
-              } catch (_) {}
-            }
+            try {
+              // 420s, not 60s: the read below accepts a 5-minute-old entry and
+              // the pre-warm refreshes on the same cadence, so a 60s TTL left
+              // the key absent for four minutes out of every five.
+              ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data, built_at: _snapFreshTs }, 420, {
+                label: "/timed/all micro full",
+                estimateBytes: estimateMapBytes(data),
+              }));
+            } catch (_) {}
 
             {
               const _redactedSnap = redactTickerMapForTier(data, _reqTier);
