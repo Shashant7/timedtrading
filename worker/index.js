@@ -500,6 +500,11 @@ import {
   evaluateTtCloudPivotExit,
   CLOUD_PIVOT_FAMILY,
   CLOUD_PIVOT_SESSION_LOCK_START_MIN,
+  cloudLeaderFollowUniverse,
+  resolveCloudLeaderFollowStamps,
+  detectTenMinCurl,
+  rankCloudPivotDeskRow,
+  assembleCloudPivotDesk,
 } from "./foundation/tt-cloud-pivot.js";
 import {
   scopedAutopsyId,
@@ -571,6 +576,18 @@ import {
   compactSlimPayloadForD1,
   minimalPayloadForD1,
 } from "./storage.js";
+import {
+  ALL_SNAPSHOT_KEY,
+  ALL_SNAPSHOT_SCHEMA,
+  projectAllSnapshotRow,
+  projectSnapshotPatch,
+  applySnapshotEnrichment,
+  buildAllSnapshot,
+  allSnapshotEnvelope,
+  isSlimAllSnapshot,
+  readAllSnapshot,
+  hydrateSnapshotRows,
+} from "./all-snapshot.js";
 import {
   normTicker,
   isNum,
@@ -5105,15 +5122,16 @@ async function hydrateTickerLayers(env, ticker) {
   try {
     const latest = await kvGetJSON(KV, `timed:latest:${sym}`);
     if (latest && typeof latest === "object") {
-      const snap = await kvGetJSON(KV, "timed:all:snapshot");
+      const snap = await kvGetJSON(KV, ALL_SNAPSHOT_KEY);
       if (snap?.data && typeof snap.data === "object") {
-        snap.data[sym] = { ...(snap.data[sym] || {}), ...latest };
-        await kvPutJSON(KV, "timed:all:snapshot", snap);
+        // Patch the slim row, not the full payload. A read-modify-write of
+        // the old full blob pulled 25 MB into the isolate to change one
+        // ticker, and wrote it straight back at the KV value ceiling.
+        const _row = projectAllSnapshotRow(sym, latest);
+        if (_row) snap.data[sym] = { ...(snap.data[sym] || {}), ..._row };
+        snap.schema = ALL_SNAPSHOT_SCHEMA;
+        await kvPutJSON(KV, ALL_SNAPSHOT_KEY, snap);
         steps.snapshot = "patched";
-      } else if (snap && typeof snap === "object" && !snap.data) {
-        snap[sym] = latest;
-        await kvPutJSON(KV, "timed:all:snapshot", snap);
-        steps.snapshot = "patched_flat";
       }
     }
   } catch (e) {
@@ -5158,49 +5176,37 @@ async function rebuildTimedAllSnapshotFromLatest(env) {
   const KV = env?.KV_TIMED;
   if (!KV) return { ok: false, error: "kv_missing" };
   const uniq = await resolveRegistryUniverseTickers(env);
-  const snapshot = {};
-  let merged = 0;
-  for (const sym of uniq) {
-    const payload = await kvGetJSON(KV, `timed:latest:${sym}`).catch(() => null);
-    if (payload && typeof payload === "object") {
-      snapshot[sym] = stampRuntimeSector(sym, payload);
-      merged++;
-    }
-  }
-  try {
-    const invScores = await kvGetJSON(KV, "timed:investor:scores");
-    if (invScores) {
-      for (const [sym, data] of Object.entries(invScores)) {
-        if (snapshot[sym] && data?.stage) {
-          snapshot[sym].investor_stage = data.stage;
-          snapshot[sym].investor_score = data.score;
+  let invScores = null;
+  try { invScores = await kvGetJSON(KV, "timed:investor:scores"); } catch (_) {}
+  let liveP = {};
+  try { liveP = (await kvGetJSON(KV, "timed:prices"))?.prices || {}; } catch (_) {}
+  const built = await buildAllSnapshot(
+    uniq,
+    (sym) => kvGetJSON(KV, `timed:latest:${sym}`).catch(() => null),
+    {
+      onRow: (sym, row) => {
+        stampRuntimeSector(sym, row);
+        const inv = invScores?.[sym];
+        if (inv?.stage) {
+          row.investor_stage = inv.stage;
+          row.investor_score = inv.score;
         }
-      }
-    }
-  } catch (_) {}
-  try {
-    const lpRaw = await kvGetJSON(KV, "timed:prices");
-    const liveP = lpRaw?.prices || {};
-    for (const sym of Object.keys(snapshot)) {
-      const lp = liveP[sym];
-      if (!lp || !(Number(lp.p) > 0)) continue;
-      const obj = snapshot[sym];
-      obj.price = lp.p;
-      obj.close = lp.p;
-      obj._price_updated_at = lp.t || Date.now();
-      if (Number(lp.pc) > 0) obj.prev_close = lp.pc;
-      if (Number.isFinite(lp.dc) && lp.dc !== 0) {
-        obj.day_change = lp.dc;
-        obj.day_change_pct = lp.dp;
-      }
-    }
-  } catch (_) {}
-  await kvPutJSON(KV, "timed:all:snapshot", {
-    data: snapshot,
-    count: Object.keys(snapshot).length,
-    built_at: Date.now(),
-  });
-  return { ok: true, count: Object.keys(snapshot).length, merged };
+        const lp = liveP[sym];
+        if (lp && Number(lp.p) > 0) {
+          row.price = lp.p;
+          row.close = lp.p;
+          row._price_updated_at = lp.t || Date.now();
+          if (Number(lp.pc) > 0) row.prev_close = lp.pc;
+          if (Number.isFinite(lp.dc) && lp.dc !== 0) {
+            row.day_change = lp.dc;
+            row.day_change_pct = lp.dp;
+          }
+        }
+      },
+    },
+  );
+  await kvPutJSON(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope(built));
+  return { ok: true, count: built.count, merged: built.count, bytes: built.bytes };
 }
 
 /**
@@ -49706,25 +49712,20 @@ async function loadLatestPredictionTicker(env, ticker) {
   let d1Stage = null;
   let d1PrevStage = null;
   let d1UpdatedAt = null;
-  // Prefer scoring cron's snapshot (timed:all:snapshot) — it's the authoritative source
-  // for the /timed/all endpoint and the viewport cards. Using the same source ensures
-  // the right rail direction matches the viewport. timed:latest:* KV can flip-flop
-  // between scoring cron and ingest handler writes which disagree on state.
+  // `timed:latest:<SYM>` is the source of truth here. This used to prefer
+  // `timed:all:snapshot` "because it is what /timed/all serves" and read it
+  // with NO freshness check — so once the blob stopped being writable on
+  // 2026-08-14 the right rail served 40-day-old scores for every ticker,
+  // and paid a 25 MB read to do it. /timed/all has been assembling from D1
+  // that whole time, so the snapshot was no longer that shared source
+  // anyway; the index that replaced it is deliberately too slim to answer
+  // a detail request.
   try {
-    const snapshot = await kvGetJSON(env?.KV_TIMED, "timed:all:snapshot");
-    if (snapshot?.data?.[sym] && typeof snapshot.data[sym] === "object") {
-      data = snapshot.data[sym];
+    const kvData = await kvGetJSON(env?.KV_TIMED, `timed:latest:${sym}`);
+    if (kvData && typeof kvData === "object" && Number(kvData.ingest_ts) > 0) {
+      data = kvData;
     }
   } catch (_) {}
-  // Fallback: timed:latest:* KV
-  if (!data) {
-    try {
-      const kvData = await kvGetJSON(env?.KV_TIMED, `timed:latest:${sym}`);
-      if (kvData && typeof kvData === "object" && Number(kvData.ingest_ts) > 0) {
-        data = kvData;
-      }
-    } catch (_) {}
-  }
   try {
     if (env?.DB) {
       await d1EnsureLatestSchema(env);
@@ -55348,9 +55349,15 @@ export default {
         }
 
         try {
-          const snapshot = await kvGetJSON(KV, "timed:all:snapshot");
+          const snapshot = await kvGetJSON(KV, ALL_SNAPSHOT_KEY);
           const SNAPSHOT_MAX_AGE = isWithinOperatingHours() ? 360000 : 14 * 86400000;
-          if (snapshot?.data && snapshot?.built_at && (Date.now() - snapshot.built_at) < SNAPSHOT_MAX_AGE) {
+          // The index carries a slim row per ticker: everything the ?slim=1
+          // projection needs, and not enough for the full response. The full
+          // path assembles from D1 instead — which is what it has actually
+          // been doing since the blob stopped being writable on 2026-08-14.
+          const _snapServesThisRequest = _isSlim || !isSlimAllSnapshot(snapshot);
+          if (_snapServesThisRequest && snapshot?.data && snapshot?.built_at
+              && (Date.now() - snapshot.built_at) < SNAPSHOT_MAX_AGE) {
             const _rawRemoved = (await kvGetJSON(KV, "timed:removed")) || [];
             const removedSet = new Set(Array.isArray(_rawRemoved) ? _rawRemoved : []);
             // 2026-05-28 — Honor the removed blocklist when building activeSet.
@@ -55803,16 +55810,14 @@ export default {
                 const _sparkBuiltAt = snapshot.built_at;
                 ctx.waitUntil((async () => {
                   try {
-                    const currentSnap = await kvGetJSON(KV, "timed:all:snapshot");
+                    const currentSnap = await kvGetJSON(KV, ALL_SNAPSHOT_KEY);
                     if (!currentSnap || currentSnap.built_at !== _sparkBuiltAt) return;
-                    const enrichedSnapshot = {};
-                    for (const [sym, payload] of Object.entries(currentSnap.data)) {
-                      enrichedSnapshot[sym] = { ...payload };
-                      if (sparkMap && sparkMap[sym]) enrichedSnapshot[sym]._sparkline = sparkMap[sym];
+                    for (const [sym, closes] of Object.entries(sparkMap || {})) {
+                      if (currentSnap.data[sym]) currentSnap.data[sym]._sparkline = closes;
                     }
-                    await kvPutJSON(KV, "timed:all:snapshot", {
-                      data: enrichedSnapshot,
-                      count: Object.keys(enrichedSnapshot).length,
+                    await kvPutJSON(KV, ALL_SNAPSHOT_KEY, {
+                      ...currentSnap,
+                      count: Object.keys(currentSnap.data).length,
                       built_at: _sparkBuiltAt,
                     });
                   } catch (_) {}
@@ -57402,15 +57407,23 @@ export default {
             }, 200, corsHeaders(env, req));
           }
 
-          // Question 1 — ranked buy-now candidates across the snapshot.
-          const snapshot = await kvGetJSON(KV, "timed:all:snapshot");
-          const map = snapshot?.data || snapshot?.tickers || {};
-          if (!map || Object.keys(map).length === 0) {
+          // Question 1 — ranked buy-now candidates across the universe index.
+          const snapshot = await readAllSnapshot(KV, { maxAgeMs: 6 * 3600 * 1000 });
+          const map = snapshot?.data || {};
+          if (Object.keys(map).length === 0) {
             return sendJSON({ ok: true, candidates: [], note: "snapshot_unavailable" }, 200, corsHeaders(env, req));
           }
+          // Shortlist on slim rows by stage and rank, then hydrate the top
+          // names — buildTraderVerdict reads setup detail the index drops.
+          const _vShort = Object.entries(map)
+            .filter(([, d]) => d && typeof d === "object" && d.kanban_stage)
+            .sort((a, b) => (Number(b[1]?.rank) || 0) - (Number(a[1]?.rank) || 0))
+            .slice(0, 40)
+            .map(([t]) => t);
+          const _vFull = await hydrateSnapshotRows(KV, _vShort, { limit: 40 });
           const rows = [];
-          for (const [t, data] of Object.entries(map)) {
-            if (!data || typeof data !== "object" || !data.kanban_stage) continue;
+          for (const t of _vShort) {
+            const data = _vFull[t] ? { ..._vFull[t], ...map[t] } : map[t];
             const tv = buildTraderVerdict(data, null);
             if (tv && (tv.verdict === "BUY" || tv.verdict === "SETUP_FORMING")) {
               rows.push({ ticker: t, rank: Number(data.rank) || null, trader: { ...tv, rank: Number(data.rank) || null } });
@@ -61266,9 +61279,13 @@ export default {
           _removedTickersCache = removedSet;
           const activeSyms = await resolveRegistryUniverseTickers(env);
 
-          // Start from current snapshot (if exists) to preserve existing data
-          const currentSnapshot = await kvGetJSON(KV, "timed:all:snapshot");
-          const snapshot = (currentSnapshot?.data && typeof currentSnapshot.data === "object")
+          // Start from the current index (if any) to preserve existing rows.
+          // A legacy full blob is discarded rather than carried forward —
+          // mixing full payloads into the slim index is how it reached the
+          // KV value ceiling in the first place.
+          const currentSnapshot = await kvGetJSON(KV, ALL_SNAPSHOT_KEY);
+          const snapshot = (isSlimAllSnapshot(currentSnapshot)
+            && currentSnapshot?.data && typeof currentSnapshot.data === "object")
             ? { ...currentSnapshot.data }
             : {};
 
@@ -61276,16 +61293,16 @@ export default {
           for (const sym of activeSyms) {
             if (!snapshot[sym]) {
               const payload = await kvGetJSON(KV, `timed:latest:${sym}`);
-              if (payload && typeof payload === "object") {
-                snapshot[sym] = payload;
-              }
+              const row = projectAllSnapshotRow(sym, payload);
+              if (row) snapshot[sym] = row;
             }
           }
 
           // Inject D1-seeded payloads directly (bypasses KV eventual consistency)
           for (const [sym, payload] of Object.entries(freshPayloads)) {
             if (activeSyms.includes(sym)) {
-              snapshot[sym] = payload;
+              const row = projectAllSnapshotRow(sym, payload);
+              if (row) snapshot[sym] = row;
             }
           }
 
@@ -61321,11 +61338,7 @@ export default {
             console.warn("[REBUILD-INDEX] Sparkline enrichment failed:", String(sparkErr?.message || sparkErr).slice(0, 150));
           }
 
-          await kvPutJSON(KV, "timed:all:snapshot", {
-            data: snapshot,
-            count: Object.keys(snapshot).length,
-            built_at: Date.now(),
-          });
+          await kvPutJSON(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope({ data: snapshot }));
           snapshotCount = Object.keys(snapshot).length;
         } catch (e) {
           console.warn("[REBUILD-INDEX] Snapshot rebuild failed:", String(e?.message || e));
@@ -68120,7 +68133,7 @@ export default {
           const days = Math.max(30, Number(url.searchParams.get("days") || 90));
           const cutoff = Date.now() - days * 86400000;
           const uni = new Set(Object.keys(SECTOR_MAP).map((x) => String(x).toUpperCase()));
-          try { const snap = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot"); if (snap?.data) for (const k of Object.keys(snap.data)) uni.add(String(k).toUpperCase()); } catch (_) {}
+          try { const snap = await kvGetJSON(env.KV_TIMED, ALL_SNAPSHOT_KEY); if (snap?.data) for (const k of Object.keys(snap.data)) uni.add(String(k).toUpperCase()); } catch (_) {}
           try { const tk = await kvGetJSON(env.KV_TIMED, "timed:tickers"); if (Array.isArray(tk)) for (const x of tk) uni.add(String(x).toUpperCase()); } catch (_) {}
           for (const i of _CYCLE_INDEXES) uni.add(i);
           const rs = await env.DB.prepare(`SELECT ticker, ts, c FROM ticker_candles WHERE tf='D' AND ts>=?1 ORDER BY ticker, ts`).bind(cutoff).all();
@@ -82589,7 +82602,7 @@ export default {
 
           // 2. Scoring snapshot freshness (timed:all:snapshot = { data, built_at })
           try {
-            const snapRaw = KV ? await KV.get("timed:all:snapshot") : null;
+            const snapRaw = KV ? await KV.get(ALL_SNAPSHOT_KEY) : null;
             if (snapRaw) {
               const snap = JSON.parse(snapRaw);
               const snapTs = Number(snap?.built_at || snap?._meta?.ts || snap?._ts) || 0;
@@ -92951,7 +92964,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // we no longer score (futures, index proxies). Otherwise stale values
           // from before this filter shipped persist on the snapshot indefinitely.
           try {
-            const snapshot = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
+            const snapshot = await kvGetJSON(env.KV_TIMED, ALL_SNAPSHOT_KEY);
             if (snapshot?.data) {
               let merged = 0;
               for (const [sym, result] of Object.entries(investorResults)) {
@@ -92972,7 +92985,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 }
               }
               if (merged > 0) {
-                await kvPutJSON(env.KV_TIMED, "timed:all:snapshot", snapshot);
+                await kvPutJSON(env.KV_TIMED, ALL_SNAPSHOT_KEY, snapshot);
                 console.log(`[INVESTOR COMPUTE] Merged investor stages into snapshot: ${merged} tickers`);
               }
             }
@@ -94364,8 +94377,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (routeKey === "GET /timed/futures-pairs") {
         try {
           // Build market snapshot from KV scoring data.
-          const allRaw = await env.KV_TIMED.get("timed:all:snapshot");
-          const all = allRaw ? JSON.parse(allRaw) : {};
+          // `.data` — the envelope is `{ data, count, built_at }`, so the old
+          // `all[sym]` never resolved and every field here silently came from
+          // timed:prices alone (no open, no dayOpen).
+          const all = (await readAllSnapshot(env.KV_TIMED, { maxAgeMs: 6 * 3600 * 1000 }))?.data || {};
           const pricesRaw = await env.KV_TIMED.get("timed:prices");
           const prices = pricesRaw ? JSON.parse(pricesRaw) : { prices: {} };
           const pmap = prices.prices || prices || {};
@@ -95088,8 +95103,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
             if (!quartetState) {
               // Inline compute (same logic as /timed/futures-pairs endpoint).
-              const allRaw2 = await env.KV_TIMED.get("timed:all:snapshot");
-              const all2 = allRaw2 ? JSON.parse(allRaw2) : {};
+              const all2 = (await readAllSnapshot(env.KV_TIMED, { maxAgeMs: 6 * 3600 * 1000 }))?.data || {};
               const pricesRaw2 = await env.KV_TIMED.get("timed:prices");
               const prices2 = pricesRaw2 ? JSON.parse(pricesRaw2) : { prices: {} };
               const pmap2 = prices2.prices || prices2 || {};
@@ -95240,7 +95254,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               return sendJSON({ ...cached, _cache: "hit" }, 200, corsHeaders(env, req));
             }
           }
-          let all = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
+          // Age-gated. This used to read the key with no freshness check at
+          // all, so once the blob froze on 2026-08-14 the convexity scan was
+          // ranking candidates on 40-day-old scores. Six hours is loose
+          // enough that one bad engine tick does not blank the lane.
+          let all = await readAllSnapshot(env.KV_TIMED, { maxAgeMs: 6 * 3600 * 1000 });
           if (!all) all = await kvGetJSON(env.KV_TIMED, "timed:all");
           const _flattenCx = (snap) => {
             if (Array.isArray(snap?.tickers)) return snap.tickers;
@@ -95288,7 +95306,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               earnings_hour: ev.hour || t.earnings_hour || null,
             };
           };
-          const tickers = _selectConvexityScanUniverse(
+          const _cxSelected = _selectConvexityScanUniverse(
             _pinEarningsTickers(tickersAll, _cxEarnBySym, _cxEarnEventBySym),
             _cxEarnBySym,
             {
@@ -95298,6 +95316,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               earnEventBySym: _cxEarnEventBySym,
             },
           ).map(stampEarn);
+          // The universe index is slim by design (worker/all-snapshot.js).
+          // Ranking and earnings pinning run on slim rows; the ~20 survivors
+          // need a full payload for the confluence score and the ladder, so
+          // hydrate exactly those.
+          const _cxFull = await hydrateSnapshotRows(env.KV_TIMED,
+            _cxSelected.map((t) => t?.ticker), { limit: 20 });
+          const tickers = _cxSelected.map((t) => {
+            const _full = _cxFull[String(t?.ticker || "").toUpperCase()];
+            return _full ? { ..._full, ...t } : t;
+          });
           let _cxPricesMap = {};
           let _cxMarketOpen = true;
           try {
@@ -95529,6 +95557,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           };
           const _optionsPlaysMod = await import("./options-plays.js");
           const _indexTrendMod = await import("./index-trend-letf.js");
+          /**
+           * Both section builders only ever look at their own fixed ticker
+           * set — INDEX_TREND_TICKERS and DAY_TRADE_TICKERS are the same four
+           * index names — so hand them full payloads for those four instead
+           * of 330 rows they immediately filter down to four. They used to
+           * receive whatever happened to be in `timed:all:snapshot`, with no
+           * freshness check, which is how the index-trend and day-trade
+           * lanes ended up running on 2026-08-14 scores for 40 days.
+           */
+          const _loadSectionTickers = async () => {
+            const syms = [...new Set([
+              ..._indexTrendMod.INDEX_TREND_TICKERS,
+              ..._optionsPlaysMod.DAY_TRADE_TICKERS,
+            ].map((s) => String(s).toUpperCase()))];
+            const full = await hydrateSnapshotRows(env.KV_TIMED, syms, { limit: 24 });
+            return syms.map((s) => (full[s] ? { ticker: s, ...full[s] } : null)).filter(Boolean);
+          };
           let _optsFsdMacro = null;
           try {
             const { loadFsdMacroContext } = await import("./cro/cro-apply.js");
@@ -96274,9 +96319,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (!_dtDispatchAllowed) {
               return sendJSON({ ok: false, error_kind: "internal_only" }, 403, corsHeaders(env, req));
             }
-            let allIt = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
-            if (!allIt) allIt = await kvGetJSON(env.KV_TIMED, "timed:all");
-            const tickersIt = _flattenOptionsTickers(allIt);
+            const tickersIt = await _loadSectionTickers();
             const _itPricesRawX = await KV.get("timed:prices").catch(() => null);
             const _itPricesMapX = _itPricesRawX ? (JSON.parse(_itPricesRawX)?.prices || {}) : {};
             const itSection = await _buildIndexTrendSection(tickersIt, _itPricesMapX, _optsFsdMacro, { dispatchOnly: true });
@@ -96290,9 +96333,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (!_dtDispatchAllowed) {
               return sendJSON({ ok: false, error_kind: "internal_only" }, 403, corsHeaders(env, req));
             }
-            let allDt = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
-            if (!allDt) allDt = await kvGetJSON(env.KV_TIMED, "timed:all");
-            const tickersDt = _flattenOptionsTickers(allDt);
+            const tickersDt = await _loadSectionTickers();
             const _dtPricesRawX = await KV.get("timed:prices").catch(() => null);
             const _dtPricesMapX = _dtPricesRawX ? (JSON.parse(_dtPricesRawX)?.prices || {}) : {};
             const _dtMarketOpenX = (typeof isNyRegularMarketOpen === "function") ? isNyRegularMarketOpen() : true;
@@ -96302,9 +96343,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           if (!_bypassCache) {
             const cached = await kvGetJSON(env.KV_TIMED, _opaCacheKey).catch(() => null);
             if (cached && (Date.now() - (Number(cached._cached_at) || 0)) < 5 * 60 * 1000) {
-              let allSnap = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
-              if (!allSnap) allSnap = await kvGetJSON(env.KV_TIMED, "timed:all");
-              const tickersSnap = _flattenOptionsTickers(allSnap);
+              const tickersSnap = await _loadSectionTickers();
               const _dtPricesRaw = await KV.get("timed:prices").catch(() => null);
               const _dtPricesMap = _dtPricesRaw ? (JSON.parse(_dtPricesRaw)?.prices || {}) : {};
               const _dtMarketOpen = (typeof isNyRegularMarketOpen === "function") ? isNyRegularMarketOpen() : true;
@@ -96323,10 +96362,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
           }
           // Source: top-ranked tickers by entry-quality / rank from the
-          // latest scoring snapshot. Already cached as timed:all.
-          // Try multiple KV keys for the snapshot — production writes to
-          // `timed:all:snapshot`; legacy `timed:all` may also exist.
-          let all = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
+          // universe index. Age-gated — the read used to have no freshness
+          // check, so a frozen blob kept this lane ranking on stale scores.
+          let all = await readAllSnapshot(env.KV_TIMED, { maxAgeMs: 6 * 3600 * 1000 });
           if (!all) all = await kvGetJSON(env.KV_TIMED, "timed:all");
           // Snapshot shape: object keyed by ticker. Flatten with injected
           // ticker field for downstream consumers.
@@ -96353,6 +96391,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // gives confluence-mode sort plenty of room while staying
             // comfortably under CF limits.
             .slice(0, Math.min(20, limit * 2));
+          // Rank on slim rows, then hydrate only the survivors: the ladder
+          // and the confluence score read detail fields the universe index
+          // deliberately does not carry (worker/all-snapshot.js).
+          {
+            const _full = await hydrateSnapshotRows(env.KV_TIMED,
+              candidates.map((t) => t?.ticker), { limit: 20 });
+            for (let _i = 0; _i < candidates.length; _i++) {
+              const _detail = _full[String(candidates[_i]?.ticker || "").toUpperCase()];
+              if (_detail) candidates[_i] = { ..._detail, ...candidates[_i] };
+            }
+          }
           // 2026-05-30 — Bounded-concurrency parallelism. Was a serial
           // for loop (40 × 500ms = 20s+ cold). Naive Promise.all of 40
           // tripped CF error 1102. Batch of 5-in-flight gives ~3-4s cold
@@ -108047,7 +108096,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // which SECTOR_MAP/timed:tickers omit, leaving them stale → legacy.
             const _set = new Set(Object.keys(SECTOR_MAP).map((x) => String(x).toUpperCase()));
             try {
-              const _snap = await kvGetJSON(env.KV_TIMED, "timed:all:snapshot");
+              const _snap = await kvGetJSON(env.KV_TIMED, ALL_SNAPSHOT_KEY);
               if (_snap?.data) for (const k of Object.keys(_snap.data)) _set.add(String(k).toUpperCase());
             } catch (_) { /* snapshot optional */ }
             try {
@@ -110608,20 +110657,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           delta: { scoreChanged: deltaScoreChanged, stageChanged: deltaStageChanged, priceChanged: deltaPriceChanged, noChange: deltaNoChange },
         });
 
-        // ── KV Hot Cache: Pre-assemble /timed/all snapshot ──────────────
-        // Writes a ready-to-serve snapshot so /timed/all can serve from KV
-        // instead of querying D1 per request, reducing D1 load to near-zero
-        // for the most-hit endpoint.
+        // ── KV Hot Cache: Pre-assemble the /timed/all universe index ────
+        // A slim row per ticker so /timed/all can rank, filter and render
+        // from KV instead of querying D1 per request.
+        //
+        // This used to hold the FULL payload per ticker, and both limits it
+        // ran into are hard ones. A KV value stops at 25 MiB: the blob
+        // reached 26,195,645 bytes on 2026-08-14 and every write after that
+        // was rejected, so it sat frozen for 40 days while the cron logged
+        // success. And one build cost 182 MB of heap against a 128 MB
+        // isolate cap, which is what ended this tick in exceededMemory and
+        // took the trader-ENTRY dispatch tail with it. At 330 tickers a full
+        // snapshot is 29.9 MB — it does not fit and will not fit again.
+        //
+        // The index is now 304 KB and a build costs 19 MB. Callers that need
+        // a full payload hydrate a bounded set. See worker/all-snapshot.js.
         ctx.waitUntil((async () => {
           try {
             const activeSyms = allTickers;
-            const snapshot = {};
-            for (const sym of activeSyms) {
-              const payload = await kvGetJSON(KV, `timed:latest:${sym}`);
-              if (payload && typeof payload === "object") {
-                snapshot[sym] = stampRuntimeSector(sym, payload);
-              }
-            }
+
+            // Build the enrichment maps FIRST. They used to be applied by
+            // walking the assembled snapshot four more times, which is what
+            // required every payload to still be resident.
 
             /* P0.7.130 — Sparkline enrichment was the #1 D1 row-read
                offender. The previous CTE scanned the ENTIRE
@@ -110640,9 +110697,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     closes — they don't change intra-day, so re-running
                     this query every 5 min was always wasteful.
                Net: ~95% reduction in sparkline-related D1 reads. */
+            let sparkMap = null;
             try {
               const _spkSyms = Array.from(activeSyms || []).filter(s => s && s.length <= 12);
-              let sparkMap = null;
               // Try cache first (30 min TTL for sparklines is plenty)
               try {
                 const cached = await kvGetJSON(KV, "timed:cache:sparklines");
@@ -110678,17 +110735,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   await kvPutJSON(KV, "timed:cache:sparklines", { builtAt: Date.now(), data: sparkMap });
                 } catch { /* cache write best-effort */ }
               }
-
-              for (const [sym, closes] of Object.entries(sparkMap || {})) {
-                if (snapshot[sym]) {
-                  snapshot[sym]._sparkline = closes;
-                }
-              }
             } catch (sparkErr) {
               console.warn("[SCORING] Sparkline enrichment failed:", String(sparkErr?.message || sparkErr).slice(0, 150));
             }
 
             // Enrich with alignment data from calibration (path_performance + rank buckets)
+            let alignmentForRow = () => null;
             try {
               await d1EnsureLearningSchema(env);
               await d1EnsureCalibrationSchema(env);
@@ -110716,12 +110768,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 built_at: Date.now(),
               });
 
-              // Attach per-ticker alignment
-              for (const sym of Object.keys(snapshot)) {
-                const td = snapshot[sym];
-                if (!td) continue;
-                const state = td.state || "";
-                const rank = Number(td.rank) || 0;
+              alignmentForRow = (row) => {
+                const state = row?.state || "";
+                const rank = Number(row?.rank) || 0;
                 const entryPath = state.includes("BULL") ? (state.includes("PULLBACK") ? "bull_setup" : "bull_momentum")
                   : state.includes("BEAR") ? (state.includes("PULLBACK") ? "bear_setup" : "bear_momentum") : null;
                 const pathData = entryPath && (entryPaths?.[entryPath] || pathMap[entryPath]) ? (entryPaths?.[entryPath] || pathMap[entryPath]) : null;
@@ -110730,7 +110779,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   const key = `${decile}-${decile + 10}`;
                   return rankBuckets[key] || null;
                 })() : null;
-                td._alignment = {
+                return {
                   entry_path: entryPath,
                   path_win_rate: pathData?.win_rate ?? pathData?.wr ?? null,
                   path_expectancy: pathData?.expectancy ?? null,
@@ -110740,70 +110789,132 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   rank_bucket_wr: rankBucket?.win_rate ?? null,
                   rank_bucket_sqn: rankBucket?.sqn ?? null,
                 };
-              }
+              };
             } catch (alignErr) {
               console.warn("[SCORING] Alignment enrichment failed:", String(alignErr?.message || alignErr).slice(0, 150));
             }
 
-            // Overlay live prices from timed:prices so the snapshot always has the freshest data
+            // Live prices from timed:prices so the index always has the freshest data
+            let _liveP = {};
             try {
-              const lpRaw = await kvGetJSON(KV, "timed:prices");
-              const liveP = lpRaw?.prices || {};
-              let overlaidCount = 0;
-              for (const sym of Object.keys(snapshot)) {
-                const lp = liveP[sym];
-                if (!lp || !(Number(lp.p) > 0)) continue;
-                const obj = snapshot[sym];
-                const existingPx = Number(obj.price) || 0;
-                const priceChanged = !(existingPx > 0 && Math.abs(Number(lp.p) - existingPx) / existingPx < 0.001);
-                if (priceChanged) {
-                  obj.price = lp.p;
-                  obj.close = lp.p;
-                  obj._price_updated_at = lp.t || Date.now();
-                }
-                // Always sync prev_close and day_change from KV — these can be stale
-                // in the snapshot even when the price hasn't moved (e.g. after market open
-                // when prev_close shifts but price is similar to yesterday's close).
-                if (Number(lp.pc) > 0 && lp.pc !== obj.prev_close) {
-                  obj.prev_close = lp.pc;
-                  overlaidCount++;
-                }
-                if (Number.isFinite(lp.dc) && lp.dc !== 0) {
-                  obj.day_change = lp.dc;
-                  obj.day_change_pct = lp.dp;
-                } else if (priceChanged) {
-                  overlaidCount++;
-                }
-              }
-              if (overlaidCount > 0) console.log(`[SCORING] Snapshot price overlay: ${overlaidCount} tickers updated from timed:prices`);
+              _liveP = (await kvGetJSON(KV, "timed:prices"))?.prices || {};
             } catch (overlayErr) {
               console.warn("[SCORING] Snapshot price overlay failed:", String(overlayErr?.message || overlayErr).slice(0, 150));
             }
 
-            // Merge investor stages so Table View investor column is consistent
+            // Investor stages so Table View's investor column is consistent
+            let _invScores = null;
             try {
-              const invScores = await kvGetJSON(KV, "timed:investor:scores");
-              if (invScores) {
-                let invMerged = 0;
-                for (const [sym, data] of Object.entries(invScores)) {
-                  if (snapshot[sym] && data.stage) {
-                    snapshot[sym].investor_stage = data.stage;
-                    snapshot[sym].investor_score = data.score;
-                    invMerged++;
-                  }
-                }
-                if (invMerged > 0) console.log(`[SCORING] Merged ${invMerged} investor stages into snapshot`);
-              }
+              _invScores = await kvGetJSON(KV, "timed:investor:scores");
             } catch (invErr) {
               console.warn("[SCORING] Investor stage merge failed:", String(invErr?.message || invErr).slice(0, 150));
             }
 
-            await kvPutJSON(KV, "timed:all:snapshot", {
-              data: snapshot,
-              count: Object.keys(snapshot).length,
-              built_at: Date.now(),
-            });
-            console.log(`[SCORING] KV hot cache snapshot built: ${Object.keys(snapshot).length} tickers`);
+            let _overlaidCount = 0;
+            let _invMerged = 0;
+
+            // Cloud Pivot desk, built here rather than at serve time.
+            //
+            // Ranking a desk row needs the deep 10m/1h ripster clouds, so
+            // /timed/plays/today used to read the whole 25 MB snapshot to get
+            // them — which is one of the reads that stopped working when the
+            // blob hit the KV ceiling. The scoring tick already holds each
+            // full payload for a moment, so rank there and retain only the
+            // small ranked row.
+            //
+            // Leader/follow has to be resolved first, because the score pays
+            // +25 for a leader and +20 for a same-side follow. That needs a
+            // handful of payloads together (4 leaders plus their proxy
+            // followers), so it gets its own bounded pre-pass.
+            let _leaderStamps = {};
+            try {
+              const _curls = {};
+              for (const _sym of cloudLeaderFollowUniverse()) {
+                const _p = await kvGetJSON(KV, `timed:latest:${_sym}`);
+                if (_p) _curls[_sym] = detectTenMinCurl(_p);
+              }
+              _leaderStamps = resolveCloudLeaderFollowStamps(_curls);
+            } catch (leadErr) {
+              console.warn("[SCORING] Cloud leader/follow pre-pass failed:", String(leadErr?.message || leadErr).slice(0, 150));
+            }
+            const _deskRanked = [];
+            let _deskScanned = 0;
+
+            // One pass. buildAllSnapshot reads a payload, projects it and
+            // lets it go before reading the next, so peak retention is the
+            // slim index plus a single payload.
+            const _built = await buildAllSnapshot(
+              activeSyms,
+              (sym) => kvGetJSON(KV, `timed:latest:${sym}`),
+              {
+                onRow: (sym, row, payload) => {
+                  stampRuntimeSector(sym, row);
+                  const closes = sparkMap?.[sym];
+                  if (closes) row._sparkline = closes;
+                  const _al = alignmentForRow(row);
+                  if (_al) row._alignment = _al;
+                  const lp = _liveP[sym];
+                  if (lp && Number(lp.p) > 0) {
+                    const existingPx = Number(row.price) || 0;
+                    const priceChanged = !(existingPx > 0 && Math.abs(Number(lp.p) - existingPx) / existingPx < 0.001);
+                    if (priceChanged) {
+                      row.price = lp.p;
+                      row.close = lp.p;
+                      row._price_updated_at = lp.t || Date.now();
+                    }
+                    // Always sync prev_close and day_change from KV — these can be stale
+                    // even when the price hasn't moved (e.g. after market open when
+                    // prev_close shifts but price is similar to yesterday's close).
+                    if (Number(lp.pc) > 0 && lp.pc !== row.prev_close) {
+                      row.prev_close = lp.pc;
+                      _overlaidCount++;
+                    }
+                    if (Number.isFinite(lp.dc) && lp.dc !== 0) {
+                      row.day_change = lp.dc;
+                      row.day_change_pct = lp.dp;
+                    } else if (priceChanged) {
+                      _overlaidCount++;
+                    }
+                  }
+                  const _inv = _invScores?.[sym];
+                  if (_inv?.stage) {
+                    row.investor_stage = _inv.stage;
+                    row.investor_score = _inv.score;
+                    _invMerged++;
+                  }
+                  const _stamp = _leaderStamps[sym];
+                  if (_stamp?._cloud_leader) row._cloud_leader = _stamp._cloud_leader;
+                  if (_stamp?._cloud_leader_follow) row._cloud_leader_follow = _stamp._cloud_leader_follow;
+                  // Rank off the payload — the clouds the desk scores on only
+                  // exist there — but with this row's leader stamps and live
+                  // price, so the desk marks the same price the cards do.
+                  if (payload && typeof payload === "object") {
+                    if (_stamp?._cloud_leader) payload._cloud_leader = _stamp._cloud_leader;
+                    if (_stamp?._cloud_leader_follow) payload._cloud_leader_follow = _stamp._cloud_leader_follow;
+                    if (Number(row.price) > 0) payload.price = row.price;
+                    _deskScanned++;
+                    try {
+                      const _ranked = rankCloudPivotDeskRow(sym, payload, {});
+                      if (_ranked && Number(_ranked.score) >= 30) _deskRanked.push(_ranked);
+                    } catch (_) { /* one bad payload must not lose the desk */ }
+                  }
+                },
+              },
+            );
+            const snapshot = _built.data;
+            try {
+              const _desk = assembleCloudPivotDesk(_deskRanked, { limit: 28, minScore: 30, scanned: _deskScanned });
+              await KV.put("timed:cloud-pivot:desk", JSON.stringify(_desk), { expirationTtl: 6 * 3600 });
+              console.log(`[SCORING] Cloud Pivot desk: ${_desk.count} watching of ${_deskScanned} scanned`
+                + `, ${_desk.fires.length} firing`);
+            } catch (deskErr) {
+              console.warn("[SCORING] Cloud Pivot desk write failed:", String(deskErr?.message || deskErr).slice(0, 150));
+            }
+            await kvPutJSON(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope(_built));
+            if (_overlaidCount > 0) console.log(`[SCORING] Snapshot price overlay: ${_overlaidCount} tickers updated from timed:prices`);
+            if (_invMerged > 0) console.log(`[SCORING] Merged ${_invMerged} investor stages into snapshot`);
+            console.log(`[SCORING] KV universe index built: ${_built.count} tickers, ${_built.bytes} bytes`
+              + (_built.omitted ? `, ${_built.omitted} omitted for byte budget` : ""));
 
             // ── Batch-sync D1 ticker_latest for CHANGED tickers ──
             // Ensures the D1 fallback path never serves stale data.
@@ -110848,18 +110959,29 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   }
                 }
               }
-              const _d1Entries = Object.entries(snapshot)
-                .filter(([_sym]) => _d1SyncSet.has(_sym));
+              const _d1Syms = Object.keys(snapshot).filter((_sym) => _d1SyncSet.has(_sym));
               const _d1TotalUniverse = Object.keys(snapshot).length;
-              const _d1SkippedUnchanged = _d1TotalUniverse - _d1Entries.length;
+              const _d1SkippedUnchanged = _d1TotalUniverse - _d1Syms.length;
               const _D1_CHUNK = 40;
               let _d1Synced = 0;
               let _d1FpSkipped = 0;
               // Shadow/thin-slice stamps land on D1 first; write the same
               // fields back to KV + snapshot so Today / Phase B see them.
               const _thinKvPatches = [];
-              for (let _ci = 0; _ci < _d1Entries.length; _ci += _D1_CHUNK) {
-                const _chunk = _d1Entries.slice(_ci, _ci + _D1_CHUNK);
+              for (let _ci = 0; _ci < _d1Syms.length; _ci += _D1_CHUNK) {
+                // The D1 row carries tf_tech and the profile blobs the slim
+                // index drops, so this lane needs the full payload — but only
+                // for the CHANGED set, one chunk at a time. ~40 payloads is
+                // a few MB; the whole universe was 37.
+                const _chunkSyms = _d1Syms.slice(_ci, _ci + _D1_CHUNK);
+                const _chunkFull = await hydrateSnapshotRows(KV, _chunkSyms, {
+                  chunkSize: _D1_CHUNK,
+                  limit: _D1_CHUNK,
+                  readPayload: (sym) => kvGetJSON(KV, `timed:latest:${sym}`),
+                });
+                const _chunk = _chunkSyms
+                  .map((_s) => [_s, applySnapshotEnrichment(_chunkFull[_s], snapshot[_s])])
+                  .filter(([, _pl]) => _pl && typeof _pl === "object");
                 const _stmts = [];
                 const _bindSyms = [];
                 const _bindFps = [];
@@ -111014,26 +111136,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 let _kvPatched = 0;
                 for (const [_sym, _patch] of _thinKvPatches) {
                   try {
-                    if (snapshot[_sym] && typeof snapshot[_sym] === "object") {
-                      Object.assign(snapshot[_sym], _patch);
+                    // The index takes only the slim-projected part of the
+                    // patch. Assigning a whole thin slice would grow the
+                    // index back toward the ceiling one stamp at a time.
+                    const _slimPatch = projectSnapshotPatch(_patch);
+                    if (_slimPatch && snapshot[_sym] && typeof snapshot[_sym] === "object") {
+                      Object.assign(snapshot[_sym], _slimPatch);
                     }
                     const _latest = await kvGetJSON(KV, `timed:latest:${_sym}`);
                     if (_latest && typeof _latest === "object") {
                       Object.assign(_latest, _patch);
                       await kvPutJSON(KV, `timed:latest:${_sym}`, _latest);
                       _kvPatched++;
-                    } else if (snapshot[_sym]) {
-                      await kvPutJSON(KV, `timed:latest:${_sym}`, snapshot[_sym]);
-                      _kvPatched++;
                     }
                   } catch (_) { /* non-critical */ }
                 }
                 try {
-                  await kvPutJSON(KV, "timed:all:snapshot", {
-                    data: snapshot,
-                    count: Object.keys(snapshot).length,
-                    built_at: Date.now(),
-                  });
+                  await kvPutJSON(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope({ data: snapshot }));
                 } catch (_) { /* */ }
                 console.log(`[SCORING] Thin-slice KV write-back: ${_kvPatched}/${_thinKvPatches.length} tickers`);
               }
