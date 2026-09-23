@@ -567,6 +567,7 @@ import { finalizeBacktestRun, summarizeRunMetrics, validateSentinelBasket, backf
 import {
   kvGetJSON,
   kvPutJSON,
+  kvPutJSONIfFits,
   kvPutText,
   kvPutJSONWithRetry,
   stableHash,
@@ -5205,7 +5206,7 @@ async function rebuildTimedAllSnapshotFromLatest(env) {
       },
     },
   );
-  await kvPutJSON(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope(built));
+  await kvPutJSONIfFits(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope(built), null, { label: ALL_SNAPSHOT_KEY });
   return { ok: true, count: built.count, merged: built.count, bytes: built.bytes };
 }
 
@@ -55859,7 +55860,7 @@ export default {
               // forget so we don't block the response.
               if (_wantMicroCache) {
                 try {
-                  ctx.waitUntil(kvPutJSON(KV, _microCacheKey, { data: slimData, built_at: _snapFreshTs }, 60));
+                  ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data: slimData, built_at: _snapFreshTs }, 60, { label: "/timed/all micro slim" }));
                 } catch (_) {}
               }
               const _redactedSlim = redactTickerMapForTier(slimData, _reqTier);
@@ -55873,7 +55874,7 @@ export default {
             // Same micro-cache write for the full path.
             if (_wantMicroCache) {
               try {
-                ctx.waitUntil(kvPutJSON(KV, _microCacheKey, { data, built_at: _snapFreshTs }, 60));
+                ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data, built_at: _snapFreshTs }, 60, { label: "/timed/all micro full" }));
               } catch (_) {}
             }
 
@@ -56719,7 +56720,7 @@ export default {
             }
             // Always write (even on nocache=1 — that's the pre-warm path).
             try {
-              ctx.waitUntil(kvPutJSON(KV, _microCacheKey, { data: slimData, built_at: _d1FreshTs }, 420));
+              ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data: slimData, built_at: _d1FreshTs }, 420, { label: "/timed/all micro slim (d1)" }));
             } catch (_) {}
             const _redactedSlimD1 = redactTickerMapForTier(slimData, _reqTier);
             return sendJSON(
@@ -56738,13 +56739,25 @@ export default {
           // out several /timed/all calls (page + live-data poll +
           // prerendered pages) which serialized into worker CPU
           // exhaustion — the operator-reported hang + 500/503 burst.
-          // Post-strip + compact-stringify the value fits KV's 25MB cap
-          // (it previously didn't, which is also why the old writers
-          // were silently failing even when they ran). Always write —
-          // nocache=1 is the cron pre-warm path and MUST refresh the
-          // cache; it only bypasses the read.
+          //
+          // 2026-09-23: the note that used to sit here said the stripped
+          // value "fits KV's 25MB cap (it previously didn't)". It does not.
+          // At 330 tickers the full variant is 30,790,510 bytes against a
+          // 26,214,400 ceiling, so this put 413'd every five minutes, and
+          // because it rides `ctx.waitUntil` the whole value stayed alive
+          // until the rejection settled — on top of the copy `sendJSON` was
+          // already stringifying. That is what took the isolate over 128 MB
+          // (`outcome: exceededMemory`, around the clock).
+          //
+          // `kvPutJSONIfFits` measures first and skips with a log, so the
+          // full variant simply does not cache until it is narrow enough to
+          // — which is the behaviour production has had all along, minus the
+          // 413 and the isolate kill. The slim variant above is ~70 KB and
+          // caches normally. Always attempt the write: nocache=1 is the cron
+          // pre-warm path and MUST refresh the cache; it only bypasses the
+          // read.
           try {
-            ctx.waitUntil(kvPutJSON(KV, _microCacheKey, { data, built_at: _d1FreshTs }, 420));
+            ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data, built_at: _d1FreshTs }, 420, { label: "/timed/all micro full (d1)" }));
           } catch (_) {}
 
           {
@@ -61338,7 +61351,7 @@ export default {
             console.warn("[REBUILD-INDEX] Sparkline enrichment failed:", String(sparkErr?.message || sparkErr).slice(0, 150));
           }
 
-          await kvPutJSON(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope({ data: snapshot }));
+          await kvPutJSONIfFits(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope({ data: snapshot }), null, { label: ALL_SNAPSHOT_KEY });
           snapshotCount = Object.keys(snapshot).length;
         } catch (e) {
           console.warn("[REBUILD-INDEX] Snapshot rebuild failed:", String(e?.message || e));
@@ -110910,7 +110923,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             } catch (deskErr) {
               console.warn("[SCORING] Cloud Pivot desk write failed:", String(deskErr?.message || deskErr).slice(0, 150));
             }
-            await kvPutJSON(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope(_built));
+            await kvPutJSONIfFits(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope(_built), null, { label: ALL_SNAPSHOT_KEY });
             if (_overlaidCount > 0) console.log(`[SCORING] Snapshot price overlay: ${_overlaidCount} tickers updated from timed:prices`);
             if (_invMerged > 0) console.log(`[SCORING] Merged ${_invMerged} investor stages into snapshot`);
             console.log(`[SCORING] KV universe index built: ${_built.count} tickers, ${_built.bytes} bytes`
@@ -111152,7 +111165,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   } catch (_) { /* non-critical */ }
                 }
                 try {
-                  await kvPutJSON(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope({ data: snapshot }));
+                  await kvPutJSONIfFits(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope({ data: snapshot }), null, { label: ALL_SNAPSHOT_KEY });
                 } catch (_) { /* */ }
                 console.log(`[SCORING] Thin-slice KV write-back: ${_kvPatched}/${_thinKvPatches.length} tickers`);
               }

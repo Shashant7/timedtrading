@@ -274,7 +274,20 @@ export async function readAllSnapshot(KV, { maxAgeMs, nowMs = Date.now() } = {})
   if (!KV) return null;
   let snapshot = null;
   try {
-    snapshot = JSON.parse((await KV.get(ALL_SNAPSHOT_KEY)) || "null");
+    const raw = await KV.get(ALL_SNAPSHOT_KEY);
+    if (!raw) return null;
+    // A legacy full blob is ~26 MB and parses to ~38 MB of object graph. Once
+    // it has aged out it is refused below anyway, so refuse it on size first
+    // and skip the parse entirely — otherwise every reader pays 38 MB to
+    // discover the value is 40 days old. A slim index has ~10x headroom here.
+    if (raw.length > ALL_SNAPSHOT_MAX_BYTES) {
+      console.warn(
+        `[readAllSnapshot] refusing ${raw.length} bytes — above the ${ALL_SNAPSHOT_MAX_BYTES} budget,`
+        + " so this is a pre-slim blob rather than an index.",
+      );
+      return null;
+    }
+    snapshot = JSON.parse(raw);
   } catch (_) {
     return null;
   }

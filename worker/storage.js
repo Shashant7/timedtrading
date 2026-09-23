@@ -21,6 +21,63 @@ export async function kvPutJSON(KV, key, val, ttlSec = null) {
   await KV.put(key, JSON.stringify(val), opts);
 }
 
+/**
+ * KV's hard per-value ceiling. A put above this is rejected with
+ * `413 Value length of N exceeds limit of 26214400`.
+ */
+export const KV_MAX_VALUE_BYTES = 26214400;
+
+/**
+ * Write JSON to KV only if it fits, and never throw.
+ *
+ * For values that scale with the universe. Two things go wrong when one of
+ * those outgrows the key, and both were live in production:
+ *
+ *   - The put 413s. `kvPutJSON` lets that reject, and a caller that fired it
+ *     through `ctx.waitUntil` keeps the whole value alive until the rejection
+ *     settles — on top of the copy `sendJSON` is already stringifying. The
+ *     `/timed/all` micro-cache did exactly this every five minutes with a
+ *     30,790,510-byte value and took the isolate past 128 MB with it
+ *     (`outcome: exceededMemory`, around the clock, 2026-09-23).
+ *   - Nothing tells you. The write just stops landing, and every reader keeps
+ *     serving whatever was last written — `timed:all:snapshot` served
+ *     2026-08-14 scores for 40 days that way.
+ *
+ * So: stringify once, measure, and skip with a log rather than attempt a put
+ * that cannot succeed. Returns `{ ok, bytes, skipped }` so a caller can
+ * report it. `budgetBytes` defaults below the ceiling because a value that
+ * close to it is already a bug worth hearing about.
+ */
+export async function kvPutJSONIfFits(KV, key, val, ttlSec = null, {
+  budgetBytes = KV_MAX_VALUE_BYTES,
+  label = null,
+} = {}) {
+  let body;
+  try {
+    body = JSON.stringify(val);
+  } catch (err) {
+    console.warn(`[kvPutJSONIfFits] ${label || key}: not serializable — ${String(err?.message || err).slice(0, 120)}`);
+    return { ok: false, bytes: 0, skipped: true };
+  }
+  const bytes = body.length;
+  if (bytes > budgetBytes) {
+    console.warn(
+      `[kvPutJSONIfFits] ${label || key}: SKIPPED — ${bytes} bytes exceeds the ${budgetBytes} budget`
+      + ` (KV ceiling ${KV_MAX_VALUE_BYTES}). The value outgrew the key; narrow it rather than raising the budget.`,
+    );
+    return { ok: false, bytes, skipped: true };
+  }
+  const opts = {};
+  if (ttlSec && Number.isFinite(ttlSec) && ttlSec > 0) opts.expirationTtl = Math.floor(ttlSec);
+  try {
+    await KV.put(key, body, opts);
+    return { ok: true, bytes, skipped: false };
+  } catch (err) {
+    console.warn(`[kvPutJSONIfFits] ${label || key}: put failed — ${String(err?.message || err).slice(0, 160)}`);
+    return { ok: false, bytes, skipped: false };
+  }
+}
+
 /** Write text to KV. */
 export async function kvPutText(KV, key, text, ttlSec = null) {
   const opts = {};

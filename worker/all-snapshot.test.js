@@ -298,6 +298,21 @@ describe("readAllSnapshot", () => {
     expect(kv.get).toHaveBeenCalledWith(ALL_SNAPSHOT_KEY);
   });
 
+  it("refuses a pre-slim blob on SIZE, without paying to parse it", async () => {
+    // A 26 MB legacy blob parses to ~38 MB of object graph, and then gets
+    // refused on age anyway. Refuse it on size first so no reader pays that
+    // just to learn the value is stale.
+    const oversized = `{"data":{"X":{"pad":"${"y".repeat(13 * 1024 * 1024)}"}},"built_at":${Date.now()}}`;
+    const parse = vi.spyOn(JSON, "parse");
+    try {
+      const got = await readAllSnapshot({ get: async () => oversized }, { maxAgeMs: 6 * 3600 * 1000 });
+      expect(got).toBeNull();
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
   it("returns null on unparseable, empty or missing KV rather than throwing", async () => {
     expect(await readAllSnapshot(null, { maxAgeMs: 1 })).toBeNull();
     expect(await readAllSnapshot(kvWith(null), { maxAgeMs: 1 })).toBeNull();
