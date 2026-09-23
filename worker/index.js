@@ -28398,6 +28398,116 @@ async function processTradeSimulation(
                   ts: tsMs,
                 });
                 if (!dedupe.deduped) {
+                  // The broker order goes FIRST, ahead of every notification
+                  // below it.
+                  //
+                  // 2026-09-22 — DDOG opened a 0.1x Cloud Pivot ticket at
+                  // 17:56:04, the Discord card sent at 17:56:16, and at
+                  // 17:56:17.797 the tt-engine */5 invocation was killed with
+                  // `outcome: exceededMemory` after 322s wall. The bridge
+                  // forward sat ~360 lines further down the same block, so its
+                  // `queueBackground` promise died with the isolate before
+                  // `forwardOrderToBridge` even reached `pushRing` — no order,
+                  // no skip row, no silent-failure breadcrumb, and coverage
+                  // could only report `never_attempted`. Every scheduled
+                  // tt-engine invocation in the 14:00-18:00Z window that day
+                  // ended the same way (46 exceededMemory + 1 canceled, 0
+                  // clean), so this is the normal state of a trading day, not
+                  // a freak tick.
+                  //
+                  // The 2026-07-21 NEU hardening guarded each builder below
+                  // against THROWING for exactly this reason. An isolate that
+                  // is killed outright runs no catch, so ordering is the only
+                  // protection left: the one step that moves money runs before
+                  // the steps that only describe it. Worst case the pending
+                  // ring breadcrumb still lands, which is the difference
+                  // between "working" and "never attempted".
+                  //
+                  // 2026-05-29 — Broker bridge (Phase 1 Option C). Same
+                  // fire-and-forget pattern as EXIT side above. Bridge
+                  // enforces all caps + RH review_equity_order dry-run
+                  // BEFORE place_equity_order. Default OFF; no-op until
+                  // operator sets env.BROKER_BRIDGE_URL.
+                  // 2026-06-01 — tagged mode=trader and added vehicle so
+                  // the bridge can apply per-mode caps (Trader equity =
+                  // higher-frequency, smaller per-trip allocation; vs.
+                  // Investor below = lower-frequency, larger allocation).
+                  // Never mirror model-play options/LETF paper fills as equity
+                  // orders — qty/ticker semantics differ (contracts vs shares).
+                  // 2026-07-23 — vehicle / missing-env skips are stamped into the
+                  // bridge client ring + silent-failure log (not a silent no-op).
+                  if (env?.BROKER_BRIDGE_URL && env?.BROKER_BRIDGE_HMAC_KEY) {
+                    try {
+                      const {
+                        forwardOrderToBridge,
+                        shouldForwardTraderMirrorAsEquity,
+                        recordBridgeMirrorSkip,
+                      } = await import("./broker-bridge-client.js");
+                      const _bridgeEntryId = trade.id || tradeId || null;
+                      if (!shouldForwardTraderMirrorAsEquity(trade)) {
+                        queueBackground(recordBridgeMirrorSkip(env, {
+                          ticker: sym,
+                          side: String(direction || "").toLowerCase() === "short" ? "short" : "buy",
+                          reason: `vehicle_${_executedVehicle}_not_mirrored_as_equity`,
+                          trade_id: _bridgeEntryId,
+                          qty: Number(trade.shares) || 0,
+                          meta: { executed_vehicle: _executedVehicle },
+                        }));
+                      } else {
+                        queueBackground(forwardOrderToBridge(env, {
+                          user_id: env?.ADMIN_EMAIL || "operator",
+                          trade_id: _bridgeEntryId,
+                          // Stable per-trade entry id → bridge dedupes repeat
+                          // entry fires into ONE real buy.
+                          client_order_id: _bridgeEntryId ? `tt-entry-${_bridgeEntryId}` : null,
+                          ticker: sym,
+                          side: String(direction || "").toLowerCase() === "short" ? "short" : "buy",
+                          qty: Number(trade.shares) || 0,
+                          entry: Number(entryPx) || null,
+                          sl: Number(trade.sl) || Number(tickerData?.sl) || null,
+                          tp: Number(trade.tp) || Number(tickerData?.tp) || null,
+                          decision_reason: reason || "TRADE_ENTRY",
+                          action_ts: tsMs,
+                          setup_name: trade.setupName || trade.setup_name || null,
+                          rank: Number(trade.rank) || null,
+                          mode: "trader",
+                          horizon: "short_term",
+                          vehicle: "equity_long",
+                        }));
+
+                        /* 2026-06-02 — Options auto-mirror wire-in.
+                           Still gated triply:
+                             1) env BROKER_BRIDGE_URL + HMAC_KEY (already checked)
+                             2) operator prefs.enabled (loaded inside maybeAutoMirror)
+                             3) per-vehicle prefs.vehicles[vehicleKey].enabled
+                           All default OFF so this is a no-op until the operator
+                           opts in. Fire-and-forget — never blocks the trade. */
+                        try {
+                          const { maybeAutoMirror } = await import("./options-auto-mirror.js");
+                          const traderContract = {
+                            ticker: sym,
+                            trade_id: trade.id || tradeId || null,
+                            price: Number(entryPx) || null,
+                            direction: String(direction || "long").toLowerCase(),
+                            sl: Number(trade.sl) || Number(tickerData?.sl) || null,
+                            tp: Number(trade.tp) || Number(tickerData?.tp) || null,
+                            tp_trim: Number(trade.tp) || Number(tickerData?.tp) || null,
+                            rr: Number(trade.rr) || null,
+                            tier: trade.tier || tickerData?.tier || null,
+                            riskPct: Number(trade.riskPct || trade.risk_pct) || null,
+                            stage: trade.stage || trade.setup_stage || "swing",
+                            atr_pct: Number(tickerData?.atr_pct) || Number(tickerData?._volatility_atr_pct) || 0.025,
+                            mode: "trader",
+                          };
+                          queueBackground(maybeAutoMirror(env, {
+                            ticker: sym,
+                            traderContract,
+                            tickerSnapshot: tickerData,
+                          }));
+                        } catch (_) { /* never block on options mirror */ }
+                      }
+                    } catch (_) { /* never block on bridge issues */ }
+                  }
                   const allow = shouldSendDiscordAlert(env, "TRADE_ENTRY", {
                     ticker: sym,
                     rr: Number(trade.rr || 0),
@@ -28744,91 +28854,6 @@ async function processTradeSimulation(
                     });
                   } catch (_) { /* activity feed must never block entry alerts */ }
 
-                  // 2026-05-29 — Broker bridge (Phase 1 Option C). Same
-                  // fire-and-forget pattern as EXIT side above. Bridge
-                  // enforces all caps + RH review_equity_order dry-run
-                  // BEFORE place_equity_order. Default OFF; no-op until
-                  // operator sets env.BROKER_BRIDGE_URL.
-                  // 2026-06-01 — tagged mode=trader and added vehicle so
-                  // the bridge can apply per-mode caps (Trader equity =
-                  // higher-frequency, smaller per-trip allocation; vs.
-                  // Investor below = lower-frequency, larger allocation).
-                  // Never mirror model-play options/LETF paper fills as equity
-                  // orders — qty/ticker semantics differ (contracts vs shares).
-                  // 2026-07-23 — vehicle / missing-env skips are stamped into the
-                  // bridge client ring + silent-failure log (not a silent no-op).
-                  if (env?.BROKER_BRIDGE_URL && env?.BROKER_BRIDGE_HMAC_KEY) {
-                    try {
-                      const {
-                        forwardOrderToBridge,
-                        shouldForwardTraderMirrorAsEquity,
-                        recordBridgeMirrorSkip,
-                      } = await import("./broker-bridge-client.js");
-                      const _bridgeEntryId = trade.id || tradeId || null;
-                      if (!shouldForwardTraderMirrorAsEquity(trade)) {
-                        queueBackground(recordBridgeMirrorSkip(env, {
-                          ticker: sym,
-                          side: String(direction || "").toLowerCase() === "short" ? "short" : "buy",
-                          reason: `vehicle_${_executedVehicle}_not_mirrored_as_equity`,
-                          trade_id: _bridgeEntryId,
-                          qty: Number(trade.shares) || 0,
-                          meta: { executed_vehicle: _executedVehicle },
-                        }));
-                      } else {
-                        queueBackground(forwardOrderToBridge(env, {
-                          user_id: env?.ADMIN_EMAIL || "operator",
-                          trade_id: _bridgeEntryId,
-                          // Stable per-trade entry id → bridge dedupes repeat
-                          // entry fires into ONE real buy.
-                          client_order_id: _bridgeEntryId ? `tt-entry-${_bridgeEntryId}` : null,
-                          ticker: sym,
-                          side: String(direction || "").toLowerCase() === "short" ? "short" : "buy",
-                          qty: Number(trade.shares) || 0,
-                          entry: Number(entryPx) || null,
-                          sl: Number(trade.sl) || Number(tickerData?.sl) || null,
-                          tp: Number(trade.tp) || Number(tickerData?.tp) || null,
-                          decision_reason: reason || "TRADE_ENTRY",
-                          action_ts: tsMs,
-                          setup_name: trade.setupName || trade.setup_name || null,
-                          rank: Number(trade.rank) || null,
-                          mode: "trader",
-                          horizon: "short_term",
-                          vehicle: "equity_long",
-                        }));
-
-                        /* 2026-06-02 — Options auto-mirror wire-in.
-                           Still gated triply:
-                             1) env BROKER_BRIDGE_URL + HMAC_KEY (already checked)
-                             2) operator prefs.enabled (loaded inside maybeAutoMirror)
-                             3) per-vehicle prefs.vehicles[vehicleKey].enabled
-                           All default OFF so this is a no-op until the operator
-                           opts in. Fire-and-forget — never blocks the trade. */
-                        try {
-                          const { maybeAutoMirror } = await import("./options-auto-mirror.js");
-                          const traderContract = {
-                            ticker: sym,
-                            trade_id: trade.id || tradeId || null,
-                            price: Number(entryPx) || null,
-                            direction: String(direction || "long").toLowerCase(),
-                            sl: Number(trade.sl) || Number(tickerData?.sl) || null,
-                            tp: Number(trade.tp) || Number(tickerData?.tp) || null,
-                            tp_trim: Number(trade.tp) || Number(tickerData?.tp) || null,
-                            rr: Number(trade.rr) || null,
-                            tier: trade.tier || tickerData?.tier || null,
-                            riskPct: Number(trade.riskPct || trade.risk_pct) || null,
-                            stage: trade.stage || trade.setup_stage || "swing",
-                            atr_pct: Number(tickerData?.atr_pct) || Number(tickerData?._volatility_atr_pct) || 0.025,
-                            mode: "trader",
-                          };
-                          queueBackground(maybeAutoMirror(env, {
-                            ticker: sym,
-                            traderContract,
-                            tickerSnapshot: tickerData,
-                          }));
-                        } catch (_) { /* never block on options mirror */ }
-                      }
-                    } catch (_) { /* never block on bridge issues */ }
-                  }
                   await upsertAlertSafe({
                     alert_id: buildAlertId(sym, tsMs, "TRADE_ENTRY"),
                     ticker: sym,
