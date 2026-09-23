@@ -558,6 +558,7 @@ import {
   loadReplayTickerProfiles,
   prepareCandleReplayBatch,
 } from "./replay-runtime-setup.js";
+import { fetchSparklinesFromD1 } from "./sparkline-d1.js";
 import { prepareCandleReplayRuntime } from "./replay-candle-prep.js";
 import { executeCandleReplayBatches } from "./replay-candle-batches.js";
 import { createCandleReplayStep } from "./replay-candle-step.js";
@@ -55785,18 +55786,7 @@ export default {
                   const spkLower = Date.now() - 90 * 86400000;
                   const _sparkSyms = Object.keys(data).filter(s => s && s.length <= 12 && !s.startsWith("_"));
                   if (_sparkSyms.length === 0) throw new Error("no_syms_to_spark");
-                  const placeholders = _sparkSyms.map(() => "?").join(",");
-                  const sparkRows = await env.DB.prepare(
-                    `SELECT ticker, ts, c FROM ticker_candles
-                     WHERE tf='D' AND ticker IN (${placeholders}) AND ts > ?
-                     ORDER BY ticker, ts ASC`
-                  ).bind(..._sparkSyms, spkLower).all();
-                  sparkMap = {};
-                  for (const r of (sparkRows?.results || [])) {
-                    const sym = String(r.ticker).toUpperCase();
-                    if (!sparkMap[sym]) sparkMap[sym] = [];
-                    sparkMap[sym].push(Number(r.c));
-                  }
+                  sparkMap = await fetchSparklinesFromD1(env.DB, _sparkSyms, { points: 90, sinceMs: spkLower });
                   // Cache for downstream callers
                   try {
                     await kvPutJSON(KV, "timed:cache:sparklines", { builtAt: Date.now(), data: sparkMap });
@@ -56657,18 +56647,7 @@ export default {
                 const spkLower = Date.now() - 90 * 86400000;
                 const _sparkSyms = Object.keys(data).filter(s => s && s.length <= 12 && !s.startsWith("_"));
                 if (_sparkSyms.length > 0) {
-                  const placeholders = _sparkSyms.map(() => "?").join(",");
-                  const sparkRows = await env.DB.prepare(
-                    `SELECT ticker, ts, c FROM ticker_candles
-                     WHERE tf='D' AND ticker IN (${placeholders}) AND ts > ?
-                     ORDER BY ticker, ts ASC`
-                  ).bind(..._sparkSyms, spkLower).all();
-                  sparkMap = {};
-                  for (const r of (sparkRows?.results || [])) {
-                    const sym = String(r.ticker).toUpperCase();
-                    if (!sparkMap[sym]) sparkMap[sym] = [];
-                    sparkMap[sym].push(Number(r.c));
-                  }
+                  sparkMap = await fetchSparklinesFromD1(env.DB, _sparkSyms, { points: 90, sinceMs: spkLower });
                   try {
                     await kvPutJSON(KV, "timed:cache:sparklines", { builtAt: Date.now(), data: sparkMap });
                   } catch { /* best-effort */ }
@@ -110745,26 +110724,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               } catch { /* cache miss is fine */ }
 
               if (!sparkMap && _spkSyms.length > 0) {
-                // Build placeholders + binds for the scoped IN clause
-                const placeholders = _spkSyms.map(() => "?").join(",");
-                const sparkRows = await env.DB.prepare(
-                  `WITH deduped AS (
-                    SELECT ticker, ts, c,
-                      ROW_NUMBER() OVER (PARTITION BY ticker, CAST(ts / 86400000 AS INTEGER) ORDER BY ts DESC) as day_rn
-                    FROM ticker_candles WHERE tf = 'D' AND ticker IN (${placeholders})
-                  )
-                  SELECT ticker, ts, c FROM (
-                    SELECT ticker, ts, c, ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY ts DESC) as rn
-                    FROM deduped WHERE day_rn = 1
-                  ) WHERE rn <= 60
-                  ORDER BY ticker, ts ASC`
-                ).bind(..._spkSyms).all();
-                sparkMap = {};
-                for (const r of (sparkRows?.results || [])) {
-                  const sym = String(r.ticker).toUpperCase();
-                  if (!sparkMap[sym]) sparkMap[sym] = [];
-                  sparkMap[sym].push(Number(r.c));
-                }
+                // Chunked: one statement for all 329 tickers is 329 bound
+                // parameters against D1's cap of 100, so this threw
+                // `too many SQL variables` on every tick and the snapshot
+                // shipped whatever _sparkline each payload happened to hold.
+                sparkMap = await fetchSparklinesFromD1(env.DB, _spkSyms, { points: 60 });
                 // Cache for 30 min so subsequent crons skip the query
                 try {
                   await kvPutJSON(KV, "timed:cache:sparklines", { builtAt: Date.now(), data: sparkMap });
