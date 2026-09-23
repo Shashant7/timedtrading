@@ -1756,6 +1756,15 @@ export default {
         return await handleOptionsOrderStatus(env, payload);
       }
 
+      if (method === "POST" && path === "/bridge/options/order/cancel") {
+        const rawBody = await req.text();
+        const sigFail = await requireWebhookSignature(env, req, rawBody);
+        if (sigFail) return sigFail;
+        let payload;
+        try { payload = JSON.parse(rawBody); } catch (_) { return json({ ok: false, error: "bad_json" }, 400); }
+        return await handleOptionsOrderCancel(env, payload);
+      }
+
       return json({ ok: false, error: "not_found", path }, 404);
     } catch (e) {
       console.error("[BRIDGE] uncaught:", String(e?.message || e).slice(0, 500));
@@ -3263,6 +3272,45 @@ async function handleOptionsOrderStatus(env, payload) {
   }
   const looked = await lookupOptionsOrderFill(env, user, orderId);
   return json({ ok: !!looked.ok, fill: looked.fill || null, error: looked.error || null });
+}
+
+// 2026-09-23 — pull a still-working option order. The day-trade mirror needs
+// this because a limit that never fills is not free: it holds a daily-cap slot
+// and, on a 0/1 DTE contract, it can still fill hours after the model has
+// abandoned the thesis. `cancelOrder` is the same adapter call the equity OCO
+// reducer uses, and options orders live in the same broker order namespace
+// that `lookupOptionsOrderFill` already reads through `listOrders`.
+async function handleOptionsOrderCancel(env, payload) {
+  const userId = String(payload?.user_id || "").toLowerCase();
+  const orderId = String(payload?.order_id || "").trim();
+  if (!userId || !orderId) return json({ ok: false, error: "missing_required_fields" }, 400);
+  const user = await readUser(env, userId);
+  if (!user) return json({ ok: false, error: "user_not_found" }, 404);
+
+  const { isBridgeMockMode } = await import("./bridge-webull-config.js");
+  if (isBridgeMockMode(env) || user.mock_mode) {
+    return json({ ok: true, mock: true, cancelled: true, order_id: orderId });
+  }
+
+  const adapter = brokerAdapterFor(user);
+  if (typeof adapter.cancelOrder !== "function") {
+    return json({ ok: false, error: "cancel_unsupported", order_id: orderId }, 400);
+  }
+  try {
+    const res = await adapter.cancelOrder(env, user, orderId);
+    // A cancel that races a fill comes back not-ok. The caller must treat that
+    // as "still live" and re-poll rather than as "cancelled", or it would
+    // release a slot that is now a real position.
+    const ok = res?.ok !== false;
+    return json({
+      ok,
+      cancelled: ok,
+      order_id: orderId,
+      error: ok ? null : (res?.error || "cancel_failed"),
+    });
+  } catch (e) {
+    return json({ ok: false, error: String(e?.message || e).slice(0, 160), order_id: orderId }, 500);
+  }
 }
 
 function _oauthCallbackHtml(result, brokerLabel) {
