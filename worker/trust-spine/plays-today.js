@@ -367,7 +367,12 @@ export function buildTodayPlaysQueue({
   const contPlays = deduped.filter((p) => p.slice_family === CONTINUATION_FAMILY);
   const familyPlays = [...confirmPlays, ...cloudPlays, ...contPlays];
 
-  const desk = prebuiltDesk?.watching
+  // `scanned`, not `watching`: an empty `watching` array is truthy, so keying
+  // off it made an empty desk shadow a real one. A desk the scoring tick
+  // produced always records how many rows it looked at.
+  const deskWasBuilt = Number(prebuiltDesk?.scanned) > 0
+    || (Array.isArray(prebuiltDesk?.watching) && prebuiltDesk.watching.length > 0);
+  const desk = deskWasBuilt
     ? prebuiltDesk
     : buildCloudPivotDesk(cloudDeskRows || cloudPivotTickers || [], {
       limit: Math.min(limit + 4, 28),

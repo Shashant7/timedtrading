@@ -38,6 +38,11 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
     // while it already holds each payload; read what it left.
     let prebuiltDesk = null;
     try { prebuiltDesk = await kvGetJSON(KV, "timed:cloud-pivot:desk"); } catch { /* */ }
+    // An empty `watching` array is truthy. Ask whether the tick actually
+    // scanned anything, or an empty desk written before the first scoring run
+    // sits there for its whole 6h TTL shadowing the real one.
+    const deskIsPrebuilt = Number(prebuiltDesk?.scanned) > 0
+      || (Array.isArray(prebuiltDesk?.watching) && prebuiltDesk.watching.length > 0);
     try {
       // `timed:all:snapshot` is a slim index, and it carries every field
       // `extractSliceFields` reads — the thin-slice detection stamps, the
@@ -52,7 +57,7 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
         : Object.entries(map).map(([sym, t]) => ({ sym: String(sym).toUpperCase(), t }));
       // Only worth doing as a fallback: the cron already stamped these onto
       // the index, and a slim row has no clouds for the curl to read.
-      if (!prebuiltDesk?.watching) {
+      if (!deskIsPrebuilt) {
         try { annotateCloudPivotLeaderFollows(entries); } catch { /* */ }
       }
       cloudDeskRows = entries;
@@ -103,16 +108,12 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
       cloudPivotTickers,
       continuationTickers,
       cloudDeskRows,
-      desk: prebuiltDesk,
+      desk: deskIsPrebuilt ? prebuiltDesk : null,
       limit,
     });
-    if (!prebuiltDesk?.watching) {
-      try {
-        if (KV && queue?.desk) {
-          await KV.put("timed:cloud-pivot:desk", JSON.stringify(queue.desk), { expirationTtl: 6 * 3600 });
-        }
-      } catch { /* */ }
-    }
+    // The scoring tick owns `timed:cloud-pivot:desk`. This handler cannot rank
+    // from slim rows, so writing its fallback back would persist an empty desk
+    // for a 6h TTL and starve the real one.
     return sendJSON({ ok: true, ...queue }, 200, corsHeaders(env, req));
   }
 
