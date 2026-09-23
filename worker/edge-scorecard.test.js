@@ -78,6 +78,87 @@ describe("findDemotionCandidates", () => {
     expect(out).toHaveLength(1);
     expect(out[0].setup).toBe("tt_ath_breakout");
   });
+
+  // 2026-09-23 — a low profit factor says the trade lost money, not that the
+  // signal was wrong. Support Bounce ran 60 days bleeding while its entries
+  // beat the book on both excursion axes and converted 5% of what they found.
+  it("proposes fix_management, not demote, when the entries beat the book", () => {
+    const out = findDemotionCandidates([{
+      setup: "tt_n_test_support",
+      direction: "LONG",
+      stats: { n: 24, profit_factor: 0.6, win_rate_pct: 29, pnl_usd: -215 },
+      entry_quality: { entry_edge: "confirmed", mfe_mae_ratio: 1.81, hit_rate_2pct: 54.2, why: "beats the book" },
+      mfe_capture_rate: 0.051,
+    }]);
+    expect(out[0].owner).toBe("management");
+    expect(out[0].action).toBe("fix_management");
+    expect(out[0].why).toMatch(/do not demote the signal/);
+  });
+
+  it("still proposes demote when the signal itself is not finding moves", () => {
+    const out = findDemotionCandidates([{
+      setup: "tt_ath_breakout",
+      direction: "LONG",
+      stats: { n: 20, profit_factor: 0.13, win_rate_pct: 35, pnl_usd: -945 },
+      entry_quality: { entry_edge: "absent", mfe_mae_ratio: 0.78, hit_rate_2pct: 35, why: "more heat than opportunity" },
+      mfe_capture_rate: -0.385,
+    }]);
+    expect(out[0].owner).toBe("entry");
+    expect(out[0].action).toBe("demote");
+  });
+
+  it("leaves a marginal entry with management rather than deleting the signal", () => {
+    const out = findDemotionCandidates([{
+      setup: "tt_cloud_pivot_long",
+      direction: "LONG",
+      stats: { n: 27, profit_factor: 0.23, win_rate_pct: 38.5, pnl_usd: -244 },
+      entry_quality: { entry_edge: "neutral", mfe_mae_ratio: 1.48, hit_rate_2pct: 48.1, why: "indistinguishable" },
+      mfe_capture_rate: -0.287,
+    }]);
+    expect(out[0].action).toBe("fix_management");
+  });
+});
+
+describe("groupTradesBySetup grades the entry separately from the outcome", () => {
+  const row = (setup, mfe, mae, pnlPct) => ({
+    setup_name: setup,
+    direction: "LONG",
+    status: pnlPct > 0 ? "WIN" : "LOSS",
+    pnl: pnlPct * 10,
+    pnl_pct: pnlPct,
+    max_favorable_excursion: mfe,
+    max_adverse_excursion: -mae,
+  });
+
+  it("separates a detector with good entries and bad exits from one with bad entries", () => {
+    const rows = [
+      // Good entries, all of it given back.
+      ...Array.from({ length: 12 }, () => row("Leaky", 6, 2, 0.1)),
+      // Bad entries — more heat than opportunity.
+      ...Array.from({ length: 12 }, () => row("Blind", 1.2, 3, -0.9)),
+    ];
+    const grouped = groupTradesBySetup(rows);
+    const leaky = grouped.find((s) => s.setup === "Leaky");
+    const blind = grouped.find((s) => s.setup === "Blind");
+
+    expect(leaky.entry_quality.entry_edge).toBe("confirmed");
+    expect(leaky.diagnosis.owner).toBe("management");
+    expect(leaky.mfe_capture_rate).toBeLessThan(0.35);
+
+    expect(blind.entry_quality.entry_edge).toBe("absent");
+    expect(blind.diagnosis.owner).toBe("entry");
+  });
+
+  it("grades against the window's own book, so a quiet tape does not fail everyone", () => {
+    // Same relative shape as above, every excursion halved.
+    const rows = [
+      ...Array.from({ length: 12 }, () => row("Leaky", 3, 1, 0.05)),
+      ...Array.from({ length: 12 }, () => row("Blind", 0.6, 1.5, -0.45)),
+    ];
+    const grouped = groupTradesBySetup(rows);
+    expect(grouped.find((s) => s.setup === "Leaky").entry_quality.entry_edge).toBe("confirmed");
+    expect(grouped.find((s) => s.setup === "Blind").entry_quality.entry_edge).toBe("absent");
+  });
 });
 
 describe("deriveEdgeFlags", () => {
