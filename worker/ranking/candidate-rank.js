@@ -6,6 +6,9 @@ import { resolvePlaySide } from "./play-side.js";
 
 export const CANDIDATE_RANK_VERSION = "candidate-rank-v3";
 export const FRESHNESS_RANK_CAP = 10;
+/** Which side the `_theme_tilt` / `_fv_tilt` / `_officer_tilt` / `_macro_wire_tilt`
+ *  signs refer to. Consumers that trade a different side must flip them. */
+export const RANK_TILT_SIDE_FIELD = "_rank_tilt_side";
 const MANAGEMENT_STAGES = new Set(["defend", "trim", "exit", "just_entered", "hold"]);
 const finite = v => (typeof v === "number" || (typeof v === "string" && v.trim() !== "")) &&
   Number.isFinite(Number(v)) ? Number(v) : null;
@@ -75,9 +78,19 @@ export function computeCandidateScore(ticker, {
   for (const field of ["_theme_tilt", "_theme_tilt_shadow", "_theme_tilt_theme",
     "_fv_tilt", "_fv_tilt_shadow", "_harmonic_tilt", "_harmonic_tilt_shadow",
     "_officer_tilt", "_officer_tilt_shadow", "_cto_tilt", "_cro_note_tilt",
-    "_macro_wire_tilt", "_macro_wire_tilt_shadow", "_macro_wire_risk_tone"]) delete ticker[field];
+    "_macro_wire_tilt", "_macro_wire_tilt_shadow", "_macro_wire_risk_tone",
+    RANK_TILT_SIDE_FIELD]) delete ticker[field];
   const baseScore = candidateBaseScore(ticker);
   const candidateSide = resolveSide(ticker);
+  // Every overlay below is stored as `raw x candidateSide`, so the sign alone
+  // says "helps the side that earned rank" — it does not say which side that
+  // was. A detector that trades the other way (a Cloud Pivot is a turn against
+  // the prevailing HTF read roughly half the time) then reads a long-side
+  // tailwind as its own. Record the side the tilts were signed with so any
+  // later consumer can put them back on the side it is actually trading.
+  if (candidateSide === "LONG" || candidateSide === "SHORT") {
+    ticker[RANK_TILT_SIDE_FIELD] = candidateSide;
+  }
   // Lookups consume only the sign. Use the same side that earned technical
   // rank, including forming-pair turns against the older HTF state.
   const htf = candidateSide === "LONG" ? 1 : candidateSide === "SHORT" ? -1 : 0;

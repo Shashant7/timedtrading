@@ -941,4 +941,64 @@ describe("cloud pivot conviction (entry budget ranking)", () => {
     const prop = buildCloudPivotPaperQueueProposal(payload());
     if (prop) expect(typeof prop.conviction).toBe("number");
   });
+
+  // The leaders (BTC / ETH / SPY / QQQ) are the only market-wide read this
+  // detector has. It used to be bonus-only: agreement added a point and
+  // disagreement was not recorded at all, so a curl straight into the tape
+  // scored the same as one with it.
+  it("an opposing leader subtracts, mirroring the ticker's own clouds", () => {
+    expect(cloudPivotConviction(det({
+      leader_oppose: { leader: "SPY", leader_direction: "SHORT", direction: "LONG" },
+    }))).toBe(1);
+  });
+
+  it("scores a leader the same magnitude either way", () => {
+    const withLeader = cloudPivotConviction(det({ leader_follow: { leader: "SPY", direction: "LONG" } }));
+    const against = cloudPivotConviction(det({
+      leader_oppose: { leader: "SPY", leader_direction: "SHORT", direction: "LONG" },
+    }));
+    const neither = cloudPivotConviction(det());
+    expect(withLeader - neither).toBe(1);
+    expect(neither - against).toBe(1);
+  });
+});
+
+describe("leader disagreement is recorded, not discarded", () => {
+  const curl = (dir) => ({
+    ripster: {
+      c5_12: dir === "LONG"
+        ? { bull: true, inCloud: true, crossUp: true, crossDn: false, fastSlope: 0.3 }
+        : { bear: true, inCloud: true, crossUp: false, crossDn: true, fastSlope: -0.3 },
+      c34_50: dir === "LONG" ? { bull: true, above: true } : { bear: true, below: true },
+    },
+  });
+
+  it("stamps _cloud_leader_oppose on a follower curling against its leader", () => {
+    const rows = [
+      { sym: "BTCUSD", t: { tf_tech: { "10": curl("LONG") } } },
+      { sym: "COIN", t: { tf_tech: { "10": curl("SHORT") } } },
+      { sym: "MSTR", t: { tf_tech: { "10": curl("LONG") } } },
+    ];
+    annotateCloudPivotLeaderFollows(rows);
+    expect(rows[1].t._cloud_leader_oppose?.leader).toBe("BTCUSD");
+    expect(rows[1].t._cloud_leader_oppose?.leader_direction).toBe("LONG");
+    expect(rows[1].t._cloud_leader_follow).toBeUndefined();
+    // The agreeing follower is unaffected.
+    expect(rows[2].t._cloud_leader_follow?.leader).toBe("BTCUSD");
+    expect(rows[2].t._cloud_leader_oppose).toBeUndefined();
+  });
+
+  it("carries the disagreement onto the detection and its reasons", () => {
+    const afterMidday = Date.parse("2026-07-15T18:10:00Z");
+    const p = payload({
+      ts: afterMidday,
+      price: 80,
+      _cloud_leader_follow: { leader: "BTCUSD", direction: "LONG", trigger: "5_12_cross_up" },
+      _cloud_leader_oppose: { leader: "SPY", leader_direction: "SHORT", direction: "LONG" },
+    });
+    const d = detectTtCloudPivot(p, {}, { asOfTs: afterMidday });
+    expect(d?.fires).toBe(true);
+    expect(d.leader_oppose?.leader).toBe("SPY");
+    expect(d.reasons).toContain("leader_oppose_spy");
+  });
 });

@@ -132,6 +132,26 @@ export function planSevereDemotions(perSetup, opts = {}) {
       });
       continue;
     }
+    // A pooled "absent" that splits by regime is a detector firing out of
+    // season, not a detector that finds nothing. Auto-demoting it deletes the
+    // in-regime half that works.
+    if (entryEdge === "absent" && s.regime_fit) {
+      out.push({
+        setup: s.setup,
+        direction: String(s.direction || "long").toLowerCase(),
+        n,
+        profit_factor: pf,
+        win_rate_pct: stats.win_rate_pct,
+        pnl_usd: stats.pnl_usd,
+        entry_edge: entryEdge,
+        works_in: s.regime_fit.works_in,
+        fails_in: s.regime_fit.fails_in,
+        off_regime_share_pct: s.regime_fit.off_regime_share_pct,
+        action: "gate_by_regime",
+        why: `PF ${pf} and the pooled entry grade is absent, but ${s.regime_fit.why}`,
+      });
+      continue;
+    }
     const key = demotionProposalConfigKey(s.setup, s.direction || "long");
     // Prefer path-keyed severe list when we can resolve.
     let path = null;
@@ -252,6 +272,7 @@ export async function runWeeklyGovernor(env, opts = {}) {
   // blocking a play.
   const severe = severeLive.filter((s) => s.action === "auto_demote_blocked");
   const managementLeaks = severeLive.filter((s) => s.action === "fix_management");
+  const regimeGates = severeLive.filter((s) => s.action === "gate_by_regime");
 
   const actions = [];
   const applied = [];
@@ -306,6 +327,13 @@ export async function runWeeklyGovernor(env, opts = {}) {
   //     working signal to avoid fixing an exit. Surfaced, never applied.
   for (const s of managementLeaks) {
     actions.push({ type: "management_leak_not_demoted", ...s });
+  }
+
+  // 2b) Bleeders whose entries work in one regime and not another. The fix is
+  //     a regime gate on the detector, which is an operator decision, so these
+  //     are surfaced and never applied either.
+  for (const s of regimeGates) {
+    actions.push({ type: "regime_gate_not_demoted", ...s });
   }
 
   // 2) Auto-demote severe scorecard bleeders (extra to the static heal list).

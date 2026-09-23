@@ -223,3 +223,67 @@ describe("setup-grade wiring", () => {
     expect(paper).toContain("admitSetupGrade");
   });
 });
+
+describe("tilt pillars read the side they are graded for", () => {
+  // candidate-rank.js stores every overlay as `raw x rankSide` and records the
+  // side it used. A Cloud Pivot trades the turn, so it is on the other side of
+  // that read roughly half the time (117 of 246 live curls on 2026-09-23).
+  const longSideTailwinds = () => ({
+    ticker: "AAPL",
+    _rank_tilt_side: "LONG",
+    _theme_tilt: 3,
+    _macro_wire_tilt: 2,
+    _fv_tilt: 4,
+    _officer_tilt: 3,
+    _fair_value: { tilt: 4, quality_grade: "C" },
+  });
+
+  it("credits a LONG for long-side theme, value and sector tailwinds", () => {
+    const d = longSideTailwinds();
+    expect(gradeMacro(d, "LONG").points).toBe(2);
+    expect(gradeValue(d, "LONG").points).toBe(2);
+    expect(gradeOfficer(d, "LONG").points).toBe(2);
+  });
+
+  it("does not hand those same long-side tailwinds to a SHORT", () => {
+    const d = longSideTailwinds();
+    expect(gradeMacro(d, "SHORT").points).toBe(0);
+    expect(gradeOfficer(d, "SHORT").points).toBe(0);
+    expect(gradeMacro(d, "SHORT").resigned).toBe(true);
+  });
+
+  it("credits a SHORT for genuinely short-side tailwinds", () => {
+    // Stored positive always means "helps the side that earned rank", so a
+    // SHORT-rank row with +3 is a cold theme backing the short.
+    const d = { ticker: "XYZ", _rank_tilt_side: "SHORT", _theme_tilt: 3, _officer_tilt: 3 };
+    expect(gradeMacro(d, "SHORT").points).toBe(2);
+    expect(gradeOfficer(d, "SHORT").points).toBe(2);
+    // The same cold theme is a headwind for a long.
+    expect(gradeMacro(d, "LONG").points).toBe(0);
+    expect(gradeOfficer(d, "LONG").points).toBe(0);
+  });
+
+  it("leaves the tilt alone when the ranking pass recorded no side", () => {
+    const d = longSideTailwinds();
+    delete d._rank_tilt_side;
+    // Pre-2026-09-23 behaviour: nothing to re-sign against, so do not guess.
+    expect(gradeMacro(d, "SHORT").points).toBe(2);
+    expect(gradeMacro(d, "SHORT").resigned).toBe(false);
+  });
+
+  it("drops AAPL SHORT from 8/10 to 4/10 once the tilts are on the traded side", () => {
+    // The live 2026-09-23 row: a SHORT curl collecting long-side credit.
+    const d = alignedPayload({
+      _rank_tilt_side: "LONG",
+      _theme_tilt: 3,
+      _macro_wire_tilt: 2,
+      _fv_tilt: 4,
+      _officer_tilt: 3,
+    });
+    const asShort = evaluateSetupGrade(d, { side: "SHORT" });
+    const asLong = evaluateSetupGrade(d, { side: "LONG" });
+    expect(asLong.score).toBeGreaterThan(asShort.score);
+    expect(asShort.parts.find((p) => p.id === "macro").points).toBe(0);
+    expect(asShort.parts.find((p) => p.id === "officer").points).toBe(0);
+  });
+});

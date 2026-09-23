@@ -22,7 +22,9 @@ import { canonicalPlayId } from "./foundation/play-catalog.js";
 import {
   aggregateMfeCapture,
   diagnoseLayer,
+  diagnoseRegimeFit,
   gradeEntryQuality,
+  gradeEntryQualityByRegime,
   summarizeEntryExcursions,
 } from "./trust-spine/entry-quality.js";
 
@@ -51,6 +53,7 @@ export function groupTradesBySetup(rows, minN = 3) {
       const capture = aggregateMfeCapture(
         list.map((r) => ({ pnl_pct: r.pnl_pct, mfe_pct: r.max_favorable_excursion })),
       );
+      const byRegime = gradeEntryQualityByRegime(list, rows);
       return {
         setup,
         direction,
@@ -58,6 +61,9 @@ export function groupTradesBySetup(rows, minN = 3) {
         // Graded separately on purpose: `stats` is what the book did with the
         // trade, `entry_quality` is what the detector actually chose.
         entry_quality: entryQuality,
+        entry_quality_by_regime: byRegime,
+        // Non-null only when the pooled grade is hiding a regime split.
+        regime_fit: diagnoseRegimeFit(byRegime),
         mfe_capture_rate: capture,
         diagnosis: diagnoseLayer(entryQuality?.entry_edge ?? null, capture),
       };
@@ -143,7 +149,11 @@ export function findDemotionCandidates(perSetup, opts = {}) {
     // because the cost of wrongly deleting a signal is higher than the cost
     // of looking at the exits one more week.
     const entryAtFault = edge === "absent";
-    return {
+    // ...unless the pooled "absent" is an average of a regime where the
+    // entries work and a regime where they do not. That is a missing gate,
+    // and retiring the detector throws away the half that works.
+    const regimeFit = entryAtFault ? (s.regime_fit || null) : null;
+    const base = {
       setup: s.setup,
       direction: s.direction,
       n: s.stats.n,
@@ -154,6 +164,20 @@ export function findDemotionCandidates(perSetup, opts = {}) {
       mfe_mae_ratio: s.entry_quality?.mfe_mae_ratio ?? null,
       hit_rate_2pct: s.entry_quality?.hit_rate_2pct ?? null,
       mfe_capture_rate: s.mfe_capture_rate ?? null,
+    };
+    if (regimeFit) {
+      return {
+        ...base,
+        owner: "entry",
+        action: "gate_by_regime",
+        works_in: regimeFit.works_in,
+        fails_in: regimeFit.fails_in,
+        off_regime_share_pct: regimeFit.off_regime_share_pct,
+        why: regimeFit.why,
+      };
+    }
+    return {
+      ...base,
       owner: entryAtFault ? "entry" : "management",
       action: entryAtFault ? "demote" : "fix_management",
       why: entryAtFault
@@ -164,9 +188,16 @@ export function findDemotionCandidates(perSetup, opts = {}) {
   });
 }
 
-/** The subset of demotion candidates whose SIGNAL is the problem. */
+/** The subset that should actually be demoted — the signal finds nothing in
+ *  any regime. Regime-selective detectors are an entry fault too, but the fix
+ *  is a gate, so they are excluded here. */
 export function entryFaultDemotions(candidates) {
-  return (candidates || []).filter((c) => c.owner === "entry");
+  return (candidates || []).filter((c) => c.action === "demote");
+}
+
+/** Detectors that work in some regimes and not others — gate, do not retire. */
+export function regimeGateCandidates(candidates) {
+  return (candidates || []).filter((c) => c.action === "gate_by_regime");
 }
 
 /** Honest one-line flags about the current edge state. Pure. */
@@ -207,12 +238,18 @@ export async function buildEdgeScorecard(env, opts = {}) {
 
   let rows = [];
   try {
+    // The regime is joined from the session BEFORE the entry: it has to be
+    // knowable at entry time or the grade it feeds is hindsight.
     rows = (await db.prepare(
-      `SELECT ticker, direction, setup_name, setup_grade, entry_path, status, pnl, pnl_pct,
-              max_favorable_excursion, max_adverse_excursion, exit_reason, exit_ts
-         FROM trades
-        WHERE status IN ('WIN','LOSS','FLAT') AND exit_ts >= ?1
-        ORDER BY exit_ts ASC LIMIT 3000`
+      `SELECT t.ticker, t.direction, t.setup_name, t.setup_grade, t.entry_path, t.status,
+              t.pnl, t.pnl_pct, t.max_favorable_excursion, t.max_adverse_excursion,
+              t.exit_reason, t.exit_ts,
+              (SELECT m.regime_overall FROM daily_market_snapshots m
+                WHERE m.date < date(t.entry_ts/1000,'unixepoch')
+                ORDER BY m.date DESC LIMIT 1) AS regime_at_entry
+         FROM trades t
+        WHERE t.status IN ('WIN','LOSS','FLAT') AND t.exit_ts >= ?1
+        ORDER BY t.exit_ts ASC LIMIT 3000`
     ).bind(since90).all())?.results || [];
   } catch (e) {
     return { ok: false, error_kind: "trades_read_failed", hint: String(e?.message || e).slice(0, 200) };

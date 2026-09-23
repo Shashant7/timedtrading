@@ -4,6 +4,7 @@
 import { observedSetupVolume, meetsSetupVolume, finiteSetupNumber } from "./setup-evidence.js";
 import { getThemesForTicker } from "../sector-mapping.js";
 import { playStructureAligned } from "../ranking/play-side.js";
+import { RANK_TILT_SIDE_FIELD } from "../ranking/candidate-rank.js";
 
 export const SETUP_GRADE_VERSION = "setup-grade-v1";
 export const SETUP_GRADE_MAX = 10;
@@ -47,22 +48,47 @@ export function isSetupGradeExemptPath(path) {
   return /index_etf|index_dt|day_trade/.test(p);
 }
 
-function signedTilt(d, field) {
+/**
+ * Which side the ranking pass signed its overlays for. `null` when the pass
+ * did not record one, in which case the tilt is read as-is (pre-2026-09-23
+ * behaviour) because there is no safe way to re-sign it.
+ */
+function rankTiltSide(d) {
+  const s = String(d?.[RANK_TILT_SIDE_FIELD] || "").toUpperCase();
+  return s === "LONG" || s === "SHORT" ? s : null;
+}
+
+/**
+ * `candidate-rank.js` stores every overlay as `raw x rankSide`, so a positive
+ * value means "tailwind for the side that earned rank" — not "tailwind for the
+ * side being graded". Those are the same side barely half the time: on the live
+ * universe 117 of 246 tickers showing a 10m curl had it opposing the HTF rank
+ * side. Flip the tilt when the grade is for the other side, otherwise a SHORT
+ * collects the long-side theme, value and sector credit (AAPL graded 8/10 SHORT
+ * on 2026-09-23 off long-side tilts; 4/10 once re-signed).
+ */
+function signedTilt(d, field, side = null) {
+  const graded = side === "LONG" || side === "SHORT" ? side : null;
+  const rankSide = rankTiltSide(d);
+  const flip = graded && rankSide && graded !== rankSide ? -1 : 1;
   const applied = finiteSetupNumber(d?.[field]);
-  if (applied != null) return { value: applied, source: "applied" };
+  if (applied != null) return { value: applied * flip, source: "applied", resigned: flip === -1 };
   const shadow = finiteSetupNumber(d?.[`${field}_shadow`]);
-  if (shadow != null) return { value: shadow, source: "shadow" };
-  return { value: null, source: "missing" };
+  if (shadow != null) return { value: shadow * flip, source: "shadow", resigned: flip === -1 };
+  return { value: null, source: "missing", resigned: false };
 }
 
 function pillarFromTilt(id, tilt) {
   if (tilt.value == null) return { id, points: 0, status: "missing", source: tilt.source };
   if (tilt.value > 0) {
-    return { id, points: SETUP_GRADE_PILLAR_POINTS, status: "aligned", source: tilt.source, value: tilt.value };
+    return {
+      id, points: SETUP_GRADE_PILLAR_POINTS, status: "aligned",
+      source: tilt.source, value: tilt.value, resigned: tilt.resigned === true,
+    };
   }
   return {
     id, points: 0, status: tilt.value < 0 ? "opposed" : "flat",
-    source: tilt.source, value: tilt.value,
+    source: tilt.source, value: tilt.value, resigned: tilt.resigned === true,
   };
 }
 
@@ -166,8 +192,8 @@ export function gradeTape(d = {}, side, rvolFloor = SETUP_GRADE_DEFAULT_RVOL) {
 }
 
 export function gradeMacro(d = {}, side = null) {
-  const theme = signedTilt(d, "_theme_tilt");
-  const wire = signedTilt(d, "_macro_wire_tilt");
+  const theme = signedTilt(d, "_theme_tilt", side);
+  const wire = signedTilt(d, "_macro_wire_tilt", side);
   if ((theme.value != null && theme.value > 0) || (wire.value != null && wire.value > 0)) {
     return {
       id: "macro",
@@ -175,6 +201,7 @@ export function gradeMacro(d = {}, side = null) {
       status: "aligned",
       theme: theme.value,
       wire: wire.value,
+      resigned: theme.resigned === true || wire.resigned === true,
     };
   }
   // Theme membership + quality is a desk fact even when today's theme
@@ -193,13 +220,20 @@ export function gradeMacro(d = {}, side = null) {
     };
   }
   if (theme.value == null && wire.value == null) {
-    return { id: "macro", points: 0, status: "missing" };
+    return { id: "macro", points: 0, status: "missing", resigned: false };
   }
-  return { id: "macro", points: 0, status: "opposed_or_flat", theme: theme.value, wire: wire.value };
+  return {
+    id: "macro",
+    points: 0,
+    status: "opposed_or_flat",
+    theme: theme.value,
+    wire: wire.value,
+    resigned: theme.resigned === true || wire.resigned === true,
+  };
 }
 
 export function gradeValue(d = {}, side = null) {
-  const applied = signedTilt(d, "_fv_tilt");
+  const applied = signedTilt(d, "_fv_tilt", side);
   if (applied.value != null && applied.value > 0) {
     return pillarFromTilt("value", applied);
   }
@@ -222,7 +256,7 @@ export function gradeValue(d = {}, side = null) {
 }
 
 export function gradeOfficer(d = {}, side) {
-  const tilt = signedTilt(d, "_officer_tilt");
+  const tilt = signedTilt(d, "_officer_tilt", side);
   if (tilt.value != null && tilt.value > 0) {
     return {
       id: "officer",

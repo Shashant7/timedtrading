@@ -207,6 +207,106 @@ export function gradeEntryQuality(closed, baseline = null) {
   };
 }
 
+/** A regime bucket below this many trades describes weather, not a detector. */
+export const REGIME_GRADE_MIN_N = 6;
+
+/**
+ * The market regime in force when the trade was opened.
+ *
+ * The detectors do not stamp this — none of them read a market-wide signal at
+ * entry, which is the point. Callers join it on from `daily_market_snapshots`
+ * (prior session's `regime_overall`, so there is no lookahead) and pass it
+ * through on the row.
+ */
+export function readEntryRegime(row) {
+  const raw = row?.regime_at_entry ?? row?.market_regime ?? row?.regime_overall;
+  const s = String(raw ?? "").trim().toLowerCase();
+  return s || null;
+}
+
+/**
+ * Entry grade per market regime, each against the SAME regime's slice of the
+ * book. A detector that only works in the weather it was designed for grades
+ * "absent" when the regimes are pooled, and the pooled verdict then retires a
+ * signal whose real defect is that nothing stops it firing out of season.
+ *
+ * TT ATH Breakout is the live case: 1.45 MFE:MAE and 45.5% reaching +2% on the
+ * 11 risk-on entries, 0.62 and 24.2% on the 33 balanced-regime ones. Three of
+ * every four fires were out of regime, and they are what makes the pooled
+ * grade read "absent".
+ *
+ * @param {Array} closed  closed trades carrying a regime (see readEntryRegime)
+ * @param {Array} cohort  the comparison book over the same window, also
+ *                        carrying regimes. Each regime is graded against its
+ *                        own slice so a risk-off month is not scored against
+ *                        a risk-on baseline.
+ */
+export function gradeEntryQualityByRegime(closed, cohort = null) {
+  const buckets = new Map();
+  let total = 0;
+  for (const row of closed || []) {
+    const regime = readEntryRegime(row);
+    if (!regime) continue;
+    total++;
+    if (!buckets.has(regime)) buckets.set(regime, []);
+    buckets.get(regime).push(row);
+  }
+  if (total === 0) return null;
+
+  const baseByRegime = new Map();
+  for (const row of cohort || []) {
+    const regime = readEntryRegime(row);
+    if (!regime) continue;
+    if (!baseByRegime.has(regime)) baseByRegime.set(regime, []);
+    baseByRegime.get(regime).push(row);
+  }
+
+  const out = {};
+  for (const [regime, list] of buckets) {
+    const base = baseByRegime.has(regime)
+      ? summarizeEntryExcursions(baseByRegime.get(regime))
+      : null;
+    const grade = gradeEntryQuality(list, base);
+    if (!grade) continue;
+    out[regime] = { ...grade, share_pct: round((list.length / total) * 100, 1) };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * Does this detector have an edge that only exists in some regimes?
+ *
+ * Distinguishes "the signal does not work" from "the signal works but nothing
+ * stops it firing in the wrong tape" — the second is a missing gate, and the
+ * fix is a gate, not a retirement.
+ */
+export function diagnoseRegimeFit(byRegime) {
+  if (!byRegime || typeof byRegime !== "object") return null;
+  const worksIn = [];
+  const failsIn = [];
+  let offRegimeShare = 0;
+  for (const [regime, grade] of Object.entries(byRegime)) {
+    if (!grade || Number(grade.n) < REGIME_GRADE_MIN_N) continue;
+    if (grade.entry_edge === "confirmed") worksIn.push(regime);
+    else if (grade.entry_edge === "absent") {
+      failsIn.push(regime);
+      offRegimeShare += Number(grade.share_pct) || 0;
+    }
+  }
+  if (worksIn.length === 0 || failsIn.length === 0) return null;
+  return {
+    pattern: "regime_selective",
+    works_in: worksIn.sort(),
+    fails_in: failsIn.sort(),
+    off_regime_share_pct: round(offRegimeShare, 1),
+    owner: "entry",
+    verdict: "gate_by_regime",
+    why: `entries are confirmed in ${worksIn.join(", ")} and absent in ${failsIn.join(", ")}, `
+      + `and ${round(offRegimeShare, 1)}% of them fire in the regimes where the edge is absent `
+      + "— gate the detector by regime rather than retiring it",
+  };
+}
+
 /**
  * Read the entry grade and the management grade together and say which layer
  * owns the problem.

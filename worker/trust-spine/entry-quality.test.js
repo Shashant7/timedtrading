@@ -10,6 +10,9 @@ import {
   diagnoseLayer,
   gradeEntryQuality,
   readExcursions,
+  diagnoseRegimeFit,
+  gradeEntryQualityByRegime,
+  readEntryRegime,
   summarizeEntryExcursions,
 } from "./entry-quality.js";
 
@@ -187,5 +190,104 @@ describe("diagnoseLayer: which layer owns the loss", () => {
   it("does not read a missing capture number as a passing one", () => {
     const d = diagnoseLayer("confirmed", null);
     expect(d.verdict).toBe("fix_management");
+  });
+});
+
+// ── regime-stratified entry grade ────────────────────────────────────────────
+// Live numbers, full history, regime joined from the session BEFORE entry
+// (daily_market_snapshots.regime_overall):
+//
+//   tt_ath_breakout  risk_on   n=11  MFE 2.23  MAE 1.54  ratio 1.45  hit+2% 45.5%
+//   tt_ath_breakout  balanced  n=33  MFE 1.19  MAE 1.93  ratio 0.62  hit+2% 24.2%
+//
+// Pooled, that grades "absent" and the detector gets retired. Split, it says
+// three of every four fires are out of season.
+function regimeCohort(n, regime, mfe, mae, pnlPct = 0) {
+  return cohort(n, mfe, mae, pnlPct).map((r) => ({ ...r, regime_at_entry: regime }));
+}
+
+describe("entry grade per regime", () => {
+  const ATH = [
+    ...regimeCohort(11, "risk_on", 2.23, 1.54, 0.41),
+    ...regimeCohort(33, "balanced", 1.19, 1.93, -0.88),
+  ];
+  // The book over the same window, in the same two regimes.
+  const BOOK = [
+    ...regimeCohort(40, "risk_on", 3.61, 2.23, 0.5),
+    ...regimeCohort(66, "balanced", 3.61, 2.23, -0.5),
+  ];
+
+  it("reads the regime the caller joined on, not one the detector stamped", () => {
+    expect(readEntryRegime({ regime_at_entry: "Risk_On" })).toBe("risk_on");
+    expect(readEntryRegime({ regime_overall: "balanced" })).toBe("balanced");
+    expect(readEntryRegime({})).toBe(null);
+  });
+
+  it("separates the regime where ATH Breakout works from the one where it does not", () => {
+    const byRegime = gradeEntryQualityByRegime(ATH, BOOK);
+    expect(byRegime.risk_on.n).toBe(11);
+    expect(byRegime.balanced.n).toBe(33);
+    expect(byRegime.balanced.entry_edge).toBe("absent");
+    expect(byRegime.risk_on.mfe_mae_ratio).toBeGreaterThan(byRegime.balanced.mfe_mae_ratio);
+    // Three of every four fires are in the regime where the edge is absent.
+    expect(byRegime.balanced.share_pct).toBe(75);
+  });
+
+  it("grades each regime against its own slice of the book", () => {
+    const quietBook = [...regimeCohort(40, "risk_on", 1.2, 1.1, 0)];
+    const quiet = gradeEntryQualityByRegime(regimeCohort(12, "risk_on", 2.23, 1.54, 0), quietBook);
+    // Same detector numbers, weaker book: the edge now reads confirmed.
+    expect(quiet.risk_on.entry_edge).toBe("confirmed");
+  });
+
+  it("returns null when no row carries a regime", () => {
+    expect(gradeEntryQualityByRegime(cohort(20, 3, 2), BOOK)).toBe(null);
+  });
+
+  it("ignores a regime bucket too small to describe a detector", () => {
+    const thin = [
+      ...regimeCohort(30, "balanced", 1.19, 1.93),
+      ...regimeCohort(2, "risk_off", 9, 0.5),
+    ];
+    const fit = diagnoseRegimeFit(gradeEntryQualityByRegime(thin, BOOK));
+    expect(fit).toBe(null);
+  });
+});
+
+describe("regime-selective detectors are gated, not retired", () => {
+  const byRegime = {
+    risk_on: { n: 12, entry_edge: "confirmed", share_pct: 25 },
+    balanced: { n: 33, entry_edge: "absent", share_pct: 75 },
+  };
+
+  it("names the regimes and the share of fires that miss them", () => {
+    const fit = diagnoseRegimeFit(byRegime);
+    expect(fit.pattern).toBe("regime_selective");
+    expect(fit.works_in).toEqual(["risk_on"]);
+    expect(fit.fails_in).toEqual(["balanced"]);
+    expect(fit.off_regime_share_pct).toBe(75);
+    expect(fit.verdict).toBe("gate_by_regime");
+    expect(fit.why).toMatch(/rather than retiring it/);
+  });
+
+  it("says nothing when the detector fails everywhere", () => {
+    expect(diagnoseRegimeFit({
+      risk_on: { n: 12, entry_edge: "absent", share_pct: 25 },
+      balanced: { n: 33, entry_edge: "absent", share_pct: 75 },
+    })).toBe(null);
+  });
+
+  it("says nothing when the detector works everywhere", () => {
+    expect(diagnoseRegimeFit({
+      risk_on: { n: 12, entry_edge: "confirmed", share_pct: 25 },
+      balanced: { n: 33, entry_edge: "confirmed", share_pct: 75 },
+    })).toBe(null);
+  });
+
+  it("does not fire on a merely-neutral regime", () => {
+    expect(diagnoseRegimeFit({
+      risk_on: { n: 12, entry_edge: "confirmed", share_pct: 25 },
+      balanced: { n: 33, entry_edge: "neutral", share_pct: 75 },
+    })).toBe(null);
   });
 });

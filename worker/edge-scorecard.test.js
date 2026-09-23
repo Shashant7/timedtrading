@@ -7,6 +7,8 @@ import {
   deriveEdgeFlags,
   setupGroupKey,
   groupTradesBySetup,
+  entryFaultDemotions,
+  regimeGateCandidates,
 } from "./edge-scorecard.js";
 
 const W = (pnl, pct = 1) => ({ status: "WIN", pnl, pnl_pct: pct });
@@ -114,6 +116,51 @@ describe("findDemotionCandidates", () => {
       stats: { n: 27, profit_factor: 0.23, win_rate_pct: 38.5, pnl_usd: -244 },
       entry_quality: { entry_edge: "neutral", mfe_mae_ratio: 1.48, hit_rate_2pct: 48.1, why: "indistinguishable" },
       mfe_capture_rate: -0.287,
+    }]);
+    expect(out[0].action).toBe("fix_management");
+  });
+
+  // ATH Breakout's pooled "absent" is 11 risk-on entries that work averaged
+  // with 33 balanced-regime ones that do not. Retiring it deletes the half
+  // that works; the defect is that nothing stops it firing out of season.
+  const REGIME_SELECTIVE = {
+    setup: "tt_ath_breakout",
+    direction: "LONG",
+    stats: { n: 44, profit_factor: 0.3, win_rate_pct: 29, pnl_usd: -900 },
+    entry_quality: { entry_edge: "absent", mfe_mae_ratio: 0.78, hit_rate_2pct: 30, why: "more heat than opportunity" },
+    regime_fit: {
+      pattern: "regime_selective",
+      works_in: ["risk_on"],
+      fails_in: ["balanced"],
+      off_regime_share_pct: 75,
+      why: "confirmed in risk_on and absent in balanced — gate the detector by regime rather than retiring it",
+    },
+    mfe_capture_rate: -0.385,
+  };
+
+  it("asks for a regime gate instead of a demote when the edge is seasonal", () => {
+    const out = findDemotionCandidates([REGIME_SELECTIVE]);
+    expect(out[0].action).toBe("gate_by_regime");
+    expect(out[0].owner).toBe("entry");
+    expect(out[0].works_in).toEqual(["risk_on"]);
+    expect(out[0].off_regime_share_pct).toBe(75);
+  });
+
+  it("keeps a regime gate out of the list of things to actually demote", () => {
+    const flat = {
+      ...REGIME_SELECTIVE,
+      setup: "tt_atl_breakdown",
+      regime_fit: null,
+    };
+    const out = findDemotionCandidates([REGIME_SELECTIVE, flat]);
+    expect(entryFaultDemotions(out).map((c) => c.setup)).toEqual(["tt_atl_breakdown"]);
+    expect(regimeGateCandidates(out).map((c) => c.setup)).toEqual(["tt_ath_breakout"]);
+  });
+
+  it("ignores a regime split on a setup whose entries are fine", () => {
+    const out = findDemotionCandidates([{
+      ...REGIME_SELECTIVE,
+      entry_quality: { entry_edge: "confirmed", mfe_mae_ratio: 1.9, hit_rate_2pct: 55, why: "beats the book" },
     }]);
     expect(out[0].action).toBe("fix_management");
   });
