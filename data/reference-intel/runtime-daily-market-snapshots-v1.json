@@ -4674,13 +4674,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 12.022
+        "sql_duration_ms": 5.555
       },
-      "duration": 12.022,
+      "duration": 5.555,
       "changes": 0,
-      "last_row_id": 0,
+      "last_row_id": 29839,
       "changed_db": false,
-      "size_after": 4945539072,
+      "size_after": 5101158400,
       "rows_read": 311,
       "rows_written": 0,
       "total_attempts": 1

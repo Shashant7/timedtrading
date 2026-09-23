@@ -55989,13 +55989,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 103.9785
+        "sql_duration_ms": 66.0875
       },
-      "duration": 103.9785,
+      "duration": 66.0875,
       "changes": 0,
-      "last_row_id": 0,
+      "last_row_id": 86728635,
       "changed_db": false,
-      "size_after": 4945539072,
+      "size_after": 5101162496,
       "rows_read": 6220,
       "rows_written": 0,
       "total_attempts": 1
