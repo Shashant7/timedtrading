@@ -283,6 +283,52 @@ describe("only one heavy phase of the tick at a time", () => {
     expect(Number(decl[1])).toBeLessThanOrEqual(15);
   });
 
+  it("bounds the tail's D1 sync instead of trusting the changed-set to be small", () => {
+    // The sync was written for "~30-80 changed tickers a tick". During RTH
+    // every price moves every tick, so the changed set is the whole universe:
+    // the pass went from 73-132s before the open to 280s+ after it, and being
+    // the last phase it is what Cloudflare's 900s kill landed on. `[SCORING]
+    // deferred tail done` stopped appearing entirely from 13:30 UTC.
+    expect(src).toContain('import { planLatestSyncBatch, advanceSyncCursor } from "./d1-latest-sync-plan.js";');
+    const cap = src.match(/const D1_LATEST_SYNC_CAP = (\d+);/);
+    expect(cap).not.toBeNull();
+    expect(Number(cap[1])).toBeLessThanOrEqual(160);
+    expect(src).toContain("cap: D1_LATEST_SYNC_CAP,");
+    expect(src).toContain("cursor: _d1LatestSyncCursor,");
+    // The loop has to walk the PLAN, not the raw changed set.
+    expect(src).toContain("const _d1Syms = _d1Plan.batch;");
+    // And the cursor may only advance over rows the tick actually reached.
+    expect(src).toContain("_d1LatestSyncCursor = advanceSyncCursor(_d1Plan, _d1Attempted);");
+  });
+
+  it("never lets the cap defer an open position or a fresh stage flip", () => {
+    // `prev_kanban_stage` is no substitute for a per-tick flip: it holds the
+    // last transition's SOURCE lane indefinitely, so it reads as "changed"
+    // for almost every ticker that ever moved lanes.
+    expect(src).toContain("const stageFlipped = new Set();");
+    expect(src).toContain("stageFlipped.add(ticker);");
+    expect(src).toContain("const _d1MustSync = new Set(stageFlipped);");
+    expect(src).toContain("_d1MustSync.add(_tk);");
+    expect(src).toContain("mustSync: _d1MustSync,");
+  });
+
+  it("gives the tail its own backstop short of the 900s wall", () => {
+    // Everything upstream overrunning lands on the last phase. Stopping with
+    // a logged count beats being killed mid-sweep with nothing written.
+    expect(src).toContain("const TICK_WALL_MS = 900 * 1000;");
+    expect(src).toContain("const SCORING_TAIL_BUDGET_MS = TICK_WALL_MS - 60 * 1000;");
+    // Measured from the tick's claim, like the entry deadline.
+    expect(src).toContain("(_fiveMinHeavyPassSince || _d1Now) + SCORING_TAIL_BUDGET_MS");
+    const loop = src.indexOf("for (let _ci = 0; _ci < _d1Syms.length; _ci += _D1_CHUNK) {");
+    expect(loop).toBeGreaterThan(0);
+    // The check comes before the chunk's KV hydration — a deadline checked
+    // after the expensive part is decoration.
+    const body = src.slice(loop);
+    expect(body.indexOf("if (Date.now() >= _tailDeadline) {")).toBeGreaterThan(0);
+    expect(body.indexOf("if (Date.now() >= _tailDeadline) {"))
+      .toBeLessThan(body.indexOf("hydrateSnapshotRows("));
+  });
+
   it("does not park a full payload on the thin-slice patch list", () => {
     // The write-back destructures `[_sym, _patch]`. A third element was
     // pure retention, and it accumulated across every chunk.

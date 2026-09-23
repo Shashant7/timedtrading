@@ -591,6 +591,7 @@ import {
   readAllSnapshot,
   hydrateSnapshotRows,
 } from "./all-snapshot.js";
+import { planLatestSyncBatch, advanceSyncCursor } from "./d1-latest-sync-plan.js";
 import {
   normTicker,
   isNum,
@@ -1023,13 +1024,33 @@ let _fiveMinHeavyPassSince = 0;
 // Long enough that no healthy pass trips it, short enough that a pass which
 // dies without releasing costs at most one skipped tick.
 const FIVE_MIN_HEAVY_LEASE_MS = 10 * 60 * 1000;
+// Cloudflare kills a */5 cron at 900s of wall clock. The engine tick has four
+// phases in a fixed order — scoring, ranked entries, position reconcile, then
+// the deferred scoring tail — and only the first is irreducible, so the other
+// three are deadlined against the SAME tick start rather than against
+// themselves. Each deadline is absolute: a phase that arrives late gets less,
+// which is the point.
+const TICK_WALL_MS = 900 * 1000;
 // How far into the tick the ranked ENTRY pass may still start a candidate.
-// Cloudflare kills a cron at 900s, scoring ahead of the pass costs ~220s and
-// the deferred tail plus position reconcile behind it cost ~120s, so 600s
-// leaves a real margin. Past it the remaining entries — the lowest-ranked
-// ones — wait five minutes for the next tick, which is much cheaper than the
-// whole invocation being killed with the tail still unrun.
+// Scoring ahead of it costs 250-270s at RTH, reconcile behind it ~20s and the
+// bounded tail ~150s, so 600s leaves a real margin. Past it the remaining
+// entries — the lowest-ranked ones — wait five minutes for the next tick,
+// which is much cheaper than the whole invocation being killed with the tail
+// still unrun.
 const KANBAN_ENTRY_BUDGET_MS = 600 * 1000;
+// And the tail's own backstop, 60s short of the wall. The tail is last, so
+// everything upstream overrunning lands here; stopping with a logged count
+// beats being killed mid-sweep with nothing written.
+const SCORING_TAIL_BUDGET_MS = TICK_WALL_MS - 60 * 1000;
+// Tickers the tail rewrites into D1 `ticker_latest` per tick. Open positions
+// and stage changes are exempt (see planLatestSyncBatch); this caps the quiet
+// remainder. A row costs ~0.55s before the open and closer to 1s under RTH D1
+// load, so 120 keeps the pass inside its ~150s reserve, and at a 330-ticker
+// universe the rotation sweeps everything in about three ticks.
+const D1_LATEST_SYNC_CAP = 120;
+// Rotation cursor for that cap. Per-isolate like the leases above, which is
+// the right scope: it only has to be monotonic, not shared.
+let _d1LatestSyncCursor = 0;
 // Same lease, for the monolith's */5 pre-warm chain. Separate variable
 // because the two lanes are on different workers and neither should be
 // able to skip the other.
@@ -108760,6 +108781,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         const freshnessHealQueue = [];
         let freshnessDegraded = 0;
         const scoredUpdates = {}; // Collect scored ticker deltas for WS push
+        // Tickers whose kanban stage flipped on THIS tick. The tail's D1 sync
+        // uses it to decide what it may not defer; `prev_kanban_stage` is no
+        // substitute, it holds the last transition's source lane forever.
+        const stageFlipped = new Set();
         // Phase C1 (2026-07-03 stabilization plan) — snapshot chain: keyframes
         // appended by updateJourney this tick, batch-persisted to D1
         // score_keyframes after the loop.
@@ -110314,7 +110339,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const _newPx = Number(result?.price);
             const _pxDelta = (_oldPx > 0 && _newPx > 0) ? Math.abs(_newPx - _oldPx) / _oldPx : 0;
             if (_rankChanged || _htfDelta >= 0.5 || _ltfDelta >= 0.5) deltaScoreChanged++;
-            if (_stageFlip) deltaStageChanged++;
+            if (_stageFlip) {
+              deltaStageChanged++;
+              stageFlipped.add(ticker);
+            }
             if (_pxDelta >= 0.001) deltaPriceChanged++;
             if (!_rankChanged && _htfDelta < 0.5 && _ltfDelta < 0.5 && !_stageFlip && _pxDelta < 0.001) deltaNoChange++;
 
@@ -111083,6 +111111,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               // Build the set of tickers to sync: changed (from scoring)
               // + open positions (always fresh in D1 for /timed/all).
               const _d1SyncSet = new Set(Object.keys(scoredUpdates || {}));
+              const _d1MustSync = new Set(stageFlipped);
               if (Array.isArray(_cachedAllTradesForTick)) {
                 for (const _t of _cachedAllTradesForTick) {
                   const _tk = String(_t?.ticker || "").toUpperCase();
@@ -111090,12 +111119,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   const _ts = String(_t?.status || "").toUpperCase();
                   if (_ts === "OPEN" || _ts === "TP_HIT_TRIM") {
                     _d1SyncSet.add(_tk);
+                    _d1MustSync.add(_tk);
                   }
                 }
               }
-              const _d1Syms = Object.keys(snapshot).filter((_sym) => _d1SyncSet.has(_sym));
+              const _d1Changed = Object.keys(snapshot).filter((_sym) => _d1SyncSet.has(_sym));
               const _d1TotalUniverse = Object.keys(snapshot).length;
-              const _d1SkippedUnchanged = _d1TotalUniverse - _d1Syms.length;
+              const _d1SkippedUnchanged = _d1TotalUniverse - _d1Changed.length;
+              // "Changed only" stops throttling during RTH — every price moves
+              // every tick, so this set is the whole universe. Bound it and
+              // rotate the quiet remainder; open positions and this tick's
+              // stage flips are never the ones deferred.
+              const _d1Plan = planLatestSyncBatch({
+                syms: _d1Changed,
+                mustSync: _d1MustSync,
+                cap: D1_LATEST_SYNC_CAP,
+                cursor: _d1LatestSyncCursor,
+              });
+              const _d1Syms = _d1Plan.batch;
+              const _tailDeadline = (_fiveMinHeavyPassSince || _d1Now) + SCORING_TAIL_BUDGET_MS;
+              let _d1Attempted = 0;
+              let _d1DeadlineHit = false;
               // 12, not 40. A chunk holds three payload-sized graphs per
               // ticker at once -- the hydrated payload, the enriched copy,
               // and the previous payload parsed back out of D1 -- and a
@@ -111110,11 +111154,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               // fields back to KV + snapshot so Today / Phase B see them.
               const _thinKvPatches = [];
               for (let _ci = 0; _ci < _d1Syms.length; _ci += _D1_CHUNK) {
+                if (Date.now() >= _tailDeadline) {
+                  _d1DeadlineHit = true;
+                  break;
+                }
                 // The D1 row carries tf_tech and the profile blobs the slim
                 // index drops, so this lane needs the full payload — but only
                 // for the CHANGED set, one chunk at a time. ~40 payloads is
                 // a few MB; the whole universe was 37.
                 const _chunkSyms = _d1Syms.slice(_ci, _ci + _D1_CHUNK);
+                _d1Attempted += _chunkSyms.length;
                 const _chunkFull = await hydrateSnapshotRows(KV, _chunkSyms, {
                   chunkSize: _D1_CHUNK,
                   limit: _D1_CHUNK,
@@ -111277,7 +111326,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   } catch (_) {}
                 }
               }
-              console.log(`[SCORING] D1 ticker_latest batch sync: ${_d1Synced} written, ${_d1FpSkipped} fingerprint-skipped (${_d1SkippedUnchanged} unchanged-skipped of ${_d1TotalUniverse} universe)`);
+              _d1LatestSyncCursor = advanceSyncCursor(_d1Plan, _d1Attempted);
+              console.log(`[SCORING] D1 ticker_latest batch sync: ${_d1Synced} written, ${_d1FpSkipped} fingerprint-skipped (${_d1SkippedUnchanged} unchanged-skipped of ${_d1TotalUniverse} universe)`
+                + `, ${_d1Plan.must} must-sync (open/stage-change)`
+                + (_d1Plan.deferred ? `, ${_d1Plan.deferred} rotated to a later tick` : "")
+                + (_d1DeadlineHit ? `, STOPPED at the tick deadline after ${_d1Attempted}/${_d1Syms.length}` : ""));
 
               // Write thin-slice / shadow fields back to timed:latest + snapshot
               // so /timed/plays/today and ENTRY provenance see confirm-stack.
