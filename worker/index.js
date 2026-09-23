@@ -104671,6 +104671,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           SECTOR_MAP,
           d1GetActiveUserTickersCached,
           blocklist: CHART_SYMBOL_BLOCKLIST,
+          // Shares the */5 bar pass's per-isolate lease. Both lanes do a
+          // universe-wide REST fetch plus a D1 upsert and both start at
+          // :05 past the hour; the calendar has tasks once an hour, so it
+          // claims here and the frequent lane skips while it holds.
+          claimBarLane: () => {
+            const age = _barCronSince ? Date.now() - _barCronSince : 0;
+            if (_barCronSince && age < BAR_CRON_LEASE_MS) {
+              console.warn(`[CHART_CALENDAR] skipped: a bar pass has been running ${Math.round(age / 1000)}s in this isolate`);
+              return null;
+            }
+            _barCronSince = Date.now();
+            return () => { _barCronSince = 0; };
+          },
         });
       }
 
