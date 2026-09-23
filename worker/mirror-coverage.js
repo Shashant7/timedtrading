@@ -427,14 +427,31 @@ export function relativeQtyOk({
 /**
  * First mirrored open sets the scale. Later mirrored opens/reduces must
  * stay on that ratio (model 100 / broker 2, then exit 100 / 2 — not 100).
+ *
+ * `held` is the owner's per-ticker holdings, and it is what keeps a
+ * cross-tenant fan-out from paging forever. 2026-09-21 NBIS opened 3
+ * shares across two Webull accounts — 1 in a partner's cash account, 2 in
+ * the owner's Roth — so the entry ratio was 3/9.98335. The exit sold 2 and
+ * paged `model 9.98335 / broker 2, expected 3.0000` every hour after.
+ * Nothing was under-sold: `clampExitOpsToHoldings` budgets a reduce against
+ * `loadBrokerHeldEquity`, which only covers the OWNER's mirror-enabled
+ * accounts, so the partner's share was never the model's to sell. The owner
+ * now holds 0 NBIS. A reduce that leaves the ticker flat at the broker sold
+ * everything it could be asked to sell, and the residual in the other
+ * tenant is already carried by its own channel (`sync_state:
+ * broker_orphan`, suppressed after 4 drifts, operator emailed).
+ *
+ * Only shortfalls get this pass. Selling MORE than the ratio predicts also
+ * ends flat, and that is a short position, so it keeps paging.
  */
-export function computeTradeRelativeQty(rows = []) {
+export function computeTradeRelativeQty(rows = [], { held = null } = {}) {
   const list = Array.isArray(rows) ? rows : [];
   const entry = list.find((r) => isOpenEvent(r.event) && (r.status === "mirrored" || r.status === "mirrored_partial")
     && Number(r.model_qty || r.qty) > 0 && Number(r.broker_qty) > 0);
   if (!entry) return { ok: true, skipped: "no_mirrored_entry", ratio: null, drifts: [] };
   const ratio = Number(entry.broker_qty) / Number(entry.model_qty || entry.qty);
   const drifts = [];
+  const flattened = [];
   for (const row of list) {
     if (row === entry) continue;
     if (row.status !== "mirrored" && row.status !== "mirrored_partial") continue;
@@ -444,17 +461,24 @@ export function computeTradeRelativeQty(rows = []) {
       brokerQty: row.broker_qty,
       basisRatio: ratio,
     });
-    if (!check.ok) {
-      drifts.push({
-        key: row.key || coverageKey(row),
-        event: row.event,
-        model_qty: Number(row.model_qty || row.qty),
-        broker_qty: Number(row.broker_qty),
-        expected: check.expected,
-      });
+    if (check.ok) continue;
+    const drift = {
+      key: row.key || coverageKey(row),
+      event: row.event,
+      model_qty: Number(row.model_qty || row.qty),
+      broker_qty: Number(row.broker_qty),
+      expected: check.expected,
+    };
+    const heldQty = isReduceEvent(row.event) && Number(row.broker_qty) < Number(check.expected)
+      ? heldCoverageQty(held, row.ticker)
+      : null;
+    if (heldQty != null && heldQty <= COVERAGE_FLAT_EPSILON) {
+      flattened.push({ ...drift, reason: "broker_position_flat_after_reduce" });
+      continue;
     }
+    drifts.push(drift);
   }
-  return { ok: drifts.length === 0, ratio, drifts };
+  return { ok: drifts.length === 0, ratio, drifts, flattened };
 }
 
 export function coverageKey(action) {
@@ -532,10 +556,13 @@ export function buildCoverageRows(actions = [], ctx = {}) {
     byTrade.get(tid).push(row);
   }
   for (const group of byTrade.values()) {
-    const rel = computeTradeRelativeQty(group);
+    const rel = computeTradeRelativeQty(group, { held: ctx?.held });
     for (const row of group) {
       row.qty_ratio = rel.ratio;
       row.qty_drift = (rel.drifts || []).find((d) => d.key === row.key) || null;
+      // Kept on the row rather than dropped so the reason a shortfall was
+      // forgiven stays readable in the coverage blob.
+      row.qty_drift_forgiven = (rel.flattened || []).find((d) => d.key === row.key) || null;
     }
   }
   return rows;

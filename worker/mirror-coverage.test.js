@@ -364,6 +364,83 @@ describe("relative qty contract", () => {
     expect(relativeQtyOk({ modelQty: 100, brokerQty: 2.04, basisRatio: 0.02 }).ok).toBe(true);
     expect(relativeQtyOk({ modelQty: 100, brokerQty: 3, basisRatio: 0.02 }).ok).toBe(false);
   });
+
+  // 2026-09-21 NBIS opened 3 shares across two Webull accounts — 1 in a
+  // partner's individual-cash account, 2 in the owner's Roth — so the entry
+  // ratio was 3/9.98335901386749. The exit sold 2 and the sweep paged
+  // "model 9.98335901386749 / broker 2 (expected 3.0000 at entry ratio)"
+  // every hour after. The exit was right: `clampExitOpsToHoldings` budgets a
+  // reduce against `loadBrokerHeldEquity`, which covers only the OWNER's
+  // mirror-enabled accounts, so the partner's share was never the model's to
+  // sell. The owner's holdings map came back with no NBIS row at all.
+  const NBIS_ENTRY = {
+    event: "ENTRY", status: "mirrored", ticker: "NBIS",
+    model_qty: 9.98335901386749, broker_qty: 3, key: "e",
+  };
+  const NBIS_EXIT = {
+    event: "EXIT", status: "mirrored", ticker: "NBIS",
+    model_qty: 9.98335901386749, broker_qty: 2, key: "x",
+  };
+
+  it("a fan-out exit that leaves the ticker flat at the broker is not a drift", () => {
+    const rel = computeTradeRelativeQty([NBIS_ENTRY, NBIS_EXIT], {
+      held: { AAPL: { qty: 3.8 }, SPYU: { qty: 9 } },
+    });
+    expect(rel.ok).toBe(true);
+    expect(rel.drifts).toHaveLength(0);
+    expect(rel.flattened).toHaveLength(1);
+    expect(rel.flattened[0].reason).toBe("broker_position_flat_after_reduce");
+  });
+
+  it("still pages the same shortfall while the broker holds shares", () => {
+    const rel = computeTradeRelativeQty([NBIS_ENTRY, NBIS_EXIT], {
+      held: { NBIS: { qty: 1 } },
+    });
+    expect(rel.ok).toBe(false);
+    expect(rel.drifts[0].expected).toBeCloseTo(3);
+  });
+
+  it("concludes nothing from holdings the broker could not be asked for", () => {
+    // null is "unknown", and a shortfall must not be forgiven on an unknown.
+    expect(computeTradeRelativeQty([NBIS_ENTRY, NBIS_EXIT], { held: null }).ok).toBe(false);
+    expect(computeTradeRelativeQty([NBIS_ENTRY, NBIS_EXIT]).ok).toBe(false);
+  });
+
+  it("never forgives an over-sell, which also ends flat but is a short", () => {
+    const rel = computeTradeRelativeQty([
+      { event: "ENTRY", status: "mirrored", ticker: "NBIS", model_qty: 10, broker_qty: 3, key: "e" },
+      { event: "EXIT", status: "mirrored", ticker: "NBIS", model_qty: 10, broker_qty: 9, key: "x" },
+    ], { held: {} });
+    expect(rel.ok).toBe(false);
+    expect(rel.drifts[0].broker_qty).toBe(9);
+  });
+
+  it("never forgives an over-bought later open, flat or not", () => {
+    const rel = computeTradeRelativeQty([
+      { event: "ENTRY", status: "mirrored", ticker: "NBIS", model_qty: 10, broker_qty: 3, key: "e" },
+      { event: "DCA", status: "mirrored", ticker: "NBIS", model_qty: 10, broker_qty: 10, key: "d" },
+    ], { held: {} });
+    expect(rel.ok).toBe(false);
+  });
+
+  it("carries the forgiven shortfall onto the row so the blob still explains it", () => {
+    const actions = [
+      { ...stEntry(), qty: 9.98335901386749 },
+      { ...stEntry(), event: "EXIT", qty: 9.98335901386749 },
+    ];
+    const ring = [
+      ringOk({ qty: 3, order_id: "TFJ2TU3B33M9E6IDGB9PRRQ78B" }),
+      ringOk({ side: "exit", qty: 2, order_id: "5KG6S484OE910GLQGV9J9JK0K8" }),
+    ];
+    const paged = buildCoverageRows(actions, { ring, nowMs: NOW });
+    expect(coverageAnomalies(paged, { nowMs: NOW }).some((a) => /qty drift/.test(a.detail))).toBe(true);
+
+    const rows = buildCoverageRows(actions, { ring, held: {}, nowMs: NOW });
+    const exit = rows.find((r) => r.event === "EXIT");
+    expect(exit.qty_drift).toBe(null);
+    expect(exit.qty_drift_forgiven?.reason).toBe("broker_position_flat_after_reduce");
+    expect(coverageAnomalies(rows, { nowMs: NOW })).toEqual([]);
+  });
 });
 
 describe("coverageAnomalies / evaluateModelBrokerCoverage", () => {
