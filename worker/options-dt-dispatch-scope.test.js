@@ -44,8 +44,11 @@ describe("index day-trade dispatch scope", () => {
   it("runs the */1 day-trade lane through the options sell window (not RTH-only)", () => {
     const idx = src.indexOf("1-minute index day-trade dispatch");
     expect(idx).toBeGreaterThan(-1);
-    const slice = src.slice(idx, idx + 1800);
-    expect(slice).toMatch(/_isOptionsSellWindowEt\(/);
+    const slice = src.slice(idx, idx + 2600);
+    // The window must be asked about a real instant. A bare
+    // _isOptionsSellWindowEt() throws RangeError and takes the whole tick
+    // with it — see option-day-trade-window-guard.test.js.
+    expect(slice).toMatch(/_isOptionsSellWindowEt\(Date\.now\(\)\)/);
     expect(slice).toMatch(/dt_only=1/);
   });
 

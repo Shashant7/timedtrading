@@ -23,6 +23,7 @@
 //  15. broker_bridge_bindings      URL set but HMAC/service-binding missing
 //  16. worker_role_split           dual scoring heartbeats / RESEARCH_EXTERNAL typo
 //  19. registry_alignment          live Upticks vs TT_SELECTED vs GICS vs removed
+//  20. universe_score_freshness    live prices painted over week-old scores
 //
 // SEVERITY:
 //   fail  — caller should treat as outage. Page on-call. Discord ⛔.
@@ -494,6 +495,89 @@ const checkCronTickAlive = timed(async function checkCronTickAlive(env, ctx) {
     anomalies,
     "Check the worker's scheduled() handler for errors. Cron is suspended? Check the wrangler.toml triggers list and the Cloudflare dashboard cron status.",
     "would have caught: cron silently muted by integrity-wipe guard with no operator notification"
+  );
+});
+
+// ── Check 20: universe_score_freshness ──────────────────────────────────
+
+/** Scoring passes over the whole core universe; a session is plenty of room. */
+export const SCORE_STALE_WARN_RATIO = 0.2;
+export const SCORE_STALE_FAIL_RATIO = 0.5;
+/** The full pass takes ~4 min, so don't judge it the instant the bell rings. */
+export const SCORE_OPEN_GRACE_MS = 20 * 60 * 1000;
+
+/**
+ * Grade how much of the core universe is still carrying a pre-session score.
+ *
+ * Split out from the check so the thresholds can be exercised against real
+ * counts. Returns null when there is nothing to say (no session reference,
+ * still inside the post-open grace window, or the universe is current).
+ *
+ * @param {object} args
+ * @param {number} args.total       rows in ticker_latest
+ * @param {number} args.freshCount  rows scored at or after the session open
+ * @param {number|null} args.newestTs newest scoring ts across the universe
+ * @param {object} args.sessionRef  computeMarketSessionReference() output
+ * @param {number} args.now
+ * @returns {{detail: string, severity: "warn"|"fail"}|null}
+ */
+export function classifyUniverseScoreStaleness({ total, freshCount, newestTs, sessionRef, now }) {
+  const sessionOpen = Number(sessionRef?.last_rth_open_ms) || 0;
+  if (!sessionOpen) return null;
+  if (sessionRef.market_open && now - sessionOpen < SCORE_OPEN_GRACE_MS) return null;
+
+  const n = Number(total) || 0;
+  if (n === 0) {
+    return { detail: "ticker_latest is empty — scoring has never written", severity: "fail" };
+  }
+  const stale = n - (Number(freshCount) || 0);
+  const staleRatio = stale / n;
+  if (staleRatio <= SCORE_STALE_WARN_RATIO) return null;
+
+  const newestAgeH = Number(newestTs) > 0
+    ? Math.round((now - Number(newestTs)) / 3600000)
+    : null;
+  return {
+    detail: `${stale}/${n} tickers carry a score older than the ${sessionRef.last_trading_day} open`
+      + `${newestAgeH != null ? ` (newest score ${newestAgeH}h old)` : ""}`,
+    severity: staleRatio > SCORE_STALE_FAIL_RATIO ? "fail" : "warn",
+  };
+}
+
+const checkUniverseScoreFreshness = timed(async function checkUniverseScoreFreshness(env, ctx) {
+  const anomalies = [];
+  try {
+    if (!env?.DB) {
+      return envelope("universe_score_freshness", "Universe scoring freshness", [], "no D1", null);
+    }
+    const now = Date.now();
+    const sessionRef = computeMarketSessionReference(now);
+    const sessionOpen = Number(sessionRef?.last_rth_open_ms) || 0;
+    if (sessionOpen) {
+      const row = await env.DB.prepare(`
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN ts >= ?1 THEN 1 ELSE 0 END) AS scored_this_session,
+               MAX(ts) AS newest
+          FROM ticker_latest
+      `).bind(sessionOpen).first().catch(() => null);
+      const finding = classifyUniverseScoreStaleness({
+        total: row?.total,
+        freshCount: row?.scored_this_session,
+        newestTs: row?.newest,
+        sessionRef,
+        now,
+      });
+      if (finding) anomalies.push(finding);
+    }
+  } catch (e) {
+    anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
+  }
+  return envelope(
+    "universe_score_freshness",
+    "Universe scoring freshness",
+    anomalies,
+    "The */5 scoring pass is not landing ticker payloads. Check tt-engine for exceededMemory on the */5 slot, confirm ENGINE_ENABLED there and ENGINE_EXTERNAL on the monolith, then re-run POST /timed/admin/score-all and watch whether ticker_latest.ts advances.",
+    "would have caught: 2026-09-22 — 315 of 330 tickers still carried their 2026-09-12/09-19 scores. Prices stayed live so every freshness check passed, but nothing could trigger an entry off a week-old rank. September produced 21 entries against August's pace."
   );
 });
 
@@ -1244,6 +1328,10 @@ const CHECKS = [
   // 2026-09-12 — Hourly only. Live Upticks vs curated set vs GICS vs
   // ticker_index vs timed:removed. Heals Unknown sector_map overlays.
   checkRegistryAlignment,
+  // 2026-09-22 — Hourly only. Live prices over week-old scores looked
+  // healthy to every other check, including cron_tick_alive: the heartbeat
+  // is stamped before the work, so a tick that dies still reports alive.
+  checkUniverseScoreFreshness,
 ];
 
 // Critical-path subset that runs every 15min instead of hourly. These

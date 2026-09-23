@@ -131,6 +131,13 @@ export const SANITY_CHECK_PLAYBOOK = {
     files_hint: ["skills/worker-topology.md", "worker-engine/wrangler.toml", "worker-research/wrangler.toml"],
     agent_prompt: "Role-split heartbeats / RESEARCH_EXTERNAL flags look wrong. Verify tt-feed/tt-engine/tt-research crons and *_EXTERNAL vars.",
   },
+  universe_score_freshness: {
+    kind: "infra",
+    auto_heal: false,
+    needs_pr: false,
+    files_hint: ["worker/index.js", "worker-engine/wrangler.toml", "skills/worker-topology.md"],
+    agent_prompt: "The core universe is carrying scores older than the last session open while prices stay live. Check tt-engine for exceededMemory on the */5 slot (Cloudflare GraphQL workersInvocationsAdaptive, bucket by status), confirm ENGINE_ENABLED there and ENGINE_EXTERNAL on the monolith, then watch whether ticker_latest.ts advances after POST /timed/admin/score-all.",
+  },
 };
 
 const INCIDENTS_KV_KEY = "sanity_sweep:incidents:v1";
