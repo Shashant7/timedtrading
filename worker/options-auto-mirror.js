@@ -33,6 +33,15 @@ import { trimSellQty } from "./option-day-trade-plan.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import { getThemesForTicker } from "./sector-mapping.js";
 import { bridgeResponseIsOk } from "./broker-bridge-client.js";
+import {
+  DEFAULT_DAILY_LOSS_LIMIT_USD,
+  dailyLossLimitFor,
+  riskBudgetHasRoom,
+  commitRisk,
+  releaseRisk,
+  settleRisk,
+  optionDebitUsd,
+} from "./options-risk-budget.js";
 
 const PREF_KEY = (userEmail) => `timed:options:auto-mirror:${String(userEmail || "").toLowerCase()}`;
 const DAILY_COUNTER_KEY = (userEmail, date) => `timed:options:auto-mirror:count:${String(userEmail || "").toLowerCase()}:${date}`;
@@ -141,6 +150,12 @@ const DEFAULT_PREFS = {
   // misses every index play whose single ATM contract costs more than the
   // throttle. Set false to require the max-loss cap to be met exactly.
   index_dt_min_one_lot: true,
+  // 2026-09-23 — the single limit that governs the index day-trade lane.
+  // Count caps there are gone: they capped ACTIVITY, not loss, and two
+  // never-filled orders could spend a whole day's allowance in 74 seconds.
+  // For a long option the debit is the entire downside, so this is a real
+  // dollar stop for the day. 0 = no limit at all. See options-risk-budget.js.
+  daily_loss_limit_usd: DEFAULT_DAILY_LOSS_LIMIT_USD,
 };
 
 /**
@@ -1043,6 +1058,9 @@ export async function resolvePendingIndexDtEntry(env, operatorEmail, signalId, m
     if (stillOurs) {
       try { await releaseEntryCounters(env, operatorEmail, vehicle, { ...caps, now }); } catch (_) { /* slot stays consumed — fails restrictive */ }
     }
+    // Nothing was ever owned, so there is no P&L — the money simply comes
+    // back. Keyed by signal id, so replaying this is a no-op.
+    try { await releaseRisk(env, operatorEmail, signalId, { now }); } catch (_) { /* budget stays consumed — fails restrictive */ }
     return { outcome, mirror: { ...mirror, ...patch } };
   };
 
@@ -1078,7 +1096,7 @@ export async function resolvePendingIndexDtEntry(env, operatorEmail, signalId, m
 export async function sweepPendingIndexDtEntries(env, operatorEmail, {
   now = Date.now(), staleMs = PENDING_ENTRY_STALE_MS, maxPages = 4, maxResolve = 10,
 } = {}) {
-  if (!env?.KV_TIMED || !operatorEmail) return { checked: 0, resolved: [] };
+  if (!env?.KV_TIMED || !operatorEmail) return { checked: 0, resolved: [], fresh: 0 };
   // `indexDtMirrorKey("")` is `timed:opt-dt-mirror:` with the colon, which
   // does NOT match the hyphenated decision-log key `timed:opt-dt-mirror-log`.
   const prefix = indexDtMirrorKey("");
@@ -1106,11 +1124,18 @@ export async function sweepPendingIndexDtEntries(env, operatorEmail, {
 
   const resolved = [];
   let checked = 0;
+  let fresh = 0;
   for (const signalId of candidates) {
     if (checked >= maxResolve) break;
     const mirror = await loadIndexDtMirror(env, signalId);
     if (!mirror?.entry_pending || mirror.entry_fired || !mirror.entry_order_id) continue;
     checked++;
+    // "Fresh" = young enough that a normal fill is still plausible. Only
+    // those are worth sub-minute polling; an order past the stale window is
+    // getting cancelled, and re-asking every few seconds will not change
+    // that. The loop below uses this to decide whether to keep spinning.
+    const placedAt = Number(mirror.entry_placed_at) || Number(mirror.ts) || 0;
+    if (placedAt > 0 && (now - placedAt) < staleMs) fresh++;
     try {
       const r = await resolvePendingIndexDtEntry(env, operatorEmail, signalId, mirror, { now, staleMs });
       if (r.outcome !== "working") resolved.push({ signal_id: signalId, outcome: r.outcome });
@@ -1118,7 +1143,87 @@ export async function sweepPendingIndexDtEntries(env, operatorEmail, {
       resolved.push({ signal_id: signalId, outcome: `error:${String(e?.message || e).slice(0, 60)}` });
     }
   }
-  return { checked, resolved };
+  return { checked, resolved, fresh };
+}
+
+/** Per-isolate guard so two cron ticks cannot run overlapping loops. */
+let _dtReconcileLoopBusy = false;
+
+export const DT_RECONCILE_TICK_MS = 5000;
+export const DT_RECONCILE_BUDGET_MS = 50000;
+
+/**
+ * Reconcile pending day-trade entries CONTINUOUSLY, not once a minute.
+ *
+ * A day trade is the fastest-moving thing the model runs and a mirror that
+ * disagrees with the broker is the most expensive way to be wrong: a 0/1
+ * DTE contract that filled without the model noticing has no TRIM, no EXIT
+ * and no stop — it just sits there until it expires. Cloudflare's cron
+ * floor is one minute, so the tick itself keeps polling for the rest of the
+ * minute rather than waiting for the next one.
+ *
+ * It costs nothing when there is nothing to do: with no pending entries the
+ * first sweep is a single KV list and the loop returns immediately. It only
+ * spins while an order is young enough to still fill normally, so it is
+ * self-terminating — a stale order gets cancelled on the next pass and the
+ * loop stops with it.
+ */
+export async function runPendingIndexDtReconcileLoop(env, operatorEmail, {
+  tickMs = DT_RECONCILE_TICK_MS,
+  budgetMs = DT_RECONCILE_BUDGET_MS,
+  staleMs = PENDING_ENTRY_STALE_MS,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  clock = () => Date.now(),
+} = {}) {
+  if (!env?.KV_TIMED || !operatorEmail) return { passes: 0, resolved: [], reason: "not_configured" };
+  if (_dtReconcileLoopBusy) return { passes: 0, resolved: [], reason: "already_running" };
+  _dtReconcileLoopBusy = true;
+  const started = clock();
+  const resolved = [];
+  let passes = 0;
+  try {
+    for (;;) {
+      passes++;
+      const r = await sweepPendingIndexDtEntries(env, operatorEmail, { now: clock(), staleMs });
+      if (r.resolved?.length) resolved.push(...r.resolved);
+      // Nothing pending, or nothing that could still fill in the next few
+      // seconds. Either way another poll now buys nothing.
+      if (!r.checked || !r.fresh) return { passes, resolved, reason: "settled" };
+      if ((clock() - started) + tickMs >= budgetMs) {
+        return { passes, resolved, reason: "budget_exhausted" };
+      }
+      await sleep(tickMs);
+    }
+  } finally {
+    _dtReconcileLoopBusy = false;
+  }
+}
+
+/**
+ * Move a closed portion of a mirrored day trade from "open risk" to
+ * "realised P&L" in the daily loss budget.
+ *
+ * The entry debit per contract is the cost basis. Anything still held stays
+ * on the books at that basis, so a partial trim does not release risk it is
+ * still carrying.
+ *
+ * A mirror written before `entry_premium` existed has no basis to work
+ * from. Releasing the whole commitment there would understate the day's
+ * loss, so it is left open instead and expires with the key at end of day —
+ * restrictive, like every other fallback in this lane.
+ */
+async function settleIndexDtRisk(env, operatorEmail, signalId, mirror, { closedQty, closePremium, remainingQty }) {
+  const basis = Number(mirror?.entry_premium) || 0;
+  if (!(basis > 0)) return null;
+  const sold = Math.max(0, Math.round(Number(closedQty) || 0));
+  const out = Number(closePremium) || 0;
+  const realizedUsd = (out - basis) * 100 * sold;
+  const remainingRiskUsd = optionDebitUsd(basis, remainingQty);
+  try {
+    return await settleRisk(env, operatorEmail, signalId, { realizedUsd, remainingRiskUsd });
+  } catch (_) {
+    return null; // budget stays as-is — fails restrictive
+  }
 }
 
 async function gateIndexDayTradeMirror(env, ctx = {}) {
@@ -1345,10 +1450,28 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
       };
     }
 
-    // Caps are checked once every entry check above passed, and counted
-    // only after the broker takes the order.
+    // 2026-09-23 — ONE limit governs this lane, and it is measured in
+    // dollars. The count caps are gone: "2 per day" capped activity, not
+    // loss, and on 2026-09-23 two limit orders that never filled spent the
+    // entire allowance 74 seconds after the open. For a long option the
+    // debit is the whole downside, so the budget is a real stop for the day.
+    //
+    // Risk is priced at the limit we are willing to PAY, not the mid — the
+    // budget must never be flattered by a price we might not get.
+    const entryRiskUsd = optionDebitUsd(
+      buyLimit ?? entryPlay.premium?.mid ?? play.premium?.mid,
+      entryContracts,
+    );
+    const lossLimitUsd = dailyLossLimitFor(prefs);
+    const budgetOk = await riskBudgetHasRoom(env, operatorEmail, {
+      riskUsd: entryRiskUsd,
+      limitUsd: lossLimitUsd,
+    });
+    if (!budgetOk.ok) return { ...budgetOk, vehicle: vehicleKey, risk_usd: entryRiskUsd };
+
+    // Counters still move so the operator dashboard keeps its per-vehicle
+    // and per-day totals, but nothing reads them as a gate any more.
     const counterOk = await checkMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicleRow);
-    if (!counterOk.ok) return counterOk;
 
     const fired = await fireAutoMirror(env, operatorEmail, {
       trade_id: signalId || null,
@@ -1369,7 +1492,19 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     // A working limit still occupies the broker, so it counts like a fill.
     if (rec.persist || rec.pending) {
       await commitEntryCounters(env, operatorEmail, vehicleKey, counterOk.caps);
+      // Charge the budget the moment the broker has the order. A working
+      // limit is real exposure: it can fill at any second, and until it is
+      // resolved the money behind it is not available to anything else.
+      if (signalId) {
+        await commitRisk(env, operatorEmail, signalId, {
+          usd: entryRiskUsd, vehicle: vehicleKey, ticker,
+        });
+      }
     }
+
+    // Per-contract debit, so a later close can work out what was actually
+    // lost or made instead of assuming the whole ticket went to zero.
+    const entryPremium = Number(buyLimit ?? entryPlay.premium?.mid) || 0;
 
     if (signalId && rec.persist) {
       await saveIndexDtMirror(env, signalId, {
@@ -1382,6 +1517,9 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
         flavor: play._day_trade_flavor,
         entry_order_id: fill.order_id || null,
         entry_fill_status: rec.status,
+        entry_premium: entryPremium,
+        entry_risk_usd: entryRiskUsd,
+        vehicle: vehicleKey,
       });
     } else if (signalId && rec.pending) {
       await saveIndexDtMirror(env, signalId, {
@@ -1395,6 +1533,8 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
         flavor: play._day_trade_flavor,
         entry_order_id: fill.order_id || rec.order_id || null,
         entry_fill_status: rec.status,
+        entry_premium: entryPremium,
+        entry_risk_usd: entryRiskUsd,
         // What this order consumed, so whatever resolves it later can give
         // the slot back without having to re-derive the prefs it was sized
         // against. `entry_placed_at` is the staleness clock — `ts` moves on
@@ -1460,6 +1600,11 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
         ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, contracts_remaining: remainingAfter }
         : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, contracts_remaining: remainingAfter };
       await saveIndexDtMirror(env, signalId, patch);
+      await settleIndexDtRisk(env, operatorEmail, signalId, mirror, {
+        closedQty: rec.filledQty,
+        closePremium: Number(mirror[`${pendingKey}_premium`]) || 0,
+        remainingQty: remainingAfter,
+      });
       return { skipped: true, reason: `${pendingKey}_fill_confirmed`, reconcile: rec };
     }
     if (rec.pending) return { skipped: true, reason: `${pendingKey}_still_working` };
@@ -1532,6 +1677,13 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
       ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, trim_premium: limitPrice, contracts_remaining: remainingAfter }
       : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, exit_premium: limitPrice, exit_event: event, contracts_remaining: remainingAfter };
     await saveIndexDtMirror(env, signalId, patch);
+    // The contracts just sold stop being open risk and become realised P&L;
+    // whatever is still held stays open at its original debit. A win gives
+    // the day its allowance back, a loss keeps consuming it — which is what
+    // makes this a stop-loss rather than a trade counter.
+    await settleIndexDtRisk(env, operatorEmail, signalId, mirror, {
+      closedQty: rec.filledQty, closePremium: limitPrice, remainingQty: remainingAfter,
+    });
   } else if (rec.pending) {
     const patch = event === "TRIM"
       ? { trim_pending: true, trim_qty: qty, trim_order_id: fill.order_id || rec.order_id || null, trim_premium: limitPrice }
