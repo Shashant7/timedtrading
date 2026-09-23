@@ -151,19 +151,36 @@
       600) are skipped with a logged reason when under 60s / 90s of wall —
       `ctx.waitUntil` in a cron handler defers nothing, and on the 14:30 tick
       those reads turned a tail that finished at 836s into a kill at 900s.
-- [ ] **`timed-trading-ingest` still OOMs its `*/5` during RTH.** Three real
-      causes are fixed (the pre-warm fan, the bar-pass overlap, the chart
-      calendar sharing that lane) and the overnight window is clean, but
-      13:15/13:20/13:30 were `exceededMemory` again at cpu 17-19s — roughly
-      double the 8-9s of the quiet hours. That isolate also serves every
-      `/timed/*` request and the PriceStream DO, and during RTH its log is a
-      solid wall of `POST https://do/ingest`. Next step is to measure rather
-      than guess: the remaining candidates are the per-request graphs of the
-      hot routes on a cron-sharing isolate, and the honest fix is probably to
-      move the `*/5` feed work off the worker that serves pages (the same
-      split that made `tt-engine` tractable) rather than to shave another
-      allocation. Does NOT affect trade execution — that is `tt-engine`,
-      which is green.
+- [x] **And it was the `*/1`, measured rather than guessed (2026-09-23).**
+      The monolith's remaining RTH kills were the last part of "fix the OOM
+      issue properly". The previous note guessed at the hot routes and at
+      splitting the `*/5`; both were wrong, and the measurement said so in
+      three steps.
+      1. Grouping `exceededMemory` by END instant turned 18 kills into SIX
+         isolate teardowns — one at `16:52:10` took five invocations at once
+         (three `*/1`, two `*/5`). The 128 MB cap is per-isolate, so most of
+         the 18 were collateral: one `*/1` victim had `cpu=116ms`. Wall time
+         did not correlate either (`16:15` died at 78s, a 714s tick was `ok`).
+      2. Filtering the kills by `eventType` returned `scheduled` ONLY — zero
+         `fetch` invocations, ever. That is what acquitted the co-resident
+         page traffic and the PriceStream DO, which the old note blamed.
+      3. `[PRICE FEED]` had zero log lines, because `tt-feed` already owns
+         the feed (12-23s a tick, zero OOMs). With it gone the `*/1` lane's
+         only real work is the candle-chain DO feed: 328 symbols of Alpaca 5m
+         bars plus a DO ingest each, 132-312s against a 60-second cadence with
+         no overlap guard, so three to five passes were resident together and
+         each held its own parse of the 2 MB universe index. Two passes 30s
+         apart both logged `fed:298 universe:328`.
+      Fixed as a pair, because a lease alone only converts overlap into lost
+      freshness: the 298 per-ticker DO pushes went from serial (~240ms each)
+      to concurrent per sub-batch across the 16 shards, taking a pass to ~36s
+      and inside its own cadence, and `_chainFeedSince` (4-min expiry,
+      `finally`-released) collapses whatever still overlaps. Coverage stays
+      the whole universe every pass, preserving the June starvation fix.
+      Also corrected two comments on that block that had rotted the
+      reassuring way: it claimed to be `AWAITED` (it is `waitUntil`) and to
+      rotate a chunk of the universe (rotation was removed in June).
+      PR [#1487](https://github.com/Shashant7/timedtrading/pull/1487).
 - [x] **Reduces now reach every mirrored tenant (2026-09-23).** Operator
       correction: every mirror-enabled account tracks the model on every
       position it held at activation, with quantity relational to account
