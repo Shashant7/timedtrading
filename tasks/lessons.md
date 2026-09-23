@@ -8740,3 +8740,80 @@ Still open: `tt-engine` returns `exceededMemory` on roughly 60–80% of its
 ticks (29 of 36 in a three-hour sample, all on minutes divisible by 5). That is
 why `timed:options:plays-of-day:moderate:10` and `:aggressive:10` do not exist
 in KV at all despite a 600 s TTL and an every-5-minute prewarm.
+
+### The engine never finished a market-hours tick, and a broker order went with it
+
+2026-09-22 17:56 ET the desk saw a Discord card for a DDOG Cloud Pivot paper
+entry and, an hour later, a `BROKER COVERAGE · 4 unmatched` page whose DDOG row
+read `never_attempted`. Both were true. The log for that one tick:
+
+```
+17:55:47  [PAPER_FAMILY_ENTRY] DDOG tt_cloud_pivot LONG 0.1x conviction=2
+17:56:04  [ENTRY_CREATED] DDOG dir=LONG vehicle=shares shares=6.28 notional=$1562
+17:56:16  [DISCORD lane=trade] Notification sent: Enter: DDOG LONG @ $248.65
+17:56:17  error | */5 * * * *   outcome=exceededMemory  wall=322748ms cpu=51377ms
+```
+
+Grouping every scheduled `tt-engine` invocation between 14:00 and 18:00Z by
+`$workers.outcome` (`sampleInterval: 1`, so counts not estimates):
+
+| date | outcomes |
+|---|---|
+| 2026-09-16 | exceededMemory 49 |
+| 2026-09-17 | exceededMemory 48 |
+| 2026-09-18 | exceededMemory 48, canceled 1 |
+| 2026-09-19 (Sat) | **ok 47** |
+| 2026-09-21 | exceededMemory 46, canceled 1 |
+| 2026-09-22 | exceededMemory 46, canceled 1 |
+
+Not 60–80% as previously recorded — **zero** clean completions on any trading
+day in the 7-day retention window, and clean on the weekend. CPU spent 51 s of
+its 300 s budget, so this is the 128 MB memory ceiling, which is not
+configurable. The tick gets far enough to score, write D1 and fire Discord, and
+then dies with everything still queued behind it.
+
+Takeaways:
+
+- **Order the side effects by consequence.** The trader ENTRY bridge forward
+  sat ~360 lines below the Discord card, the in-app notification, the alert
+  emails and the activity append, inside the same `if (!dedupe.deduped)` block.
+  The 2026-07-21 NEU hardening guarded each of those builders against
+  *throwing*; an isolate that is killed outright runs no `catch`, so ordering is
+  the only protection left. The forward now runs first. Worst case
+  `forwardOrderToBridge` still reaches its pre-fetch `pushRing`, which is the
+  difference between a `WORKING` breadcrumb and `never_attempted`.
+- **A heartbeat stamped at the top of a handler cannot report completion.**
+  `cron:last_5min_tick` was 45 s old while `timed:scoring:last_run` was 177 min
+  old with `elapsedMs: 257692, scored: 34, total: 329`. `cron_tick_alive` now
+  compares the two: fresh heartbeat + stale completion is its own anomaly, and
+  a cron that is not firing at all still reports only that. Two questions, two
+  stamps, two answers.
+- **Paper-family tickets are real broker orders.** `tt_cloud_pivot`,
+  `confirm_stack_ema21` and `momentum_continuation` route the same qty to the
+  broker; the "Paper 0.1× — experiment, not capital scale" card describes the
+  size multiplier, not the venue. DDOG's siblings NBIS and P (2026-09-21) placed
+  real Webull share orders. So `mode='trader'` ledger rows from a paper-family
+  entry belong in broker coverage, and `paperLaneId` is right not to exclude
+  them — only `it:` / `dt:` / `cx:` prefixes are simulated.
+- **A cross-tenant fan-out makes every later reduce look under-sized.** NBIS
+  opened 3 shares across two Webull accounts — 1 in a partner's cash account, 2
+  in the owner's Roth — so the entry ratio was `3 / 9.98335901386749` and the
+  exit's 2 shares paged `expected 3.0000 at entry ratio` hourly. The exit was
+  complete: `clampExitOpsToHoldings` budgets a reduce against
+  `loadBrokerHeldEquity`, which covers only the OWNER's mirror-enabled
+  accounts, so the partner's share was never the model's to sell. The residual
+  already has its own channel (`sync_state: broker_orphan`, auto-suppressed
+  after 4 drifts, operator emailed). `computeTradeRelativeQty` now forgives a
+  reduce *shortfall* when the owner holds none of the ticker, and still pages
+  an over-sell, which also ends flat but is a short.
+- **Webull's `place_order_repeat` throttle needs a retry vehicle, not just a
+  reclassification.** MU's investor TRIM hit "Please do not place an order
+  repeatedly" at 15:04; `32aec4ba5` taught `classifyBridgeOutcome` to call that
+  transient at 16:26, 82 minutes later. Because the old code called it terminal,
+  `recordBrokerIntent` returned early and wrote no row, so there is nothing for
+  the drain to retry — that trim is unrecoverable and the next one is fine.
+  A reclassification only helps signals that arrive after it deploys.
+
+Still open: the OOM itself. Shedding per-tick work in the `*/5` engine lane
+needs live heap instrumentation, not a guess — 34 scored tickers should not
+approach 128 MB.

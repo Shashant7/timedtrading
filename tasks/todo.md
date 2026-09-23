@@ -21,6 +21,25 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **The engine never finished a market-hours tick (2026-09-22).** DDOG's
+      0.1× Cloud Pivot entry scored, wrote D1 and sent its Discord card, then
+      the `tt-engine` `*/5` isolate was killed with `outcome:
+      exceededMemory` 1.3 s later, taking the queued bridge forward with it —
+      coverage could only report `never_attempted`. Grouping scheduled
+      invocations 14:00–18:00Z by outcome gives 46–49 `exceededMemory` and
+      **zero** `ok` on every trading day in the retention window, and 47 `ok`
+      on Saturday. Shipped: the trader ENTRY bridge forward now runs first
+      inside `if (!dedupe.deduped)`, ahead of Discord/email/activity;
+      `diagnoseCronTick` reads the start heartbeat against
+      `timed:scoring:last_run` so a tick that fires and never finishes is an
+      anomaly; `computeTradeRelativeQty` stops calling NBIS's cross-tenant
+      fan-out exit a qty drift. Notes in `tasks/lessons.md`.
+- [ ] **Shed per-tick memory in the `*/5` engine lane.** 34 scored tickers
+      should not approach the 128 MB ceiling, and CPU only spent 51 s of its
+      300 s budget, so this is allocation and not compute. Needs live heap
+      instrumentation on `tt-engine` — do not guess at it. Until it is fixed
+      every market-hours tick still dies partway through; the fixes above only
+      make that visible and keep the money-moving step ahead of the kill.
 - [x] **Cleared the four open Sanity Sweep incidents (2026-09-22).** Three
       were the sweep misreading a healthy system. `ringScaleShortfall`
       compared the bridge's account-sized fill against the MODEL qty, so
