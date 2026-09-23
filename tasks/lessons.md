@@ -6,6 +6,33 @@
 
 ---
 
+## A four-week-old ReferenceError, found by reading the log [2026-09-23]
+
+`[OPTIONS-ALL] day-trade build failed for SPY: _clockPrem is not defined`,
+on every pass since 2026-08-27. Spotted while scrolling the monolith's log
+for an unrelated memory problem, not by any check.
+
+- **A `let` inside a `try` does not reach the code after the `catch`.**
+  `_clockPrem` and `_clockBid` were declared in the block that builds the
+  option clock and read from two places outside it — the mirror block and
+  the `position:` IIFE inside the `_dtPlays.push({...})` object literal.
+  The IIFE evaluates while the literal is being constructed, so the throw
+  came from inside `push`.
+- **A caught error one lane deep is invisible.** The outer per-ticker
+  handler turned it into one `console.warn` and moved on, so the play was
+  never pushed AND the Stage 1+2 tier recording behind it never ran. The
+  ticker simply stopped appearing, with no failed request and no alert.
+- **It looked alive because it half-worked.** The IIFE only runs when
+  `_dtOpenBook` is truthy, so tickers with no open book built fine —
+  exactly the ones already holding a position were the ones dropped. "No
+  options day trades for a week or two" was the only symptom that surfaced.
+- **Read the production log of the worker you are already in.** Three
+  separate investigations had been aimed at the options lane (stale
+  snapshot readers, entitlement gating, scoring freshness) and none found
+  this. One `grep` of a live log did.
+
+---
+
 ## The snapshot outgrew its key, and the tick died rebuilding it [2026-09-23]
 
 `tt-engine` and the monolith both ended every `*/5` scoring tick in
