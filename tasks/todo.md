@@ -51,6 +51,27 @@
       329 payloads into the tail. Verified on the live universe: Today queue,
       desk and `extractSliceFields` byte-identical to the full-payload path
       for all 333 tickers. See [skills/all-snapshot.md](../skills/all-snapshot.md).
+- [x] **Three writers, not one — finished the OOM (2026-09-23).** The slim
+      snapshot alone did not stop the kills; production logs named two more
+      writers. (2) The `/timed/all` FULL micro-cache put 30,790,510 bytes
+      every 5 min, riding `ctx.waitUntil` so the value stayed alive until the
+      413 settled, on top of the copy `sendJSON` was stringifying. (3) The
+      `*/5` pre-warm dispatched the FULL `/timed/all` TWICE per tick (admin +
+      anon), ~30 MB of JSON over a ~38 MB graph each, and the anon bucket's
+      `redactTickerMapForTier` copies the graph again. Shipped
+      `kvPutJSONIfFits` (measure and skip, never attempt a put that cannot
+      succeed) plus `estimateMapBytes` — measuring by serializing IS the
+      allocation, so sample 3 rows of 330 — and a `?slim=1` pre-warm, since
+      the full slot has not existed since the universe outgrew the ceiling.
+      Also fixed alongside: `nocache=1` was gating the micro-cache WRITE on
+      the snapshot path (so the pre-warm never warmed anything) with a 60s
+      TTL against a 300s read window; an empty `watching` array is truthy, so
+      a desk written before the day's first scoring run shadowed the real one
+      for 6h; and the sparkline query bound 329 parameters against D1's cap
+      of 100, so no ticker got a fresh `_sparkline`
+      (`worker/sparkline-d1.js`). Live proof: the snapshot build against
+      production KV/D1 returns 1,765,413 bytes for 329 tickers where it tried
+      52,585,887 yesterday.
 - [x] **Reduces now reach every mirrored tenant (2026-09-23).** Operator
       correction: every mirror-enabled account tracks the model on every
       position it held at activation, with quantity relational to account

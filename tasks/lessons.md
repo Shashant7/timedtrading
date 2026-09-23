@@ -77,6 +77,51 @@ at 333 tickers (6.7% of the ceiling), one build costs 7.9 MB instead of
 the live universe: the Today queue, the desk and `extractSliceFields` are
 byte-identical to the full-payload path for all 333 tickers.
 
+### It took three passes, because there were three writers
+
+The first deploy did not stop the kills, and each round of production logs
+named a writer the previous round had hidden:
+
+1. **`timed:all:snapshot`** on `tt-engine`, 52,585,887 bytes — 200.6% of the
+   ceiling. Logged as `[SCORING] KV hot cache build failed: 413`.
+2. **The `/timed/all` full micro-cache** on the monolith, 30,790,510 bytes,
+   every five minutes. It rides `ctx.waitUntil`, so the value stayed alive
+   until the 413 settled, on top of the copy `sendJSON` was stringifying.
+3. **The `*/5` pre-warm itself**, which dispatched the FULL `/timed/all`
+   TWICE per tick (admin bucket and anonymous bucket) — ~30 MB of JSON over a
+   ~38 MB object graph each, and for the anonymous bucket
+   `redactTickerMapForTier` copies the whole graph again.
+
+**Lessons:**
+
+- **Measuring by serializing IS the allocation.** `kvPutJSONIfFits` first
+  measured with `JSON.stringify`, which on the value that mattered built the
+  same 30 MB it then refused to store. `estimateMapBytes` samples three rows
+  out of 330 instead. An estimate may only short-circuit a REFUSAL, never
+  approve a write.
+- **A pre-warm that warms a key it cannot write is pure cost.** The full
+  micro-cache slot has not existed since the universe outgrew the ceiling, so
+  dropping the full dispatch changed nothing for users and removed the two
+  largest allocations in the tick. Pre-warm the slim slot, which is 244 KB.
+- **`nocache=1` must bypass the READ, not the WRITE.** The snapshot path
+  gated the micro-cache write on it, so the one caller whose entire job is to
+  refresh that key was the only caller that never did. The D1 path next to it
+  had it right; which branch ran depended on whether a snapshot existed, so
+  the pre-warm worked or did not depending on unrelated state. Its TTL was
+  wrong in the same direction: 60s against a 300s read window and a 300s
+  pre-warm cadence, so even a successful write left the key absent four
+  minutes out of five.
+- **An empty array is truthy.** `/timed/plays/today` treated any stored
+  `timed:cloud-pivot:desk` as authoritative by testing `desk?.watching`, and
+  ALSO wrote its own fallback back with a 6h TTL. One request before the
+  first scoring run of the day persisted an empty desk that then shadowed the
+  real one for six hours. Decide on `scanned`, which only a tick that looked
+  at the universe sets, and let the tick own the key.
+- **D1 caps a statement at 100 bound parameters.** The sparkline query bound
+  every ticker in the universe — 329 — so every scoring tick logged
+  `too many SQL variables at offset 451` and no ticker got a fresh sparkline.
+  Chunk (`worker/sparkline-d1.js`) and drop a failing chunk, not the universe.
+
 ---
 
 ## Four sweep incidents, three of them the sweep's own fault [2026-09-22]

@@ -81,7 +81,8 @@ const built = await buildAllSnapshot(
   (sym) => kvGetJSON(KV, `timed:latest:${sym}`),
   { onRow: (sym, row, payload) => { /* enrich `row`; `payload` dies next iteration */ } },
 );
-await kvPutJSON(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope(built));
+await kvPutJSONIfFits(KV, ALL_SNAPSHOT_KEY, allSnapshotEnvelope(built), null,
+  { label: ALL_SNAPSHOT_KEY });
 ```
 
 `buildAllSnapshot` reads one payload, projects it, and lets it go before
@@ -89,6 +90,30 @@ the next read. The byte budget (`ALL_SNAPSHOT_MAX_BYTES`, 12 MB) is
 checked as rows accumulate, so a runaway universe **degrades** (rows
 omitted, `built.omitted` non-zero) rather than failing the write and
 freezing the snapshot again.
+
+---
+
+## Any KV value that scales with the universe
+
+`kvPutJSONIfFits` (`worker/storage.js`) is the guard. It measures, then
+skips with a log rather than attempting a put that cannot succeed — a 413
+on `ctx.waitUntil` keeps the whole value alive until the rejection settles,
+which is half of how the isolate died.
+
+```js
+import { kvPutJSONIfFits, estimateMapBytes } from "./storage.js";
+
+// A `{ SYM: row }` map: estimate first. Serializing 30 MB purely to measure
+// IS the allocation you are trying to avoid. Sampling 3 rows of 330 is three
+// ~93 KB stringifies instead of one 30 MB one.
+await kvPutJSONIfFits(KV, key, { data, built_at }, 420, {
+  label: "/timed/all micro full",
+  estimateBytes: estimateMapBytes(data),
+});
+```
+
+An estimate may only short-circuit a **refusal**, never approve a write —
+if it says the value fits, the real byte count is still measured.
 
 ---
 
@@ -135,7 +160,22 @@ queue by dropping a field, that test tells you.
   them. It is ranked inside the scoring tick now
   (`rankCloudPivotDeskRow` + `assembleCloudPivotDesk`), which retains 69 KB
   of ranked rows instead of 52 MB of payloads — and the desk is fresh every
-  five minutes instead of only when someone loads the page.
+  five minutes instead of only when someone loads the page. The scoring tick
+  OWNS `timed:cloud-pivot:desk`; `/timed/plays/today` reads it and never
+  writes it, and decides it is real by `scanned > 0` — an empty `watching`
+  array is truthy, and a handler-written empty desk shadowed the real one
+  for a whole 6h TTL.
+- **`nocache=1` bypasses the READ, not the WRITE.** The cron pre-warm passes
+  it precisely so it does not serve itself a stale value; gating the write on
+  it means the pre-warm warms nothing. And a micro-cache TTL must exceed the
+  read window AND the pre-warm cadence (both 300s here, so 420s).
+- **Pre-warm only a key that can actually be written.** The FULL `/timed/all`
+  micro-cache is above the KV ceiling at this universe size, so dispatching
+  it built ~30 MB of JSON over a ~38 MB graph, twice per tick, to write
+  nothing. `?slim=1` is 244 KB and does land.
+- **D1 caps a statement at 100 bound parameters.** `ticker IN (?,?,…)` over
+  the universe throws `too many SQL variables`. Chunk it —
+  `fetchSparklinesFromD1` in `worker/sparkline-d1.js` is the pattern.
 
 ---
 
@@ -161,4 +201,7 @@ bash /tmp/woutcome.sh $(( $(date +%s%3N) - 21600000 )) $(date +%s%3N) tt-engine
 - `worker/all-snapshot.js` — the projection, the build, the readers
 - `worker/all-snapshot.test.js` — projection completeness + budget degradation
 - `worker/cloud-pivot-desk-streaming.test.js` — the desk moved into the tick
+- `worker/storage.js` — `kvPutJSONIfFits`, `estimateMapBytes`, `KV_MAX_VALUE_BYTES`
+- `worker/kv-put-budget.test.js` — the put guard and the estimate
+- `worker/sparkline-d1.js` / `worker/sparkline-d1.test.js` — chunked D1 reads
 - Lessons: [`tasks/lessons.md`](../tasks/lessons.md) → "The snapshot outgrew its key" [2026-09-23]
