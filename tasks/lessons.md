@@ -217,6 +217,20 @@ dying rather than an invocation. Two more lanes were overlapping themselves.
   now. The cost is real and worth naming: a bar pass every ~10 min instead of
   every 5. A skipped slot costs one rotation of the half-slice; the kill cost
   the whole pass's upserts.
+- **Fixing the memory turns the failure into a wall-clock one.** With the
+  engine no longer dying at 128 MB it started dying at 900s instead
+  (`exceededWallTime`, cpu 91-96s). At market ramp the kanban pass went from
+  ~200s to ~480s — D1 slows under load and `processTradeSimulation` is
+  ~1.75s a candidate — on top of ~220s of scoring. A killed invocation takes
+  the deferred tail and position reconcile with it, so overrunning is worse
+  than doing less. The entry pass is deadlined against the TICK now
+  (`KANBAN_ENTRY_BUDGET_MS`, measured from the lease claim, not from the
+  pass's own start, or a slow scoring phase ahead of it buys the pass
+  nothing). The whole point of ranking is that the order is meaningful, so
+  the candidates to drop are the ones at the bottom of it; management is
+  never deferred, because that is open risk rather than a new position.
+  Live: `Processed 216 actionable, DEFERRED 52 lowest-ranked, in 368s` and
+  the tail then ran in 94s inside a 699s tick.
 - **Two schedules doing the same work need one lane, not two leases.** The
   hourly `runChartCandleCalendar` backfill is the same universe-wide REST
   fetch plus D1 upsert as the `*/5` bar pass, and both fire at :05 past the

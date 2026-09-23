@@ -245,6 +245,13 @@ fixed and the kills continued.
   belongs behind the SAME lease — `runChartCandleCalendar` shares it, and
   claims it before its first `await` so an un-awaited call still holds the
   lane when the bar block is reached later in the tick.
+- **Once it stops dying at 128 MB it starts dying at 900s.** `exceededWallTime`
+  is the next wall, and it kills the deferred tail and position reconcile
+  too — overrunning is strictly worse than doing less. The ranked entry pass
+  takes `deadlineAt` (`KANBAN_ENTRY_BUDGET_MS`, measured from the tick's
+  lease claim, not the pass's own start) and reports `deferred`. Ranking
+  exists so the order is meaningful, so the deadline drops the bottom of the
+  list; management is never deferred.
 - **Two invocations dying milliseconds apart is the isolate, not the work.**
   `11:10:33.641` and `11:10:33.700` is not two bugs; it is one isolate going
   and taking everything resident with it. Read the pairing before reading

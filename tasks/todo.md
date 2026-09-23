@@ -114,7 +114,33 @@
       lease, with the calendar claiming first. Also `_batchUpsertBars`
       prepares once and flushes every 500 instead of building ~10k bound
       statements up front. Accepted trade: a bar pass every ~10 min rather
-      than every 5.
+      than every 5. NOT fully closed — see the open item below.
+- [x] **Then the engine started hitting the 900s wall instead (2026-09-23).**
+      With the memory fixed the failure moved: `exceededWallTime` at
+      cpu 91-96s on the 12:40 and 12:50 ticks. At market ramp the kanban
+      pass went from ~200s to ~480s (D1 slows under load and
+      `processTradeSimulation` is ~1.75s a candidate) on top of ~220s of
+      scoring. A killed invocation takes the deferred tail and position
+      reconcile with it, so overrunning is worse than doing less. The
+      ranked ENTRY pass is deadlined against the tick now
+      (`KANBAN_ENTRY_BUDGET_MS = 600s`, measured from the lease claim);
+      entries are attempted in rank order so the deadline drops the bottom
+      of the list, and management is never deferred. Live: `Processed 216
+      actionable, DEFERRED 52 lowest-ranked, in 368s`, tail then ran in 94s
+      inside a 699s tick.
+- [ ] **`timed-trading-ingest` still OOMs its `*/5` during RTH.** Three real
+      causes are fixed (the pre-warm fan, the bar-pass overlap, the chart
+      calendar sharing that lane) and the overnight window is clean, but
+      13:15/13:20/13:30 were `exceededMemory` again at cpu 17-19s — roughly
+      double the 8-9s of the quiet hours. That isolate also serves every
+      `/timed/*` request and the PriceStream DO, and during RTH its log is a
+      solid wall of `POST https://do/ingest`. Next step is to measure rather
+      than guess: the remaining candidates are the per-request graphs of the
+      hot routes on a cron-sharing isolate, and the honest fix is probably to
+      move the `*/5` feed work off the worker that serves pages (the same
+      split that made `tt-engine` tractable) rather than to shave another
+      allocation. Does NOT affect trade execution — that is `tt-engine`,
+      which is green.
 - [x] **Reduces now reach every mirrored tenant (2026-09-23).** Operator
       correction: every mirror-enabled account tracks the model on every
       position it held at activation, with quantity relational to account
