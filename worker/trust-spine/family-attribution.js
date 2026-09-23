@@ -4,6 +4,12 @@
 import { computeWindowStats } from "../edge-scorecard.js";
 import { buildProgramTimingReport } from "./program-timing.js";
 import { tradeIsForeignCoreSetup } from "../foundation/tt-cloud-pivot.js";
+import {
+  aggregateMfeCapture,
+  diagnoseLayer,
+  gradeEntryQuality,
+  summarizeEntryExcursions,
+} from "./entry-quality.js";
 
 const DAY_MS = 86400000;
 const CONFIRM_STACK_FAMILY = "confirm_stack_ema21";
@@ -86,29 +92,9 @@ export function mfeKeepRate(pnlPct, mfePct) {
   return Math.round((pnl / mfe) * 1000) / 1000;
 }
 
-/**
- * Aggregate capture: total percent kept over total percent offered.
- *
- * The per-trade mean answers "what did the typical trade keep?" and is
- * hostage to its smallest denominators. This answers "what did the family
- * keep?", weights every trade by the size of the move it was given, and no
- * single row can dominate it. Both must clear the bar to widen.
- */
-export function aggregateMfeCapture(closed) {
-  let pnlSum = 0;
-  let mfeSum = 0;
-  let n = 0;
-  for (const c of closed || []) {
-    const mfe = Number(c?.mfe_pct);
-    const pnl = Number(c?.pnl_pct);
-    if (!Number.isFinite(mfe) || mfe <= 0 || !Number.isFinite(pnl)) continue;
-    pnlSum += pnl;
-    mfeSum += mfe;
-    n++;
-  }
-  if (n === 0 || mfeSum <= 0) return null;
-  return Math.round((pnlSum / mfeSum) * 1000) / 1000;
-}
+// Management's grade lives in entry-quality.js alongside the entry grade;
+// re-exported here because this module's callers already import it.
+export { aggregateMfeCapture };
 
 /**
  * Split the closed set by direction.
@@ -233,6 +219,18 @@ export function buildFamilyAttributionReport({
   const avgMfe = mfeN > 0 ? Math.round((mfeSum / mfeN) * 100) / 100 : null;
   const captureRate = aggregateMfeCapture(closed);
   const byDirection = summarizeByDirection(closed);
+  // Entry grade is relative, so the comparison cohort is every closed trade
+  // the book took in the same window — including this family's own. A family
+  // cannot be "better than the book" by being most of the book, and excluding
+  // itself would flatter a family that dominates the window.
+  const bookBaseline = summarizeEntryExcursions(
+    (trades || []).filter((t) => {
+      const s = String(t?.status || "").toUpperCase();
+      return s === "WIN" || s === "LOSS" || s === "FLAT";
+    }),
+  );
+  const entryQuality = gradeEntryQuality(closed, bookBaseline);
+  const diagnosis = diagnoseLayer(entryQuality?.entry_edge ?? null, captureRate);
   // Family closed win-rate (diagnostic). Do NOT compare to the ~4.8%
   // discover-moves capture baseline — that is a different unit.
   const familyWinRatePct = closed.length > 0
@@ -257,6 +255,10 @@ export function buildFamilyAttributionReport({
     avg_mfe_pct: avgMfe,
     avg_mfe_keep_rate: avgKeep,
     mfe_capture_rate: captureRate,
+    // What the detector is actually responsible for, graded on its own.
+    entry_quality: entryQuality,
+    // Which layer owns the problem — read this before demoting anything.
+    diagnosis,
     by_direction: byDirection,
     vehicles,
     family_win_rate_pct: familyWinRatePct,

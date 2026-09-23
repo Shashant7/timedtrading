@@ -19,6 +19,12 @@
 
 import { summarizeSignalOutcomes } from "./signal-outcomes.js";
 import { canonicalPlayId } from "./foundation/play-catalog.js";
+import {
+  aggregateMfeCapture,
+  diagnoseLayer,
+  gradeEntryQuality,
+  summarizeEntryExcursions,
+} from "./trust-spine/entry-quality.js";
 
 /** Group ledger rows by catalog play id so "TT Cloud Pivot" and tt_cloud_pivot are one family. */
 export function setupGroupKey(row) {
@@ -34,10 +40,27 @@ export function groupTradesBySetup(rows, minN = 3) {
     if (!bySetup.has(key)) bySetup.set(key, []);
     bySetup.get(key).push(r);
   }
+  // The whole-cohort baseline is what makes an entry grade mean anything: an
+  // MFE:MAE of 1.8 is strong in a chop month and weak in a trend month, so it
+  // is only ever read against the same book over the same window.
+  const baseline = summarizeEntryExcursions(rows);
   return [...bySetup.entries()]
     .map(([key, list]) => {
       const [setup, direction] = key.split("|");
-      return { setup, direction, stats: computeWindowStats(list) };
+      const entryQuality = gradeEntryQuality(list, baseline);
+      const capture = aggregateMfeCapture(
+        list.map((r) => ({ pnl_pct: r.pnl_pct, mfe_pct: r.max_favorable_excursion })),
+      );
+      return {
+        setup,
+        direction,
+        stats: computeWindowStats(list),
+        // Graded separately on purpose: `stats` is what the book did with the
+        // trade, `entry_quality` is what the detector actually chose.
+        entry_quality: entryQuality,
+        mfe_capture_rate: capture,
+        diagnosis: diagnoseLayer(entryQuality?.entry_edge ?? null, capture),
+      };
     })
     .filter((s) => s.stats.n >= minN)
     .sort((a, b) => (b.stats.pnl_usd || 0) - (a.stats.pnl_usd || 0));
@@ -92,6 +115,20 @@ export function computeWindowStats(trades) {
 }
 
 /** Setups bleeding badly enough to propose demotion (operator decides). */
+/**
+ * Setups losing money over the window, split by WHICH LAYER is losing it.
+ *
+ * A low profit factor says the trade lost money, not that the signal was
+ * wrong. TT Support Bounce ran 60 days at PF 0.84 and a 29% win rate while
+ * its entries beat the book on both excursion axes — it reached +2% more
+ * often than the average trade the book took and converted 5% of it.
+ * Demoting it on profit factor would have deleted a working entry signal to
+ * avoid fixing an exit bug.
+ *
+ * So the P&L filter still decides who gets LOOKED at, and the entry grade
+ * decides what is proposed: `demote` only when the signal itself is not
+ * finding moves, `fix_management` when it is.
+ */
 export function findDemotionCandidates(perSetup, opts = {}) {
   const minN = Number(opts.minN) || 10;
   const maxPf = Number(opts.maxPf) || 0.8;
@@ -99,14 +136,37 @@ export function findDemotionCandidates(perSetup, opts = {}) {
     s.stats?.n >= minN
     && s.stats?.profit_factor != null
     && s.stats.profit_factor < maxPf,
-  ).map((s) => ({
-    setup: s.setup,
-    direction: s.direction,
-    n: s.stats.n,
-    profit_factor: s.stats.profit_factor,
-    win_rate_pct: s.stats.win_rate_pct,
-    pnl_usd: s.stats.pnl_usd,
-  }));
+  ).map((s) => {
+    const edge = s.entry_quality?.entry_edge ?? null;
+    // Only an entry that is measurably NOT finding moves is the detector's
+    // fault. "neutral" and an unreadable sample both stay with management,
+    // because the cost of wrongly deleting a signal is higher than the cost
+    // of looking at the exits one more week.
+    const entryAtFault = edge === "absent";
+    return {
+      setup: s.setup,
+      direction: s.direction,
+      n: s.stats.n,
+      profit_factor: s.stats.profit_factor,
+      win_rate_pct: s.stats.win_rate_pct,
+      pnl_usd: s.stats.pnl_usd,
+      entry_edge: edge,
+      mfe_mae_ratio: s.entry_quality?.mfe_mae_ratio ?? null,
+      hit_rate_2pct: s.entry_quality?.hit_rate_2pct ?? null,
+      mfe_capture_rate: s.mfe_capture_rate ?? null,
+      owner: entryAtFault ? "entry" : "management",
+      action: entryAtFault ? "demote" : "fix_management",
+      why: entryAtFault
+        ? (s.entry_quality?.why || "entries are not finding moves")
+        : `losing money but the entries hold up (${s.entry_quality?.why || "entry grade unavailable"})`
+          + " — fix the exits, do not demote the signal",
+    };
+  });
+}
+
+/** The subset of demotion candidates whose SIGNAL is the problem. */
+export function entryFaultDemotions(candidates) {
+  return (candidates || []).filter((c) => c.owner === "entry");
 }
 
 /** Honest one-line flags about the current edge state. Pure. */
@@ -148,7 +208,8 @@ export async function buildEdgeScorecard(env, opts = {}) {
   let rows = [];
   try {
     rows = (await db.prepare(
-      `SELECT ticker, direction, setup_name, setup_grade, entry_path, status, pnl, pnl_pct, exit_reason, exit_ts
+      `SELECT ticker, direction, setup_name, setup_grade, entry_path, status, pnl, pnl_pct,
+              max_favorable_excursion, max_adverse_excursion, exit_reason, exit_ts
          FROM trades
         WHERE status IN ('WIN','LOSS','FLAT') AND exit_ts >= ?1
         ORDER BY exit_ts ASC LIMIT 3000`

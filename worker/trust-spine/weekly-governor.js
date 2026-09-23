@@ -89,6 +89,18 @@ export function compareWowPnl(thisWeek, priorWeek) {
 
 /**
  * Decide severe auto-demote actions from per-setup scorecard rows.
+ *
+ * This is the only path in the system that blocks a play without asking, so
+ * it is the one place a P&L-only verdict does real damage. A detector whose
+ * entries still beat the book is never auto-demoted here — a bad exit is not
+ * grounds for deleting a working signal, and the signal cannot defend itself
+ * because it does not own the exit. Those rows come back as
+ * `action: "fix_management"` for the operator instead.
+ *
+ * `entry_quality` is attached upstream by groupTradesBySetup(). When it is
+ * missing (older artifacts, replay rows without excursions) the row is left
+ * auto-demotable, preserving the pre-2026-09-23 behaviour rather than
+ * silently disarming the governor.
  */
 export function planSevereDemotions(perSetup, opts = {}) {
   const minN = Number(opts.minN) || 10;
@@ -102,6 +114,24 @@ export function planSevereDemotions(perSetup, opts = {}) {
     const n = Number(stats.n) || 0;
     const pf = stats.profit_factor;
     if (n < minN || pf == null || pf >= maxPf) continue;
+    const entryEdge = s.entry_quality?.entry_edge ?? null;
+    if (entryEdge === "confirmed" || entryEdge === "neutral") {
+      out.push({
+        setup: s.setup,
+        direction: String(s.direction || "long").toLowerCase(),
+        n,
+        profit_factor: pf,
+        win_rate_pct: stats.win_rate_pct,
+        pnl_usd: stats.pnl_usd,
+        entry_edge: entryEdge,
+        mfe_mae_ratio: s.entry_quality?.mfe_mae_ratio ?? null,
+        mfe_capture_rate: s.mfe_capture_rate ?? null,
+        action: "fix_management",
+        why: `PF ${pf} but the entries are ${entryEdge} vs the book — `
+          + "held back from auto-demote; the leak is in the exits",
+      });
+      continue;
+    }
     const key = demotionProposalConfigKey(s.setup, s.direction || "long");
     // Prefer path-keyed severe list when we can resolve.
     let path = null;
@@ -212,10 +242,16 @@ export async function runWeeklyGovernor(env, opts = {}) {
   });
   // 90d can still look like a bleeder after a 30d recovery (Support Bounce).
   // Do not re-block a setup the CIO just restored.
-  const severe = severeAll.filter((s) => {
+  const severeLive = severeAll.filter((s) => {
     const path = s.path || resolvePlay(s.setup, s.direction)?.id;
     return !path || !isPlayRecovered30d(perSetup30, path, s.direction);
   });
+  // Split by owner BEFORE the apply loop. These rows carry no config_key, so
+  // the loop below would skip them anyway — but "safe because a field happens
+  // to be missing" is not a guarantee worth depending on when the action is
+  // blocking a play.
+  const severe = severeLive.filter((s) => s.action === "auto_demote_blocked");
+  const managementLeaks = severeLive.filter((s) => s.action === "fix_management");
 
   const actions = [];
   const applied = [];
@@ -263,6 +299,13 @@ export async function runWeeklyGovernor(env, opts = {}) {
       }
     }
     actions.push({ type: "heal_demotions", enforce: heal.enforce, rows: heal.rows.length });
+  }
+
+  // 2a) Bleeders the governor deliberately did NOT touch: the P&L is bad but
+  //     the entries still beat the book, so blocking the play would delete a
+  //     working signal to avoid fixing an exit. Surfaced, never applied.
+  for (const s of managementLeaks) {
+    actions.push({ type: "management_leak_not_demoted", ...s });
   }
 
   // 2) Auto-demote severe scorecard bleeders (extra to the static heal list).
