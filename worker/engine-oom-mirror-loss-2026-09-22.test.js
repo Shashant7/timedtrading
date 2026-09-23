@@ -260,6 +260,20 @@ describe("only one heavy phase of the tick at a time", () => {
     expect(drain).toBeLessThan(earlyReturn);
   });
 
+  it("deadlines the ranked entry pass against the tick, not against itself", () => {
+    // Fixing the memory turned the failure into a wall-clock one: at market
+    // ramp the pass went from ~200s to ~480s on top of ~220s of scoring and
+    // the invocation hit Cloudflare's 900s limit, which kills the deferred
+    // tail and position reconcile with it.
+    const decl = src.match(/const KANBAN_ENTRY_BUDGET_MS = (\d+) \* 1000;/);
+    expect(decl).not.toBeNull();
+    expect(Number(decl[1])).toBeLessThanOrEqual(660);
+    // Measured from the tick's claim, not from the pass's own start, or a
+    // slow scoring phase ahead of it buys the pass nothing.
+    expect(src).toContain("(_fiveMinHeavyPassSince || _kanbanStart) + KANBAN_ENTRY_BUDGET_MS");
+    expect(src).toContain("deadlineAt: _kanbanDeadline,");
+  });
+
   it("keeps the D1 sync chunk small enough that three sets of it fit", () => {
     // A chunk holds the hydrated payload, the enriched copy and the
     // previous payload parsed back out of D1 — three graphs per ticker,

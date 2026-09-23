@@ -176,7 +176,7 @@ describe("one candidate order", () => {
         inFlight--;
       },
     });
-    expect(stats).toEqual({ processed: 4, management: 1, entries: 3 });
+    expect(stats).toEqual({ processed: 4, management: 1, entries: 3, deferred: 0 });
     expect(attempted).toEqual(["MANAGE", "BLOCKED", "HIGH", "LOW"]);
     expect(opened).toEqual(["HIGH"]);
     expect(orderSeen.HIGH).toEqual({ version: CANDIDATE_RANK_VERSION, score: 110, position: 2, total: 3 });
@@ -319,5 +319,57 @@ describe("one candidate order", () => {
     expect(processed).toBe(2);
     expect(attempted).toEqual(["A", "B"]);
     expect(onError).toHaveBeenCalledOnce();
+  });
+
+  // Cloudflare kills a cron at 900s and takes the deferred tail and position
+  // reconcile with it. At market ramp this pass went from ~200s to ~480s on
+  // top of ~220s of scoring and the engine tick overran, so the pass has to
+  // give the rest of the tick its time back.
+  describe("the entry pass stops at the tick's deadline", () => {
+    it("drops the bottom of the ranked list, never the top", async () => {
+      const { tickers, load } = loaderFor({
+        A: { raw: 99 }, B: { raw: 80 }, C: { raw: 60 }, D: { raw: 40 },
+      });
+      const attempted = [];
+      let clock = 1_000;
+      const stats = await processRankedCandidates(tickers, {
+        deadlineAt: 1_100,
+        loadPayload: load,
+        scoreCandidate: computeCandidateScore,
+        processCandidate: async ({ ticker }) => { attempted.push(ticker); clock += 60; },
+        now: () => clock,
+      });
+      expect(attempted).toEqual(["A", "B"]);
+      expect(stats.deferred).toBe(2);
+      expect(stats.entries).toBe(4);
+      expect(stats.processed).toBe(2);
+    });
+
+    it("never defers management, which is open risk rather than a new position", async () => {
+      const { tickers, load } = loaderFor({
+        M1: { raw: 5, extra: { kanban_stage: "exit" } },
+        M2: { raw: 5, extra: { kanban_stage: "defend" } },
+        E1: { raw: 90 },
+      });
+      const attempted = [];
+      const stats = await processRankedCandidates(tickers, {
+        deadlineAt: 1, // already past
+        loadPayload: load,
+        scoreCandidate: computeCandidateScore,
+        processCandidate: async ({ ticker }) => { attempted.push(ticker); },
+      });
+      expect(attempted).toEqual(["M1", "M2"]);
+      expect(stats).toEqual({ processed: 2, management: 2, entries: 1, deferred: 1 });
+    });
+
+    it("processes everything when no deadline is given", async () => {
+      const { tickers, load } = loaderFor({ A: { raw: 99 }, B: { raw: 80 } });
+      const stats = await processRankedCandidates(tickers, {
+        loadPayload: load,
+        scoreCandidate: computeCandidateScore,
+        processCandidate: async () => {},
+      });
+      expect(stats).toEqual({ processed: 2, management: 0, entries: 2, deferred: 0 });
+    });
   });
 });

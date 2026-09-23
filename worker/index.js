@@ -1023,6 +1023,13 @@ let _fiveMinHeavyPassSince = 0;
 // Long enough that no healthy pass trips it, short enough that a pass which
 // dies without releasing costs at most one skipped tick.
 const FIVE_MIN_HEAVY_LEASE_MS = 10 * 60 * 1000;
+// How far into the tick the ranked ENTRY pass may still start a candidate.
+// Cloudflare kills a cron at 900s, scoring ahead of the pass costs ~220s and
+// the deferred tail plus position reconcile behind it cost ~120s, so 600s
+// leaves a real margin. Past it the remaining entries — the lowest-ranked
+// ones — wait five minutes for the next tick, which is much cheaper than the
+// whole invocation being killed with the tail still unrun.
+const KANBAN_ENTRY_BUDGET_MS = 600 * 1000;
 // Same lease, for the monolith's */5 pre-warm chain. Separate variable
 // because the two lanes are on different workers and neither should be
 // able to skip the other.
@@ -111703,8 +111710,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // all of them to rank them is by itself past the 128 MB isolate.
         // `processRankedCandidates` keeps the scores and drops the
         // payloads, re-reading only the entry candidates it has to rank.
+        //
+        // The entry pass is deadlined against the tick, not against itself.
+        // Cloudflare kills a cron at 900s and takes the deferred tail and
+        // position reconcile with it, so the pass must leave room for them:
+        // at market ramp it went from ~200s to ~480s (D1 slows under load
+        // and `processTradeSimulation` is ~1.75s a candidate) on top of
+        // ~220s of scoring, and the whole invocation overran. Entries are
+        // attempted in rank order, so the deadline drops the bottom of the
+        // list — the right end. Management is never deferred.
         const _kanbanStart = Date.now();
+        const _kanbanDeadline = (_fiveMinHeavyPassSince || _kanbanStart) + KANBAN_ENTRY_BUDGET_MS;
         const _kanbanStats = await processRankedCandidates(_execShortlist, {
+          deadlineAt: _kanbanDeadline,
           loadPayload: async (sym, phase) => {
             const latestData = await kvGetJSON(KV, `timed:latest:${sym}`);
             if (!latestData) return null;
@@ -111726,6 +111744,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         _kanbanProcessed = _kanbanStats.processed;
         console.log(`[KANBAN CRON] Processed ${_kanbanProcessed} actionable`
           + ` (${_kanbanStats.management} management, ${_kanbanStats.entries} ranked entries)`
+          + (_kanbanStats.deferred ? `, DEFERRED ${_kanbanStats.deferred} lowest-ranked to the next tick` : "")
           + `, skipped ${_kanbanSkippedNonActionable} non-actionable`
           + `, of ${executionTickers.length} total (${_execShortlist.length} shortlisted)`
           + ` in ${Math.round((Date.now() - _kanbanStart) / 1000)}s`);

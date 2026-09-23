@@ -249,10 +249,19 @@ export function stampCandidatePositions(data, scoreCandidate) {
 // drops each payload, then the entry pass re-reads them one at a time.
 //
 // Management is not ranked, so it is processed on the scan itself and never
-// read twice. That matters: the live batch is ~85% management, and a
-// blanket second read cost the engine tick 3 more minutes than it had.
-// Priority and original order are unchanged either way — every management
-// candidate is still processed before any entry.
+// read twice. Priority and original order are unchanged either way — every
+// management candidate is still processed before any entry.
+//
+// `deadlineAt` (ms, optional) bounds the ENTRY pass only. The whole point of
+// ranking is that the order is meaningful, so when the tick runs out of time
+// the candidates to drop are the ones at the bottom of it. Without this the
+// engine tick simply overran: at market ramp the pass went from ~200s to
+// ~480s (`processTradeSimulation` is ~1.75s a candidate and D1 slows down
+// under load), scoring ahead of it takes ~220s, and the whole invocation hit
+// Cloudflare's 900s wall — which kills the deferred tail and position
+// reconcile too, so nothing downstream of the pass ran at all. Management is
+// never deferred: it is open risk, not a new position. `now` is injectable
+// so the deadline can be tested without touching the clock.
 //
 // `loadPayload(ticker, phase)` is called with `"scan"` and, for entry
 // candidates only, again with `"entry"`. A caller that counts rejections
@@ -266,10 +275,12 @@ export function stampCandidatePositions(data, scoreCandidate) {
 // `timed:latest` key alongside this pass now runs after it, and 536
 // sequential cold reads cost the engine tick ~190s.
 //
-// Returns `{ processed, management, entries }` — the log line that reports
-// this pass is the only view anyone has of it.
+// Returns `{ processed, management, entries, deferred }` — the log line that
+// reports this pass is the only view anyone has of it, and `deferred` is the
+// one number that says the tick is over budget.
 export async function processRankedCandidates(tickers, {
   loadPayload, scoreCandidate, processCandidate, onError, scanConcurrency = 6,
+  deadlineAt = 0, now = Date.now,
 }) {
   const entries = [];
   let processed = 0;
@@ -324,10 +335,17 @@ export async function processRankedCandidates(tickers, {
   // stays strictly sequential -- a later entry must still observe the
   // earlier entry's capacity usage -- but it no longer waits on KV.
   let ahead = entries.length ? read(entries[0].ticker, "entry") : null;
+  let deferred = 0;
   for (let i = 0; i < entries.length; i++) {
     const item = entries[i];
     let payload = await ahead;
     ahead = i + 1 < entries.length ? read(entries[i + 1].ticker, "entry") : null;
+    if (deadlineAt && now() >= deadlineAt) {
+      // Everything from here down is lower-ranked than everything already
+      // attempted, and the next tick is five minutes away.
+      deferred = entries.length - i;
+      break;
+    }
     if (!payload) continue;
     try {
       // The scan stamped `_ranking` / `_technical_rank` / the tilts onto a
@@ -351,5 +369,5 @@ export async function processRankedCandidates(tickers, {
       payload = null;
     }
   }
-  return { processed, management: managed, entries: entries.length };
+  return { processed, management: managed, entries: entries.length, deferred };
 }
