@@ -237,6 +237,18 @@ fixed and the kills continued.
   Every attempt to attribute the monolith's kills during RTH was ambiguous
   because the same isolate was serving pages. 02:00 UTC had exactly one
   thing happening and answered it in one query.
+- **A paced job is not a short job, and the wall time says so.** The
+  TwelveData bar pass sleeps 2.5s between batches across four tiers and runs
+  300-620s on a `*/5` cron, so two or three were always in flight together.
+  `_barCronSince` now admits one per isolate; the trade is a bar pass every
+  ~10 min rather than every 5. Any new universe-wide REST-plus-D1 lane
+  belongs behind the SAME lease — `runChartCandleCalendar` shares it, and
+  claims it before its first `await` so an un-awaited call still holds the
+  lane when the bar block is reached later in the tick.
+- **Two invocations dying milliseconds apart is the isolate, not the work.**
+  `11:10:33.641` and `11:10:33.700` is not two bugs; it is one isolate going
+  and taking everything resident with it. Read the pairing before reading
+  the stack.
 
 ---
 

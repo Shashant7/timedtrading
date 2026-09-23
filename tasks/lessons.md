@@ -204,6 +204,29 @@ invocation. Five request graphs resident simultaneously.
   the isolate was also serving pages. The 02:00 UTC window had exactly one
   thing happening, and that made the answer obvious in one query.
 
+Serialising the pre-warms was necessary and not sufficient — the kills
+resumed within fifteen minutes. The invocation pairs are what finally read
+correctly: 11:10:33.641 and 11:10:33.700, 59 ms apart, which is an isolate
+dying rather than an invocation. Two more lanes were overlapping themselves.
+
+- **A paced job is not a short job.** `DataProvider.cronFetchLatest` sleeps
+  2.5s between TwelveData batches across four tiers and runs 300-620s — on a
+  five-minute cron. Two and sometimes three passes were always in flight
+  together, each holding its own universe-wide bar map, and the wall time
+  said so all along (`wall=899s` on a `*/5`). It has a `_barCronSince` lease
+  now. The cost is real and worth naming: a bar pass every ~10 min instead of
+  every 5. A skipped slot costs one rotation of the half-slice; the kill cost
+  the whole pass's upserts.
+- **Two schedules doing the same work need one lane, not two leases.** The
+  hourly `runChartCandleCalendar` backfill is the same universe-wide REST
+  fetch plus D1 upsert as the `*/5` bar pass, and both fire at :05 past the
+  hour — the only ticks that still died after the bar lease landed. They
+  share `_barCronSince` now, and the calendar claims it: it runs earlier in
+  the tick and only once an hour, so the frequent lane is the one that
+  yields. The claim happens before the function's first `await`, which is
+  why an un-awaited call still holds the lane by the time the bar block is
+  reached further down the same tick.
+
 ---
 
 ## Four sweep incidents, three of them the sweep's own fault [2026-09-22]

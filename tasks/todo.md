@@ -98,6 +98,23 @@
       lease skips about one in three, and that ~200s is
       `processTradeSimulation` across 268 candidates — a funnel-design
       question, not an OOM one.
+- [x] **The monolith had its own OOM, and it was three more lanes
+      (2026-09-23).** With `tt-engine` green, `timed-trading-ingest` was
+      still dying on its `*/5` — 10 of 10 consecutive ticks overnight. The
+      overnight window named it: no user traffic on that isolate at 02:00
+      UTC, so serve-time load was not the cause. (a) The tick fanned out
+      five `ctx.waitUntil` chains at once and every one is `_selfDispatch`,
+      which is `this.fetch` — same isolate, five full request graphs
+      resident together. They run as one sequential chain of named steps
+      now. (b) `DataProvider.cronFetchLatest` is paced, not slow: 2.5s
+      between TwelveData batches across four tiers, 300-620s per pass, on a
+      five-minute cron — two or three always in flight. (c) The hourly
+      `runChartCandleCalendar` is the same universe-wide REST-plus-D1 work
+      and fires at the same :05. (b) and (c) share one `_barCronSince`
+      lease, with the calendar claiming first. Also `_batchUpsertBars`
+      prepares once and flushes every 500 instead of building ~10k bound
+      statements up front. Accepted trade: a bar pass every ~10 min rather
+      than every 5.
 - [x] **Reduces now reach every mirrored tenant (2026-09-23).** Operator
       correction: every mirror-enabled account tracks the model on every
       position it held at activation, with quantity relational to account
