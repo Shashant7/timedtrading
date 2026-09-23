@@ -108415,6 +108415,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // anyway). Failure to load is non-fatal — processTradeSimulation
     // falls back to its own d1LoadTradesForSimulation per-call.
     let _cachedAllTradesForTick = null;
+    // The scoring tail (slim index build, Cloud Pivot desk, D1 batch sync)
+    // used to be fired into `ctx.waitUntil` the moment scoring finished, so
+    // it ran CONCURRENTLY with the execution pass below. Two heavy phases
+    // alive at once in one isolate is a sum, not a max, and the sum is what
+    // exceeded the 128 MB cap. It is stashed here instead and awaited once
+    // the execution phases are done. See the call site below.
+    let _deferredScoringTail = null;
     try {
       if (env?.DB) {
         const _cronCacheReplayLock = await KV.get("timed:replay:lock");
@@ -110696,7 +110703,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         //
         // The index is now 304 KB and a build costs 19 MB. Callers that need
         // a full payload hydrate a bounded set. See worker/all-snapshot.js.
-        ctx.waitUntil((async () => {
+        //
+        // Stashed, not dispatched: running this alongside the execution pass
+        // is what kept two heavy phases resident at the same time.
+        _deferredScoringTail = async () => {
           try {
             const activeSyms = allTickers;
 
@@ -110971,7 +110981,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const _d1Syms = Object.keys(snapshot).filter((_sym) => _d1SyncSet.has(_sym));
               const _d1TotalUniverse = Object.keys(snapshot).length;
               const _d1SkippedUnchanged = _d1TotalUniverse - _d1Syms.length;
-              const _D1_CHUNK = 40;
+              // 12, not 40. A chunk holds three payload-sized graphs per
+              // ticker at once -- the hydrated payload, the enriched copy,
+              // and the previous payload parsed back out of D1 -- and a
+              // `timed:latest` payload is ~165 KB of JSON, several times
+              // that once parsed. At 40 that is the largest single
+              // allocation in the tick. The extra round trips are free next
+              // to the headroom.
+              const _D1_CHUNK = 12;
               let _d1Synced = 0;
               let _d1FpSkipped = 0;
               // Shadow/thin-slice stamps land on D1 first; write the same
@@ -110991,6 +111008,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 const _chunk = _chunkSyms
                   .map((_s) => [_s, applySnapshotEnrichment(_chunkFull[_s], snapshot[_s])])
                   .filter(([, _pl]) => _pl && typeof _pl === "object");
+                // The enriched copies are what the rest of the chunk uses;
+                // the hydration map is a second set of the same payloads.
+                for (const _s of _chunkSyms) delete _chunkFull[_s];
                 const _stmts = [];
                 const _bindSyms = [];
                 const _bindFps = [];
@@ -111032,6 +111052,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       String(se?.message || se).slice(0, 120),
                     );
                   }
+                  _prevPayloadBySym.delete(_sym);
                   let _plForD1 = _pl;
                   try {
                     const _shadowStamp = await maybeStampSetupShadowOnPayload(env, _sym, _pl, {
@@ -111071,7 +111092,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       }
                     } catch (_) { /* */ }
                     const _kvPatch = thinSliceKvPatch(_pl, _plForD1);
-                    if (_kvPatch) _thinKvPatches.push([_sym, _kvPatch, _plForD1]);
+                    // The patch, not the payload it came from. The write-back
+                    // below only ever reads `[_sym, _patch]`, so pushing the
+                    // full payload kept ~106 of them resident to the end of
+                    // the sync and undid the chunking two blocks up.
+                    if (_kvPatch) _thinKvPatches.push([_sym, _kvPatch]);
                   } catch (ss) {
                     console.warn(
                       `[SETUP_SHADOW] batch stamp failed for ${_sym}:`,
@@ -111207,7 +111232,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           } catch (e) {
             console.warn("[SCORING] KV hot cache build failed:", String(e?.message || e));
           }
-        })());
+        };
 
         // ── Push scoring deltas to WebSocket clients via PriceHub DO ──
         if (Object.keys(scoredUpdates).length > 0) {
@@ -111540,9 +111565,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // heaviest phase of the tick, and it is where `exceededMemory` landed
         // every pass (the `[KANBAN CRON] Processed …` summary had not appeared
         // in the logs once in 24h). The index carries `kanban_stage` and
-        // `entry_path`, and this same tick wrote it minutes ago. A ticker the
-        // index does not know about still gets read, and the payload-level
-        // check below still runs, so a stale index can only cost extra reads.
+        // `entry_path`, and the previous tick wrote it ~5 min ago (the tail
+        // that rebuilds it now runs after this pass, not alongside it). A
+        // ticker the index does not know about still gets read, and the
+        // payload-level check below still runs, so a stale index can only
+        // cost extra reads — never a missed entry.
         let _execIndex = null;
         try {
           _execIndex = (await readAllSnapshot(KV, { maxAgeMs: 30 * 60 * 1000 }))?.data || null;
@@ -111779,6 +111806,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
     } catch (reconcileErr) {
       console.error("[POSITION RECONCILE] Error:", reconcileErr);
+    }
+
+    // ── Scoring tail, now that the execution phases have let go ──
+    // Awaited rather than dispatched so the slim-index build, the desk scan
+    // and the D1 batch sync never share the isolate with the kanban pass or
+    // position reconcile. Everything above this line is individually
+    // try/caught and there is no early return between the scoring block and
+    // here, so the tail still runs on every tick that scored.
+    if (_deferredScoringTail) {
+      const _tailFn = _deferredScoringTail;
+      _deferredScoringTail = null;
+      const _tailStart = Date.now();
+      try {
+        await _tailFn();
+      } catch (tailErr) {
+        console.warn("[SCORING] deferred tail failed:", String(tailErr?.message || tailErr).slice(0, 200));
+      }
+      console.log(`[SCORING] deferred tail done in ${Date.now() - _tailStart}ms`);
     }
 
     // P1 PERF 2026-05-20: monitoring only — defer to ctx.waitUntil so it
