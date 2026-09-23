@@ -96176,6 +96176,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 console.warn(`[OPTIONS-ALL] day-trade build failed for ${_dtSym}:`, String(_dtErr?.message || _dtErr).slice(0, 120));
               }
             }
+
+            // Resolve entry orders that were placed but never filled. This
+            // runs per PASS, not per event, because the signal whose entry
+            // never filled is exactly the one that stops producing events —
+            // on 2026-09-23 two orders sat `working` from 13:46 to the close,
+            // holding the whole 2/day long_put budget and blocking the next
+            // nine entries, because nothing ever looked at them again.
+            if (_dtDispatchAllowed) {
+              try {
+                const { sweepPendingIndexDtEntries } = await import("./options-auto-mirror.js");
+                queueBackground(
+                  sweepPendingIndexDtEntries(env, env.ADMIN_EMAIL)
+                    .then((r) => {
+                      if (r?.resolved?.length) {
+                        console.log(`[OPT-DT-SWEEP] resolved ${JSON.stringify(r.resolved)} of ${r.checked} pending`);
+                      }
+                    })
+                    .catch((e) => console.warn("[OPT-DT-SWEEP]", String(e?.message || e).slice(0, 120))),
+                );
+              } catch (_) { /* never block the section on the sweep */ }
+            }
+
             return {
               day_trade_plays: _dtPlays,
               day_trade_suppressed: _dtSuppressed,
