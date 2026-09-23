@@ -568,6 +568,7 @@ import {
   kvGetJSON,
   kvPutJSON,
   kvPutJSONIfFits,
+  estimateMapBytes,
   kvPutText,
   kvPutJSONWithRetry,
   stableHash,
@@ -55874,7 +55875,10 @@ export default {
             // Same micro-cache write for the full path.
             if (_wantMicroCache) {
               try {
-                ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data, built_at: _snapFreshTs }, 60, { label: "/timed/all micro full" }));
+                ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data, built_at: _snapFreshTs }, 60, {
+                  label: "/timed/all micro full",
+                  estimateBytes: estimateMapBytes(data),
+                }));
               } catch (_) {}
             }
 
@@ -56756,8 +56760,16 @@ export default {
           // caches normally. Always attempt the write: nocache=1 is the cron
           // pre-warm path and MUST refresh the cache; it only bypasses the
           // read.
+          //
+          // The estimate matters as much as the budget: measuring by
+          // stringifying would allocate the same 30 MB we are refusing to
+          // store, on top of the copy `sendJSON` is already making.
+          // `estimateMapBytes` samples three rows instead.
           try {
-            ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data, built_at: _d1FreshTs }, 420, { label: "/timed/all micro full (d1)" }));
+            ctx.waitUntil(kvPutJSONIfFits(KV, _microCacheKey, { data, built_at: _d1FreshTs }, 420, {
+              label: "/timed/all micro full (d1)",
+              estimateBytes: estimateMapBytes(data),
+            }));
           } catch (_) {}
 
           {
@@ -104515,12 +104527,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // path. Two dispatches: with the API key (admin tier bucket) and
         // anonymous (public bucket) — the two buckets real page loads
         // read. `nocache=1` bypasses the cache READ but still writes.
+        //
+        // 2026-09-23 — `slim=1`, not the full variant. At 330 tickers the
+        // full response is ~30 MB of JSON over a ~38 MB object graph, and
+        // for the anonymous bucket `redactTickerMapForTier` copies the
+        // whole graph again. Two of those back to back is what put the
+        // */5 isolate over its 128 MB ceiling (`exceededMemory`). Nothing
+        // is lost by dropping it: the full value is above KV's 25 MiB
+        // per-value ceiling, so that cache slot has not populated since
+        // the universe outgrew it — the dispatch was pure cost, warming a
+        // key it could never write. The slim slot is ~70 KB and does warm.
         ctx.waitUntil((async () => {
           try {
-            await _selfDispatch(`/timed/all?nocache=1`).catch(() => {});
+            await _selfDispatch(`/timed/all?slim=1&nocache=1`).catch(() => {});
             // Anonymous variant for the public tier bucket (no API key).
             const base = env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev";
-            await this.fetch(new Request(`${base}/timed/all?nocache=1`), env, ctx).catch(() => {});
+            await this.fetch(new Request(`${base}/timed/all?slim=1&nocache=1`), env, ctx).catch(() => {});
           } catch (_) {}
         })());
 

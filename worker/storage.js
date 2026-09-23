@@ -51,7 +51,20 @@ export const KV_MAX_VALUE_BYTES = 26214400;
 export async function kvPutJSONIfFits(KV, key, val, ttlSec = null, {
   budgetBytes = KV_MAX_VALUE_BYTES,
   label = null,
+  estimateBytes = null,
 } = {}) {
+  // Measuring by stringifying is itself the allocation we are trying to
+  // avoid on the values that matter: the full /timed/all map is 30 MB of
+  // string on top of ~38 MB of object graph and the copy the response is
+  // already making. When the caller can estimate cheaply, believe it.
+  if (Number.isFinite(estimateBytes) && estimateBytes > budgetBytes) {
+    console.warn(
+      `[kvPutJSONIfFits] ${label || key}: SKIPPED without serializing — ~${Math.round(estimateBytes)} estimated bytes`
+      + ` exceeds the ${budgetBytes} budget (KV ceiling ${KV_MAX_VALUE_BYTES}).`
+      + " The value outgrew the key; narrow it rather than raising the budget.",
+    );
+    return { ok: false, bytes: 0, skipped: true, estimated: Math.round(estimateBytes) };
+  }
   let body;
   try {
     body = JSON.stringify(val);
@@ -76,6 +89,30 @@ export async function kvPutJSONIfFits(KV, key, val, ttlSec = null, {
     console.warn(`[kvPutJSONIfFits] ${label || key}: put failed — ${String(err?.message || err).slice(0, 160)}`);
     return { ok: false, bytes, skipped: false };
   }
+}
+
+/**
+ * Cheap byte estimate for a `{ SYM: row }` map, by sampling rows.
+ *
+ * For deciding whether a universe-sized value can fit a KV key WITHOUT
+ * serializing the whole thing to find out. Sampling a few rows out of 330 is
+ * three ~93 KB stringifies instead of one 30 MB one.
+ */
+export function estimateMapBytes(map, { sample = 3 } = {}) {
+  if (!map || typeof map !== "object") return 0;
+  const keys = Object.keys(map);
+  if (!keys.length) return 2;
+  const step = Math.max(1, Math.floor(keys.length / Math.max(1, sample)));
+  let total = 0;
+  let n = 0;
+  for (let i = 0; i < keys.length && n < sample; i += step) {
+    try {
+      total += JSON.stringify(map[keys[i]]).length + keys[i].length + 4;
+      n++;
+    } catch (_) { /* skip an unserializable row */ }
+  }
+  if (!n) return 0;
+  return Math.round((total / n) * keys.length) + 2;
 }
 
 /** Write text to KV. */

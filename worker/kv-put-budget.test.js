@@ -15,7 +15,7 @@
 // attempt one that cannot succeed, and never throw at the caller.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { kvPutJSONIfFits, KV_MAX_VALUE_BYTES } from "./storage.js";
+import { kvPutJSONIfFits, estimateMapBytes, KV_MAX_VALUE_BYTES } from "./storage.js";
 
 function fakeKV() {
   const store = new Map();
@@ -127,5 +127,96 @@ describe("kvPutJSONIfFits", () => {
     const KV = { put: vi.fn(async () => { throw new Error("boom"); }) };
     await expect(kvPutJSONIfFits(KV, "k", { a: 1 })).resolves.toBeTruthy();
     await expect(kvPutJSONIfFits(KV, "k", "y".repeat(99), null, { budgetBytes: 1 })).resolves.toBeTruthy();
+  });
+});
+
+// The skip has to happen BEFORE the stringify, not just before the put. On the
+// value that matters -- the full `/timed/all` map -- serializing to find out
+// how big it is allocates the same 30 MB we are refusing to store, on top of
+// the copy the response is already making. That measurement is itself part of
+// what took the isolate over 128 MB.
+describe("kvPutJSONIfFits with a caller-supplied estimate", () => {
+  let warn;
+  beforeEach(() => { warn = vi.spyOn(console, "warn").mockImplementation(() => {}); });
+  afterEach(() => { warn.mockRestore(); });
+
+  it("skips without serializing when the estimate is over budget", async () => {
+    const KV = fakeKV();
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      const res = await kvPutJSONIfFits(KV, "k", { a: 1 }, null, {
+        budgetBytes: 100, estimateBytes: 30_000_000, label: "/timed/all micro full",
+      });
+      expect(res.skipped).toBe(true);
+      expect(res.estimated).toBe(30_000_000);
+      expect(stringify).not.toHaveBeenCalled();
+    } finally { stringify.mockRestore(); }
+    expect(KV.put).not.toHaveBeenCalled();
+    expect(warn.mock.calls[0][0]).toContain("without serializing");
+  });
+
+  it("still measures for real when the estimate says it fits", async () => {
+    // An estimate is a sample, so it can be wrong in the optimistic direction.
+    // It may only short-circuit a refusal, never approve a write.
+    const KV = fakeKV();
+    const res = await kvPutJSONIfFits(KV, "k", { blob: "x".repeat(500) }, null, {
+      budgetBytes: 100, estimateBytes: 10,
+    });
+    expect(res.skipped).toBe(true);
+    expect(res.bytes).toBeGreaterThan(100);
+    expect(KV.put).not.toHaveBeenCalled();
+  });
+
+  it("ignores a missing or nonsense estimate", async () => {
+    const KV = fakeKV();
+    for (const estimateBytes of [null, undefined, NaN, "lots"]) {
+      const res = await kvPutJSONIfFits(KV, "k", { a: 1 }, null, { estimateBytes });
+      expect(res.ok).toBe(true);
+    }
+  });
+});
+
+describe("estimateMapBytes", () => {
+  function universe(n, rowBytes) {
+    const out = {};
+    for (let i = 0; i < n; i++) out[`SYM${i}`] = { blob: "x".repeat(rowBytes) };
+    return out;
+  }
+
+  it("lands close to the real size of a uniform universe", () => {
+    const map = universe(330, 90_000);
+    const actual = JSON.stringify(map).length;
+    const est = estimateMapBytes(map);
+    expect(Math.abs(est - actual) / actual).toBeLessThan(0.02);
+  });
+
+  it("reads only the sampled rows, not all 330", () => {
+    const map = universe(330, 1000);
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      estimateMapBytes(map);
+      expect(stringify.mock.calls.length).toBeLessThanOrEqual(3);
+    } finally { stringify.mockRestore(); }
+  });
+
+  it("calls the live /timed/all map over budget, which is the decision it exists for", () => {
+    // ~330 tickers at the measured ~93 KB average.
+    const est = estimateMapBytes(universe(330, 93_000));
+    expect(est).toBeGreaterThan(KV_MAX_VALUE_BYTES);
+  });
+
+  it("calls the slim projection under budget", () => {
+    // The slim variant is ~200 B a row -- it caches normally and must not be
+    // caught by the same guard.
+    expect(estimateMapBytes(universe(330, 200))).toBeLessThan(KV_MAX_VALUE_BYTES);
+  });
+
+  it("handles empty, absent and unserializable inputs without throwing", () => {
+    expect(estimateMapBytes({})).toBe(2);
+    expect(estimateMapBytes(null)).toBe(0);
+    expect(estimateMapBytes("nope")).toBe(0);
+    const cyclic = {};
+    cyclic.self = cyclic;
+    expect(estimateMapBytes({ A: cyclic })).toBe(0);
   });
 });
