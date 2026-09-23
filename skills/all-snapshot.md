@@ -225,6 +225,18 @@ fixed and the kills continued.
   the other's summary. It had always been ~200s. Check `outcome`/wall per
   invocation (`/tmp/woomts.sh <from> <to> <script>`) before believing a
   duration derived from timestamps.
+- **`_selfDispatch` spends the caller's memory.** It is `this.fetch()` —
+  same isolate, same invocation — so the dispatched route's whole request
+  graph counts against the cron that fired it. The monolith's `*/5` had
+  five of them in flight at once as separate `ctx.waitUntil` chains and died
+  9-14s into every tick, including overnight with no traffic on the isolate.
+  They are one sequential chain of named steps now (`_prewarmSteps`), each
+  try/caught, behind `_fiveMinPrewarmSince`. Add a pre-warm to that list;
+  do not give it its own `waitUntil`.
+- **Read a shared worker's crons in the window where it has no traffic.**
+  Every attempt to attribute the monolith's kills during RTH was ambiguous
+  because the same isolate was serving pages. 02:00 UTC had exactly one
+  thing happening and answered it in one query.
 
 ---
 

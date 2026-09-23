@@ -168,6 +168,42 @@ time, not about what is big.
   Leaving it beside the new one would have left an OOM-shaped footgun that
   still type-checks; it was removed and its tests moved over.
 
+### And the same disease on the other worker
+
+With `tt-engine` green, `timed-trading-ingest` was still dying on its own
+`*/5`: 10 of 10 consecutive ticks overnight, wall 12-26s, cpu 6-16s. The
+overnight window is what named it. There is no user traffic on that isolate
+at 02:00 UTC and no `/timed/all` in the logs, so serve-time load could not be
+the cause — and each tick died 9-14 seconds after it fired, right where the
+pre-warms peak.
+
+The monolith's `*/5` dispatched five `ctx.waitUntil` chains at once:
+`/timed/options/all` three times, `/timed/all?slim=1` twice, the FRED macro
+refresh, the X wire poll, and the bridge notify drain. Every one of them is
+`_selfDispatch`, which is `this.fetch` — the SAME isolate, the same
+invocation. Five request graphs resident simultaneously.
+
+- **`ctx.waitUntil` is a scheduling primitive, not a memory one.** In a cron
+  handler it buys nothing at all: there is no response to return early. All
+  it does is let the work overlap, which is the one thing the isolate cap
+  punishes. The pre-warms are a list of named steps run in one sequential
+  chain now, each `try`/`catch`ed so a failure does not take the rest with
+  it, with the same per-isolate lease the engine got.
+- **An in-process self-dispatch is not free.** `this.fetch()` avoids the
+  subrequest, the loopback detector and the auth ambiguity — all real wins —
+  but it costs the full request graph inside the caller's memory budget.
+  Treat a `_selfDispatch` like an inline call to the handler, because that is
+  what it is.
+- **Prepare the SQL once.** `_batchUpsertBars` built one bound statement per
+  bar for the entire universe before the first `db.batch`, each re-preparing
+  the same ~450-char SQL from a fresh template literal — ~10k of them on a
+  top-of-hour pass. It flushes every 500 now and releases each symbol from
+  the caller's map as it goes.
+- **Where a worker has no traffic is where you can read its crons.** Every
+  attempt to attribute the monolith's kills during RTH was ambiguous because
+  the isolate was also serving pages. The 02:00 UTC window had exactly one
+  thing happening, and that made the answer obvious in one query.
+
 ---
 
 ## Four sweep incidents, three of them the sweep's own fault [2026-09-22]
