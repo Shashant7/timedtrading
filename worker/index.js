@@ -1024,32 +1024,47 @@ let _fiveMinHeavyPassSince = 0;
 // Long enough that no healthy pass trips it, short enough that a pass which
 // dies without releasing costs at most one skipped tick.
 const FIVE_MIN_HEAVY_LEASE_MS = 10 * 60 * 1000;
-// Cloudflare kills a */5 cron at 900s of wall clock. The engine tick has four
-// phases in a fixed order — scoring, ranked entries, position reconcile, then
-// the deferred scoring tail — and only the first is irreducible, so the other
-// three are deadlined against the SAME tick start rather than against
-// themselves. Each deadline is absolute: a phase that arrives late gets less,
-// which is the point.
+// Cloudflare kills a */5 cron at 900s of wall clock, and the engine tick runs
+// five phases in a fixed order: scoring, ranked entries, position reconcile,
+// the deferred scoring tail, then the monitoring passes behind it. Only
+// scoring is irreducible, so everything after it is budgeted against the
+// SAME tick claim rather than against itself. Every deadline is absolute — a
+// phase that arrives late gets less, which is the whole point.
 const TICK_WALL_MS = 900 * 1000;
+// Never plan to use the last slice of the wall.
+const TICK_SAFETY_MS = 45 * 1000;
+// Reserve for the monitoring work behind the tail: `checkIngestCoverage` is
+// ~245-735 KV reads and the 15-minute proactive-alerts block adds up to 600
+// more. Both are dispatched with `ctx.waitUntil`, which in a cron handler
+// defers nothing that matters — there is no response to return early, so the
+// invocation stays alive until they settle and they count against this wall
+// like anything else.
+const TICK_MONITOR_RESERVE_MS = 120 * 1000;
 // How far into the tick the ranked ENTRY pass may still start a candidate.
-// Scoring ahead of it costs 250-270s at RTH, reconcile behind it ~20s and the
-// bounded tail ~150s, so 600s leaves a real margin. Past it the remaining
-// entries — the lowest-ranked ones — wait five minutes for the next tick,
-// which is much cheaper than the whole invocation being killed with the tail
-// still unrun.
+// Scoring ahead of it costs 240-270s at RTH and everything behind it now
+// sizes itself to what is left, so this only has to leave the tail its floor.
+// Past the deadline the remaining entries — the lowest-ranked ones — wait five
+// minutes for the next tick, which is much cheaper than the whole invocation
+// being killed with the tail still unrun.
 const KANBAN_ENTRY_BUDGET_MS = 600 * 1000;
-// And the tail's own backstop, 60s short of the wall. The tail is last, so
-// everything upstream overrunning lands here; stopping with a logged count
-// beats being killed mid-sweep with nothing written.
-const SCORING_TAIL_BUDGET_MS = TICK_WALL_MS - 60 * 1000;
-// Tickers the tail rewrites into D1 `ticker_latest` per tick. Open positions
-// and stage changes are exempt (see planLatestSyncBatch); this caps the quiet
-// remainder. A row costs ~0.55s before the open and closer to 1s under RTH D1
-// load, so 120 keeps the pass inside its ~150s reserve, and at a 330-ticker
-// universe the rotation sweeps everything in about three ticks.
-const D1_LATEST_SYNC_CAP = 120;
-// Rotation cursor for that cap. Per-isolate like the leases above, which is
-// the right scope: it only has to be monotonic, not shared.
+// The tail's own backstop. It is the last real phase, so every upstream
+// overrun lands here; stopping with a logged count beats being killed
+// mid-sweep with nothing written.
+const SCORING_TAIL_BUDGET_MS = TICK_WALL_MS - TICK_SAFETY_MS - TICK_MONITOR_RESERVE_MS;
+// What one synced D1 `ticker_latest` row costs at RTH: the pass wrote 120 rows
+// in 231s including ~20s of fixed desk-scan and index-build ahead of them, so
+// ~1.8s a row under D1 load. Overnight it is a third of that, which only means
+// an early tick finishes ahead of its budget.
+const D1_LATEST_SYNC_ROW_MS = 1800;
+const D1_LATEST_SYNC_FIXED_MS = 20 * 1000;
+// Floor, so even a very late tick still refreshes the must-sync set (open
+// positions and this tick's stage flips) plus a little rotation.
+const D1_LATEST_SYNC_MIN = 40;
+// Ceiling, because 120 rows measured 231s — more tail than the budget has room
+// for even on a fast tick.
+const D1_LATEST_SYNC_MAX = 120;
+// Rotation cursor for the cap. Per-isolate like the leases above, which is the
+// right scope: it only has to be monotonic, not shared.
 let _d1LatestSyncCursor = 0;
 // Same lease, for the monolith's */5 pre-warm chain. Separate variable
 // because the two lanes are on different workers and neither should be
@@ -108536,6 +108551,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // next one fires. The monolith's */5 carries the price feed, which must
     // never be skipped, and finishes in ~30s anyway.
     let _heavyPassClaimed = false;
+    let _tickClaimedAt = 0;
     if (_isEvery5Min && _isDedicatedEngine) {
       const _leaseAge = _fiveMinHeavyPassSince ? Date.now() - _fiveMinHeavyPassSince : 0;
       if (_fiveMinHeavyPassSince && _leaseAge < FIVE_MIN_HEAVY_LEASE_MS) {
@@ -108548,7 +108564,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
       _fiveMinHeavyPassSince = Date.now();
       _heavyPassClaimed = true;
+      _tickClaimedAt = _fiveMinHeavyPassSince;
     }
+    // Budget clock for every phase behind scoring. Separate from the lease
+    // because the two answer different questions: the lease is mutual
+    // exclusion and gets released before the monitoring passes run, while the
+    // wall keeps counting until the invocation ends. Infinity when this tick
+    // never claimed — the monolith and the non-*/5 schedules are not on this
+    // clock and must not be budgeted off a stale claim.
+    const _tickTimeLeftMs = () => (_tickClaimedAt
+      ? _tickClaimedAt + TICK_WALL_MS - TICK_SAFETY_MS - Date.now()
+      : Infinity);
 
     let _cachedAllTradesForTick = null;
     // The scoring tail (slim index build, Cloud Pivot desk, D1 batch sync)
@@ -111130,14 +111156,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               // every tick, so this set is the whole universe. Bound it and
               // rotate the quiet remainder; open positions and this tick's
               // stage flips are never the ones deferred.
+              //
+              // The bound is whatever fits in the wall time actually left, so
+              // a tick that spent 600s upstream syncs fewer rows instead of
+              // being killed with none of them written. Quiet tickers then
+              // wait a few more ticks for their D1 fallback row — cheap, since
+              // /timed/all reads the KV slim index first and that is rebuilt
+              // whole every tick. The stamps riding this loop (setup events,
+              // shadow / thin-slice) follow stage flips, which are must-sync.
+              const _d1CapRoom = _tickTimeLeftMs() - TICK_MONITOR_RESERVE_MS - D1_LATEST_SYNC_FIXED_MS;
+              const _d1Cap = Math.min(
+                D1_LATEST_SYNC_MAX,
+                Math.max(D1_LATEST_SYNC_MIN, Math.floor(_d1CapRoom / D1_LATEST_SYNC_ROW_MS)),
+              );
               const _d1Plan = planLatestSyncBatch({
                 syms: _d1Changed,
                 mustSync: _d1MustSync,
-                cap: D1_LATEST_SYNC_CAP,
+                cap: _d1Cap,
                 cursor: _d1LatestSyncCursor,
               });
               const _d1Syms = _d1Plan.batch;
-              const _tailDeadline = (_fiveMinHeavyPassSince || _d1Now) + SCORING_TAIL_BUDGET_MS;
+              const _tailDeadline = (_tickClaimedAt || _d1Now) + SCORING_TAIL_BUDGET_MS;
               let _d1Attempted = 0;
               let _d1DeadlineHit = false;
               // 12, not 40. A chunk holds three payload-sized graphs per
@@ -111328,7 +111367,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }
               _d1LatestSyncCursor = advanceSyncCursor(_d1Plan, _d1Attempted);
               console.log(`[SCORING] D1 ticker_latest batch sync: ${_d1Synced} written, ${_d1FpSkipped} fingerprint-skipped (${_d1SkippedUnchanged} unchanged-skipped of ${_d1TotalUniverse} universe)`
-                + `, ${_d1Plan.must} must-sync (open/stage-change)`
+                + `, ${_d1Plan.must} must-sync (open/stage-flip), cap ${_d1Cap}`
                 + (_d1Plan.deferred ? `, ${_d1Plan.deferred} rotated to a later tick` : "")
                 + (_d1DeadlineHit ? `, STOPPED at the tick deadline after ${_d1Attempted}/${_d1Syms.length}` : ""));
 
@@ -111773,7 +111812,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // attempted in rank order, so the deadline drops the bottom of the
         // list — the right end. Management is never deferred.
         const _kanbanStart = Date.now();
-        const _kanbanDeadline = (_fiveMinHeavyPassSince || _kanbanStart) + KANBAN_ENTRY_BUDGET_MS;
+        const _kanbanDeadline = (_tickClaimedAt || _kanbanStart) + KANBAN_ENTRY_BUDGET_MS;
         const _kanbanStats = await processRankedCandidates(_execShortlist, {
           deadlineAt: _kanbanDeadline,
           loadPayload: async (sym, phase) => {
@@ -112021,11 +112060,22 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // doesn't block the cron response. checkIngestCoverage iterates ~245
     // tickers with per-ticker KV reads (~245-735 KV ops) for staleness
     // detection. No downstream code in the same tick depends on it.
-    ctx.waitUntil(
-      checkIngestCoverage(KV, now).catch((err) =>
-        console.error("[INGEST COVERAGE ERROR]", err)
-      )
-    );
+    //
+    // 2026-09-23 — and skipped outright on a tick that has already spent its
+    // wall. `ctx.waitUntil` in a cron handler defers nothing: the invocation
+    // stays alive until it settles, so on the 14:30 tick these reads were
+    // what turned a tail that finished at 836s into a kill at 900s. Staleness
+    // monitoring is the most skippable thing in the invocation, and the next
+    // tick runs it five minutes later.
+    if (_tickTimeLeftMs() >= 60 * 1000) {
+      ctx.waitUntil(
+        checkIngestCoverage(KV, now).catch((err) =>
+          console.error("[INGEST COVERAGE ERROR]", err)
+        )
+      );
+    } else {
+      console.warn(`[INGEST COVERAGE] skipped: ${Math.round(_tickTimeLeftMs() / 1000)}s left of the tick's wall`);
+    }
 
     // Proactive Alerts & Pattern Recognition (every 15 minutes during market hours)
     // This runs more frequently to catch time-sensitive conditions
@@ -112035,9 +112085,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // and Discord notifications. None of it is needed for the cron's
     // synchronous response — it's monitoring + alerting only.
     // Removes ~600 KV reads off the critical path every 15 min.
+    // Same wall check as the coverage pass above, with a bigger reserve: this
+    // block reads up to 600 keys where that one reads ~245.
     const isProactiveAlertTime = minute % 15 === 0; // Every 15 minutes
 
-    if (isProactiveAlertTime) {
+    if (isProactiveAlertTime && _tickTimeLeftMs() < 90 * 1000) {
+      console.warn(`[PROACTIVE ALERTS] skipped: ${Math.round(_tickTimeLeftMs() / 1000)}s left of the tick's wall`);
+    } else if (isProactiveAlertTime) {
       ctx.waitUntil((async () => {
       try {
         const tradesKey = "timed:trades:all";

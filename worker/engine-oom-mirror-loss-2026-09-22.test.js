@@ -270,8 +270,31 @@ describe("only one heavy phase of the tick at a time", () => {
     expect(Number(decl[1])).toBeLessThanOrEqual(660);
     // Measured from the tick's claim, not from the pass's own start, or a
     // slow scoring phase ahead of it buys the pass nothing.
-    expect(src).toContain("(_fiveMinHeavyPassSince || _kanbanStart) + KANBAN_ENTRY_BUDGET_MS");
+    expect(src).toContain("(_tickClaimedAt || _kanbanStart) + KANBAN_ENTRY_BUDGET_MS");
     expect(src).toContain("deadlineAt: _kanbanDeadline,");
+  });
+
+  it("budgets off the claim time, not off the lease it releases early", () => {
+    // The lease answers "is another pass running", and it is cleared before
+    // the monitoring passes run. The wall keeps counting until the invocation
+    // ends, so the budget needs its own clock.
+    expect(src).toContain("_tickClaimedAt = _fiveMinHeavyPassSince;");
+    expect(src).toContain("const _tickTimeLeftMs = () => (_tickClaimedAt");
+    expect(src).toContain("? _tickClaimedAt + TICK_WALL_MS - TICK_SAFETY_MS - Date.now()");
+    // Infinity, not 0, when nothing claimed: the monolith and the non-*/5
+    // schedules share this handler and must not be budgeted off a stale claim.
+    expect(src).toContain("      : Infinity);");
+  });
+
+  it("skips the monitoring passes on a tick that has already spent its wall", () => {
+    // `ctx.waitUntil` in a cron handler defers nothing — there is no response
+    // to return early, so the invocation stays alive until it settles. On the
+    // 14:30 tick these ~245 and ~600 KV reads are what turned a tail that
+    // finished at 836s into a kill at 900s.
+    expect(src).toContain("if (_tickTimeLeftMs() >= 60 * 1000) {");
+    expect(src).toContain("[INGEST COVERAGE] skipped:");
+    expect(src).toContain("if (isProactiveAlertTime && _tickTimeLeftMs() < 90 * 1000) {");
+    expect(src).toContain("[PROACTIVE ALERTS] skipped:");
   });
 
   it("keeps the D1 sync chunk small enough that three sets of it fit", () => {
@@ -290,11 +313,22 @@ describe("only one heavy phase of the tick at a time", () => {
     // the last phase it is what Cloudflare's 900s kill landed on. `[SCORING]
     // deferred tail done` stopped appearing entirely from 13:30 UTC.
     expect(src).toContain('import { planLatestSyncBatch, advanceSyncCursor } from "./d1-latest-sync-plan.js";');
-    const cap = src.match(/const D1_LATEST_SYNC_CAP = (\d+);/);
-    expect(cap).not.toBeNull();
-    expect(Number(cap[1])).toBeLessThanOrEqual(160);
-    expect(src).toContain("cap: D1_LATEST_SYNC_CAP,");
+    // The bound is whatever fits in the wall time actually left, so a tick
+    // that spent 600s upstream syncs fewer rows rather than being killed with
+    // none of them written.
+    expect(src).toContain("const _d1CapRoom = _tickTimeLeftMs() - TICK_MONITOR_RESERVE_MS - D1_LATEST_SYNC_FIXED_MS;");
+    expect(src).toContain("Math.max(D1_LATEST_SYNC_MIN, Math.floor(_d1CapRoom / D1_LATEST_SYNC_ROW_MS)),");
+    expect(src).toContain("cap: _d1Cap,");
     expect(src).toContain("cursor: _d1LatestSyncCursor,");
+    // The ceiling has to be low enough to fit the reserve at the measured RTH
+    // row cost; the floor high enough to still cover the must-sync set.
+    const max = Number(src.match(/const D1_LATEST_SYNC_MAX = (\d+);/)?.[1]);
+    const min = Number(src.match(/const D1_LATEST_SYNC_MIN = (\d+);/)?.[1]);
+    const rowMs = Number(src.match(/const D1_LATEST_SYNC_ROW_MS = (\d+);/)?.[1]);
+    expect(max).toBeLessThanOrEqual(120);
+    expect(min).toBeGreaterThanOrEqual(20);
+    expect(min).toBeLessThan(max);
+    expect(rowMs).toBeGreaterThanOrEqual(1000);
     // The loop has to walk the PLAN, not the raw changed set.
     expect(src).toContain("const _d1Syms = _d1Plan.batch;");
     // And the cursor may only advance over rows the tick actually reached.
@@ -316,9 +350,9 @@ describe("only one heavy phase of the tick at a time", () => {
     // Everything upstream overrunning lands on the last phase. Stopping with
     // a logged count beats being killed mid-sweep with nothing written.
     expect(src).toContain("const TICK_WALL_MS = 900 * 1000;");
-    expect(src).toContain("const SCORING_TAIL_BUDGET_MS = TICK_WALL_MS - 60 * 1000;");
+    expect(src).toContain("const SCORING_TAIL_BUDGET_MS = TICK_WALL_MS - TICK_SAFETY_MS - TICK_MONITOR_RESERVE_MS;");
     // Measured from the tick's claim, like the entry deadline.
-    expect(src).toContain("(_fiveMinHeavyPassSince || _d1Now) + SCORING_TAIL_BUDGET_MS");
+    expect(src).toContain("(_tickClaimedAt || _d1Now) + SCORING_TAIL_BUDGET_MS");
     const loop = src.indexOf("for (let _ci = 0; _ci < _d1Syms.length; _ci += _D1_CHUNK) {");
     expect(loop).toBeGreaterThan(0);
     // The check comes before the chunk's KV hydration — a deadline checked
