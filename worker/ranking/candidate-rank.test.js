@@ -141,6 +141,7 @@ describe("one candidate order", () => {
   it("gives the remaining capacity slot to the highest-ranked eligible candidate, after management", async () => {
     const candidates = [candidate("LOW", 55), candidate("HIGH", 110), candidate("MANAGE", 1, { kanban_stage: "exit" }), candidate("BLOCKED", 120)];
     const attempted = [], opened = [];
+    const orderSeen = {};
     let capacity = 0, inFlight = 0;
     const count = await processRankedCandidates(candidates, {
       scoreCandidate: computeCandidateScore,
@@ -148,6 +149,7 @@ describe("one candidate order", () => {
         expect(inFlight++).toBe(0);
         await Promise.resolve();
         attempted.push(ticker);
+        orderSeen[ticker] = payload.__candidate_order;
         if (ticker === "MANAGE") capacity++;
         else if (ticker !== "BLOCKED" && capacity > 0) { opened.push(ticker); capacity--; }
         expect(payload.rank).toBeLessThanOrEqual(100);
@@ -157,8 +159,37 @@ describe("one candidate order", () => {
     expect(count).toBe(4);
     expect(attempted).toEqual(["MANAGE", "BLOCKED", "HIGH", "LOW"]);
     expect(opened).toEqual(["HIGH"]);
-    expect(candidates[1].payload.__candidate_order).toEqual({ version: CANDIDATE_RANK_VERSION, score: 110, position: 2, total: 3 });
-    expect(candidates[2].payload.__candidate_order).toBeUndefined();
+    expect(orderSeen.HIGH).toEqual({ version: CANDIDATE_RANK_VERSION, score: 110, position: 2, total: 3 });
+    expect(orderSeen.MANAGE).toBeUndefined();
+  });
+
+  // The `*/5` tick died here. Ranking needs every payload at once; processing
+  // does not, and processTradeSimulation grows the payload it is handed, so
+  // holding ~45 of them for the whole pass carried the universe into the
+  // heaviest phase of the tick.
+  it("releases each payload once it has been processed", async () => {
+    const candidates = [candidate("A", 95), candidate("B", 80), candidate("C", 1, { kanban_stage: "exit" })];
+    const heldDuring = [];
+    await processRankedCandidates(candidates, {
+      scoreCandidate: computeCandidateScore,
+      processCandidate: async ({ ticker, payload }) => {
+        expect(payload).toBeTruthy();
+        // Everything already processed is released; this one is still held.
+        heldDuring.push([ticker, candidates.filter((c) => c.payload).length]);
+      },
+    });
+    expect(heldDuring).toEqual([["C", 3], ["A", 2], ["B", 1]]);
+    expect(candidates.every((c) => c.payload === null)).toBe(true);
+  });
+
+  it("releases the payload of a candidate that threw", async () => {
+    const candidates = [candidate("A", 95)];
+    await processRankedCandidates(candidates, {
+      scoreCandidate: computeCandidateScore,
+      onError: () => {},
+      processCandidate: async () => { throw new Error("entry failed"); },
+    });
+    expect(candidates[0].payload).toBeNull();
   });
 
   it("one failed candidate does not suppress later candidates", async () => {

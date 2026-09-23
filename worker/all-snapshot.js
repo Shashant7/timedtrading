@@ -110,7 +110,7 @@ export const ALL_SNAPSHOT_FIELDS = [
   "_business_character", "business_character", "setup_shadow_business_character",
   "__conviction_tier", "conviction_tier", "__conviction_score", "conviction_score",
   "confluence_mode", "_confluence", "confluence",
-  "setup_name", "entry_path", "slice_family",
+  "setup_name", "entry_path", "__entry_path", "slice_family",
   "_cloud_magnet", "_cloud_session_plan", "_cloud_leader", "_cloud_leader_follow",
 ];
 

@@ -246,6 +246,9 @@ export async function processRankedCandidates(candidates, { scoreCandidate, proc
       version: CANDIDATE_RANK_VERSION, score, position: i + 1, total: ranked.length,
     };
   });
+  // `rankCandidateBatch` returns new wrappers, so releasing a wrapper alone
+  // would leave the caller's array still holding the payload.
+  const sourceByTicker = new Map(entries.map((c) => [c.ticker, c]));
   let processed = 0;
   for (const candidate of [...management, ...ranked]) {
     try {
@@ -254,6 +257,14 @@ export async function processRankedCandidates(candidates, { scoreCandidate, proc
     } catch (error) {
       if (onError) onError(error, candidate);
       else throw error;
+    } finally {
+      // Ranking needed every payload at once; processing does not. Holding
+      // them all for the whole pass meant the `*/5` tick carried ~45 full
+      // `timed:latest` payloads -- each of which processTradeSimulation
+      // grows in place -- into the last and heaviest thing it does.
+      candidate.payload = null;
+      const source = sourceByTicker.get(candidate.ticker);
+      if (source) source.payload = null;
     }
   }
   return processed;

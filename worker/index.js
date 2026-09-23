@@ -111534,10 +111534,36 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           "defend", "trim", "exit",
           "just_entered", "hold",
         ]);
-        const executionCandidates = [];
+        // 2026-09-23 — select on the slim index, not on 330 full payloads.
+        // Reading `timed:latest:` for the whole universe to discover which
+        // ~45 tickers are actionable is ~52 MB of allocation in the last and
+        // heaviest phase of the tick, and it is where `exceededMemory` landed
+        // every pass (the `[KANBAN CRON] Processed …` summary had not appeared
+        // in the logs once in 24h). The index carries `kanban_stage` and
+        // `entry_path`, and this same tick wrote it minutes ago. A ticker the
+        // index does not know about still gets read, and the payload-level
+        // check below still runs, so a stale index can only cost extra reads.
+        let _execIndex = null;
+        try {
+          _execIndex = (await readAllSnapshot(KV, { maxAgeMs: 30 * 60 * 1000 }))?.data || null;
+        } catch (_) { /* fall back to reading every payload */ }
+        const _execShortlist = [];
         for (const sym of executionTickers) {
-          if (!sym) continue;
-          if (processedTickers.has(sym)) continue;
+          if (!sym || processedTickers.has(sym)) continue;
+          const _row = _execIndex?.[sym];
+          if (_row) {
+            const _rStage = String(_row.kanban_stage || "").toLowerCase();
+            if (!_ACTIONABLE_STAGES.has(_rStage) && !_row.__entry_path && !_row.entry_path) {
+              _kanbanSkippedNonActionable++;
+              continue;
+            }
+          }
+          _execShortlist.push(sym);
+        }
+        _execIndex = null;
+
+        const executionCandidates = [];
+        for (const sym of _execShortlist) {
           try {
             const latestData = await kvGetJSON(KV, `timed:latest:${sym}`);
             if (!latestData) continue;
@@ -111560,7 +111586,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }),
           onError: (e, { ticker: sym }) => console.error(`[KANBAN CRON] Error processing ${sym}:`, e),
         });
-        console.log(`[KANBAN CRON] Processed ${_kanbanProcessed} actionable, skipped ${_kanbanSkippedNonActionable} non-actionable, of ${executionTickers.length} total`);
+        console.log(`[KANBAN CRON] Processed ${_kanbanProcessed} actionable, skipped ${_kanbanSkippedNonActionable} non-actionable`
+          + `, of ${executionTickers.length} total (${_execShortlist.length} payloads read)`);
       } catch (e) {
         console.error("[KANBAN CRON] top-level error:", e);
       }
