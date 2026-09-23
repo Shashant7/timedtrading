@@ -258,60 +258,77 @@ export function stampCandidatePositions(data, scoreCandidate) {
 // candidates only, again with `"entry"`. A caller that counts rejections
 // counts them on the scan. Returning a falsy payload drops the ticker.
 //
+// The reads are overlapped, the work is not. The scan reads in windows of
+// `scanConcurrency` and then walks the window in order; the entry pass
+// reads one candidate ahead of the one it is processing. Peak retention is
+// therefore `scanConcurrency` payloads, not the batch. This matters because
+// the second read is a cold one: the tail that used to warm every
+// `timed:latest` key alongside this pass now runs after it, and 536
+// sequential cold reads cost the engine tick ~190s.
+//
 // Returns `{ processed, management, entries }` — the log line that reports
 // this pass is the only view anyone has of it.
 export async function processRankedCandidates(tickers, {
-  loadPayload, scoreCandidate, processCandidate, onError,
+  loadPayload, scoreCandidate, processCandidate, onError, scanConcurrency = 6,
 }) {
   const entries = [];
   let processed = 0;
   let managed = 0;
 
-  for (const ticker of tickers) {
-    let payload = null;
+  const read = async (ticker, phase) => {
     try {
-      payload = await loadPayload(ticker, "scan");
+      const payload = await loadPayload(ticker, phase);
+      return payload && typeof payload === "object" ? payload : null;
     } catch (error) {
       if (onError) onError(error, { ticker, payload: null });
       else throw error;
-      continue;
+      return null;
     }
-    if (!payload || typeof payload !== "object") continue;
+  };
 
-    if (!MANAGEMENT_STAGES.has(String(payload.kanban_stage || "").toLowerCase())) {
-      entries.push({
-        ticker,
-        score: capRankByFreshness(payload, scoreCandidate(payload)),
-        quarantined: isQuarantinedByFreshness(payload),
-      });
-      payload = null;
-      continue;
-    }
+  const window = Math.max(1, Math.floor(scanConcurrency) || 1);
+  for (let w = 0; w < tickers.length; w += window) {
+    const batch = tickers.slice(w, w + window);
+    const loaded = await Promise.all(batch.map((t) => read(t, "scan")));
+    for (let b = 0; b < batch.length; b++) {
+      const ticker = batch[b];
+      let payload = loaded[b];
+      loaded[b] = null;
+      if (!payload) continue;
 
-    managed++;
-    try {
-      await processCandidate({ ticker, payload });
-      processed++;
-    } catch (error) {
-      if (onError) onError(error, { ticker, payload });
-      else throw error;
-    } finally {
-      payload = null;
+      if (!MANAGEMENT_STAGES.has(String(payload.kanban_stage || "").toLowerCase())) {
+        entries.push({
+          ticker,
+          score: capRankByFreshness(payload, scoreCandidate(payload)),
+          quarantined: isQuarantinedByFreshness(payload),
+        });
+        payload = null;
+        continue;
+      }
+
+      managed++;
+      try {
+        await processCandidate({ ticker, payload });
+        processed++;
+      } catch (error) {
+        if (onError) onError(error, { ticker, payload });
+        else throw error;
+      } finally {
+        payload = null;
+      }
     }
   }
   entries.sort(compareCandidateRanks);
 
+  // One read in flight ahead of the candidate being processed. Processing
+  // stays strictly sequential -- a later entry must still observe the
+  // earlier entry's capacity usage -- but it no longer waits on KV.
+  let ahead = entries.length ? read(entries[0].ticker, "entry") : null;
   for (let i = 0; i < entries.length; i++) {
     const item = entries[i];
-    let payload = null;
-    try {
-      payload = await loadPayload(item.ticker, "entry");
-    } catch (error) {
-      if (onError) onError(error, { ticker: item.ticker, payload: null });
-      else throw error;
-      continue;
-    }
-    if (!payload || typeof payload !== "object") continue;
+    let payload = await ahead;
+    ahead = i + 1 < entries.length ? read(entries[i + 1].ticker, "entry") : null;
+    if (!payload) continue;
     try {
       // The scan stamped `_ranking` / `_technical_rank` / the tilts onto a
       // payload that has since been dropped, so stamp this copy too. The

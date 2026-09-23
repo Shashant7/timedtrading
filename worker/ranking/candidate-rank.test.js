@@ -203,6 +203,50 @@ describe("one candidate order", () => {
     expect(processedPhases).toEqual([["MANAGE", "scan"], ["HIGH", "entry"], ["LOW", "entry"]]);
   });
 
+  it("overlaps the scan reads but never holds more than the window", async () => {
+    // The second read is a cold one, and 536 sequential cold reads cost the
+    // engine tick ~190s. Overlapping them is the whole point; the window is
+    // what keeps peak retention bounded while doing it.
+    const tickers = Array.from({ length: 20 }, (_, i) => `T${i}`);
+    let inFlight = 0, peak = 0;
+    await processRankedCandidates(tickers, {
+      scanConcurrency: 4,
+      loadPayload: async (ticker) => {
+        peak = Math.max(peak, ++inFlight);
+        await Promise.resolve();
+        inFlight--;
+        return candidate(ticker, 90).payload;
+      },
+      scoreCandidate: computeCandidateScore,
+      processCandidate: async () => {},
+    });
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it("reads one entry ahead of the entry it is processing, and processes strictly in order", async () => {
+    const events = [];
+    let inFlightProcess = 0;
+    await processRankedCandidates(["A", "B", "C"], {
+      scanConcurrency: 1,
+      loadPayload: async (ticker, phase) => {
+        if (phase === "entry") events.push(`read:${ticker}`);
+        return candidate(ticker, { A: 99, B: 80, C: 60 }[ticker]).payload;
+      },
+      scoreCandidate: computeCandidateScore,
+      processCandidate: async ({ ticker }) => {
+        expect(inFlightProcess++).toBe(0);
+        events.push(`process:${ticker}`);
+        await Promise.resolve();
+        inFlightProcess--;
+      },
+    });
+    // B's read is already issued by the time A is processed.
+    expect(events).toEqual([
+      "read:A", "read:B", "process:A", "read:C", "process:B", "process:C",
+    ]);
+  });
+
   it("does not read a management candidate twice", async () => {
     // ~85% of the live batch is `hold`. A blanket second read cost the
     // engine tick three minutes it did not have.
