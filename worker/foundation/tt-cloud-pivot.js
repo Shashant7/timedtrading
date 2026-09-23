@@ -505,6 +505,55 @@ export function cloudPivotFollowersOf(leaderSym) {
   return [...out];
 }
 
+/** Every symbol whose 10m curl the leader/follow resolution needs to see. */
+export function cloudLeaderFollowUniverse() {
+  const out = new Set();
+  for (const leader of CLOUD_PIVOT_LEADERS) {
+    out.add(leader);
+    for (const f of cloudPivotFollowersOf(leader)) out.add(f);
+  }
+  return [...out];
+}
+
+/**
+ * Leader/follow resolution from 10m curls alone, so a caller that reads one
+ * payload at a time can resolve it without holding the universe in memory.
+ * `curlBySym` is `{ SYM: detectTenMinCurl(payload) }` over
+ * `cloudLeaderFollowUniverse()`. Returns `{ SYM: { _cloud_leader?,
+ * _cloud_leader_follow? } }` — stamp these onto a payload before ranking it,
+ * because the desk score pays +25 for a leader and +20 for a follow.
+ */
+export function resolveCloudLeaderFollowStamps(curlBySym = {}) {
+  const curlOf = (sym) => (curlBySym instanceof Map ? curlBySym.get(sym) : curlBySym?.[sym]) || null;
+  const stamps = {};
+  for (const leader of CLOUD_PIVOT_LEADERS) {
+    const leadCurl = curlOf(leader);
+    if (!leadCurl?.direction) continue;
+    stamps[leader] = {
+      ...(stamps[leader] || {}),
+      _cloud_leader: {
+        role: "leader",
+        symbol: leader,
+        direction: leadCurl.direction,
+        trigger: leadCurl.trigger,
+      },
+    };
+    for (const f of cloudPivotFollowersOf(leader)) {
+      const folCurl = curlOf(f);
+      if (!folCurl || folCurl.direction !== leadCurl.direction) continue;
+      stamps[f] = {
+        ...(stamps[f] || {}),
+        _cloud_leader_follow: {
+          leader,
+          direction: leadCurl.direction,
+          trigger: folCurl.trigger,
+        },
+      };
+    }
+  }
+  return stamps;
+}
+
 /**
  * Stamp `_cloud_leader_follow` on same-side follower curls when a leader prints 10m 5/12.
  * `rows` is `[{ sym, t }]`. Mutates ticker objects in place.
@@ -517,28 +566,16 @@ export function annotateCloudPivotLeaderFollows(rows = []) {
     if (!sym || !t || typeof t !== "object") continue;
     bySym.set(sym, t);
   }
-  for (const leader of CLOUD_PIVOT_LEADERS) {
-    const leadTd = bySym.get(leader);
-    if (!leadTd) continue;
-    const leadCurl = detectTenMinCurl(leadTd);
-    if (!leadCurl?.direction) continue;
-    leadTd._cloud_leader = {
-      role: "leader",
-      symbol: leader,
-      direction: leadCurl.direction,
-      trigger: leadCurl.trigger,
-    };
-    for (const f of cloudPivotFollowersOf(leader)) {
-      const fol = bySym.get(f);
-      if (!fol) continue;
-      const folCurl = detectTenMinCurl(fol);
-      if (!folCurl || folCurl.direction !== leadCurl.direction) continue;
-      fol._cloud_leader_follow = {
-        leader,
-        direction: leadCurl.direction,
-        trigger: folCurl.trigger,
-      };
-    }
+  const curls = {};
+  for (const sym of cloudLeaderFollowUniverse()) {
+    const t = bySym.get(sym);
+    if (t) curls[sym] = detectTenMinCurl(t);
+  }
+  for (const [sym, stamp] of Object.entries(resolveCloudLeaderFollowStamps(curls))) {
+    const t = bySym.get(sym);
+    if (!t) continue;
+    if (stamp._cloud_leader) t._cloud_leader = stamp._cloud_leader;
+    if (stamp._cloud_leader_follow) t._cloud_leader_follow = stamp._cloud_leader_follow;
   }
 }
 
@@ -1252,25 +1289,23 @@ export function rankCloudPivotDeskRow(ticker, payload = {}, opts = {}) {
  * Book-wide Cloud Pivot desk — the super-minion pass.
  * Annotates leader/follower curls, then ranks fire / stalk / leader / if-then.
  */
-export function buildCloudPivotDesk(rows = [], opts = {}) {
-  const list = Array.isArray(rows) ? rows : [];
-  try { annotateCloudPivotLeaderFollows(list); } catch { /* */ }
+/**
+ * Assemble the desk from rows `rankCloudPivotDeskRow` already produced.
+ *
+ * Split out so a caller streaming one payload at a time (the five-minute
+ * scoring tick) can rank as it goes and retain only the ranked rows, instead
+ * of holding every payload to hand them all to `buildCloudPivotDesk`.
+ */
+export function assembleCloudPivotDesk(ranked = [], opts = {}) {
   const minScore = Number.isFinite(Number(opts.minScore)) ? Number(opts.minScore) : 30;
   const limit = Math.min(Math.max(Number(opts.limit) || 24, 1), 80);
-  const items = [];
-  for (const row of list) {
-    const sym = String(row?.sym || row?.ticker || row?.t?.ticker || "").toUpperCase();
-    const t = row?.t && typeof row.t === "object" ? row.t : row;
-    if (!sym || !t || typeof t !== "object") continue;
-    const ranked = rankCloudPivotDeskRow(sym, t, opts);
-    if (!ranked || ranked.score < minScore) continue;
-    items.push(ranked);
-  }
+  const items = (Array.isArray(ranked) ? ranked : [])
+    .filter((x) => x && Number(x.score) >= minScore);
   items.sort((a, b) => (b.score - a.score) || a.ticker.localeCompare(b.ticker));
   const watching = items.slice(0, limit);
   return {
     generated_at: Date.now(),
-    scanned: list.length,
+    scanned: Number(opts.scanned) || items.length,
     count: watching.length,
     watching,
     fires: watching.filter((x) => x.role === "fire"),
@@ -1278,6 +1313,20 @@ export function buildCloudPivotDesk(rows = [], opts = {}) {
     catalysts: watching.filter((x) => x.role === "catalyst" || x.session_plan),
     stalks: watching.filter((x) => x.role === "stalk"),
   };
+}
+
+export function buildCloudPivotDesk(rows = [], opts = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+  try { annotateCloudPivotLeaderFollows(list); } catch { /* */ }
+  const ranked = [];
+  for (const row of list) {
+    const sym = String(row?.sym || row?.ticker || row?.t?.ticker || "").toUpperCase();
+    const t = row?.t && typeof row.t === "object" ? row.t : row;
+    if (!sym || !t || typeof t !== "object") continue;
+    const r = rankCloudPivotDeskRow(sym, t, opts);
+    if (r) ranked.push(r);
+  }
+  return assembleCloudPivotDesk(ranked, { ...opts, scanned: list.length });
 }
 
 /**

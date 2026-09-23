@@ -138,37 +138,238 @@ describe("one candidate order", () => {
     }
   });
 
+  // A loader that hands out a FRESH payload every call, the way a KV read
+  // does. Anything the pass retains from the scan is therefore invisible to
+  // processing, which is the property under test.
+  function loaderFor(spec) {
+    const calls = [];
+    const load = async (ticker, phase) => {
+      calls.push(`${ticker}:${phase}`);
+      const def = spec[ticker];
+      if (!def) return null;
+      const p = candidate(ticker, def.raw, def.extra || {}).payload;
+      p.__load_phase = phase;
+      return p;
+    };
+    return { tickers: Object.keys(spec), load, calls };
+  }
+
   it("gives the remaining capacity slot to the highest-ranked eligible candidate, after management", async () => {
-    const candidates = [candidate("LOW", 55), candidate("HIGH", 110), candidate("MANAGE", 1, { kanban_stage: "exit" }), candidate("BLOCKED", 120)];
+    const { tickers, load } = loaderFor({
+      LOW: { raw: 55 }, HIGH: { raw: 110 },
+      MANAGE: { raw: 1, extra: { kanban_stage: "exit" } }, BLOCKED: { raw: 120 },
+    });
     const attempted = [], opened = [];
+    const orderSeen = {};
     let capacity = 0, inFlight = 0;
-    const count = await processRankedCandidates(candidates, {
+    const stats = await processRankedCandidates(tickers, {
+      loadPayload: load,
       scoreCandidate: computeCandidateScore,
       processCandidate: async ({ ticker, payload }) => {
         expect(inFlight++).toBe(0);
         await Promise.resolve();
         attempted.push(ticker);
+        orderSeen[ticker] = payload.__candidate_order;
         if (ticker === "MANAGE") capacity++;
         else if (ticker !== "BLOCKED" && capacity > 0) { opened.push(ticker); capacity--; }
         expect(payload.rank).toBeLessThanOrEqual(100);
         inFlight--;
       },
     });
-    expect(count).toBe(4);
+    expect(stats).toEqual({ processed: 4, management: 1, entries: 3, deferred: 0 });
     expect(attempted).toEqual(["MANAGE", "BLOCKED", "HIGH", "LOW"]);
     expect(opened).toEqual(["HIGH"]);
-    expect(candidates[1].payload.__candidate_order).toEqual({ version: CANDIDATE_RANK_VERSION, score: 110, position: 2, total: 3 });
-    expect(candidates[2].payload.__candidate_order).toBeUndefined();
+    expect(orderSeen.HIGH).toEqual({ version: CANDIDATE_RANK_VERSION, score: 110, position: 2, total: 3 });
+    expect(orderSeen.MANAGE).toBeUndefined();
+  });
+
+  // The `*/5` tick died here. The live shortlist is 268 tickers and a
+  // `timed:latest` payload is ~165 KB of JSON, so a pass that holds the
+  // batch in order to rank it is past the 128 MB isolate on its own.
+  it("ranks the whole batch without ever carrying it", async () => {
+    const { tickers, load, calls } = loaderFor({
+      LOW: { raw: 55 }, HIGH: { raw: 110 }, MANAGE: { raw: 1, extra: { kanban_stage: "exit" } },
+    });
+    const processedPhases = [];
+    await processRankedCandidates(tickers, {
+      loadPayload: load,
+      scoreCandidate: computeCandidateScore,
+      processCandidate: async ({ ticker, payload }) => processedPhases.push([ticker, payload.__load_phase]),
+    });
+    // Every ticker is read exactly once on the scan, management is handled
+    // there and never re-read, and every entry payload that reaches
+    // processing was read for it — the scan's copy is gone.
+    expect(calls).toEqual(["LOW:scan", "HIGH:scan", "MANAGE:scan", "HIGH:entry", "LOW:entry"]);
+    expect(processedPhases).toEqual([["MANAGE", "scan"], ["HIGH", "entry"], ["LOW", "entry"]]);
+  });
+
+  it("overlaps the scan reads but never holds more than the window", async () => {
+    // The second read is a cold one, and 536 sequential cold reads cost the
+    // engine tick ~190s. Overlapping them is the whole point; the window is
+    // what keeps peak retention bounded while doing it.
+    const tickers = Array.from({ length: 20 }, (_, i) => `T${i}`);
+    let inFlight = 0, peak = 0;
+    await processRankedCandidates(tickers, {
+      scanConcurrency: 4,
+      loadPayload: async (ticker) => {
+        peak = Math.max(peak, ++inFlight);
+        await Promise.resolve();
+        inFlight--;
+        return candidate(ticker, 90).payload;
+      },
+      scoreCandidate: computeCandidateScore,
+      processCandidate: async () => {},
+    });
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it("reads one entry ahead of the entry it is processing, and processes strictly in order", async () => {
+    const events = [];
+    let inFlightProcess = 0;
+    await processRankedCandidates(["A", "B", "C"], {
+      scanConcurrency: 1,
+      loadPayload: async (ticker, phase) => {
+        if (phase === "entry") events.push(`read:${ticker}`);
+        return candidate(ticker, { A: 99, B: 80, C: 60 }[ticker]).payload;
+      },
+      scoreCandidate: computeCandidateScore,
+      processCandidate: async ({ ticker }) => {
+        expect(inFlightProcess++).toBe(0);
+        events.push(`process:${ticker}`);
+        await Promise.resolve();
+        inFlightProcess--;
+      },
+    });
+    // B's read is already issued by the time A is processed.
+    expect(events).toEqual([
+      "read:A", "read:B", "process:A", "read:C", "process:B", "process:C",
+    ]);
+  });
+
+  it("does not read a management candidate twice", async () => {
+    // ~85% of the live batch is `hold`. A blanket second read cost the
+    // engine tick three minutes it did not have.
+    const { tickers, load, calls } = loaderFor({
+      H1: { raw: 40, extra: { kanban_stage: "hold" } },
+      H2: { raw: 40, extra: { kanban_stage: "defend" } },
+      E1: { raw: 90 },
+    });
+    await processRankedCandidates(tickers, {
+      loadPayload: load, scoreCandidate: computeCandidateScore, processCandidate: async () => {},
+    });
+    expect(calls.filter((c) => c.startsWith("H1"))).toEqual(["H1:scan"]);
+    expect(calls.filter((c) => c.startsWith("H2"))).toEqual(["H2:scan"]);
+    expect(calls.filter((c) => c.startsWith("E1"))).toEqual(["E1:scan", "E1:entry"]);
+  });
+
+  it("re-stamps the ranking on the copy it processes, keeping the score that set the order", async () => {
+    const { tickers, load } = loaderFor({ A: { raw: 95 }, B: { raw: 80 } });
+    const seen = [];
+    await processRankedCandidates(tickers, {
+      loadPayload: load,
+      scoreCandidate: computeCandidateScore,
+      processCandidate: async ({ ticker, payload }) => seen.push([ticker, payload._ranking?.final_score, payload.__candidate_order?.score]),
+    });
+    expect(seen).toEqual([["A", 95, 95], ["B", 80, 80]]);
+  });
+
+  it("drops a ticker the loader rejects, and tells the loader which pass it is on", async () => {
+    const phases = [];
+    const attempted = [];
+    const { processed } = await processRankedCandidates(["A", "GONE", "B"], {
+      loadPayload: async (ticker, phase) => {
+        phases.push(`${ticker}:${phase}`);
+        if (ticker === "GONE") return null;
+        return candidate(ticker, 90).payload;
+      },
+      scoreCandidate: computeCandidateScore,
+      processCandidate: async ({ ticker }) => { attempted.push(ticker); },
+    });
+    expect(processed).toBe(2);
+    expect(attempted).toEqual(["A", "B"]);
+    // GONE is rejected on the scan and never re-read, so a caller counting
+    // rejections counts it once.
+    expect(phases.filter((p) => p.startsWith("GONE"))).toEqual(["GONE:scan"]);
   });
 
   it("one failed candidate does not suppress later candidates", async () => {
+    const { tickers, load } = loaderFor({ A: { raw: 95 }, B: { raw: 80 } });
     const onError = vi.fn(), attempted = [];
-    const n = await processRankedCandidates([candidate("A", 95), candidate("B", 80)], {
+    const { processed } = await processRankedCandidates(tickers, {
+      loadPayload: load,
       scoreCandidate: computeCandidateScore, onError,
       processCandidate: async ({ ticker }) => { attempted.push(ticker); if (ticker === "A") throw new Error("entry failed"); },
     });
-    expect(n).toBe(1);
+    expect(processed).toBe(1);
     expect(attempted).toEqual(["A", "B"]);
     expect(onError).toHaveBeenCalledOnce();
+  });
+
+  it("a read that throws loses one ticker, not the pass", async () => {
+    const onError = vi.fn(), attempted = [];
+    const { processed } = await processRankedCandidates(["A", "BOOM", "B"], {
+      loadPayload: async (ticker) => {
+        if (ticker === "BOOM") throw new Error("KV read failed");
+        return candidate(ticker, 90).payload;
+      },
+      scoreCandidate: computeCandidateScore, onError,
+      processCandidate: async ({ ticker }) => { attempted.push(ticker); },
+    });
+    expect(processed).toBe(2);
+    expect(attempted).toEqual(["A", "B"]);
+    expect(onError).toHaveBeenCalledOnce();
+  });
+
+  // Cloudflare kills a cron at 900s and takes the deferred tail and position
+  // reconcile with it. At market ramp this pass went from ~200s to ~480s on
+  // top of ~220s of scoring and the engine tick overran, so the pass has to
+  // give the rest of the tick its time back.
+  describe("the entry pass stops at the tick's deadline", () => {
+    it("drops the bottom of the ranked list, never the top", async () => {
+      const { tickers, load } = loaderFor({
+        A: { raw: 99 }, B: { raw: 80 }, C: { raw: 60 }, D: { raw: 40 },
+      });
+      const attempted = [];
+      let clock = 1_000;
+      const stats = await processRankedCandidates(tickers, {
+        deadlineAt: 1_100,
+        loadPayload: load,
+        scoreCandidate: computeCandidateScore,
+        processCandidate: async ({ ticker }) => { attempted.push(ticker); clock += 60; },
+        now: () => clock,
+      });
+      expect(attempted).toEqual(["A", "B"]);
+      expect(stats.deferred).toBe(2);
+      expect(stats.entries).toBe(4);
+      expect(stats.processed).toBe(2);
+    });
+
+    it("never defers management, which is open risk rather than a new position", async () => {
+      const { tickers, load } = loaderFor({
+        M1: { raw: 5, extra: { kanban_stage: "exit" } },
+        M2: { raw: 5, extra: { kanban_stage: "defend" } },
+        E1: { raw: 90 },
+      });
+      const attempted = [];
+      const stats = await processRankedCandidates(tickers, {
+        deadlineAt: 1, // already past
+        loadPayload: load,
+        scoreCandidate: computeCandidateScore,
+        processCandidate: async ({ ticker }) => { attempted.push(ticker); },
+      });
+      expect(attempted).toEqual(["M1", "M2"]);
+      expect(stats).toEqual({ processed: 2, management: 2, entries: 1, deferred: 1 });
+    });
+
+    it("processes everything when no deadline is given", async () => {
+      const { tickers, load } = loaderFor({ A: { raw: 99 }, B: { raw: 80 } });
+      const stats = await processRankedCandidates(tickers, {
+        loadPayload: load,
+        scoreCandidate: computeCandidateScore,
+        processCandidate: async () => {},
+      });
+      expect(stats).toEqual({ processed: 2, management: 0, entries: 2, deferred: 0 });
+    });
   });
 });

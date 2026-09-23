@@ -453,36 +453,36 @@ const CRYPTO_TF_LOOKBACK_MS = {
   "M":   95 * 24 * 60 * 60 * 1000,
 };
 
-async function _batchUpsertBars(db, barsBySymbol, tf) {
-  const updatedAt = Date.now();
-  const stmts = [];
-  for (const [sym, bars] of Object.entries(barsBySymbol)) {
-    if (!Array.isArray(bars)) continue;
-    for (const bar of bars) {
-      const ts = new Date(bar.t).getTime();
-      if (!Number.isFinite(ts)) continue;
-      const { o, h, l, c, v } = bar;
-      if (![o, h, l, c].every(x => Number.isFinite(x))) continue;
-      stmts.push(
-        db.prepare(
-          `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-           ON CONFLICT(ticker, tf, ts) DO UPDATE SET
-             o=excluded.o, h=excluded.h, l=excluded.l, c=excluded.c, v=excluded.v,
-             updated_at=excluded.updated_at
-           WHERE ticker_candles.c != excluded.c
-              OR ticker_candles.h != excluded.h
-              OR ticker_candles.l != excluded.l
-              OR ticker_candles.v IS NOT excluded.v`
-        ).bind(normTicker(sym), tf, ts, o, h, l, c, v != null ? v : null, updatedAt)
-      );
-    }
-  }
+const CANDLE_UPSERT_SQL =
+  `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
+   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+   ON CONFLICT(ticker, tf, ts) DO UPDATE SET
+     o=excluded.o, h=excluded.h, l=excluded.l, c=excluded.c, v=excluded.v,
+     updated_at=excluded.updated_at
+   WHERE ticker_candles.c != excluded.c
+      OR ticker_candles.h != excluded.h
+      OR ticker_candles.l != excluded.l
+      OR ticker_candles.v IS NOT excluded.v`;
 
+const CANDLE_BATCH_SIZE = 500;
+
+// 2026-09-23 — flushes as it goes rather than materialising a statement per
+// bar for the whole universe first. A top-of-hour pass is ~10k bars, and the
+// old version built all 10k bound statements — each re-preparing the same
+// ~450-char SQL from a fresh template literal — before the first `db.batch`.
+// Peak is now one batch of 500, and the SQL is prepared once per call.
+// Consumed symbols are released from the caller's map on the way through, so
+// the fetched bars do not stay resident behind the D1 writes.
+export async function _batchUpsertBars(db, barsBySymbol, tf) {
+  const updatedAt = Date.now();
+  const prepared = db.prepare(CANDLE_UPSERT_SQL);
   let upserted = 0, errors = 0;
-  const BATCH_SIZE = 500;
-  for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
-    const chunk = stmts.slice(i, i + BATCH_SIZE);
+  let batch = [];
+
+  const flush = async () => {
+    if (batch.length === 0) return;
+    const chunk = batch;
+    batch = [];
     try {
       await db.batch(chunk);
       upserted += chunk.length;
@@ -494,7 +494,23 @@ async function _batchUpsertBars(db, barsBySymbol, tf) {
         catch (_) { errors += small.length; }
       }
     }
+  };
+
+  for (const sym of Object.keys(barsBySymbol)) {
+    const bars = barsBySymbol[sym];
+    if (!Array.isArray(bars)) continue;
+    const ticker = normTicker(sym);
+    for (const bar of bars) {
+      const ts = new Date(bar.t).getTime();
+      if (!Number.isFinite(ts)) continue;
+      const { o, h, l, c, v } = bar;
+      if (![o, h, l, c].every(x => Number.isFinite(x))) continue;
+      batch.push(prepared.bind(ticker, tf, ts, o, h, l, c, v != null ? v : null, updatedAt));
+      if (batch.length >= CANDLE_BATCH_SIZE) await flush();
+    }
+    delete barsBySymbol[sym];
   }
+  await flush();
   return { upserted, errors };
 }
 

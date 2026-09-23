@@ -113,27 +113,52 @@ export async function runChartCandleCalendar(env, ctx, deps = {}) {
   const tasks = getChartCalendarTasks();
   if (!tasks.length || !env?.DB) return { ran: false };
 
-  const tickers = await getChartUniverse(env, deps);
-  if (!tickers.length) return { ran: false, tickers: 0 };
+  // 2026-09-23 — this pass and the every-5-minute TwelveData bar pass are the
+  // same work (universe-wide REST fetch plus a D1 upsert) on two schedules,
+  // and they both start at :05 past the hour. Two of them in one isolate was
+  // what remained of the monolith's `exceededMemory` once the bar pass had a
+  // lease of its own. `claimBarLane` is that same lease, and this pass takes
+  // it first: it runs earlier in the tick and only once an hour, so the
+  // frequent lane is the one that yields. Returns a release function, or
+  // null when the lane is busy.
+  const claimBarLane = typeof deps.claimBarLane === "function" ? deps.claimBarLane : null;
+  const release = claimBarLane ? claimBarLane() : () => {};
+  if (!release) return { ran: false, skipped: "bar_lane_busy" };
+
+  let tickers;
+  try {
+    tickers = await getChartUniverse(env, deps);
+  } catch (e) {
+    release();
+    throw e;
+  }
+  if (!tickers.length) {
+    release();
+    return { ran: false, tickers: 0 };
+  }
 
   const et = getNyEtParts();
   const run = async () => {
     let totalUpserted = 0;
     let totalErrors = 0;
-    for (const task of tasks) {
-      for (let i = 0; i < tickers.length; i += CHUNK_SIZE) {
-        const chunk = tickers.slice(i, i + CHUNK_SIZE);
-        const r = await backfillChunk(env, chunk, task.tf, task.sinceDays);
-        totalUpserted += r.upserted;
-        totalErrors += r.errors;
-        if (i + CHUNK_SIZE < tickers.length) {
-          await new Promise((res) => setTimeout(res, CHUNK_PAUSE_MS));
+    try {
+      for (const task of tasks) {
+        for (let i = 0; i < tickers.length; i += CHUNK_SIZE) {
+          const chunk = tickers.slice(i, i + CHUNK_SIZE);
+          const r = await backfillChunk(env, chunk, task.tf, task.sinceDays);
+          totalUpserted += r.upserted;
+          totalErrors += r.errors;
+          if (i + CHUNK_SIZE < tickers.length) {
+            await new Promise((res) => setTimeout(res, CHUNK_PAUSE_MS));
+          }
         }
+        console.log(
+          `[CHART_CALENDAR] ${task.label} tf=${task.tf} et=${et.hour}:${String(et.minute).padStart(2, "0")} `
+          + `tickers=${tickers.length} upserted=${totalUpserted} errors=${totalErrors}`,
+        );
       }
-      console.log(
-        `[CHART_CALENDAR] ${task.label} tf=${task.tf} et=${et.hour}:${String(et.minute).padStart(2, "0")} `
-        + `tickers=${tickers.length} upserted=${totalUpserted} errors=${totalErrors}`,
-      );
+    } finally {
+      release();
     }
     return { ran: true, tasks: tasks.map((t) => t.tf), tickers: tickers.length, upserted: totalUpserted, errors: totalErrors };
   };

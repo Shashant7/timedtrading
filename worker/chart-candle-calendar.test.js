@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { appendFormingChartCandle } from "./chart-candle-calendar.js";
+import { appendFormingChartCandle, runChartCandleCalendar } from "./chart-candle-calendar.js";
 import { expectedIntradayBuckets } from "./foundation/trading-calendar.js";
 
 function kvWithPrice(sym, snap) {
@@ -53,5 +53,100 @@ describe("appendFormingChartCandle 60m", () => {
 
     expect(out.forming).toBe(false);
     expect(out.candles).toEqual(candles);
+  });
+});
+
+describe("runChartCandleCalendar shares the bar lane", () => {
+  // The calendar backfill and the every-5-minute TwelveData bar pass are the
+  // same work on two schedules and both start at :05 past the hour. Running
+  // both in one isolate is what was left of the monolith's `exceededMemory`
+  // once the bar pass had a lease of its own.
+  afterEach(() => vi.useRealTimers());
+
+  // 10:05 ET on a Monday — `getChartCalendarTasks` gives hourly 1H + 4H.
+  const AT_TASK_TIME = Date.UTC(2026, 5, 22, 14, 5);
+
+  // Enough of a D1 handle that the backfill's upsert path is quiet; these
+  // tests are about who holds the lane, not about what lands in the table.
+  const db = () => ({
+    prepare: () => ({ bind: () => ({}) }),
+    batch: async (stmts) => stmts.map(() => ({ success: true })),
+  });
+
+  function envWithUniverse() {
+    return {
+      DB: db(),
+      KV_TIMED: { async get(key) { return key === "timed:tickers" ? JSON.stringify(["SPY"]) : null; } },
+    };
+  }
+
+  it("does not start when the lane is already held", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(AT_TASK_TIME);
+    const ctx = { waitUntil: vi.fn() };
+
+    const out = await runChartCandleCalendar(envWithUniverse(), ctx, { claimBarLane: () => null });
+
+    expect(out).toEqual({ ran: false, skipped: "bar_lane_busy" });
+    expect(ctx.waitUntil).not.toHaveBeenCalled();
+  });
+
+  it("holds the lane across the deferred backfill and releases it at the end", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(AT_TASK_TIME);
+    let held = false;
+    const deferred = [];
+    const ctx = { waitUntil: (p) => deferred.push(p) };
+
+    const out = await runChartCandleCalendar(envWithUniverse(), ctx, {
+      SECTOR_MAP: { SPY: "ETF" },
+      claimBarLane: () => { held = true; return () => { held = false; }; },
+    });
+
+    // Claimed synchronously, before the caller can reach the bar pass.
+    expect(out.scheduled).toBe(true);
+    expect(held).toBe(true);
+    expect(deferred).toHaveLength(1);
+
+    vi.useRealTimers();
+    await deferred[0];
+    expect(held).toBe(false);
+  });
+
+  it("releases the lane when there is nothing to back fill", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(AT_TASK_TIME);
+    let held = false;
+
+    const out = await runChartCandleCalendar(
+      { DB: db(), KV_TIMED: { async get() { return null; } } },
+      { waitUntil: vi.fn() },
+      { claimBarLane: () => { held = true; return () => { held = false; }; } },
+    );
+
+    expect(out).toEqual({ ran: false, tickers: 0 });
+    expect(held).toBe(false);
+  });
+
+  it("never claims on a tick with no calendar tasks", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.UTC(2026, 5, 22, 14, 7)); // 10:07 ET — no tasks.
+    const claim = vi.fn();
+
+    const out = await runChartCandleCalendar(envWithUniverse(), { waitUntil: vi.fn() }, { claimBarLane: claim });
+
+    expect(out).toEqual({ ran: false });
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it("still runs for a caller that passes no lease", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(AT_TASK_TIME);
+    const ctx = { waitUntil: vi.fn() };
+
+    const out = await runChartCandleCalendar(envWithUniverse(), ctx, { SECTOR_MAP: { SPY: "ETF" } });
+
+    expect(out.scheduled).toBe(true);
+    expect(ctx.waitUntil).toHaveBeenCalled();
   });
 });
