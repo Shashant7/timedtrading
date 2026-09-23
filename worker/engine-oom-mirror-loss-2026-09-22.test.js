@@ -324,4 +324,19 @@ describe("the monolith pre-warms one endpoint at a time", () => {
     // lease expires.
     expect(src.slice(runner, runner + 600)).toMatch(/finally\s*\{\s*_fiveMinPrewarmSince = 0;/);
   });
+
+  it("leases the bar pass too, since that is the one that outlives its tick", () => {
+    // The TwelveData pass is paced, not slow: four tiers at 2.5s between
+    // batches runs 300-600s against a 5-minute cadence. Two ticks died
+    // 59 ms apart, which is the isolate going, not one invocation.
+    expect(src).toContain("let _barCronSince = 0;");
+    expect(src).toContain("const BAR_CRON_LEASE_MS =");
+    expect(src).toContain("[TD CRON] skipped: the previous bar pass has been running");
+    const dispatch = src.indexOf("DataProvider.cronFetchLatest(env, allTickers)");
+    expect(dispatch).toBeGreaterThan(-1);
+    // Claimed before the dispatch and released when the pass settles —
+    // `.finally`, not `.then`, or a failed fetch wedges the lane.
+    expect(src.lastIndexOf("_barCronSince = Date.now();", dispatch)).toBeGreaterThan(-1);
+    expect(src.slice(dispatch, dispatch + 1200)).toContain(".finally(() => { _barCronSince = 0; })");
+  });
 });

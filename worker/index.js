@@ -1028,6 +1028,13 @@ const FIVE_MIN_HEAVY_LEASE_MS = 10 * 60 * 1000;
 // able to skip the other.
 let _fiveMinPrewarmSince = 0;
 const FIVE_MIN_PREWARM_LEASE_MS = 10 * 60 * 1000;
+// And for the monolith's TwelveData bar pass, which is paced rather than
+// slow: four tiers at 2.5s between batches routinely runs 300-600s against
+// a 5-minute cadence, so two or three were always resident together.
+let _barCronSince = 0;
+// A healthy pass tops out around 10 min at top-of-hour; past 15 the holder
+// is gone. One skipped slot costs a half-slice rotation, not a refresh.
+const BAR_CRON_LEASE_MS = 15 * 60 * 1000;
 // NY-session day key ("YYYY-MM-DD") for a ms timestamp or Date.
 //
 // 2026-09-05: this helper was referenced (calibration guards, re-confirm
@@ -108002,28 +108009,48 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // Error / success tracking still works (recordCronFailure /
           // recordCronSuccess) — those records are observability and
           // don't need to block the cron either.
-          const allTickers = await getChartUniverse(env, {
-            SECTOR_MAP,
-            d1GetActiveUserTickersCached,
-            blocklist: CHART_SYMBOL_BLOCKLIST,
-          });
-          ctx.waitUntil(
-            DataProvider.cronFetchLatest(env, allTickers)
-              .then(result => {
-                if (result) {
-                  console.log(`[TD CRON] Bars: ${result.upserted} upserted, ${result.errors} errors`);
-                  if (_isTopOfHour) recordCronSuccess(env, "bar_cron_aggregated").catch(() => {});
-                }
-              })
-              .catch(err => {
-                console.error("[TD CRON] Error:", err);
-                recordCronFailure(env, {
-                  op: "bar_cron_td",
-                  error: String(err?.message || err),
-                  caller: "scheduled_event",
-                }).catch(() => {});
-              })
-          );
+          //
+          // 2026-09-23 — ONE bar-cron pass per isolate. This pass is paced
+          // (2.5s between TwelveData batches, four tiers) and routinely
+          // runs 300-600s, against a 5-minute cadence: two and sometimes
+          // three of them were always in flight together, in the same
+          // isolate, each holding its own universe-wide bar map. The
+          // monolith died with `exceededMemory` on pairs of invocations
+          // 59 ms apart — the signature of the isolate going, not one
+          // invocation. Skipping the overlapping tick costs one rotation
+          // of the half-slice; the kill cost the whole pass's upserts.
+          const _barAge = _barCronSince ? Date.now() - _barCronSince : 0;
+          if (_barCronSince && _barAge < BAR_CRON_LEASE_MS) {
+            console.warn(`[TD CRON] skipped: the previous bar pass has been running ${Math.round(_barAge / 1000)}s in this isolate`);
+          } else {
+            if (_barCronSince) {
+              console.warn(`[TD CRON] lease expired after ${Math.round(_barAge / 1000)}s — the holder died without releasing. Proceeding.`);
+            }
+            _barCronSince = Date.now();
+            const allTickers = await getChartUniverse(env, {
+              SECTOR_MAP,
+              d1GetActiveUserTickersCached,
+              blocklist: CHART_SYMBOL_BLOCKLIST,
+            });
+            ctx.waitUntil(
+              DataProvider.cronFetchLatest(env, allTickers)
+                .then(result => {
+                  if (result) {
+                    console.log(`[TD CRON] Bars: ${result.upserted} upserted, ${result.errors} errors`);
+                    if (_isTopOfHour) recordCronSuccess(env, "bar_cron_aggregated").catch(() => {});
+                  }
+                })
+                .catch(err => {
+                  console.error("[TD CRON] Error:", err);
+                  recordCronFailure(env, {
+                    op: "bar_cron_td",
+                    error: String(err?.message || err),
+                    caller: "scheduled_event",
+                  }).catch(() => {});
+                })
+                .finally(() => { _barCronSince = 0; })
+            );
+          }
           // ── TwelveData crypto bars ──
           // P1 PERF 2026-05-20: defer to ctx.waitUntil. The scoring path
           // at ~line 75371 also calls DataProvider.cronFetchCrypto in
