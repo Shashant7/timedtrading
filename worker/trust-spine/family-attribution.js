@@ -65,11 +65,72 @@ export function isContinuationDecision(row) {
   return false;
 }
 
+// A trade has to have gone somewhere before "how much of it did we keep?"
+// means anything. Below this the ratio is division by noise: 2026-09-22,
+// ULTA ran +0.104% and closed -5.13%, scoring keep = -49.21. Averaged over
+// the 47-trade cloud-pivot window that ONE row moved avg_mfe_keep_rate by
+// -1.05 — on its own more than the entire 0.35 widen threshold — and the
+// family's widen_ready was being decided by it. Such trades are real losses
+// and still count everywhere else (expectancy, profit factor, win rate);
+// they just have no capture rate to report.
+export const MFE_KEEP_MIN_EXCURSION_PCT = 0.5;
+
+/** Fraction of the offered move a family must hold on to before it widens. */
+export const MFE_KEEP_WIDEN_THRESHOLD = 0.35;
+
 export function mfeKeepRate(pnlPct, mfePct) {
   const pnl = Number(pnlPct);
   const mfe = Number(mfePct);
-  if (!Number.isFinite(pnl) || !Number.isFinite(mfe) || mfe <= 0) return null;
+  if (!Number.isFinite(pnl) || !Number.isFinite(mfe)) return null;
+  if (mfe < MFE_KEEP_MIN_EXCURSION_PCT) return null;
   return Math.round((pnl / mfe) * 1000) / 1000;
+}
+
+/**
+ * Aggregate capture: total percent kept over total percent offered.
+ *
+ * The per-trade mean answers "what did the typical trade keep?" and is
+ * hostage to its smallest denominators. This answers "what did the family
+ * keep?", weights every trade by the size of the move it was given, and no
+ * single row can dominate it. Both must clear the bar to widen.
+ */
+export function aggregateMfeCapture(closed) {
+  let pnlSum = 0;
+  let mfeSum = 0;
+  let n = 0;
+  for (const c of closed || []) {
+    const mfe = Number(c?.mfe_pct);
+    const pnl = Number(c?.pnl_pct);
+    if (!Number.isFinite(mfe) || mfe <= 0 || !Number.isFinite(pnl)) continue;
+    pnlSum += pnl;
+    mfeSum += mfe;
+    n++;
+  }
+  if (n === 0 || mfeSum <= 0) return null;
+  return Math.round((pnlSum / mfeSum) * 1000) / 1000;
+}
+
+/**
+ * Split the closed set by direction.
+ *
+ * The family gate pools both legs, which hides the case where one leg pays
+ * for the other: on 2026-09-22 cloud pivot was PF 5.04 short and PF 0.23
+ * long, and pooled it read PF 1.25 — a number describing neither leg. This
+ * is reporting only; the widen gate stays family-wide on purpose, because
+ * widening one leg of a two-sided detector is a doctrine change, not a
+ * sizing change.
+ */
+export function summarizeByDirection(closed) {
+  const out = {};
+  for (const dir of ["LONG", "SHORT"]) {
+    const rows = (closed || []).filter((c) => c?.direction === dir);
+    if (rows.length === 0) continue;
+    out[dir] = {
+      ...computeWindowStats(rows),
+      mfe_capture_rate: aggregateMfeCapture(rows),
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 /**
@@ -161,6 +222,7 @@ export function buildFamilyAttributionReport({
       mfe_pct: Number.isFinite(mfe) ? mfe : null,
       keep_rate: keep,
       ticker: t.ticker,
+      direction: String(t.direction || "").toUpperCase() || null,
       exit_reason: t.exit_reason,
       setup_name: t.setup_name,
     });
@@ -169,6 +231,8 @@ export function buildFamilyAttributionReport({
   const stats = computeWindowStats(closed);
   const avgKeep = keepN > 0 ? Math.round((keepSum / keepN) * 1000) / 1000 : null;
   const avgMfe = mfeN > 0 ? Math.round((mfeSum / mfeN) * 100) / 100 : null;
+  const captureRate = aggregateMfeCapture(closed);
+  const byDirection = summarizeByDirection(closed);
   // Family closed win-rate (diagnostic). Do NOT compare to the ~4.8%
   // discover-moves capture baseline — that is a different unit.
   const familyWinRatePct = closed.length > 0
@@ -192,6 +256,8 @@ export function buildFamilyAttributionReport({
     stats,
     avg_mfe_pct: avgMfe,
     avg_mfe_keep_rate: avgKeep,
+    mfe_capture_rate: captureRate,
+    by_direction: byDirection,
     vehicles,
     family_win_rate_pct: familyWinRatePct,
     universe_capture_rate_pct: universeCapturePct,
@@ -199,9 +265,16 @@ export function buildFamilyAttributionReport({
     beats_baseline_capture: beatsBaseline,
     // Widen only when family expectancy is positive AND MFE keep holds.
     // Universe capture>4.8% is required when that KV summary is available.
+    //
+    // Keep is checked two ways — per-trade mean and family aggregate — and
+    // both must clear. They fail differently: the mean is sensitive to
+    // trades that barely moved, the aggregate to a single large one. An
+    // extra condition can only ever withhold size, never grant it.
     widen_ready: closed.length >= 5
       && avgKeep != null
-      && avgKeep >= 0.35
+      && avgKeep >= MFE_KEEP_WIDEN_THRESHOLD
+      && captureRate != null
+      && captureRate >= MFE_KEEP_WIDEN_THRESHOLD
       && (stats?.expectancy_pct != null && Number(stats.expectancy_pct) > 0)
       && (stats?.profit_factor != null && Number(stats.profit_factor) >= 1)
       && (beatsBaseline !== false),

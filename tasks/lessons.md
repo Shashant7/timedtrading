@@ -8675,3 +8675,68 @@ candidate `_ranking.parts[]` for overlay/cap reconciliation.
 **Deploy:** PR #1442 merged and shipped 2026-09-09 (monolith both envs +
 tt-engine). Rescore so new `*_dir` flag metadata exists. Do not edit
 `tasks/todo.md` from ranking PRs.
+
+---
+
+## 2026-09-22 — Two silent outages: a throwing cron gate and a frozen scoring pass
+
+### The `*/1` day-trade gate threw for 25 days
+
+`worker/index.js` gated the per-minute index day-trade dispatch on
+`_isOptionsSellWindowEt()` — no argument. The helper needs a timestamp;
+without one it reached `new Date(NaN)` and `Intl.DateTimeFormat` threw
+`RangeError: Invalid time value`. The gate sits in the bare body of
+`scheduled()`, so the throw aborted the dispatch and everything after it.
+
+Commit `03b5b5d9c` (2026-08-28) introduced it by swapping the legitimately
+no-arg `isNyRegularMarketOpen()` for `isOptionsSellWindowEt()` while keeping
+the call shape.
+
+Evidence, from Cloudflare's GraphQL `workersInvocationsAdaptive`:
+
+| date | `timed-trading-ingest` `scriptThrewException` |
+|---|---|
+| 2026-08-27 | 0 |
+| 2026-08-28 | 969 (deploy landed midday) |
+| 2026-08-29 → 2026-09-22 | 1,106 – 1,302 every day |
+
+1,440 min/day × 4/5 = **1,152**. Bucketing three hours by `UTC minute % 5`:
+`0` exceptions on the minutes the gate skips, `29–42` on each of the other
+four. The paper options book fired nothing after 2026-09-03.
+
+Takeaways:
+
+- The monolith (`timed-trading-ingest`) has **no observability logs**. When a
+  cron lane goes quiet, query the GraphQL analytics dataset — it is always on:
+  `workersInvocationsAdaptive(filter:{scriptName:...}) { sum{requests}
+  dimensions{status datetimeMinute} }`. Bucketing by minute pins which cron.
+- A predicate in the bare cron body decides the fate of every statement after
+  it. Session helpers now resolve a missing/invalid ts to "closed" via
+  `resolveSessionTs`, and the gate is evaluated behind a catch.
+- `cron_tick_alive` reported ok throughout: the heartbeat is stamped at the top
+  of the tick and survives a tick that dies later. A green heartbeat means the
+  tick *started*, nothing more.
+- `tt-feed` runs a different entrypoint (`feed-index.js`), so its healthy `*/1`
+  logs were not evidence about the monolith's `*/1`. Check
+  `GET /accounts/:id/workers/scripts/:name/content/v2` for the real module name
+  before reasoning about a shared bundle.
+
+### The universe stopped being rescored
+
+`/timed/all` returned 330 tickers whose quotes were seconds old and whose
+scores were days old: 267 last scored 2026-09-19, 48 last scored 2026-09-12,
+and the only 8 scored during the 09-22 session were futures and freshly
+onboarded symbols. NVDA carried `rank=78 stage=watch sl=215.76 tp=233.19` from
+2026-09-19 under a quote from that minute. `setup_events` coverage fell from
+~328 tickers/day to ~10 on the same 2026-08-28 boundary. September opened
+entries on five days.
+
+All 19 sweep checks passed. Added `universe_score_freshness`, which grades
+`ticker_latest.ts` against `computeMarketSessionReference().last_rth_open_ms`
+so weekends, holidays and early closes move the bar instead of false-alarming.
+
+Still open: `tt-engine` returns `exceededMemory` on roughly 60–80% of its
+`*/5` ticks (150–240 of 288 daily), and the monolith on ~80% of its own `*/5`
+ticks (29 of 36 in a three-hour sample, all on minutes divisible by 5). That is
+why `timed:options:plays-of-day:moderate:10` and `:aggressive:10` do not exist
+in KV at all despite a 600 s TTL and an every-5-minute prewarm.

@@ -104365,8 +104365,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // ticks and we never double-process the same minute. Lean dt_only path
     // (4 index tickers, no swing scan, no mark writes). Only inside the
     // options session so we don't spin the builder overnight.
-    if (_isEveryMin && !_isDedicatedEngine && (_utcM % 5 !== 0)
-        && (typeof _isOptionsSellWindowEt === "function" ? _isOptionsSellWindowEt() : false)) {
+    // 2026-09-22 — this gate is evaluated in the bare cron body, so whatever
+    // it throws takes down the whole */1 tick, and the monolith has no
+    // observability logs to say so. It did exactly that: 03b5b5d9c
+    // (2026-08-28) swapped the legitimately no-arg isNyRegularMarketOpen()
+    // for isOptionsSellWindowEt(), which needs a timestamp and threw
+    // RangeError out of Intl on new Date(NaN). 1,152 dead ticks a day (4 of
+    // every 5 minutes) and not one index day trade from 2026-08-28 to
+    // 2026-09-22. Pass the clock, and never let the session predicate decide
+    // the fate of the rest of the tick.
+    const _dtSellWindowOpen = (_isEveryMin && !_isDedicatedEngine && (_utcM % 5 !== 0))
+      ? (() => {
+        try {
+          return typeof _isOptionsSellWindowEt === "function"
+            ? _isOptionsSellWindowEt(Date.now())
+            : false;
+        } catch (e) {
+          console.warn("[OPTIONS-DT] sell-window gate threw:", String(e?.message || e).slice(0, 140));
+          return false;
+        }
+      })()
+      : false;
+    if (_dtSellWindowOpen) {
       ctx.waitUntil((async () => {
         try {
           await _selfDispatch("/timed/options/all?dt_only=1&_nocache=1").catch(() => {});
