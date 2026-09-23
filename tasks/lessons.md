@@ -122,6 +122,52 @@ named a writer the previous round had hidden:
   `too many SQL variables at offset 451` and no ticker got a fresh sparkline.
   Chunk (`worker/sparkline-d1.js`) and drop a failing chunk, not the universe.
 
+### Then two more, and neither was a single allocation
+
+After all of the above the tick STILL died on every consecutive pass —
+08:40, 08:45 and 08:50, wall 149-156s, cpu ~48s against a far larger CPU
+budget. The remaining two causes were both about what is alive at the same
+time, not about what is big.
+
+4. **Two heavy phases in one isolate.** The scoring tail — slim index build,
+   Cloud Pivot desk scan, D1 batch sync — went into `ctx.waitUntil` the
+   instant scoring finished, so it ran alongside the execution pass. The logs
+   interleave them. `ctx.waitUntil` in a cron buys nothing: there is no
+   response to return early. All it bought was the overlap.
+5. **The kanban pass materialised the batch to rank it.** Fixing (4) let the
+   pass finish and its summary printed for the first time in 24 hours:
+   `Processed 268 actionable, skipped 60 non-actionable, of 329 total`. 268,
+   not the ~45 it had been built for.
+
+**Lessons:**
+
+- **Two phases alive at once is a sum, not a max.** The memory cap is per
+  ISOLATE, so concurrency is the enemy, not latency. The scoring tail is
+  stashed and awaited after the execution phases instead of dispatched, and
+  execution now starts *sooner* because it no longer contends.
+- **Count the sets you hold, not the bytes you read.** A `timed:latest`
+  payload is ~165 KB of JSON and several times that once parsed. The D1 sync
+  held three payload-sized graphs per ticker at chunk 40 (hydrated, enriched,
+  and the previous payload parsed back out of D1); `_thinKvPatches` pushed a
+  full payload as a third tuple element the write-back never read.
+- **Ranking needs scores, not payloads.** A score is a number. The scan keeps
+  the numbers and drops each payload, then the entry pass re-reads one at a
+  time. Ordering, management priority and the capacity-observing sequential
+  walk are all preserved.
+- **Two ticks can share one isolate.** The 09:00 pass ran 579s, so 09:05
+  started on top of it and BOTH were killed at `09:09:40.969`, a millisecond
+  apart. A module-level lease is exactly the right scope for this: two passes
+  only contend when they share an isolate, and when they do they share the
+  variable. Engine only — the monolith's `*/5` carries the price feed.
+- **You cannot attribute a log line to a tick when two are running.** Reading
+  the kanban pass as "24s" came from splicing one tick's scoring timestamp to
+  another tick's summary. It has always been ~200s. Check `scheduledTime` on
+  the invocation before believing a duration inferred from log order.
+- **Dead code that looks live is worse than none.** The batched
+  `processRankedCandidates` had no caller left after the streaming rewrite.
+  Leaving it beside the new one would have left an OOM-shaped footgun that
+  still type-checks; it was removed and its tests moved over.
+
 ---
 
 ## Four sweep incidents, three of them the sweep's own fault [2026-09-22]

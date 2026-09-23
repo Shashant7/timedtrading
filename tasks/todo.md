@@ -72,6 +72,32 @@
       (`worker/sparkline-d1.js`). Live proof: the snapshot build against
       production KV/D1 returns 1,765,413 bytes for 329 tickers where it tried
       52,585,887 yesterday.
+- [x] **Five causes, not three — the `*/5` engine tick is green (2026-09-23).**
+      The three writers above were all real and all fixed, and the kills
+      continued: 08:40, 08:45, 08:50 and 08:55 were consecutive
+      `exceededMemory` at ~150s wall. Two more causes, neither a single
+      large allocation. (4) The scoring tail — slim index build, Cloud Pivot
+      desk scan, D1 batch sync — was fired into `ctx.waitUntil` the moment
+      scoring finished, so it ran CONCURRENTLY with the kanban pass and
+      position reconcile. Two heavy phases alive at once in one isolate is a
+      sum, not a max. It is stashed in `_deferredScoringTail` now and
+      awaited after reconcile, above the `isAITime` early return. (5) The
+      kanban pass materialised the whole shortlist to rank it — 268
+      payloads, not the ~45 anyone assumed, because most of the universe
+      classifies as an actionable stage. A `timed:latest` payload is ~165 KB
+      of JSON and several times that parsed, so the batch alone is past 128
+      MB. `processRankedCandidates` is streaming now: it keeps the scores,
+      drops the payloads, and re-reads only the entry candidates it has to
+      rank, one at a time with one read in flight ahead. Plus a module-level
+      per-isolate lease: the 09:00 tick ran 579s, so 09:05 started on top of
+      it in the same isolate and both died one millisecond apart. Live
+      proof: every `*/5` tick from 09:25 on is `ok`
+      (`/opt/cursor/artifacts/engine-tick-oom-final-proof.log`), the desk
+      writes 28 firing of 329 scanned, and `/timed/plays/today` serves 20
+      plays in 1.29s. Residual, accepted: the tick runs 300-400s so the
+      lease skips about one in three, and that ~200s is
+      `processTradeSimulation` across 268 candidates — a funnel-design
+      question, not an OOM one.
 - [x] **Reduces now reach every mirrored tenant (2026-09-23).** Operator
       correction: every mirror-enabled account tracks the model on every
       position it held at activation, with quantity relational to account

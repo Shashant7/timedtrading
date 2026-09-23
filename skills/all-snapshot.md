@@ -27,6 +27,10 @@ ceiling** (a `timed:latest:` payload averages 158 KB; `tf_tech` alone is
 The slim index is 1.75 MB at 333 tickers, one build costs 7.9 MB, and peak
 retention during a build is the index plus a **single** payload.
 
+The snapshot was the largest cause of the `exceededMemory` kills but not the
+only one — four more followed it, and fixing this one alone did not turn the
+tick green. See [the 128 MB is per ISOLATE](#the-128-mb-is-per-isolate-not-per-invocation).
+
 ---
 
 ## The API — `worker/all-snapshot.js`
@@ -179,6 +183,51 @@ queue by dropping a field, that test tells you.
 
 ---
 
+## The 128 MB is per ISOLATE, not per invocation
+
+Three separate causes hid behind that one sentence, and none of them was a
+single large allocation. Each was found only after the previous one was
+fixed and the kills continued.
+
+- **Two heavy phases at once is a sum, not a max.** The scoring tail (slim
+  index build, desk scan, D1 batch sync) was fired into `ctx.waitUntil` the
+  moment scoring finished, so it ran alongside the kanban pass and position
+  reconcile. `ctx.waitUntil` in a CRON handler buys nothing — there is no
+  response to return early — it only buys overlap, and overlap is what the
+  cap counts. The tail is stashed in `_deferredScoringTail` and awaited
+  after reconcile. If you move that drain, keep it ABOVE the `isAITime`
+  early return, or the tail silently stops running on all but three ticks a
+  day. `worker/engine-oom-mirror-loss-2026-09-22.test.js` pins the order.
+- **Count the SETS of payloads you hold, not the bytes you read.** Reading
+  the universe one payload at a time is free; holding 268 of them is 128 MB
+  on its own, because a `timed:latest` payload is ~165 KB of JSON and
+  several times that as a parsed object graph. The D1 batch sync chunk is
+  12 for the same reason — a chunk holds three payload-sized graphs per
+  ticker (hydrated, enriched, and the previous payload parsed back out of
+  D1), and it pushes the thin patch onto the write-back list, not the
+  payload the patch came from.
+- **Ranking needs the scores, not the payloads.** A score is a number.
+  `processRankedCandidates` (`worker/ranking/candidate-rank.js`) scans
+  every candidate, keeps `{ticker, score}`, drops the payload, sorts, then
+  re-reads only the entry candidates it has to rank — one at a time, with
+  one read in flight ahead so the reads overlap but the work stays strictly
+  sequential (a later entry must observe the earlier one's capacity usage).
+  It must stay streaming: the batched version it replaced was deleted
+  rather than left beside it.
+- **Two ticks can share one isolate.** When a `*/5` pass runs longer than
+  five minutes the next one starts on top of it, in the same isolate, and
+  both die. `_fiveMinHeavyPassSince` is a module-level lease for exactly
+  that reason — two passes only contend when they share an isolate, and
+  when they share an isolate they share the variable. It is engine-only:
+  the monolith's `*/5` carries the price feed, which must never be skipped.
+- **You cannot attribute a log line to a tick when two are running.** The
+  kanban pass was read as "24s" by splicing one tick's scoring timestamp to
+  the other's summary. It had always been ~200s. Check `outcome`/wall per
+  invocation (`/tmp/woomts.sh <from> <to> <script>`) before believing a
+  duration derived from timestamps.
+
+---
+
 ## Checking the live state
 
 ```bash
@@ -204,4 +253,6 @@ bash /tmp/woutcome.sh $(( $(date +%s%3N) - 21600000 )) $(date +%s%3N) tt-engine
 - `worker/storage.js` — `kvPutJSONIfFits`, `estimateMapBytes`, `KV_MAX_VALUE_BYTES`
 - `worker/kv-put-budget.test.js` — the put guard and the estimate
 - `worker/sparkline-d1.js` / `worker/sparkline-d1.test.js` — chunked D1 reads
+- `worker/ranking/candidate-rank.js` — streaming rank, never holds the batch
+- `worker/engine-oom-mirror-loss-2026-09-22.test.js` — phase ordering + the lease
 - Lessons: [`tasks/lessons.md`](../tasks/lessons.md) → "The snapshot outgrew its key" [2026-09-23]
