@@ -110123,6 +110123,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (_pxDelta >= 0.001) deltaPriceChanged++;
             if (!_rankChanged && _htfDelta < 0.5 && _ltfDelta < 0.5 && !_stageFlip && _pxDelta < 0.001) deltaNoChange++;
 
+            // Decide the trail write BEFORE the KV put so the `_last_trail_ts`
+            // stamp rides the write we are already doing. The tail used to
+            // re-serialize and re-put all ~329 full payloads inside a
+            // waitUntil purely to set this one field, which cost a second
+            // ~32 MB of live payloads at the point the isolate was already
+            // near the 128 MB cap.
+            // The stamp used to land at the end of the tick and the gate is
+            // read at the start of the next one, so a bare 5-minute threshold
+            // against a 5-minute cron sits exactly on the boundary. Allow a
+            // 30s tolerance to keep the observed one-trail-per-tick rate
+            // (~330 timed_trail rows per tick) deterministic. A tick never
+            // revisits a ticker, so this cannot double-write.
+            const TRAIL_CADENCE_MS = 5 * 60 * 1000;
+            const TRAIL_CADENCE_TOLERANCE_MS = 30 * 1000;
+            const _lastTrailTs = Number(existing?._last_trail_ts) || 0;
+            const _doTrail = (Date.now() - _lastTrailTs) >= (TRAIL_CADENCE_MS - TRAIL_CADENCE_TOLERANCE_MS);
+            if (_doTrail) {
+              const _trailStamp = Date.now();
+              result._last_trail_ts = _trailStamp;
+              if (existing && typeof existing === "object") existing._last_trail_ts = _trailStamp;
+            }
+
             if (_rankChanged || hasPayloadChangedMeaningfully(existing, result)) {
               await kvPutJSON(KV, `timed:latest:${ticker}`, result);
               scored++;
@@ -110157,11 +110179,32 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // ticker noise would drown out real ops alerts.
             ctx.waitUntil(recordCronSuccess(env, `score_ticker_${ticker}`).catch(() => {}));
 
-            // Collect trail points for batch write (don't make individual D1 calls here)
-            const TRAIL_CADENCE_MS = 5 * 60 * 1000;
-            const lastTrailTs = Number(existing?._last_trail_ts) || 0;
-            if (Date.now() - lastTrailTs >= TRAIL_CADENCE_MS) {
-              pendingTrailPoints.push({ ticker, result });
+            // Collect trail points for batch write (don't make individual D1
+            // calls here). Store the finished D1 bind row, never the live
+            // `result` object: retaining ~329 full payloads (~172 KB each)
+            // from here through the tail of the tick is what pushed tt-engine
+            // past the 128 MB isolate cap. `serializeSequenceTrailSnapshot`
+            // is already capped at 32 KB, so the row is bounded.
+            if (_doTrail) {
+              const _trailTs = Number(result?.ts);
+              if (Number.isFinite(_trailTs)) {
+                pendingTrailPoints.push({
+                  ticker: String(ticker).toUpperCase(),
+                  ts: _trailTs,
+                  price: result?.price ?? null,
+                  htf_score: result?.htf_score ?? null,
+                  ltf_score: result?.ltf_score ?? null,
+                  completion: result?.completion ?? null,
+                  phase_pct: result?.phase_pct ?? null,
+                  state: result?.state ?? null,
+                  rank: result?.rank ?? null,
+                  flags_json: result?.flags ? JSON.stringify(result.flags) : null,
+                  trigger_reason: result?.trigger_reason ?? null,
+                  trigger_dir: result?.trigger_dir ?? null,
+                  kanban_stage: result?.kanban_stage ?? null,
+                  payload_json: serializeSequenceTrailSnapshot(result, env),
+                });
+              }
             }
           } catch (e) {
             errors++;
@@ -110362,23 +110405,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           try {
             const db = env.DB;
             const trailStmts = [];
-            for (const { ticker, result } of pendingTrailPoints) {
-              const ts = Number(result?.ts);
-              if (!Number.isFinite(ts)) continue;
-              const flagsJson = result?.flags ? JSON.stringify(result.flags) : null;
-              const payloadJson = serializeSequenceTrailSnapshot(result, env);
+            for (const row of pendingTrailPoints) {
               trailStmts.push(
                 db.prepare(
                   `INSERT OR REPLACE INTO timed_trail
                     (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, kanban_stage, payload_json)
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
                 ).bind(
-                  String(ticker).toUpperCase(), ts,
-                  result?.price ?? null, result?.htf_score ?? null, result?.ltf_score ?? null,
-                  result?.completion ?? null, result?.phase_pct ?? null,
-                  result?.state ?? null, result?.rank ?? null, flagsJson,
-                  result?.trigger_reason ?? null, result?.trigger_dir ?? null,
-                  result?.kanban_stage ?? null, payloadJson
+                  row.ticker, row.ts,
+                  row.price, row.htf_score, row.ltf_score,
+                  row.completion, row.phase_pct,
+                  row.state, row.rank, row.flags_json,
+                  row.trigger_reason, row.trigger_dir,
+                  row.kanban_stage, row.payload_json
                 )
               );
             }
@@ -110387,13 +110426,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               await db.batch(trailStmts.slice(i, i + 500));
             }
             trailWrites = pendingTrailPoints.length;
-            // Update _last_trail_ts for all trail tickers (batch KV writes via waitUntil)
-            ctx.waitUntil(Promise.allSettled(
-              pendingTrailPoints.map(({ ticker, result }) => {
-                result._last_trail_ts = Date.now();
-                return kvPutJSON(KV, `timed:latest:${ticker}`, result);
-              })
-            ));
+            // `_last_trail_ts` was already stamped onto the payload the
+            // scoring loop wrote to KV — no second pass needed here.
           } catch (trailErr) {
             console.warn(`[SCORING] Trail batch write failed:`, String(trailErr).slice(0, 150));
           }
