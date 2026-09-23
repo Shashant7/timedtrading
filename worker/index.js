@@ -112061,13 +112061,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // tickers with per-ticker KV reads (~245-735 KV ops) for staleness
     // detection. No downstream code in the same tick depends on it.
     //
-    // 2026-09-23 — and skipped outright on a tick that has already spent its
-    // wall. `ctx.waitUntil` in a cron handler defers nothing: the invocation
-    // stays alive until it settles, so on the 14:30 tick these reads were
-    // what turned a tail that finished at 836s into a kill at 900s. Staleness
-    // monitoring is the most skippable thing in the invocation, and the next
-    // tick runs it five minutes later.
-    if (_tickTimeLeftMs() >= 60 * 1000) {
+    // 2026-09-23 — and not on the engine at all. `ctx.waitUntil` in a cron
+    // handler defers nothing: there is no response to return early, so the
+    // invocation stays alive until it settles. Measured at 138s on a tick
+    // whose tail had already finished at 728s, which is what carried the
+    // 15:10 tick to 866s of a 900s wall. It is also duplicated work — this
+    // check runs on every role, it watches the INGEST feed's `ingest_ts`
+    // (the monolith's job, not the engine's), and its per-ticker suppression
+    // key is global, so the two roles were racing on the same KV keys. The
+    // monolith still runs it every five minutes, on a tick with room.
+    if (_isDedicatedEngine) {
+      // Nothing to log: the monolith's pass covers the same universe.
+    } else if (_tickTimeLeftMs() >= 60 * 1000) {
       ctx.waitUntil(
         checkIngestCoverage(KV, now).catch((err) =>
           console.error("[INGEST COVERAGE ERROR]", err)

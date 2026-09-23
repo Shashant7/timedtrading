@@ -286,12 +286,24 @@ describe("only one heavy phase of the tick at a time", () => {
     expect(src).toContain("      : Infinity);");
   });
 
-  it("skips the monitoring passes on a tick that has already spent its wall", () => {
+  it("keeps the ingest-coverage sweep off the engine entirely", () => {
     // `ctx.waitUntil` in a cron handler defers nothing — there is no response
-    // to return early, so the invocation stays alive until it settles. On the
-    // 14:30 tick these ~245 and ~600 KV reads are what turned a tail that
-    // finished at 836s into a kill at 900s.
-    expect(src).toContain("if (_tickTimeLeftMs() >= 60 * 1000) {");
+    // to return early, so the invocation stays alive until it settles. The
+    // sweep measured 138s behind a tail that had finished at 728s, which is
+    // what carried the 15:10 tick to 866s of a 900s wall. It watches the
+    // INGEST feed's `ingest_ts`, which is the monolith's job, and its
+    // suppression key is global, so both roles were racing the same KV keys.
+    expect(src).toContain([
+      "    if (_isDedicatedEngine) {",
+      "      // Nothing to log: the monolith's pass covers the same universe.",
+      "    } else if (_tickTimeLeftMs() >= 60 * 1000) {",
+      "      ctx.waitUntil(",
+      "        checkIngestCoverage(KV, now).catch((err) =>",
+    ].join("\n"));
+  });
+
+  it("skips the remaining monitoring pass on a tick that has spent its wall", () => {
+    expect(src).toContain("} else if (_tickTimeLeftMs() >= 60 * 1000) {");
     expect(src).toContain("[INGEST COVERAGE] skipped:");
     expect(src).toContain("if (isProactiveAlertTime && _tickTimeLeftMs() < 90 * 1000) {");
     expect(src).toContain("[PROACTIVE ALERTS] skipped:");
