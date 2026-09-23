@@ -212,10 +212,40 @@
          13.0 KB measured, 87 ms for a full tick against a 12-14s budget,
          0 collisions in 400k near-identical payloads. Both sites converted,
          including the batch sync whose `_bindFps` stacked full payloads.
-      Verified in production: 18:55-19:36 is 0 teardowns over 6 `*/5` ticks
-      including three 687-697s bar-lane holders, the exact invocations that
-      used to anchor one. tt-engine 8/8 `ok` over the same window.
-      PR [#1487](https://github.com/Shashant7/timedtrading/pull/1487).
+      Verified in production: `18:52-19:37` is **0 teardowns over 7 `*/5`
+      ticks**, including three 687-697s bar-lane holders — exactly the
+      invocations that used to anchor one. tt-engine 8/8 `ok` over the same
+      window. PR [#1487](https://github.com/Shashant7/timedtrading/pull/1487).
+- [ ] **The monolith `*/5` still crosses the cap into the close.** Not
+      finished, and the numbers should not be read as if it were:
+      | window | | teardowns | killed | rate |
+      |---|---|---|---|---|
+      | baseline `15:17-17:08` | 111 min | 7 | 19 | 1/15.9m |
+      | after fixes 1+2 `17:37-18:43` | 66 min | 4 | 6 | 1/16.5m |
+      | after fix 3, mid `18:52-19:37` | 45 min | 0 | 0 | clean |
+      | after fix 3, close `19:37-20:07` | 30 min | 6 | 7 | 1/5.0m |
+      There is no 09-22 close to compare against — observability retention
+      had already dropped it, and a query over that window returns zero
+      events **of any kind**, so the apparent "0 teardowns yesterday" is
+      missing data and not a regression signal.
+      The signature is unchanged from before fix 3, so it is the same
+      remaining tenant: the `*/5` dies 9-11s after its move-status block
+      having spent ~46s silent between `[MIRROR COVERAGE]` and
+      `[MOVE_STATUS_SL_SKIP]`, taking at most one `*/1` with it. Only the
+      19:45 tick carried extra lanes (`45 19 * * 1-5`, the investor DCA
+      burst) — 19:30/19:40/19:50/19:55 were ordinary two-lane ticks, so it
+      is the ORDINARY tick getting heavier into the close, not a
+      once-a-day job. `[MIRROR COVERAGE]` grew `actions=59 → 73` and
+      `unmatched=15 → 18` over the same span.
+      Next tenants, in expected order: (a) the pre-warm chain, which
+      `_selfDispatch`es `/timed/all?slim=1` (x2) and `/timed/options/all`
+      (x3) through `this.fetch` — five full request graphs in this isolate;
+      (b) the mirror-coverage pass. Scoring is NOT a candidate: it runs on
+      tt-engine (zero `[SCORING]` lines on the monolith). Also still open
+      from the earlier pass: `runChartCandleCalendar` is a second
+      un-deadlined paced lane (an 18:05 `*/5` that SKIPPED the bar pass
+      still ran 626s because `claimBarLane()` had taken the lane first).
+      Needs a live RTH session to verify, so it wants its own branch.
 - [x] **Reduces now reach every mirrored tenant (2026-09-23).** Operator
       correction: every mirror-enabled account tracks the model on every
       position it held at activation, with quantity relational to account
