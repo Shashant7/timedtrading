@@ -1030,10 +1030,19 @@ export async function resolvePendingIndexDtEntry(env, operatorEmail, signalId, m
   // Clearing state and releasing the slot must happen together — a cleared
   // mirror with a consumed slot is exactly the wedge this function exists to
   // undo.
+  //
+  // The re-read is the idempotency guard. A close event and the per-pass
+  // sweep can reach the same order at once, and both would see `working`,
+  // both would cancel, and both would release — handing out a slot the cap
+  // never authorised. Whoever clears `entry_pending` first owns the release.
   const markGone = async (outcome, status) => {
+    const fresh = await loadIndexDtMirror(env, signalId);
+    const stillOurs = fresh?.entry_pending !== false;
     const patch = { entry_placed: false, entry_pending: false, entry_fired: false, entry_fill_status: status };
     await saveIndexDtMirror(env, signalId, patch);
-    try { await releaseEntryCounters(env, operatorEmail, vehicle, { ...caps, now }); } catch (_) { /* slot stays consumed — fails restrictive */ }
+    if (stillOurs) {
+      try { await releaseEntryCounters(env, operatorEmail, vehicle, { ...caps, now }); } catch (_) { /* slot stays consumed — fails restrictive */ }
+    }
     return { outcome, mirror: { ...mirror, ...patch } };
   };
 

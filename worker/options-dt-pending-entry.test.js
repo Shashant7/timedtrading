@@ -288,6 +288,22 @@ describe("resolvePendingIndexDtEntry", () => {
     expect(readGlobal(kv)).toBe(1);
   });
 
+  it("releases a slot once even if two passes resolve the same order", async () => {
+    // A close event and the per-pass sweep can reach the same order at the
+    // same moment. Both see `working`, both cancel, and a second release
+    // would hand out a slot the cap never authorised.
+    const kv = kvMock();
+    seedCounters(kv, { vehicle: 2, global: 2 });
+    kv.store.set(indexDtMirrorKey("sig"), JSON.stringify(pendingMirror()));
+    const opts = { now: NOW, cancelIfWorking: true, deps: { pollFill: pollsWith("working"), cancelOrder: async () => ({ ok: true, response: { cancelled: true } }) } };
+    const a = await resolvePendingIndexDtEntry({ KV_TIMED: kv }, OP, "sig", pendingMirror(), opts);
+    const b = await resolvePendingIndexDtEntry({ KV_TIMED: kv }, OP, "sig", pendingMirror(), opts);
+    expect(a.outcome).toBe("cancelled");
+    expect(b.outcome).toBe("cancelled");
+    expect(readVehicle(kv)).toBe(1);
+    expect(readGlobal(kv)).toBe(1);
+  });
+
   it("uses ts as the staleness clock when entry_placed_at is absent", async () => {
     const kv = kvMock();
     seedCounters(kv, { vehicle: 2, global: 2 });
