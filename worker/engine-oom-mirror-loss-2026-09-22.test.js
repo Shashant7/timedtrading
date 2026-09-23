@@ -202,3 +202,77 @@ describe("a cron tick that fires and never finishes", () => {
     expect(remediation).toMatch(/exceededMemory/);
   });
 });
+
+describe("only one heavy phase of the tick at a time", () => {
+  // 2026-09-23. Slimming the snapshot, capping the KV puts and shortlisting
+  // the kanban pass each removed real allocation and the `*/5` engine tick
+  // still died on every consecutive pass — 08:40, 08:45 and 08:50 all
+  // exceededMemory at wall 149-156s and cpu ~48s, so nowhere near the CPU
+  // budget. What was left was not a single allocation but an overlap: the
+  // scoring tail went into `ctx.waitUntil` the instant scoring finished, so
+  // it ran alongside the execution pass. One tick's logs, interleaved:
+  //
+  //   08:41:42  [PAPER_FAMILY_ENTRY] RIOT ...   <- execution pass running
+  //   08:41:43  [SCORING] Cloud Pivot desk: 28 watching of 329 scanned
+  //   08:41:44  [SCORING] KV universe index built: 329 tickers
+  //   08:42:22  [SCORING] D1 ticker_latest batch sync: 106 written
+  //   08:42:30  [PAPER_FAMILY_ENTRY] IESC ...
+  //   08:42:30  exceededMemory
+  //
+  // Two phases alive in one isolate is a sum, not a max. Like the ordering
+  // fix above, this is pinned on source position: an isolate that is killed
+  // outright runs no `catch` and awaits no promise, so there is no
+  // behaviour for a harness to observe.
+  const src = readFileSync(join(root, "index.js"), "utf8");
+
+  const stash = src.indexOf("_deferredScoringTail = async () => {");
+  const kanban = src.indexOf("[KANBAN CRON] Processed");
+  const reconcile = src.indexOf('console.error("[POSITION RECONCILE] Error:"');
+  const drain = src.indexOf("await _tailFn();");
+
+  it("finds all four landmarks exactly once", () => {
+    for (const at of [stash, kanban, reconcile, drain]) expect(at).toBeGreaterThan(-1);
+    expect(src.indexOf("_deferredScoringTail = async () => {", stash + 1)).toBe(-1);
+    expect(src.indexOf("await _tailFn();", drain + 1)).toBe(-1);
+  });
+
+  it("stashes the three heavy phases, not an empty thunk", () => {
+    // The invariant is worth nothing if the expensive work drifts back out
+    // of the deferred body and into the concurrent part of the tick.
+    const body = src.slice(stash, kanban);
+    expect(body).toContain('KV.put("timed:cloud-pivot:desk"');
+    expect(body).toContain("const _built = await buildAllSnapshot(");
+    expect(body).toContain("[SCORING] D1 ticker_latest batch sync:");
+  });
+
+  it("drains the tail only after the execution phases have let go", () => {
+    expect(stash).toBeLessThan(kanban);
+    expect(kanban).toBeLessThan(reconcile);
+    expect(reconcile).toBeLessThan(drain);
+  });
+
+  it("drains the tail before the handler can return early", () => {
+    // `if (!isAITime) return;` sits a few hundred lines further down and
+    // fires on all but three ticks a day. A tail parked after it would
+    // simply never run.
+    const earlyReturn = src.indexOf("return; // Only do AI updates at specific times");
+    expect(earlyReturn).toBeGreaterThan(-1);
+    expect(drain).toBeLessThan(earlyReturn);
+  });
+
+  it("keeps the D1 sync chunk small enough that three sets of it fit", () => {
+    // A chunk holds the hydrated payload, the enriched copy and the
+    // previous payload parsed back out of D1 — three graphs per ticker,
+    // each from ~165 KB of JSON.
+    const decl = src.match(/const _D1_CHUNK = (\d+);/);
+    expect(decl).not.toBeNull();
+    expect(Number(decl[1])).toBeLessThanOrEqual(15);
+  });
+
+  it("does not park a full payload on the thin-slice patch list", () => {
+    // The write-back destructures `[_sym, _patch]`. A third element was
+    // pure retention, and it accumulated across every chunk.
+    expect(src).toContain("_thinKvPatches.push([_sym, _kvPatch]);");
+    expect(src).not.toContain("_thinKvPatches.push([_sym, _kvPatch, _plForD1]);");
+  });
+});

@@ -234,37 +234,87 @@ export function stampCandidatePositions(data, scoreCandidate) {
 // order, and the existing admission/capacity checks still decide each entry.
 // Management has priority and retains its original order. Processing stays
 // sequential so a later entry observes the earlier entry's capacity usage.
-export async function processRankedCandidates(candidates, { scoreCandidate, processCandidate, onError }) {
-  const management = [], entries = [];
-  for (const candidate of candidates) {
-    (MANAGEMENT_STAGES.has(String(candidate.payload?.kanban_stage || "").toLowerCase())
-      ? management : entries).push(candidate);
-  }
-  const ranked = rankCandidateBatch(entries, scoreCandidate);
-  ranked.forEach(({ payload, score }, i) => {
-    payload.__candidate_order = {
-      version: CANDIDATE_RANK_VERSION, score, position: i + 1, total: ranked.length,
-    };
-  });
-  // `rankCandidateBatch` returns new wrappers, so releasing a wrapper alone
-  // would leave the caller's array still holding the payload.
-  const sourceByTicker = new Map(entries.map((c) => [c.ticker, c]));
-  let processed = 0;
-  for (const candidate of [...management, ...ranked]) {
+//
+// Never holds more than one payload.
+//
+// 2026-09-23: the live batch is 268 tickers, not the ~45 this pass was long
+// assumed to handle — most of the universe classifies as `hold`, which is a
+// management stage. A `timed:latest` payload is ~165 KB of JSON and several
+// times that parsed, so materialising the batch to rank it is by itself
+// more than the 128 MB isolate, and the `*/5` engine tick died on every
+// pass for six days.
+//
+// Ranking needs every score before it can order anything, but it does not
+// need every payload: a score is a number. The scan keeps the numbers and
+// drops each payload, then processing re-reads them one at a time. That is
+// one extra KV read per candidate against a bounded peak.
+//
+// `loadPayload(ticker, phase)` is called once per ticker with `"scan"` and
+// again with `"process"`, so a caller that counts rejections can count them
+// on the scan only. Returning a falsy payload drops the ticker.
+export async function processRankedCandidates(tickers, {
+  loadPayload, scoreCandidate, processCandidate, onError,
+}) {
+  const management = [];
+  const entries = [];
+
+  for (const ticker of tickers) {
+    let payload = null;
     try {
-      await processCandidate(candidate);
+      payload = await loadPayload(ticker, "scan");
+    } catch (error) {
+      if (onError) onError(error, { ticker, payload: null });
+      else throw error;
+      continue;
+    }
+    if (!payload || typeof payload !== "object") continue;
+    if (MANAGEMENT_STAGES.has(String(payload.kanban_stage || "").toLowerCase())) {
+      management.push({ ticker });
+    } else {
+      entries.push({
+        ticker,
+        score: capRankByFreshness(payload, scoreCandidate(payload)),
+        quarantined: isQuarantinedByFreshness(payload),
+      });
+    }
+    payload = null;
+  }
+  entries.sort(compareCandidateRanks);
+
+  let processed = 0;
+  const order = management.concat(entries.map((e, i) => ({ ...e, position: i + 1 })));
+  for (const item of order) {
+    let payload = null;
+    try {
+      payload = await loadPayload(item.ticker, "process");
+    } catch (error) {
+      if (onError) onError(error, { ticker: item.ticker, payload: null });
+      else throw error;
+      continue;
+    }
+    if (!payload || typeof payload !== "object") continue;
+    try {
+      if (item.position != null) {
+        // The scan stamped `_ranking` / `_technical_rank` / the tilts onto
+        // a payload that has since been dropped, so stamp this copy too.
+        // The recorded score stays the scan's — that is the one that
+        // decided the order.
+        scoreCandidate(payload);
+        capRankByFreshness(payload, item.score);
+        payload.__candidate_order = {
+          version: CANDIDATE_RANK_VERSION,
+          score: item.score,
+          position: item.position,
+          total: entries.length,
+        };
+      }
+      await processCandidate({ ticker: item.ticker, payload });
       processed++;
     } catch (error) {
-      if (onError) onError(error, candidate);
+      if (onError) onError(error, { ticker: item.ticker, payload });
       else throw error;
     } finally {
-      // Ranking needed every payload at once; processing does not. Holding
-      // them all for the whole pass meant the `*/5` tick carried ~45 full
-      // `timed:latest` payloads -- each of which processTradeSimulation
-      // grows in place -- into the last and heaviest thing it does.
-      candidate.payload = null;
-      const source = sourceByTicker.get(candidate.ticker);
-      if (source) source.payload = null;
+      payload = null;
     }
   }
   return processed;

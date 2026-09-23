@@ -1010,6 +1010,19 @@ import * as Journey from "./journey.js";
 let _cronCalendar = null;
 // Cached set of removed tickers (populated on first read, refreshed per cron cycle)
 let _removedTickersCache = null;
+// Wall-clock ms at which the in-flight */5 heavy pass claimed THIS isolate,
+// or 0 when none is running.
+//
+// 2026-09-23: the 09:00 engine tick ran 579s, so the 09:05 tick started
+// while it was still going and landed in the same isolate. The memory limit
+// is per-isolate, so two ticks is two of everything — both were killed at
+// 09:09:40.969, one millisecond apart. A module-level flag is exactly the
+// right scope here: two passes only contend when they share an isolate, and
+// when they share an isolate they share this variable.
+let _fiveMinHeavyPassSince = 0;
+// Long enough that no healthy pass trips it, short enough that a pass which
+// dies without releasing costs at most one skipped tick.
+const FIVE_MIN_HEAVY_LEASE_MS = 10 * 60 * 1000;
 // NY-session day key ("YYYY-MM-DD") for a ms timestamp or Date.
 //
 // 2026-09-05: this helper was referenced (calibration guards, re-confirm
@@ -108414,6 +108427,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // replayCtx) and during cron-mute / replay-lock (no trade work runs
     // anyway). Failure to load is non-fatal — processTradeSimulation
     // falls back to its own d1LoadTradesForSimulation per-call.
+    // ── One heavy */5 pass per isolate ──
+    // Engine only: this is where the 150s+ scoring + execution work lives,
+    // and it is the only role whose ticks can still be running when the
+    // next one fires. The monolith's */5 carries the price feed, which must
+    // never be skipped, and finishes in ~30s anyway.
+    let _heavyPassClaimed = false;
+    if (_isEvery5Min && _isDedicatedEngine) {
+      const _leaseAge = _fiveMinHeavyPassSince ? Date.now() - _fiveMinHeavyPassSince : 0;
+      if (_fiveMinHeavyPassSince && _leaseAge < FIVE_MIN_HEAVY_LEASE_MS) {
+        console.warn(`[CRON] */5 heavy pass skipped: the previous one has been running ${Math.round(_leaseAge / 1000)}s`
+          + " in this isolate. Two passes in one isolate is two of everything and the memory cap is per-isolate.");
+        return;
+      }
+      if (_fiveMinHeavyPassSince) {
+        console.warn(`[CRON] */5 heavy-pass lease expired after ${Math.round(_leaseAge / 1000)}s — the holder died without releasing. Proceeding.`);
+      }
+      _fiveMinHeavyPassSince = Date.now();
+      _heavyPassClaimed = true;
+    }
+
     let _cachedAllTradesForTick = null;
     // The scoring tail (slim index build, Cloud Pivot desk, D1 batch sync)
     // used to be fired into `ctx.waitUntil` the moment scoring finished, so
@@ -111589,23 +111622,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
         _execIndex = null;
 
-        const executionCandidates = [];
-        for (const sym of _execShortlist) {
-          try {
+        // 2026-09-23 — one payload at a time. The shortlist is 268 tickers,
+        // not the ~45 this pass was assumed to handle: most of the universe
+        // classifies as `hold`, which is a management stage. Materialising
+        // all of them to rank them is by itself past the 128 MB isolate.
+        // `processRankedCandidates` keeps the scores and drops the
+        // payloads, then re-reads each one as it processes it.
+        _kanbanProcessed = await processRankedCandidates(_execShortlist, {
+          loadPayload: async (sym, phase) => {
             const latestData = await kvGetJSON(KV, `timed:latest:${sym}`);
-            if (!latestData) continue;
+            if (!latestData) return null;
             const _kStage = String(latestData?.kanban_stage || "").toLowerCase();
             const _hasEntryPath = !!latestData?.__entry_path;
             if (!_ACTIONABLE_STAGES.has(_kStage) && !_hasEntryPath) {
-              _kanbanSkippedNonActionable++;
-              continue;
+              if (phase === "scan") _kanbanSkippedNonActionable++;
+              return null;
             }
-            executionCandidates.push({ ticker: sym, payload: latestData });
-          } catch (e) {
-            console.error(`[KANBAN CRON] Error loading ${sym}:`, e);
-          }
-        }
-        _kanbanProcessed = await processRankedCandidates(executionCandidates, {
+            return latestData;
+          },
           scoreCandidate: computeDynamicScore,
           processCandidate: ({ ticker: sym, payload: latestData }) =>
             processTradeSimulation(KV, sym, latestData, null, env, {
@@ -111614,7 +111648,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           onError: (e, { ticker: sym }) => console.error(`[KANBAN CRON] Error processing ${sym}:`, e),
         });
         console.log(`[KANBAN CRON] Processed ${_kanbanProcessed} actionable, skipped ${_kanbanSkippedNonActionable} non-actionable`
-          + `, of ${executionTickers.length} total (${_execShortlist.length} payloads read)`);
+          + `, of ${executionTickers.length} total (${_execShortlist.length} shortlisted)`);
       } catch (e) {
         console.error("[KANBAN CRON] top-level error:", e);
       }
@@ -111824,6 +111858,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         console.warn("[SCORING] deferred tail failed:", String(tailErr?.message || tailErr).slice(0, 200));
       }
       console.log(`[SCORING] deferred tail done in ${Date.now() - _tailStart}ms`);
+    }
+
+    if (_heavyPassClaimed) {
+      _fiveMinHeavyPassSince = 0;
+      _heavyPassClaimed = false;
     }
 
     // P1 PERF 2026-05-20: monitoring only — defer to ctx.waitUntil so it
