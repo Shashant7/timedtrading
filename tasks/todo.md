@@ -181,6 +181,41 @@
       reassuring way: it claimed to be `AWAITED` (it is `waitUntil`) and to
       rotate a chunk of the universe (rotation was removed in June).
       PR [#1487](https://github.com/Shashant7/timedtrading/pull/1487).
+      **Correction:** the full window is 19 kills in SEVEN teardowns, not
+      18 in six — the first query had not yet ingested the `17:08` teardown.
+- [x] **Two more monolith tenants behind the `*/1` (2026-09-23).** Killing
+      the `*/1` overlap took kills from 19 to 5 and left the teardown RATE
+      unchanged (1 per 15.9 min → 1 per 16.5 min). That is what removing
+      COLLATERAL looks like, and it is what said to keep going.
+      1. **The bar pass had always overrun the 900s wall.** Visible only
+         once the `*/1` stopped dying around it: `*/5 sched 17:00:54 →
+         exceededWallTime wall=900s`. `cronFetchLatest`'s tiers sum to
+         ~670s off-hour (10/15/30 full universe ~360s + 5m half at 8s
+         pacing ~190s + 60/240 ~120s), which is exactly what production ran
+         (677/694/702/707/714s), and ~1030s at the top of the hour with
+         D/W/M. `tdFetchTimeSeries` now stops at an absolute deadline
+         BETWEEN batches, so what is already fetched still upserts. The
+         Alpaca per-symbol fallback is skipped on a short fetch (it would
+         replace a bounded stop with an unbounded heal) and
+         `bar_cron_aggregated` success is withheld (or freshness reads
+         healthy while D/W/M went unfetched). The tier ORDER already made
+         a cutoff safe: the stream-covered 5m is dropped first.
+      2. **`_d1LatestFingerprintCache` held 52 MB of the 128 MB isolate.**
+         The `*/5` ticks that died were indistinguishable from the ones
+         that lived (73-86s wall, 12-14.5s cpu either way) and one died
+         ALONE, because the invocation was never the problem. The cache
+         elides unchanged `ticker_latest` writes and stored
+         `` `${stage}|${len}|${payloadJson}` `` to do it, so the VALUE was
+         the payload: production is 332 rows / 52,291,932 bytes, avg 157 KB.
+         The 500-ENTRY cap was real and never engaged — the universe is 332.
+         `d1PayloadFingerprint()` (cyrb128 + exact length) is 52.2 MB →
+         13.0 KB measured, 87 ms for a full tick against a 12-14s budget,
+         0 collisions in 400k near-identical payloads. Both sites converted,
+         including the batch sync whose `_bindFps` stacked full payloads.
+      Verified in production: 18:55-19:36 is 0 teardowns over 6 `*/5` ticks
+      including three 687-697s bar-lane holders, the exact invocations that
+      used to anchor one. tt-engine 8/8 `ok` over the same window.
+      PR [#1487](https://github.com/Shashant7/timedtrading/pull/1487).
 - [x] **Reduces now reach every mirrored tenant (2026-09-23).** Operator
       correction: every mirror-enabled account tracks the model on every
       position it held at activation, with quantity relational to account
