@@ -246,17 +246,26 @@ export function stampCandidatePositions(data, scoreCandidate) {
 //
 // Ranking needs every score before it can order anything, but it does not
 // need every payload: a score is a number. The scan keeps the numbers and
-// drops each payload, then processing re-reads them one at a time. That is
-// one extra KV read per candidate against a bounded peak.
+// drops each payload, then the entry pass re-reads them one at a time.
 //
-// `loadPayload(ticker, phase)` is called once per ticker with `"scan"` and
-// again with `"process"`, so a caller that counts rejections can count them
-// on the scan only. Returning a falsy payload drops the ticker.
+// Management is not ranked, so it is processed on the scan itself and never
+// read twice. That matters: the live batch is ~85% management, and a
+// blanket second read cost the engine tick 3 more minutes than it had.
+// Priority and original order are unchanged either way — every management
+// candidate is still processed before any entry.
+//
+// `loadPayload(ticker, phase)` is called with `"scan"` and, for entry
+// candidates only, again with `"entry"`. A caller that counts rejections
+// counts them on the scan. Returning a falsy payload drops the ticker.
+//
+// Returns `{ processed, management, entries }` — the log line that reports
+// this pass is the only view anyone has of it.
 export async function processRankedCandidates(tickers, {
   loadPayload, scoreCandidate, processCandidate, onError,
 }) {
-  const management = [];
   const entries = [];
+  let processed = 0;
+  let managed = 0;
 
   for (const ticker of tickers) {
     let payload = null;
@@ -268,25 +277,35 @@ export async function processRankedCandidates(tickers, {
       continue;
     }
     if (!payload || typeof payload !== "object") continue;
-    if (MANAGEMENT_STAGES.has(String(payload.kanban_stage || "").toLowerCase())) {
-      management.push({ ticker });
-    } else {
+
+    if (!MANAGEMENT_STAGES.has(String(payload.kanban_stage || "").toLowerCase())) {
       entries.push({
         ticker,
         score: capRankByFreshness(payload, scoreCandidate(payload)),
         quarantined: isQuarantinedByFreshness(payload),
       });
+      payload = null;
+      continue;
     }
-    payload = null;
+
+    managed++;
+    try {
+      await processCandidate({ ticker, payload });
+      processed++;
+    } catch (error) {
+      if (onError) onError(error, { ticker, payload });
+      else throw error;
+    } finally {
+      payload = null;
+    }
   }
   entries.sort(compareCandidateRanks);
 
-  let processed = 0;
-  const order = management.concat(entries.map((e, i) => ({ ...e, position: i + 1 })));
-  for (const item of order) {
+  for (let i = 0; i < entries.length; i++) {
+    const item = entries[i];
     let payload = null;
     try {
-      payload = await loadPayload(item.ticker, "process");
+      payload = await loadPayload(item.ticker, "entry");
     } catch (error) {
       if (onError) onError(error, { ticker: item.ticker, payload: null });
       else throw error;
@@ -294,20 +313,18 @@ export async function processRankedCandidates(tickers, {
     }
     if (!payload || typeof payload !== "object") continue;
     try {
-      if (item.position != null) {
-        // The scan stamped `_ranking` / `_technical_rank` / the tilts onto
-        // a payload that has since been dropped, so stamp this copy too.
-        // The recorded score stays the scan's — that is the one that
-        // decided the order.
-        scoreCandidate(payload);
-        capRankByFreshness(payload, item.score);
-        payload.__candidate_order = {
-          version: CANDIDATE_RANK_VERSION,
-          score: item.score,
-          position: item.position,
-          total: entries.length,
-        };
-      }
+      // The scan stamped `_ranking` / `_technical_rank` / the tilts onto a
+      // payload that has since been dropped, so stamp this copy too. The
+      // recorded score stays the scan's — that is the one that decided the
+      // order.
+      scoreCandidate(payload);
+      capRankByFreshness(payload, item.score);
+      payload.__candidate_order = {
+        version: CANDIDATE_RANK_VERSION,
+        score: item.score,
+        position: i + 1,
+        total: entries.length,
+      };
       await processCandidate({ ticker: item.ticker, payload });
       processed++;
     } catch (error) {
@@ -317,5 +334,5 @@ export async function processRankedCandidates(tickers, {
       payload = null;
     }
   }
-  return processed;
+  return { processed, management: managed, entries: entries.length };
 }

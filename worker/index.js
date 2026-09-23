@@ -111627,8 +111627,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // classifies as `hold`, which is a management stage. Materialising
         // all of them to rank them is by itself past the 128 MB isolate.
         // `processRankedCandidates` keeps the scores and drops the
-        // payloads, then re-reads each one as it processes it.
-        _kanbanProcessed = await processRankedCandidates(_execShortlist, {
+        // payloads, re-reading only the entry candidates it has to rank.
+        const _kanbanStart = Date.now();
+        const _kanbanStats = await processRankedCandidates(_execShortlist, {
           loadPayload: async (sym, phase) => {
             const latestData = await kvGetJSON(KV, `timed:latest:${sym}`);
             if (!latestData) return null;
@@ -111647,8 +111648,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }),
           onError: (e, { ticker: sym }) => console.error(`[KANBAN CRON] Error processing ${sym}:`, e),
         });
-        console.log(`[KANBAN CRON] Processed ${_kanbanProcessed} actionable, skipped ${_kanbanSkippedNonActionable} non-actionable`
-          + `, of ${executionTickers.length} total (${_execShortlist.length} shortlisted)`);
+        _kanbanProcessed = _kanbanStats.processed;
+        console.log(`[KANBAN CRON] Processed ${_kanbanProcessed} actionable`
+          + ` (${_kanbanStats.management} management, ${_kanbanStats.entries} ranked entries)`
+          + `, skipped ${_kanbanSkippedNonActionable} non-actionable`
+          + `, of ${executionTickers.length} total (${_execShortlist.length} shortlisted)`
+          + ` in ${Math.round((Date.now() - _kanbanStart) / 1000)}s`);
       } catch (e) {
         console.error("[KANBAN CRON] top-level error:", e);
       }
