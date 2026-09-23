@@ -214,6 +214,16 @@ crons = [
 [limits]
 cpu_ms = 300000
 
+# 2026-09-22 — tt-feed, tt-engine and tt-research have had logs on since
+# the decomposition; the monolith, which runs every cron the others do
+# not, was the one worker left dark. It threw out of the bare body of
+# scheduled() on 1,150 ticks a day from 2026-08-28 to 2026-09-22 and the
+# only way to see it was a GraphQL query nobody thought to run. Logs are
+# not inherited by named environments (each needs its own block), so this
+# is set twice.
+[observability.logs]
+enabled = true
+
 [env.production]
 name = "timed-trading-ingest"
 main = "index.js"
@@ -226,6 +236,9 @@ keep_vars = true
 
 [env.production.limits]
 cpu_ms = 300000
+
+[env.production.observability.logs]
+enabled = true
 
 # KV Namespace binding for production
 # IMPORTANT: Configure bindings in wrangler.toml to persist across deployments

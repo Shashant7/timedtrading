@@ -191,3 +191,27 @@ describe("binding parity: monolith default and production envs match", () => {
     expect(prodVars.CANDLE_CHAIN_INGEST).toBe(vars(monolith).CANDLE_CHAIN_INGEST);
   });
 });
+
+// 2026-09-22 — the monolith ran for 25 days throwing out of the bare body
+// of scheduled() on 1,150 ticks a day (a no-arg isOptionsSellWindowEt in
+// the */1 day-trade gate). It was the only one of the four workers with
+// logs off, so the exception existed nowhere a human would look; it took a
+// GraphQL workersInvocationsAdaptive query to find. A worker that runs
+// crons and cannot be read is a worker whose failures are free.
+describe("observability: every deployed worker writes logs", () => {
+  // The monolith appears twice on purpose. Logs are not inherited by named
+  // environments, and the monolith ships via `--env production`, so a block
+  // at the top level alone would leave the live worker dark.
+  const targets = [
+    ["monolith (default env)", monolith, "observability.logs"],
+    ["monolith (env.production)", monolith, "env.production.observability.logs"],
+    ["tt-feed", feed, "observability.logs"],
+    ["tt-engine", engine, "observability.logs"],
+    ["tt-research", research, "observability.logs"],
+  ];
+  for (const [label, doc, table] of targets) {
+    it(`${label} has [${table}] enabled`, () => {
+      expect(doc.tables[table]?.enabled, `${label}: missing or disabled [${table}]`).toBe("true");
+    });
+  }
+});
