@@ -1175,22 +1175,24 @@ export async function runPendingIndexDtReconcileLoop(env, operatorEmail, {
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   clock = () => Date.now(),
 } = {}) {
-  if (!env?.KV_TIMED || !operatorEmail) return { passes: 0, resolved: [], reason: "not_configured" };
-  if (_dtReconcileLoopBusy) return { passes: 0, resolved: [], reason: "already_running" };
+  if (!env?.KV_TIMED || !operatorEmail) return { passes: 0, watched: 0, resolved: [], reason: "not_configured" };
+  if (_dtReconcileLoopBusy) return { passes: 0, watched: 0, resolved: [], reason: "already_running" };
   _dtReconcileLoopBusy = true;
   const started = clock();
   const resolved = [];
   let passes = 0;
+  let watched = 0;
   try {
     for (;;) {
       passes++;
       const r = await sweepPendingIndexDtEntries(env, operatorEmail, { now: clock(), staleMs });
       if (r.resolved?.length) resolved.push(...r.resolved);
+      watched = Math.max(watched, r.checked || 0);
       // Nothing pending, or nothing that could still fill in the next few
       // seconds. Either way another poll now buys nothing.
-      if (!r.checked || !r.fresh) return { passes, resolved, reason: "settled" };
+      if (!r.checked || !r.fresh) return { passes, watched, resolved, reason: "settled" };
       if ((clock() - started) + tickMs >= budgetMs) {
-        return { passes, resolved, reason: "budget_exhausted" };
+        return { passes, watched, resolved, reason: "budget_exhausted" };
       }
       await sleep(tickMs);
     }

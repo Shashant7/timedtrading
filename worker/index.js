@@ -104454,8 +104454,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           const { runPendingIndexDtReconcileLoop } = await import("./options-auto-mirror.js");
           const r = await runPendingIndexDtReconcileLoop(env, env.ADMIN_EMAIL);
+          // Silent on the common path (nothing pending). Anything else is
+          // worth a line: without one there is no way to tell "no orders
+          // are working" from "nothing is watching them".
           if (r?.resolved?.length) {
-            console.log(`[OPT-DT-RECONCILE] ${JSON.stringify(r.resolved)} after ${r.passes} passes (${r.reason})`);
+            console.log(`[OPT-DT-RECONCILE] resolved ${JSON.stringify(r.resolved)} over ${r.passes} passes (${r.reason})`);
+          } else if (r?.watched > 0) {
+            console.log(`[OPT-DT-RECONCILE] watching ${r.watched} pending over ${r.passes} passes (${r.reason})`);
           }
         } catch (e) {
           console.warn("[OPT-DT-RECONCILE] threw:", String(e?.message || e).slice(0, 160));
