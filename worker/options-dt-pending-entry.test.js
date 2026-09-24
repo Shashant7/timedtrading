@@ -510,6 +510,9 @@ describe("no count caps on the day-trade lane, one loss limit instead", () => {
     };
   }
 
+  // A real broker never reissues an order id, and the budget's per-round
+  // tally leans on that, so the mock must not either.
+  let orderSeq = 0;
   function env(kv, calls, fillStatus = "working") {
     return {
       ADMIN_EMAIL: OP,
@@ -520,8 +523,9 @@ describe("no count caps on the day-trade lane, one loss limit instead", () => {
         fetch: async (req) => {
           const path = new URL(req.url).pathname;
           calls.push(path);
+          const oid = `OID${++orderSeq}`;
           return new Response(
-            JSON.stringify({ ok: true, order_id: "OID", fill: { status: fillStatus, filled_qty: 0, order_id: "OID" } }),
+            JSON.stringify({ ok: true, order_id: oid, fill: { status: fillStatus, filled_qty: 0, order_id: oid } }),
             { status: 200 },
           );
         },
@@ -568,24 +572,35 @@ describe("no count caps on the day-trade lane, one loss limit instead", () => {
     expect(calls).toContain("/bridge/options/order");
   });
 
-  it("charges the budget the debit it is willing to pay, not the mid", async () => {
+  it("charges the stop distance on the price it is willing to pay, not the mid", async () => {
     const kv = kvMock();
     kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith());
     await maybeAutoMirrorIndexDayTradeEvent(env(kv, []), buyCtx());
-    // Ceiling $0.68 x 100 x 1 lot. The $0.59 mid is a price we might not get.
-    expect(budget(kv).open_usd).toBe(68);
-    expect(budget(kv).remaining_usd).toBe(932);
+    // $0.68 ceiling x 100 x 1 lot = $68 debit; the -50% hard stop is what the
+    // desk actually accepts losing, so $34 is charged. The $0.59 mid is a
+    // price we might not get, so it is not what the budget is measured on.
+    expect(budget(kv).open_usd).toBe(34);
+    expect(budget(kv).remaining_usd).toBe(966);
   });
 
   it("refuses the entry that would breach the day's loss limit", async () => {
     const kv = kvMock();
     kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith({ daily_loss_limit_usd: 100 }));
-    await commitRisk({ KV_TIMED: kv }, OP, "earlier", { usd: 60 });
+    await commitRisk({ KV_TIMED: kv }, OP, "earlier", { usd: 80 });
     const calls = [];
     const r = await maybeAutoMirrorIndexDayTradeEvent(env(kv, calls), buyCtx());
     expect(r.skipped).toBe(true);
-    expect(r.reason).toMatch(/^daily_loss_budget_40_left_of_100_needs_68$/);
+    expect(r.reason).toMatch(/^daily_loss_budget_20_left_of_100_needs_34$/);
     expect(calls).toEqual([]); // nothing reached the broker
+  });
+
+  it("honours a play's own hard stop when it is wider than the house stop", async () => {
+    const kv = kvMock();
+    kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith());
+    const ctx = buyCtx();
+    ctx.play.option_management = { hard_stop_pct: -100 };
+    await maybeAutoMirrorIndexDayTradeEvent(env(kv, []), ctx);
+    expect(budget(kv).open_usd).toBe(68);
   });
 
   it("never blocks when the operator sets the limit to 0", async () => {
@@ -601,7 +616,7 @@ describe("no count caps on the day-trade lane, one loss limit instead", () => {
     const kv = kvMock();
     kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith());
     await maybeAutoMirrorIndexDayTradeEvent(env(kv, []), buyCtx());
-    expect(budget(kv).open_usd).toBe(68);
+    expect(budget(kv).open_usd).toBe(34);
 
     const mirror = JSON.parse(kv.store.get(indexDtMirrorKey(SIG)));
     expect(mirror.entry_pending).toBe(true);
@@ -610,6 +625,25 @@ describe("no count caps on the day-trade lane, one loss limit instead", () => {
     });
     expect(budget(kv).open_usd).toBe(0);
     expect(budget(kv).remaining_usd).toBe(1000);
+  });
+
+  it("charges a re-entry on the same strike again, because it is a new trade", async () => {
+    // SPY 766P, QQQ 737P and IWM 281P were each stopped out and taken again
+    // later on 2026-09-23. The second round is a real position, not a replay.
+    const kv = kvMock();
+    kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith());
+    await maybeAutoMirrorIndexDayTradeEvent(env(kv, []), buyCtx());
+    expect(budget(kv).open_usd).toBe(34);
+
+    const mirror = JSON.parse(kv.store.get(indexDtMirrorKey(SIG)));
+    await resolvePendingIndexDtEntry({ KV_TIMED: kv }, OP, SIG, mirror, {
+      deps: { pollFill: pollsWith("cancelled") },
+    });
+    expect(budget(kv).open_usd).toBe(0);
+
+    await maybeAutoMirrorIndexDayTradeEvent(env(kv, []), buyCtx());
+    expect(budget(kv).open_usd).toBe(34);
+    expect(budget(kv).placed_count).toBe(2);
   });
 });
 
