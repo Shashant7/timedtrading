@@ -1552,6 +1552,98 @@ export function deriveMirrorDecision(result = {}) {
 }
 
 /**
+ * Grade every partner leg of a fan-out by the operator's own rules.
+ *
+ * The bridge places the signal owner's order and every partner mirror in
+ * one call and answers with the operator's result at the top level plus
+ * `fanout: { accounts, results }` alongside. That isolation is deliberate
+ * — a partner must never move the operator's bookkeeping — but the main
+ * worker then never read `fanout` at all, so a partner leg that failed
+ * while the operator's succeeded was neither recorded nor said out loud.
+ * `bridgeResponseIsOk` has a fan-out clause, and it does not fire here:
+ * it tests `parsed.fanout === true` against the equity route's flat
+ * `{fanout:true, results:[…]}`, while the options route nests an object.
+ *
+ * Grading goes through `deriveMirrorDecision` on purpose. A partner leg
+ * judged by different rules than the operator's is a second definition of
+ * "mirrored" that can disagree with the first.
+ *
+ * Returns [] when there are no partners, which is the common case.
+ */
+export function summarizePartnerFanout(fired, { event = "BUY" } = {}) {
+  const rows = fired?.response?.fanout?.results;
+  if (!Array.isArray(rows) || !rows.length) return [];
+  const ev = String(event || "BUY").toUpperCase();
+  return rows.map((row) => {
+    const account = String(row?.user_id || row?.owner_email || "").toLowerCase() || null;
+    const why = row?.reason || row?.detail || null;
+    // A sizing or budget gate declining an account is a decision, not a
+    // failure: the leg was considered and correctly refused.
+    if (row?.skipped === true) {
+      return { account, decision: "skipped", reason: why || "skipped", contracts: 0 };
+    }
+    if (!row?.result || typeof row.result !== "object") {
+      return { account, decision: "error", reason: why || "no_bridge_response", contracts: 0 };
+    }
+    const requested = Math.max(1, Math.round(Number(row.contracts) || 1));
+    const fill = extractMirrorFill({ response: row.result, ok: row.ok === true }, requested);
+    const graded = deriveMirrorDecision({
+      skipped: false,
+      fill,
+      contracts: requested,
+      reconcile: reconcileIndexDtFill({ event: ev, requestedQty: requested, fill }),
+    });
+    return {
+      account,
+      decision: graded.decision,
+      reason: graded.decision === "mirrored" ? null : (graded.reason || why || null),
+      contracts: requested,
+    };
+  });
+}
+
+/** Partner legs that did not reach the broker. */
+export function unmirroredPartnerLegs(partners = []) {
+  return (partners || []).filter((p) => p?.decision === "rejected" || p?.decision === "error");
+}
+
+/**
+ * Page when a partner's reduce does not reach the broker.
+ *
+ * Same stakes as the operator's, and less visible: nobody is watching the
+ * partner's account, and the operator's own leg succeeding is exactly the
+ * condition under which this goes unnoticed. Deduped per signal, event and
+ * account so a reconciler retry says it once.
+ *
+ * There is no separate partner re-fire path and this does not add one. A
+ * reconciler-driven close goes back through the options webhook, which
+ * fans out again, and `clampReduceToHeld` clamps each partner to the
+ * contracts that account actually holds — so an account already flat
+ * no-ops while one still holding gets reduced. The gap this closes is
+ * knowing it happened.
+ */
+async function alertUnmirroredPartnerReduce(env, entry, partner) {
+  if (!env?.KV_TIMED || !partner?.account) return;
+  const key = `timed:opt-dt:partner-reduce-unmirrored:${entry.signal_id}:${entry.event}:${partner.account}`;
+  try {
+    if (await env.KV_TIMED.get(key)) return;
+    await env.KV_TIMED.put(key, String(entry.ts), { expirationTtl: 86400 });
+    const { notifyDiscord } = await import("./alerts.js");
+    await notifyDiscord(env, {
+      title: `Partner ${entry.event} not mirrored — ${entry.ticker}`,
+      description: [
+        `The model ${entry.event === "TRIM" ? "trimmed" : "closed"} ${entry.signal_id}.`,
+        `The operator's leg was ${entry.decision}; ${partner.account} was ${partner.decision}`
+        + `${partner.reason ? ` (${partner.reason})` : ""}.`,
+        "That account may still hold the contracts. The reconciler's next close"
+        + " fans out again and clamps to what each account holds.",
+      ].join("\n"),
+      color: 0xD64545,
+    }, "system");
+  } catch (_) { /* alerting is best-effort — never block a mirror on it */ }
+}
+
+/**
  * Page when a reduce does not reach the broker.
  *
  * A rejected BUY costs an opportunity. A rejected TRIM or STOP leaves REAL
@@ -1586,6 +1678,7 @@ export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
   const event = String(ctx?.event || "BUY").toUpperCase();
   if (!signalId || event === "PROTECT") return;
   const { decision, reason, note, contracts } = deriveMirrorDecision(result);
+  const partners = summarizePartnerFanout(result?.fired, { event });
   const entry = {
     signal_id: signalId,
     ticker: String(ctx?.ticker || "").toUpperCase(),
@@ -1598,6 +1691,9 @@ export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
     via: ctx?.reason === MIRROR_RECONCILE_REASON ? "reconcile" : null,
     note: note || null,
     contracts: contracts != null ? contracts : null,
+    // Omitted rather than stored empty: the log is a capped KV ring and
+    // most desks have no partners.
+    ...(partners.length ? { partners } : {}),
     ts: Date.now(),
   };
   try {
@@ -1614,6 +1710,11 @@ export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
 
   if (entry.side === "sell" && (decision === "rejected" || decision === "error")) {
     await alertUnmirroredReduce(env, entry);
+  }
+  if (entry.side === "sell") {
+    for (const partner of unmirroredPartnerLegs(partners)) {
+      await alertUnmirroredPartnerReduce(env, entry, partner);
+    }
   }
 }
 
