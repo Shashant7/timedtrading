@@ -451,38 +451,6 @@ export async function commitEntryCounters(env, userEmail, vehicle, { vehicleCap 
   return out;
 }
 
-/**
- * Give a slot back when an entry order ended WITHOUT becoming a position.
- *
- * This is not the reserve-then-release pattern deleted above, and the
- * difference is what makes it safe. That one bumped on INTENT and released on
- * a guess, so losing the release wedged the lane. This one bumps only on a
- * confirmed broker place and releases only on a second confirmed broker fact —
- * the order is cancelled, rejected, or gone. Losing the release leaves the
- * slot consumed, which is the restrictive direction: it can never hand out
- * more orders than the cap allows, only fewer.
- *
- * Floors at 0 so a double release cannot mint slots.
- */
-export async function releaseEntryCounters(env, userEmail, vehicle, { vehicleCap = 0, globalCap = 0, now = Date.now() } = {}) {
-  const date = new Date(Number(now) || Date.now()).toISOString().slice(0, 10);
-  const drop = async (key) => {
-    if (!env?.KV_TIMED || !key) return 0;
-    const current = Number(await env.KV_TIMED.get(key)) || 0;
-    const next = Math.max(0, current - 1);
-    await env.KV_TIMED.put(key, String(next), { expirationTtl: 86400 * 2 });
-    return next;
-  };
-  const out = {};
-  if (Number(vehicleCap) > 0) {
-    out.vehicle = await drop(DAILY_VEHICLE_COUNTER_KEY(userEmail, vehicle, date));
-  }
-  if (Number(globalCap) > 0) {
-    out.global = await drop(DAILY_COUNTER_KEY(userEmail, date));
-  }
-  return out;
-}
-
 /** HTTP success alone is not an accepted broker order. */
 export function optionsMirrorDispatchAccepted(fired) {
   return bridgeResponseIsOk(fired?.response, fired?.ok === true);
@@ -975,40 +943,22 @@ async function saveIndexDtMirror(env, signalId, patch) {
 // A 0/1 DTE entry limit that has not filled in this long is stale. The setup
 // that justified the price is gone, the lane re-evaluates every ~5 minutes, so
 // two missed passes is the signal. Leaving it working is not the neutral
-// choice: it holds a daily-cap slot AND it can still fill hours later into a
-// thesis the model has already abandoned.
+// choice: it holds part of the day's loss budget AND it can still fill hours
+// later into a thesis the model has already abandoned.
 export const PENDING_ENTRY_STALE_MS = 10 * 60 * 1000;
 
 /**
- * What a pending entry consumed. New mirrors record `entry_caps` at place
- * time, which is the honest answer — the caps in force when the slot was
- * taken. Mirrors written before that field existed have to fall back to the
- * caps in force NOW, because the alternative is releasing nothing and leaving
- * the lane wedged on the exact orders this was written to unwedge.
- */
-async function entryCapsForMirror(env, operatorEmail, mirror, vehicle) {
-  if (mirror?.entry_caps && (mirror.entry_caps.vehicleCap || mirror.entry_caps.globalCap)) {
-    return mirror.entry_caps;
-  }
-  try {
-    const prefs = await loadAutoMirrorPrefs(env, operatorEmail);
-    return mirrorCapsFor(prefs, prefs?.vehicles?.[vehicle]);
-  } catch (_) {
-    return {};
-  }
-}
-
-/**
  * Decide what a pending (placed, unfilled) entry order IS now, and make the
- * broker and the counters agree with the answer.
+ * broker and the day's loss budget agree with the answer.
  *
  * 2026-09-23 — before this, the only thing that ever re-read a pending entry
  * was a close event arriving for the SAME signal id. When the paper book
  * closed a signal whose entry had not filled, the close was skipped with
  * `entry_fill_pending` and nothing looked at the order again: the mirror sat
- * on `working` forever, the broker kept a live buy, and the daily-cap slot it
- * had consumed was never returned. Two such orders at 13:46 and 13:47 used up
- * the whole 2/day `long_put` budget and blocked the next nine entries.
+ * on `working` forever, the broker kept a live buy, and the allowance it had
+ * consumed was never returned. Two such orders at 13:46 and 13:47 used up the
+ * whole 2/day `long_put` cap and blocked the next nine entries. The cap is
+ * gone now, but the money behind an abandoned order still has to come back.
  *
  * Returns { outcome, mirror } with outcome one of:
  *   not_pending | filled | gone | cancelled | working
@@ -1027,8 +977,6 @@ export async function resolvePendingIndexDtEntry(env, operatorEmail, signalId, m
 
   const qty = Number(mirror.contracts) || 1;
   const orderId = mirror.entry_order_id;
-  const vehicle = mirror.vehicle || (mirror.flavor === "call" ? "long_call" : "long_put");
-  const caps = deps.caps || await entryCapsForMirror(env, operatorEmail, mirror, vehicle);
 
   const markFilled = async (rec) => {
     const patch = {
@@ -1042,24 +990,17 @@ export async function resolvePendingIndexDtEntry(env, operatorEmail, signalId, m
     return { outcome: "filled", mirror: { ...mirror, ...patch } };
   };
 
-  // Clearing state and releasing the slot must happen together — a cleared
-  // mirror with a consumed slot is exactly the wedge this function exists to
-  // undo.
+  // Clearing the mirror and giving the money back must happen together — a
+  // cleared mirror whose budget is still spent is exactly the wedge this
+  // function exists to undo.
   //
-  // The re-read is the idempotency guard. A close event and the per-pass
-  // sweep can reach the same order at once, and both would see `working`,
-  // both would cancel, and both would release — handing out a slot the cap
-  // never authorised. Whoever clears `entry_pending` first owns the release.
+  // Nothing was ever owned, so there is no P&L: the risk simply returns.
+  // Release is a delete keyed by signal id, so a close event and the sweep
+  // reaching the same order at once cannot double-refund it — which is why
+  // this no longer needs the re-read guard the counters did.
   const markGone = async (outcome, status) => {
-    const fresh = await loadIndexDtMirror(env, signalId);
-    const stillOurs = fresh?.entry_pending !== false;
     const patch = { entry_placed: false, entry_pending: false, entry_fired: false, entry_fill_status: status };
     await saveIndexDtMirror(env, signalId, patch);
-    if (stillOurs) {
-      try { await releaseEntryCounters(env, operatorEmail, vehicle, { ...caps, now }); } catch (_) { /* slot stays consumed — fails restrictive */ }
-    }
-    // Nothing was ever owned, so there is no P&L — the money simply comes
-    // back. Keyed by signal id, so replaying this is a no-op.
     try { await releaseRisk(env, operatorEmail, signalId, { now }); } catch (_) { /* budget stays consumed — fails restrictive */ }
     return { outcome, mirror: { ...mirror, ...patch } };
   };
@@ -1486,10 +1427,6 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     });
     if (!budgetOk.ok) return { ...budgetOk, vehicle: vehicleKey, risk_usd: entryRiskUsd };
 
-    // Counters still move so the operator dashboard keeps its per-vehicle
-    // and per-day totals, but nothing reads them as a gate any more.
-    const counterOk = await checkMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicleRow);
-
     const fired = await fireAutoMirror(env, operatorEmail, {
       trade_id: signalId || null,
       ticker,
@@ -1506,17 +1443,19 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     let fill = extractMirrorFill(fired, entryContracts);
     fill = await pollFillIfNeeded(env, operatorEmail, fill, entryContracts);
     const rec = reconcileIndexDtFill({ event: "BUY", requestedQty: entryContracts, fill });
-    // A working limit still occupies the broker, so it counts like a fill.
-    if (rec.persist || rec.pending) {
-      await commitEntryCounters(env, operatorEmail, vehicleKey, counterOk.caps);
-      // Charge the budget the moment the broker has the order. A working
-      // limit is real exposure: it can fill at any second, and until it is
-      // resolved the money behind it is not available to anything else.
-      if (signalId) {
-        await commitRisk(env, operatorEmail, signalId, {
-          usd: entryRiskUsd, vehicle: vehicleKey, ticker,
-        });
-      }
+    // Charge the budget the moment the broker has the order. A working limit
+    // is real exposure: it can fill at any second, and until it resolves the
+    // money behind it is not available to anything else.
+    //
+    // The shared daily counters are deliberately NOT bumped here. They are
+    // still a live gate for the Trader lane, and a day-trade lane with no
+    // count cap of its own would eat that allowance and lock the Trader lane
+    // out for the rest of the day. The day's tally lives on the budget
+    // instead, as `placed_count`.
+    if ((rec.persist || rec.pending) && signalId) {
+      await commitRisk(env, operatorEmail, signalId, {
+        usd: entryRiskUsd, vehicle: vehicleKey, ticker,
+      });
     }
 
     // Per-contract debit, so a later close can work out what was actually
@@ -1558,7 +1497,6 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
         // every save, so it cannot answer "how long has this been working".
         entry_placed_at: Date.now(),
         vehicle: vehicleKey,
-        entry_caps: counterOk.caps || null,
       });
     }
 

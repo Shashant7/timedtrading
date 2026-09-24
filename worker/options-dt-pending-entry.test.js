@@ -14,11 +14,10 @@
 //
 // These tests pin the three properties that failure needed:
 //   1. a pending entry is resolved on a schedule, not on an event
-//   2. an entry that never became a position gives its cap slot back
+//   2. an entry that never became a position gives its money back
 //   3. a working buy does not outlive the model's EXIT / STOP
 import { describe, it, expect } from "vitest";
 import {
-  releaseEntryCounters,
   commitEntryCounters,
   resolvePendingIndexDtEntry,
   sweepPendingIndexDtEntries,
@@ -69,7 +68,6 @@ function pendingMirror(over = {}) {
     contracts_remaining: 0,
     flavor: "put",
     vehicle: "long_put",
-    entry_caps: CAPS,
     entry_placed_at: NOW,
     ts: NOW,
     ...over,
@@ -86,45 +84,12 @@ function seedCounters(kv, { vehicle = 2, global: g = 2 } = {}) {
 const readVehicle = (kv) => Number(kv.store.get(vehicleCounterKeyFor(OP, "long_put", DAY)));
 const readGlobal = (kv) => Number(kv.store.get(`timed:options:auto-mirror:count:${OP}:${DAY}`));
 
-describe("releaseEntryCounters", () => {
-  it("gives back one vehicle slot and one global slot", async () => {
-    const kv = kvMock();
-    seedCounters(kv, { vehicle: 2, global: 5 });
-    await releaseEntryCounters({ KV_TIMED: kv }, OP, "long_put", { ...CAPS, now: NOW });
-    expect(readVehicle(kv)).toBe(1);
-    expect(readGlobal(kv)).toBe(4);
-  });
-
-  it("floors at 0 — a double release cannot mint slots", async () => {
-    const kv = kvMock();
-    seedCounters(kv, { vehicle: 1, global: 1 });
-    const opts = { ...CAPS, now: NOW };
-    await releaseEntryCounters({ KV_TIMED: kv }, OP, "long_put", opts);
-    await releaseEntryCounters({ KV_TIMED: kv }, OP, "long_put", opts);
-    await releaseEntryCounters({ KV_TIMED: kv }, OP, "long_put", opts);
-    expect(readVehicle(kv)).toBe(0);
-    expect(readGlobal(kv)).toBe(0);
-  });
-
-  it("is the exact inverse of a commit", async () => {
-    const kv = kvMock();
-    const env = { KV_TIMED: kv };
-    const opts = { ...CAPS, now: NOW };
-    await commitEntryCounters(env, OP, "long_put", opts);
-    await commitEntryCounters(env, OP, "long_put", opts);
-    expect(readVehicle(kv)).toBe(2);
-    await releaseEntryCounters(env, OP, "long_put", opts);
-    expect(readVehicle(kv)).toBe(1);
-  });
-
-  it("leaves an uncapped dimension alone", async () => {
-    const kv = kvMock();
-    seedCounters(kv, { vehicle: 2, global: 5 });
-    await releaseEntryCounters({ KV_TIMED: kv }, OP, "long_put", { vehicleCap: 2, globalCap: 0, now: NOW });
-    expect(readVehicle(kv)).toBe(1);
-    expect(readGlobal(kv)).toBe(5);
-  });
-});
+/** The $118 this order put at risk, and what is left of the day's budget. */
+const seedRisk = (kv, id = "sig", usd = 118) => commitRisk({ KV_TIMED: kv }, OP, id, { usd, now: NOW });
+const riskOpen = (kv) => {
+  const raw = kv.store.get(RISK_STATE_KEY(OP, DAY));
+  return raw ? riskBudgetSnapshot(JSON.parse(raw), 1000).open_usd : 0;
+};
 
 describe("resolvePendingIndexDtEntry", () => {
   it("ignores a mirror that is not a pending entry", async () => {
@@ -138,9 +103,9 @@ describe("resolvePendingIndexDtEntry", () => {
     expect(polled).toBe(false);
   });
 
-  it("promotes a fill to a real position and KEEPS the slot", async () => {
+  it("promotes a fill to a real position and KEEPS the money committed", async () => {
     const kv = kvMock();
-    seedCounters(kv, { vehicle: 2, global: 2 });
+    await seedRisk(kv);
     const r = await resolvePendingIndexDtEntry(
       { KV_TIMED: kv }, OP, "sig", pendingMirror(),
       { now: NOW, deps: { pollFill: pollsWith("filled", { filled_qty: 2 }) } },
@@ -149,26 +114,40 @@ describe("resolvePendingIndexDtEntry", () => {
     expect(r.mirror.entry_fired).toBe(true);
     expect(r.mirror.entry_pending).toBe(false);
     expect(r.mirror.contracts_remaining).toBe(2);
-    // A fill IS a position. The slot it took stays taken.
-    expect(readVehicle(kv)).toBe(2);
+    // A fill IS a position. The money behind it stays at risk.
+    expect(riskOpen(kv)).toBe(118);
   });
 
-  it("releases the slot when the broker rejected the order", async () => {
+  it("gives the money back when the broker rejected the order", async () => {
     const kv = kvMock();
-    seedCounters(kv, { vehicle: 2, global: 2 });
+    await seedRisk(kv);
     const r = await resolvePendingIndexDtEntry(
       { KV_TIMED: kv }, OP, "sig", pendingMirror(),
       { now: NOW, deps: { pollFill: pollsWith("rejected") } },
     );
     expect(r.outcome).toBe("gone");
     expect(r.mirror.entry_placed).toBe(false);
-    expect(readVehicle(kv)).toBe(1);
-    expect(readGlobal(kv)).toBe(1);
+    expect(riskOpen(kv)).toBe(0);
   });
 
-  it("leaves a fresh working order alone — no cancel, no release", async () => {
+  it("never touches the counters the Trader lane still gates on", async () => {
+    // The day-trade lane has no count cap of its own any more. If it kept
+    // bumping the shared tallies it would eat the Trader lane's allowance
+    // and lock it out for the rest of the day.
     const kv = kvMock();
     seedCounters(kv, { vehicle: 2, global: 2 });
+    await seedRisk(kv);
+    await resolvePendingIndexDtEntry(
+      { KV_TIMED: kv }, OP, "sig", pendingMirror(),
+      { now: NOW, deps: { pollFill: pollsWith("rejected") } },
+    );
+    expect(readVehicle(kv)).toBe(2);
+    expect(readGlobal(kv)).toBe(2);
+  });
+
+  it("leaves a fresh working order alone — no cancel, no refund", async () => {
+    const kv = kvMock();
+    await seedRisk(kv);
     let cancels = 0;
     const r = await resolvePendingIndexDtEntry(
       { KV_TIMED: kv }, OP, "sig", pendingMirror({ entry_placed_at: NOW - 60_000 }),
@@ -176,12 +155,12 @@ describe("resolvePendingIndexDtEntry", () => {
     );
     expect(r.outcome).toBe("working");
     expect(cancels).toBe(0);
-    expect(readVehicle(kv)).toBe(2);
+    expect(riskOpen(kv)).toBe(118);
   });
 
   it("cancels an order that has been working past the stale window", async () => {
     const kv = kvMock();
-    seedCounters(kv, { vehicle: 2, global: 2 });
+    await seedRisk(kv);
     let cancelledId = null;
     const r = await resolvePendingIndexDtEntry(
       { KV_TIMED: kv }, OP, "sig", pendingMirror({ entry_placed_at: NOW - PENDING_ENTRY_STALE_MS - 1 }),
@@ -195,12 +174,12 @@ describe("resolvePendingIndexDtEntry", () => {
     );
     expect(r.outcome).toBe("cancelled");
     expect(cancelledId).toBe("I3I87Q92ISRM5FPJMMU0LMR38A");
-    expect(readVehicle(kv)).toBe(1);
+    expect(riskOpen(kv)).toBe(0);
   });
 
   it("cancels a still-fresh order when the caller says the thesis is over", async () => {
     const kv = kvMock();
-    seedCounters(kv, { vehicle: 2, global: 2 });
+    await seedRisk(kv);
     let cancels = 0;
     const r = await resolvePendingIndexDtEntry(
       { KV_TIMED: kv }, OP, "sig", pendingMirror({ entry_placed_at: NOW - 30_000 }),
@@ -212,14 +191,14 @@ describe("resolvePendingIndexDtEntry", () => {
     );
     expect(r.outcome).toBe("cancelled");
     expect(cancels).toBe(1);
-    expect(readVehicle(kv)).toBe(1);
+    expect(riskOpen(kv)).toBe(0);
   });
 
   it("does NOT release when a cancel loses the race with a fill", async () => {
     // The dangerous case: cancel comes back not-ok because the order just
-    // filled. Releasing here would hand out a slot against a real position.
+    // filled. Refunding here would free money against a real position.
     const kv = kvMock();
-    seedCounters(kv, { vehicle: 2, global: 2 });
+    await seedRisk(kv);
     let polls = 0;
     const r = await resolvePendingIndexDtEntry(
       { KV_TIMED: kv }, OP, "sig", pendingMirror(),
@@ -234,7 +213,7 @@ describe("resolvePendingIndexDtEntry", () => {
     );
     expect(r.outcome).toBe("filled");
     expect(polls).toBe(2);
-    expect(readVehicle(kv)).toBe(2);
+    expect(riskOpen(kv)).toBe(118);
   });
 
   it("does NOT release when the cancel is refused and the order is still working", async () => {
@@ -267,43 +246,38 @@ describe("resolvePendingIndexDtEntry", () => {
     expect(readVehicle(kv)).toBe(2);
   });
 
-  it("falls back to live prefs for a mirror written before entry_caps existed", async () => {
-    // Today's two stuck orders predate the field. Without this they would
-    // resolve but never give their slots back.
-    const kv = kvMock({
-      [`timed:options:auto-mirror:${OP}`]: JSON.stringify({
-        enabled: true, daily_cap: 6,
-        vehicles: { long_put: { enabled: true, daily_cap: 2 } },
-      }),
-    });
-    seedCounters(kv, { vehicle: 2, global: 2 });
+  it("resolves a mirror written before any of these fields existed", async () => {
+    // The two orders that were stuck all of 2026-09-23 predate the budget
+    // entirely. They must still resolve, and a refund for money that was
+    // never committed must be a no-op rather than free allowance.
+    const kv = kvMock();
+    await seedRisk(kv, "other", 200);
     const legacy = pendingMirror();
-    delete legacy.entry_caps;
     delete legacy.vehicle;
     delete legacy.entry_placed_at;
+    delete legacy.entry_premium;
     const r = await resolvePendingIndexDtEntry(
       { KV_TIMED: kv }, OP, "sig", legacy,
       { now: NOW, deps: { pollFill: pollsWith("cancelled") } },
     );
     expect(r.outcome).toBe("gone");
-    expect(readVehicle(kv)).toBe(1);
-    expect(readGlobal(kv)).toBe(1);
+    expect(riskOpen(kv)).toBe(200);
   });
 
-  it("releases a slot once even if two passes resolve the same order", async () => {
-    // A close event and the per-pass sweep can reach the same order at the
-    // same moment. Both see `working`, both cancel, and a second release
-    // would hand out a slot the cap never authorised.
+  it("refunds once even if two passes resolve the same order", async () => {
+    // A close event and the reconcile loop can reach the same order at the
+    // same moment. Both see `working` and both cancel. A counter needed a
+    // re-read guard to survive that; a delete keyed by signal id does not.
     const kv = kvMock();
-    seedCounters(kv, { vehicle: 2, global: 2 });
+    await seedRisk(kv, "sig", 118);
+    await seedRisk(kv, "untouched", 200);
     kv.store.set(indexDtMirrorKey("sig"), JSON.stringify(pendingMirror()));
     const opts = { now: NOW, cancelIfWorking: true, deps: { pollFill: pollsWith("working"), cancelOrder: async () => ({ ok: true, response: { cancelled: true } }) } };
     const a = await resolvePendingIndexDtEntry({ KV_TIMED: kv }, OP, "sig", pendingMirror(), opts);
     const b = await resolvePendingIndexDtEntry({ KV_TIMED: kv }, OP, "sig", pendingMirror(), opts);
     expect(a.outcome).toBe("cancelled");
     expect(b.outcome).toBe("cancelled");
-    expect(readVehicle(kv)).toBe(1);
-    expect(readGlobal(kv)).toBe(1);
+    expect(riskOpen(kv)).toBe(200);
   });
 
   it("uses ts as the staleness clock when entry_placed_at is absent", async () => {
@@ -559,6 +533,27 @@ describe("no count caps on the day-trade lane, one loss limit instead", () => {
     const raw = kv.store.get(RISK_STATE_KEY(OP, today));
     return raw ? riskBudgetSnapshot(JSON.parse(raw), 1000) : null;
   };
+
+  it("leaves the shared counters alone — the Trader lane still gates on them", async () => {
+    // With no count cap of its own, a day-trade lane that kept bumping the
+    // shared tallies would spend the Trader lane's allowance and lock it out
+    // for the rest of the day.
+    const kv = kvMock();
+    kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith());
+    kv.store.set(vehicleCounterKeyFor(OP, "long_put", today), "1");
+    kv.store.set(`timed:options:auto-mirror:count:${OP}:${today}`, "1");
+    await maybeAutoMirrorIndexDayTradeEvent(env(kv, []), buyCtx());
+    expect(Number(kv.store.get(vehicleCounterKeyFor(OP, "long_put", today)))).toBe(1);
+    expect(Number(kv.store.get(`timed:options:auto-mirror:count:${OP}:${today}`))).toBe(1);
+  });
+
+  it("counts the day's placements on the budget instead", async () => {
+    const kv = kvMock();
+    kv.store.set(`timed:options:auto-mirror:${OP}`, prefsWith());
+    await maybeAutoMirrorIndexDayTradeEvent(env(kv, []), buyCtx());
+    await maybeAutoMirrorIndexDayTradeEvent(env(kv, []), buyCtx());   // same signal id
+    expect(budget(kv).placed_count).toBe(1);
+  });
 
   it("places the eleventh trade of the day — a count cap no longer blocks anything", async () => {
     const kv = kvMock();

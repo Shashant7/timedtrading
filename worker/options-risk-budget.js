@@ -57,7 +57,7 @@ const num = (v) => {
 };
 
 function emptyState(date) {
-  return { date, realized_pnl_usd: 0, open: {}, updated_ts: 0 };
+  return { date, realized_pnl_usd: 0, open: {}, placed: [], updated_ts: 0 };
 }
 
 export async function loadRiskState(env, userEmail, now = Date.now()) {
@@ -71,6 +71,7 @@ export async function loadRiskState(env, userEmail, now = Date.now()) {
       date,
       realized_pnl_usd: num(parsed?.realized_pnl_usd),
       open: (parsed?.open && typeof parsed.open === "object") ? parsed.open : {},
+      placed: Array.isArray(parsed?.placed) ? parsed.placed : [],
       updated_ts: num(parsed?.updated_ts),
     };
   } catch (_) {
@@ -117,6 +118,10 @@ export function riskBudgetSnapshot(state, limitUsd) {
     limit_usd: limit,
     open_usd: Math.round(openUsd * 100) / 100,
     open_count: openRows.length,
+    // How many day trades reached the broker today. This lives here rather
+    // than on the shared daily counters because the day-trade lane must not
+    // consume an allowance the Trader lane still gates on.
+    placed_count: Array.isArray(state?.placed) ? state.placed.length : 0,
     realized_pnl_usd: Math.round(realized * 100) / 100,
     realized_loss_usd: Math.round(realizedLossUsd * 100) / 100,
     consumed_usd: Math.round(consumedUsd * 100) / 100,
@@ -155,6 +160,9 @@ export async function commitRisk(env, userEmail, signalId, { usd, vehicle = null
   if (!env?.KV_TIMED || !userEmail || !signalId) return null;
   const state = await loadRiskState(env, userEmail, now);
   state.open = { ...state.open, [signalId]: { usd: Math.max(0, num(usd)), vehicle, ticker, ts: now } };
+  // Deduped, so the day's tally stays right under replay like everything
+  // else here.
+  if (!state.placed.includes(signalId)) state.placed = [...state.placed, signalId];
   return saveRiskState(env, userEmail, state, now);
 }
 

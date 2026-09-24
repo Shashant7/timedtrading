@@ -17,6 +17,13 @@ import {
   scaleIndexDtEntryPlay,
 } from "./options-auto-mirror.js";
 import { trimSellQty } from "./option-day-trade-plan.js";
+import { RISK_STATE_KEY, riskBudgetSnapshot } from "./options-risk-budget.js";
+
+/** The day-trade lane is governed by dollars now, not by the day counters. */
+const readBudget = (kv) => {
+  const raw = kv.store.get(RISK_STATE_KEY("op@x.com", new Date().toISOString().slice(0, 10)));
+  return riskBudgetSnapshot(raw ? JSON.parse(raw) : { open: {}, placed: [], realized_pnl_usd: 0 }, 1000);
+};
 
 const PAYLOAD = { ticker: "NEU", side: "buy", contracts: 1, occ_symbol: "NEU260821C00790000", limit_price: 24.2 };
 
@@ -339,7 +346,7 @@ describe("Stage 5b mirror safety invariants", () => {
     expect(kv.store.has(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBe(false);
   });
 
-  it("releases daily-cap slots when the broker rejects an entry", async () => {
+  it("charges the loss budget only for a confirmed place, never a reject", async () => {
     const prefs = JSON.stringify({
       enabled: true,
       daily_cap: 1,
@@ -371,9 +378,9 @@ describe("Stage 5b mirror safety invariants", () => {
     });
     expect(first.reconcile.persist).toBe(false);
     expect(first.fill.reason).toBe("broker_preview_rejected");
-    // Caps count confirmed places only, so a reject never touches them.
-    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:${today}`)).toBeUndefined();
-    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBeUndefined();
+    // The budget charges a confirmed place, so a reject costs nothing.
+    expect(readBudget(kv).open_usd).toBe(0);
+    expect(readBudget(kv).placed_count).toBe(0);
 
     const second = await maybeAutoMirrorIndexDayTradeEvent(env, {
       event: "BUY",
@@ -384,8 +391,11 @@ describe("Stage 5b mirror safety invariants", () => {
     });
     expect(second.skipped).toBe(false);
     expect(second.reconcile.persist).toBe(true);
-    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:${today}`)).toBe("1");
-    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBe("1");
+    expect(readBudget(kv).placed_count).toBe(1);
+    expect(readBudget(kv).open_usd).toBeGreaterThan(0);
+    // And the shared counters the Trader lane gates on stay untouched.
+    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:${today}`)).toBeUndefined();
+    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBeUndefined();
   });
 
   it("EXIT after a mirrored TRIM sells only the mirrored remainder", async () => {
