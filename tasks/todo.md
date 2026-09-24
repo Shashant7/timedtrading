@@ -21,6 +21,29 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+## Active — Index DT entry timing review / profit-lock floor (2026-09-24)
+
+- [x] Review the scoring → entry-trigger path for "we are a step behind"
+- [x] Measure it instead of reading it: MFE/MAE per round from
+      `timed:opt-dt-actions` joined to `option_marks`
+      (`scripts/replay-dt-profit-lock.mjs`)
+- [x] Finding: entries fire on time (first BUY at 09:45:43, the first second
+      of the buy window) and 7/14 scored fills reached their own +50% 1R
+      trim. The loss mechanism is the exit: 9/18 rounds died
+      `breakeven_stop` at a median peak of +15.9%
+- [x] Root cause: the peak profit lock (`+10%`/`+$0.08`) and the breakeven a
+      1R trim earns had collapsed into the same `mid <= entry` rule
+- [x] `profitLockFloor` = `max(hard stop, min(entry, 0.6 × peak))`; peak lock
+      reports `profit_lock_stop`, earned breakeven stays `breakeven_stop`
+- [x] Counterfactual on the real marks: 4/5 moved rounds better, net +155.5
+      premium pts per contract across 14 scored rounds
+- [ ] **Re-measure after a week live**: first position of the day per
+      underlying+side reached +50% MFE in 5/5, re-entries in 2/9. Decide
+      then whether a re-entry gate is warranted — do NOT hard-code one on
+      two sessions, and the floor fix removes most of the cause
+- [ ] Watch `profit_lock_stop` vs `breakeven_stop` counts in the action ring;
+      if profit-lock stops are now the tail rather than the mode, it worked
+
 ## Active — Index DT stop-out not mirroring / IWM 279P (2026-09-24)
 
 - [x] Root cause: bridge SELL guard rejected `no_held_position` — Webull
