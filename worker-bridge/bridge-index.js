@@ -3100,6 +3100,12 @@ async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Dat
 
   if (!brokerOrder) return reply({ ok: false, rejected: true, reason: "play_translation_failed" });
 
+  // Only the CLOSE plays carry a trade_id on the play itself, so entries went
+  // to the broker as `tt-opt-na-<uuid>` and could not be tied back to their
+  // signal from the broker's own order list — the one record that survives
+  // when the mirror ledger and the broker disagree.
+  if (!brokerOrder.trade_id && sanitized.trade_id) brokerOrder.trade_id = sanitized.trade_id;
+
   // Dry-run path — return what WOULD be sent without hitting the broker.
   if (sanitized.dry_run || user.mock_mode) {
     return reply({
