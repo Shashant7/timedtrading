@@ -277,7 +277,8 @@ export function buildDayTradePositionMgmtLine({
   const exitPx = num(pos.exit_premium) ?? num(bracket?.exit) ?? num(execution?.rr?.exit);
   const peak = num(pos.peak_premium);
   const trailStop = num(pos.trail_stop_premium);
-  const profitLock = !!pos.profit_lock_armed || !!pos.profit_armed || shouldArmProfitLock(entry, peak);
+  const trimArmed = !!pos.profit_armed || status === "trimmed";
+  const profitLock = trimArmed || !!pos.profit_lock_armed || shouldArmProfitLock(entry, peak);
   const heldOvernight = !!pos.held_overnight || isOvernightCarry(pos, now);
   const contracts = bookContracts(pos, null);
   const remaining = num(pos.contracts_remaining) ?? contracts;
@@ -291,9 +292,10 @@ export function buildDayTradePositionMgmtLine({
 
   const hardStop = num(bracket?.stop_premium) ?? hardStopPremium(entry);
   const trailFloor = profitLock ? trailFloorFromPeak(peak) : null;
+  const lockFloor = trimArmed ? entry : profitLockFloor(entry, peak);
   const premStopLevels = [];
   if (profitLock) {
-    if (entry != null) premStopLevels.push(entry);
+    if (lockFloor != null) premStopLevels.push(lockFloor);
     if (trailStop != null) premStopLevels.push(trailStop);
     if (trailFloor != null) premStopLevels.push(trailFloor);
   }
@@ -330,7 +332,8 @@ export function buildDayTradePositionMgmtLine({
         (peak != null ? ` (${Math.round(TRAIL_GIVEBACK_PCT * 100)}% giveback from ${money(peak)} peak)` : ""),
       );
     }
-    if (entry != null) watchBits.push(`breakeven floor ${money(entry)}`);
+    if (trimArmed && entry != null) watchBits.push(`breakeven floor ${money(entry)}`);
+    else if (lockFloor != null) watchBits.push(`profit-lock floor ${money(lockFloor)}`);
   } else if (hardStop != null) {
     watchBits.push(`hard premium stop ${money(hardStop)} (${HARD_STOP_PCT}%)`);
   }
@@ -586,6 +589,38 @@ export function shouldArmProfitLock(entry, peak) {
   return thresh != null && p != null && p + 1e-9 >= thresh;
 }
 
+/**
+ * Floor for the PEAK-armed profit lock — the safety net that catches a book
+ * which went green without ever tagging 1R. It is not the breakeven stop a
+ * 1R trim/protect earns; that one stays pinned at entry (see isProfitArmed).
+ *
+ * The floor rides up with the peak on the same giveback the runner trail
+ * uses, capped at breakeven and floored at the -50% hard stop:
+ *
+ *   max(hard stop, min(entry, 40%-giveback-from-peak))
+ *
+ * So it is monotone and continuous in the peak. A book up 15% risks ~31%
+ * instead of the full 50%; one up 67% or more risks nothing, because by then
+ * the giveback floor has climbed to entry on its own.
+ *
+ * The version this replaced snapped straight to entry the moment the peak
+ * cleared +10%, which is a ~0.06% move in the underlying on a 0.4-delta 1DTE
+ * contract. That put a zero-tolerance stop under every book in the whole
+ * +10% → +50% band, where there is no profit target to reach either, so a
+ * directionally-correct trade could only scratch. It did, seven times in
+ * fifteen closed trades over 2026-09-23/24 (median peak +15.9%, none within
+ * reach of the 1R trim) — including two IWM puts the desk was right about,
+ * which were green again inside the hour. See tasks/lessons.md.
+ */
+export function profitLockFloor(entry, peak) {
+  const e = num(entry);
+  if (!(e > 0)) return null;
+  const hard = hardStopPremium(e);
+  const trail = trailFloorFromPeak(peak);
+  if (trail == null) return hard;
+  return round2(Math.max(hard, Math.min(e, trail)));
+}
+
 function isProfitArmed(book) {
   return !!book?.profit_armed || String(book?.status || "") === "trimmed";
 }
@@ -698,12 +733,14 @@ export function classifyPaperEvent({
   const contracts = bookContracts(book, sz);
   const canTrim = canTrimContracts(contracts);
   const peak = resolveManagedPeak(book, mid, clock);
-  // Profit-lock: the breakeven + trailing-giveback exits normally wait for a
-  // 1R trim/protect to "arm" (profit_armed). That leaves a runner that was
-  // green (but never tagged 1R) with NO downside protection except the
-  // -50% hard stop — so a winner can round-trip to a full loss. Arm once
-  // the post-entry peak (book or marks path) clears the 10% / $0.08 floor.
-  const peakLockArmed = isProfitArmed(book) || shouldArmProfitLock(entry, peak);
+  // Two different locks, and they are not interchangeable. A 1R trim/protect
+  // EARNS a breakeven stop (profit_armed) — half the position is already
+  // banked, so the runner may risk nothing. The peak lock is only a safety
+  // net for a book that went green without ever tagging 1R: it stops the
+  // -50% hard stop being the sole protection, but it has not earned the
+  // right to pin the stop at entry.
+  const trimArmed = isProfitArmed(book);
+  const peakLockArmed = trimArmed || shouldArmProfitLock(entry, peak);
   const stamped = {
     ...book,
     peak_premium: peak,
@@ -740,10 +777,13 @@ export function classifyPaperEvent({
     };
   }
 
-  if (peakLockArmed && entry != null && mid != null && mid + 1e-9 <= entry) {
+  // Earned breakeven sits at entry; the peak lock rides a giveback floor up
+  // toward it. Either way this is the level that replaces the hard stop.
+  const lockFloor = trimArmed ? entry : profitLockFloor(entry, peak);
+  if (peakLockArmed && lockFloor != null && mid != null && mid + 1e-9 <= lockFloor) {
     return {
       event: "STOP",
-      reason: "breakeven_stop",
+      reason: trimArmed ? "breakeven_stop" : "profit_lock_stop",
       nextBook: { ...closed, event: "STOP", held_overnight: false, peak_premium: peak },
     };
   }
@@ -869,9 +909,18 @@ export function describePaperExitReason(reason, ctx = {}) {
   }
   if (r === "breakeven_stop") {
     const peakPct = entry != null && peak != null ? pctChange(entry, peak) : null;
-    return `Breakeven stop — profit lock was armed` +
+    return `Breakeven stop — 1R was banked, so the runner risked nothing` +
       (peakPct != null ? ` (peak ${formatPct(peakPct)} at ${money(peak)})` : "") +
       `. Premium fell back to entry ${money(entry ?? mid)}.` +
+      (mid != null ? ` Fill ${money(mid)}.` : "");
+  }
+  if (r === "profit_lock_stop") {
+    const peakPct = entry != null && peak != null ? pctChange(entry, peak) : null;
+    const floor = num(ctx.lockFloor) ?? profitLockFloor(entry, peak);
+    return `Profit-lock giveback — book went green without tagging 1R` +
+      (peakPct != null ? ` (peak ${formatPct(peakPct)} at ${money(peak)})` : "") +
+      `. Floor ${money(floor)}, ratcheted up from the ${HARD_STOP_PCT}% hard stop ` +
+      `toward breakeven ${money(entry)}.` +
       (mid != null ? ` Fill ${money(mid)}.` : "");
   }
   if (r === "trail_stop") {
@@ -925,10 +974,11 @@ function buildPaperExitFields({
   const trimPx = num(book?.trim_premium) ?? num(br.trim);
   const exitPx = num(book?.exit_premium) ?? num(br.exit);
   const hardStop = num(br.stop_premium) ?? hardStopPremium(entry);
-  const peakLockArmed = !!book?.profit_lock_armed || !!book?.profit_armed
-    || String(book?.status || "") === "trimmed"
+  const trimArmed = !!book?.profit_armed || String(book?.status || "") === "trimmed";
+  const peakLockArmed = trimArmed || !!book?.profit_lock_armed
     || shouldArmProfitLock(entry, peak);
   const trailFloor = peakLockArmed ? trailFloorFromPeak(peak ?? mid) : null;
+  const lockFloor = trimArmed ? entry : profitLockFloor(entry, peak);
   const exitPct = entry != null && mid != null ? pctChange(entry, mid) : null;
   const peakPct = entry != null && peak != null ? pctChange(entry, peak) : null;
   const sym = String(plan?.occ || "").split(/\s+/)[0] || "";
@@ -942,6 +992,7 @@ function buildPaperExitFields({
       hardStop,
       peak,
       trailFloor,
+      lockFloor,
       invUnderlying: br.stop_underlying,
       sym,
       flavor: plan?.flavor,
@@ -964,7 +1015,11 @@ function buildPaperExitFields({
     hardStop != null ? `Hard stop ${money(hardStop)} (${HARD_STOP_PCT}%)` : null,
     trimPx != null ? `1R trim ${money(trimPx)}` : null,
     exitPx != null ? `2R exit ${money(exitPx)}` : null,
-    peakLockArmed ? `Profit lock armed — breakeven + ${Math.round(TRAIL_GIVEBACK_PCT * 100)}% trail` : null,
+    peakLockArmed
+      ? (trimArmed
+        ? `1R banked — stop at breakeven ${money(entry)} + ${Math.round(TRAIL_GIVEBACK_PCT * 100)}% trail`
+        : `Profit lock armed — floor ${money(lockFloor)} (${Math.round(TRAIL_GIVEBACK_PCT * 100)}% giveback, capped at breakeven)`)
+      : null,
     trailFloor != null ? `Trail floor now ${money(trailFloor)}` : null,
     br.stop_underlying != null ? `Underlying inv ${money(br.stop_underlying)}` : null,
     br.time_stop_et ? `Flat by ${br.time_stop_et} ET` : null,
