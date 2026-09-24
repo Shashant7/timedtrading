@@ -61,16 +61,36 @@
       operation that can apply twice. The lane no longer bumps the SHARED day
       counters (the Trader lane still gates on them; an uncapped lane bumping
       them would have swapped one starvation for another). 64 tests.
-      **Operator decision needed:** the $1000 default is the agent's pick, not
-      the operator's — set `daily_loss_limit_usd` deliberately.
-      **Open follow-ups from this:** (a) DIA is in `DAY_TRADE_TICKERS` but
-      `shouldIndexAutoMirror` allows SPY/QQQ/IWM only, so DIA day trades are
-      alerted and can never mirror (4x `ticker_not_index` today) — widen the
-      gate or stop alerting it; (b) entries price against a passive FMV
-      ceiling (`display_buy_ceil`) with no marketable floor, unlike
-      `marketableCloseLimit` on the exit side. Not proven to be the cause here
-      ($0.68 ceiling vs $0.59 mid should have filled), but it is the obvious
-      reason a limit sits unfilled and it needs real fill data to settle.
+      All three follow-ups below are now closed.
+- [x] **$500 limit, DIA, marketable entries, re-entry, and a graded replay of
+      2026-09-23 (2026-09-24, same PR).** Operator: "Let's make the daily loss
+      limit be $500… Regarding DIA, we should include it. Let's enhance and
+      refine the entries price. I want you to review today's day trades."
+      Graded the session FIRST, and the tape answered three of the four asks
+      and found a fourth bug.
+      (1) **$500, charged on the stop not the debit.** These are managed to a
+      -50% hard premium stop, so `optionStopRiskUsd` charges `debit x 0.5`
+      (`DEFAULT_STOP_FRACTION`, pinned to `HARD_STOP_PCT` by test). Replayed at
+      $500: charging the debit takes 9/16 rounds and blocks DIA 514P (+$194)
+      and IWM 283P (+$101) for $566 vs the desk's $702; charging the stop takes
+      12/16 for $801.
+      (2) **DIA mirrors.** `shouldIndexAutoMirror` now allow-lists
+      `DAY_TRADE_TICKERS` instead of restating it.
+      (3) **Entries price marketable.** `marketableEntryLimit` =
+      `max(display_buy_ceil, ask)`, chase capped at 8% of mid (session spreads:
+      2.06% median / 3.75% p90 / 14.3% p99 over 3,099 marks). `premium_band.ask`
+      plumbed from `resolveLiveOptionPremium` through the clock to the mirror.
+      (4) **Re-entry, found by the replay.** The BUY guard read `entry_fired ||
+      entry_placed`, so all three of the session's re-entries were dropped
+      (SPY 766P, QQQ 737P, IWM 281P — 766P's second round was +$219). It now
+      blocks a duplicate of a LIVE position only and clears the prior round's
+      `trim_*`/`exit_*`. Mutation-checked.
+      `scripts/replay-day-trades.mjs` + `scripts/fixtures/dt-session-2026-09-23.json`
+      grade entry and management separately. 4466 tests.
+      **Still open:** SPY 766P's 11:07 re-entry is correctly refused because
+      the paper STOP left 1 of 3 contracts on — the mirror declines to stack
+      into a position it still holds. Defensible, but worth a look at why a
+      STOP sold 1 of 2 remaining rather than flattening.
 - [x] **The engine never finished a market-hours tick (2026-09-22).** DDOG's
       0.1× Cloud Pivot entry scored, wrote D1 and sent its Discord card, then
       the `tt-engine` `*/5` isolate was killed with `outcome:
