@@ -30,7 +30,10 @@ function money(v) {
   return n == null ? "—" : `$${n.toFixed(2)}`;
 }
 
-export const SIZE_CONTRACTS = { light: 1, medium: 2, heavy: 3 };
+// Two lots minimum. A one-lot book cannot trim — it PROTECTs at 1R instead —
+// so with light = 1 a third of the model's own trades never had a trim for
+// any account to mirror. Conviction still separates heavy from the rest.
+export const SIZE_CONTRACTS = { light: 2, medium: 2, heavy: 3 };
 export const HARD_STOP_PCT = -50;
 export const MIN_RR = 1;
 export const TRIM_R = 1;
@@ -379,7 +382,7 @@ export function sizeDayTradePlay({
     contracts,
     debit_usd: debit,
     sleeve_usd: SLEEVE_USD,
-    scale_note: `Model sleeve $${(SLEEVE_USD / 1000).toFixed(0)}k → ${contracts} contract${contracts === 1 ? "" : "s"} (${label}). Scale 1 / 2 / 3 for light / medium / heavy.`,
+    scale_note: `Model sleeve $${(SLEEVE_USD / 1000).toFixed(0)}k → ${contracts} contract${contracts === 1 ? "" : "s"} (${label}). Scale ${SIZE_CONTRACTS.light} / ${SIZE_CONTRACTS.medium} / ${SIZE_CONTRACTS.heavy} for light / medium / heavy.`,
   };
 }
 

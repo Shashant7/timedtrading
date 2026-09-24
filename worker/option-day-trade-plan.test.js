@@ -63,7 +63,8 @@ describe("sizeDayTradePlay", () => {
       premium: 0.95,
     });
     expect(s.label).toBe("light");
-    expect(s.contracts).toBe(1);
+    // Two lots is the floor: a one-lot book cannot trim.
+    expect(s.contracts).toBe(2);
   });
 });
 

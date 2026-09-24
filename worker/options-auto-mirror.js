@@ -140,11 +140,10 @@ const DEFAULT_PREFS = {
   daily_cap: 5,
   max_notional_per_order_usd: 5000,
   max_loss_per_order_usd: 2000,
-  // Default OFF — keep mirrored index day-trades at 1 lot until the
-  // 1-contract flow is proven live. When true, BUY follows the paper
-  // book's light/medium/heavy size (1 / 2 / 3), still capped by the
-  // vehicle notional.
-  index_dt_follow_paper_size: false,
+  // Follow the paper book's size (2 / 2 / 3), capped by the vehicle
+  // notional and max-loss. A one-lot mirror can never trim, so pinning it
+  // at one lot meant no trim ever reached the broker.
+  index_dt_follow_paper_size: true,
   // Single-lot floor for index day-trades. A contract is the minimum
   // tradeable unit and its debit is the fully-defined max loss. When the
   // sizer cannot fit even one contract inside the (small-account) max-loss

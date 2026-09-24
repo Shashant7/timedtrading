@@ -189,19 +189,20 @@ describe("POST /bridge/options/order — partner fan-out", () => {
     expect(r.body.fanout).toBeUndefined();
   });
 
-  it("sizes the partner down on its equity instead of copying model size", async () => {
-    // $50k against a $100k book: half of 2 contracts.
+  it("sizes the partner at the model's size inside its own ceilings", async () => {
+    // The default $500 day-stop tolerates $1,000 of debit at -50%; two lots
+    // at $64 fit, so the partner takes what the operator takes.
     const r = await post(makeEnv([opRoth, partnerCash]), buyPayload());
     const [mirror] = r.body.fanout.results;
     expect(r.body.translated_order.qty).toBe(2);
-    expect(mirror.contracts).toBe(1);
+    expect(mirror.contracts).toBe(2);
   });
 
   it("gives the partner its own order, not a second copy of the operator's", async () => {
     const r = await post(makeEnv([opRoth, partnerCash]), buyPayload());
     const [mirror] = r.body.fanout.results;
     expect(mirror.result.translated_order).toBeTruthy();
-    expect(mirror.result.translated_order.qty).toBe(1);
+    expect(mirror.result.translated_order.qty).toBe(2);
   });
 
   it("reports why an account sat out rather than dropping it silently", async () => {
@@ -252,7 +253,7 @@ describe("POST /bridge/options/order — partner fan-out", () => {
     // Each account claims the order under its own id; one shared key would
     // let the first target dedupe the rest into placing nothing.
     const sizes = Object.fromEntries(r.body.fanout.results.map((x) => [x.user_id, x.contracts]));
-    expect(sizes[PARTNER_CASH]).toBe(1);
+    expect(sizes[PARTNER_CASH]).toBe(2);
     expect(sizes[`${PARTNER2}#webull#individual-cash`]).toBe(2);
   });
 
@@ -337,8 +338,8 @@ describe("POST /bridge/options/order — partner fan-out", () => {
         legs: [{ action: "BUY", optionType: "PUT", strike: 279, expiration: "2026-09-25", qty, premium_mid: 1.0 }],
       },
     });
-    // Partner equity halves the model, so 18 model contracts -> 9 = $450.
-    await post(e, play("dt:IWM:a", 18));
+    // Nine contracts spend $450 of the $500 of stop risk.
+    await post(e, play("dt:IWM:a", 9));
     // Only $50 left: one contract, not the 4 equity and caps would allow.
     const next = await post(e, play("dt:IWM:b", 8));
     expect(next.body.fanout.results[0].contracts).toBe(1);
