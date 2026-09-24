@@ -6,6 +6,7 @@ import {
   guardOptionsSellQty,
   applyOptionsSellGuard,
 } from "./bridge-options-guard.js";
+import { normalizeWebullOptionsPositions } from "./bridge-webull-options.js";
 
 const SPEC = { ticker: "QQQ", expiration: "2026-08-25", strike: 710, optionType: "CALL" };
 
@@ -40,6 +41,98 @@ describe("positionContractKey", () => {
       putOrCall: "C",
       position: 1,
     })).toBe("QQQ:2026-08-25:710.00:C");
+  });
+
+  it("refuses to key a row that never named its right", () => {
+    expect(positionContractKey({
+      underlying: "QQQ",
+      expiration: "2026-08-25",
+      strike: 710,
+      qty: 1,
+    })).toBeNull();
+  });
+});
+
+// 2026-09-24: IWM 279P entered and mirrored, then the breakeven stop came
+// back `no_held_position` while the contract was sitting in the account.
+// Webull describes an option holding on `legs[]`; the normalizer read the
+// top level, so every position keyed as strike 0 / no expiry / CALL and
+// matched nothing. End-to-end here because neither half failed alone.
+describe("Webull options SELL guard, end to end", () => {
+  const webullPositions = () => normalizeWebullOptionsPositions({
+    response: {
+      data: {
+        position_list: [{
+          currency: "USD",
+          quantity: "1",
+          symbol: "IWM",
+          option_strategy: "SINGLE",
+          instrument_type: "OPTION",
+          cost_price: "0.65",
+          legs: [{
+            symbol: "IWM",
+            instrument_type: "OPTION",
+            option_type: "PUT",
+            option_expire_date: "2026-09-25",
+            option_exercise_price: "279",
+          }],
+        }],
+      },
+    },
+  });
+
+  it("allows the stop-out of a contract the account actually holds", () => {
+    const guard = applyOptionsSellGuard({
+      type: "single",
+      action: "SELL",
+      qty: 1,
+      symbol: "IWM",
+      expiration: "2026-09-25",
+      strike: 279,
+      option_type: "PUT",
+    }, webullPositions());
+    expect(guard).toMatchObject({ ok: true, held_qty: 1 });
+  });
+
+  it("still rejects a strike the account does not hold", () => {
+    const guard = applyOptionsSellGuard({
+      type: "single",
+      action: "SELL",
+      qty: 1,
+      symbol: "IWM",
+      expiration: "2026-09-25",
+      strike: 280,
+      option_type: "PUT",
+    }, webullPositions());
+    expect(guard).toMatchObject({ ok: false, reason: "no_held_position" });
+  });
+
+  it("does not let a put cover a call sell at the same strike", () => {
+    const guard = applyOptionsSellGuard({
+      type: "single",
+      action: "SELL",
+      qty: 1,
+      symbol: "IWM",
+      expiration: "2026-09-25",
+      strike: 279,
+      option_type: "CALL",
+    }, webullPositions());
+    expect(guard.ok).toBe(false);
+  });
+
+  it("will not count a combo leg it cannot call long or short", () => {
+    const held = heldQtyForOption(
+      [{
+        underlying: "SPY",
+        expiration: "2026-09-25",
+        strike: 770,
+        option_type: "CALL",
+        qty: 1,
+        direction_unknown: true,
+      }],
+      { ticker: "SPY", expiration: "2026-09-25", strike: 770, optionType: "CALL" },
+    );
+    expect(held).toBe(0);
   });
 });
 

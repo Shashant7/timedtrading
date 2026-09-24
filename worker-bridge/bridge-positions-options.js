@@ -9,8 +9,10 @@ export function formatOptionHoldingLabel(op) {
   if (!und) return null;
   const rightRaw = String(op?.option_type || op?.right || "").toUpperCase().replace(/[^A-Z]/g, "");
   // Explicit CALL/PUT — do not use includes("P") on "CALL" (safe today) or
-  // fuzzy matching that could flip rights on odd broker strings.
-  let right = "C";
+  // fuzzy matching that could flip rights on odd broker strings. An
+  // unreadable right reads "?" rather than quietly rendering every holding
+  // as a call, which is what hid the unparsed Webull puts.
+  let right = "?";
   if (rightRaw === "P" || rightRaw === "PUT" || rightRaw.startsWith("PUT")) right = "P";
   else if (rightRaw === "C" || rightRaw === "CALL" || rightRaw.startsWith("CALL")) right = "C";
   else if (rightRaw.includes("PUT")) right = "P";
@@ -52,9 +54,11 @@ export function optionPositionToHoldingItem(op) {
     last = Math.abs(perContract) >= 50 ? perContract / 100 : perContract;
   }
   const rightRaw = String(op?.option_type || "").toUpperCase().replace(/[^A-Z]/g, "");
-  let optionType = "CALL";
+  let optionType = null;
   if (rightRaw === "P" || rightRaw === "PUT" || rightRaw.startsWith("PUT") || rightRaw.includes("PUT")) {
     optionType = "PUT";
+  } else if (rightRaw === "C" || rightRaw.startsWith("CALL")) {
+    optionType = "CALL";
   }
   // Number(null/undefined) === 0 — only keep avg_cost when the source set it.
   const avgCost = (op?.avg_cost != null && op?.avg_cost !== "" && Number.isFinite(avg)) ? avg : null;

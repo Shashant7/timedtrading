@@ -16,6 +16,15 @@ function rightFlag(v) {
   return s.startsWith("P") ? "P" : "C";
 }
 
+/** "P" / "C", or null when the source named no right at all. */
+function explicitRightFlag(v) {
+  const s = String(v ?? "").toUpperCase().replace(/[^A-Z]/g, "");
+  if (!s) return null;
+  if (s === "P" || s.startsWith("PUT")) return "P";
+  if (s === "C" || s.startsWith("CALL")) return "C";
+  return null;
+}
+
 function expIso(v) {
   const s = String(v || "").trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
@@ -38,12 +47,19 @@ export function optionContractKey({ ticker, expiration, strike, optionType } = {
 /** Fold Webull / IBKR / OCC-ish rows onto the same key. */
 export function positionContractKey(p, fallbackTicker = null) {
   if (!p) return null;
-  const fromFields = optionContractKey({
+  // A row whose right is not stated cannot be folded onto a key from its
+  // fields — `rightFlag` would call it a CALL, and a held PUT keyed as a
+  // CALL matches nothing while a stray CALL key could match something it
+  // is not. Fall through to the OCC symbol, which carries the right.
+  const statedRight = explicitRightFlag(
+    p.option_type ?? p.optionType ?? p.putOrCall ?? p.right ?? p.type,
+  );
+  const fromFields = statedRight ? optionContractKey({
     ticker: p.underlying || p.underlying_symbol || p.ticker || p.symbol || fallbackTicker,
     expiration: p.expiration || p.option_expire_date || p.exp || p.expiry,
-    strike: p.strike ?? p.strike_price,
-    optionType: p.option_type || p.optionType || p.putOrCall || p.right || p.type,
-  });
+    strike: p.strike ?? p.strike_price ?? p.option_exercise_price,
+    optionType: statedRight,
+  }) : null;
   if (fromFields) {
     // Prefer underlying for index ETFs (Webull `symbol` is often the OCC).
     if (p.underlying || p.underlying_symbol || p.ticker) return fromFields;
@@ -80,6 +96,9 @@ export function heldQtyForOption(positions, spec) {
   if (!want) return 0;
   let held = 0;
   for (const p of Array.isArray(positions) ? positions : []) {
+    // A leg of a combo the broker did not label long or short could be
+    // either. Counting it as held is how a SELL turns into a naked short.
+    if (p?.direction_unknown) continue;
     const key = positionContractKey(p, spec.ticker);
     if (key !== want) continue;
     const q = num(p.qty ?? p.quantity ?? p.position ?? p.size);
