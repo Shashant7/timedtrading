@@ -5,6 +5,7 @@ import {
   heldQtyForOption,
   guardOptionsSellQty,
   applyOptionsSellGuard,
+  unresolvedOptionRows,
 } from "./bridge-options-guard.js";
 import { normalizeWebullOptionsPositions } from "./bridge-webull-options.js";
 
@@ -133,6 +134,67 @@ describe("Webull options SELL guard, end to end", () => {
       { ticker: "SPY", expiration: "2026-09-25", strike: 770, optionType: "CALL" },
     );
     expect(held).toBe(0);
+  });
+});
+
+// A refusal that blames the account for a bug in this code is how the
+// 2026-09-24 stop-outs looked correct while the puts sat in the Roth. Blocking
+// the sell is right; borrowing "no_held_position" to do it is not.
+describe("a refusal has to name the real reason", () => {
+  const unreadable = [{
+    symbol: "IWM",
+    underlying: "",
+    qty: 1,
+    option_type: null,
+    strike: null,
+    expiration: null,
+  }];
+
+  it("calls out rows that could not be resolved to a contract", () => {
+    expect(unresolvedOptionRows(unreadable)).toHaveLength(1);
+  });
+
+  it("blocks the sell but blames the parser, not the account", () => {
+    const r = guardOptionsSellQty({
+      action: "SELL", qty: 1, positions: unreadable,
+      ticker: "IWM", expiration: "2026-09-25", strike: 279, optionType: "PUT",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("positions_unresolved");
+    expect(r.unresolved_count).toBe(1);
+  });
+
+  it("says so when the contract IS matched but its direction is unknown", () => {
+    const r = guardOptionsSellQty({
+      action: "SELL", qty: 1,
+      positions: [{
+        underlying: "IWM", expiration: "2026-09-25", strike: 279,
+        option_type: "PUT", qty: 1, direction_unknown: true,
+      }],
+      ticker: "IWM", expiration: "2026-09-25", strike: 279, optionType: "PUT",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("position_direction_unknown");
+  });
+
+  it("still says no_held_position when the holdings read fine and simply do not match", () => {
+    const r = guardOptionsSellQty({
+      action: "SELL", qty: 1,
+      positions: normalizeWebullOptionsPositions({
+        response: { data: { position_list: [{
+          symbol: "IWM", quantity: "1", instrument_type: "OPTION",
+          legs: [{ symbol: "IWM", instrument_type: "OPTION", option_type: "PUT",
+            option_expire_date: "2026-09-25", option_exercise_price: "279" }],
+        }] } },
+      }),
+      ticker: "IWM", expiration: "2026-09-25", strike: 275, optionType: "PUT",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("no_held_position");
+  });
+
+  it("does not call an equity row an unresolved option", () => {
+    expect(unresolvedOptionRows([{ symbol: "NVDA", qty: 9.28 }])).toHaveLength(0);
   });
 });
 

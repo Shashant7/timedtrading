@@ -81,6 +81,18 @@ demonstrably held.
   the reconciler would see permanent drift on every trimmed single lot and
   re-fire a reduce that gets skipped every minute for the rest of the day.
   Both now read `trimSellQty` and the same `total <= 1` rule.
+- **A refusal must not be able to blame the account for our bug.** The
+  reject read `no_held_position`, which is a perfectly correct-looking
+  answer — it is what a guard says when someone tries to sell something
+  they do not own. That is why four hours and two stranded contracts went
+  by: the log line looked like the system working. "Not held" and "could
+  not read what is held" have to be different reasons, because only one of
+  them is ours to fix. `unresolvedOptionRows` now finds option rows the
+  keyer cannot key and the guard answers `positions_unresolved` instead;
+  a matched-but-`direction_unknown` row answers
+  `position_direction_unknown`. Both still block the sell — the fix is to
+  the NAME, not the behaviour. Detecting them keys off field PRESENCE, not
+  values, because the broken row's every contract field was null.
 - **"Rejected" has to be loud, because the retry makes it quiet.** A
   reconciler that keeps trying also keeps the failure off anyone's screen.
   The page therefore hangs off `recordIndexDtMirrorDecision` — the one

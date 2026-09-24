@@ -599,6 +599,15 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   the dangerous one**: the position legitimately stays open afterwards, so
   nothing looks wrong. `healForCoverageRow` routes a closed `index_dt` row
   here; a missed day-trade ENTRY still routes nowhere (the setup is gone).
+- **`no_held_position` no longer covers for a parser bug (2026-09-24)**:
+  "the account does not hold this" and "what the account holds could not be
+  read" both have to block a SELL, but they are not the same fact and only one
+  is a bug in our code. `unresolvedOptionRows` (bridge) finds option rows —
+  detected by field KEY PRESENCE, since the broken case is all-null values —
+  that `positionContractKey` cannot key, and the guard then returns
+  `positions_unresolved` (with `unresolved_count`) instead. A row that DOES
+  match but is `direction_unknown` returns `position_direction_unknown`. Still
+  fail-closed; just no longer wearing a reason that reads as a correct refusal.
 - **A rejected reduce pages; it is never just a log line (2026-09-24)**: every
   mirror decision funnels through `recordIndexDtMirrorDecision`, so a `sell`
   that comes back `rejected`/`error` posts to the Discord system lane, deduped

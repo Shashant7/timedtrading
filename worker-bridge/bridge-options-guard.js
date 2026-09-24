@@ -107,6 +107,34 @@ export function heldQtyForOption(positions, spec) {
   return held;
 }
 
+const OPTION_FIELD_KEYS = [
+  "option_type", "optionType", "right", "putOrCall",
+  "strike", "strike_price", "option_exercise_price",
+  "expiration", "option_expire_date",
+];
+
+/**
+ * Option rows the account holds that could not be resolved to a contract.
+ *
+ * "The account does not hold this" and "the contract the account holds could
+ * not be read" must block a SELL identically, but they are not the same fact
+ * and only one of them is a bug here. For as long as the Webull parser
+ * existed the bug wore the other's name: `no_held_position` on a put sitting
+ * right there in the account, which reads as a correct refusal. Naming it
+ * separately is what makes a parser regression look like a parser regression.
+ */
+export function unresolvedOptionRows(positions) {
+  return (Array.isArray(positions) ? positions : []).filter((p) => {
+    if (!p || typeof p !== "object" || p.direction_unknown) return false;
+    // Key PRESENCE, not a non-null value: an option row whose every contract
+    // field came back null is exactly the case being looked for, and testing
+    // the values would skip it.
+    const looksLikeOption = OPTION_FIELD_KEYS.some((k) => k in p)
+      || parseOccKey(p.symbol) != null;
+    return looksLikeOption && positionContractKey(p) == null;
+  });
+}
+
 /**
  * Guard a single-leg options SELL against live holdings.
  * BUY and non-single structures pass through.
@@ -132,8 +160,29 @@ export function guardOptionsSellQty({
     return { ok: false, reason: "positions_unavailable", requested_qty: requested };
   }
 
-  const held = heldQtyForOption(positions, { ticker, expiration, strike, optionType });
+  const spec = { ticker, expiration, strike, optionType };
+  const held = heldQtyForOption(positions, spec);
   if (!(held > 0)) {
+    // Still fail closed — a SELL we cannot justify is how a long becomes a
+    // naked short — but say WHY, so a parser that has stopped reading its own
+    // holdings cannot hide behind a reason that looks like a correct refusal.
+    const unresolved = unresolvedOptionRows(positions);
+    if (unresolved.length) {
+      return {
+        ok: false,
+        reason: "positions_unresolved",
+        unresolved_count: unresolved.length,
+        held_qty: 0,
+        requested_qty: requested,
+      };
+    }
+    const want = optionContractKey(spec);
+    const blind = want && positions.some(
+      (p) => p?.direction_unknown && positionContractKey(p, ticker) === want,
+    );
+    if (blind) {
+      return { ok: false, reason: "position_direction_unknown", held_qty: 0, requested_qty: requested };
+    }
     return { ok: false, reason: "no_held_position", held_qty: 0, requested_qty: requested };
   }
   if (requested > held + 1e-9) {
