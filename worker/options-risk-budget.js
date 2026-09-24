@@ -19,6 +19,22 @@
 //     consumed  = open risk right now  +  losses already realised today
 //     remaining = limit - consumed
 //
+// ── What "open risk" is worth, and why it is not the debit ───────────────
+//
+// The debit is the max loss only if the position is carried to zero. These
+// are managed intraday against a -50% hard premium stop (HARD_STOP_PCT), so
+// the loss the desk actually accepts is the stop distance, not the ticket.
+//
+// Charging the whole debit double-counts, and the 2026-09-23 tape shows the
+// cost precisely: replayed at a $500 limit, charging the debit takes 9 of 16
+// rounds and blocks DIA 514P (+$194) and IWM 283P (+$101) — two of the four
+// best trades of the session — for $566 against the desk's $702. Charging
+// the stop distance takes 12 of 16 for $801, because the four it turns away
+// are the four the book was already too deep to afford.
+//
+// So an open position consumes `debit × stop fraction`. A realised loss
+// consumes what it actually cost, which is the honest number once known.
+//
 // A trade that wins gives its risk back and adds nothing to the loss side,
 // so a good day does not throttle itself. A trade that loses converts its
 // open risk into realised loss, so a bad day tightens on its own until it
@@ -43,8 +59,25 @@
 // `entryCountersHaveRoom` already documents and accepts, and it fails by a
 // single sleeve rather than by a wedged lane.
 
-/** Default when the operator has not set one. 0 disables the gate entirely. */
-export const DEFAULT_DAILY_LOSS_LIMIT_USD = 1000;
+/**
+ * Default when the operator has not set one. 0 disables the gate entirely.
+ *
+ * $500 is the operator's number (2026-09-24), sized against the house lot of
+ * 3 contracts: ~$100-160 of stop risk per ticket, so four or five can be
+ * wrong before the day is done. Replayed on 2026-09-23 it costs nothing —
+ * see the header.
+ */
+export const DEFAULT_DAILY_LOSS_LIMIT_USD = 500;
+
+/**
+ * Fraction of the debit an open position is charged against the budget.
+ *
+ * Mirrors `HARD_STOP_PCT` (-50) in option-day-trade-plan.js, which is the
+ * stop the desk commits to honour. Kept as a literal so this module stays a
+ * leaf; `options-risk-budget.test.js` pins the two together so they cannot
+ * drift apart silently.
+ */
+export const DEFAULT_STOP_FRACTION = 0.5;
 
 export const RISK_STATE_KEY = (userEmail, date) =>
   `timed:options:auto-mirror:risk:${String(userEmail || "").toLowerCase()}:${date}`;
@@ -71,7 +104,11 @@ export async function loadRiskState(env, userEmail, now = Date.now()) {
       date,
       realized_pnl_usd: num(parsed?.realized_pnl_usd),
       open: (parsed?.open && typeof parsed.open === "object") ? parsed.open : {},
-      placed: Array.isArray(parsed?.placed) ? parsed.placed : [],
+      // Older states stored bare signal ids; normalise so the tally keeps
+      // counting across a deploy.
+      placed: Array.isArray(parsed?.placed)
+        ? parsed.placed.map((p) => (typeof p === "string" ? { sid: p, order_id: null, ts: 0 } : p)).filter(Boolean)
+        : [],
       updated_ts: num(parsed?.updated_ts),
     };
   } catch (_) {
@@ -155,14 +192,27 @@ export async function riskBudgetHasRoom(env, userEmail, { riskUsd = 0, limitUsd 
  * Record what a CONFIRMED broker place put at risk. Assignment, not
  * increment — replaying the same signal id is a no-op rather than a
  * double-charge.
+ *
+ * Re-entry is a first-class case, not a duplicate. A day trade can be
+ * stopped out and taken again later because the same plan re-presented
+ * itself — SPY 766P, QQQ 737P and IWM 281P all did exactly that on
+ * 2026-09-23. The second entry lands on a signal id whose `open` slot was
+ * deleted at the close, so the assignment charges it afresh, which is right.
  */
-export async function commitRisk(env, userEmail, signalId, { usd, vehicle = null, ticker = null, now = Date.now() } = {}) {
+export async function commitRisk(env, userEmail, signalId, {
+  usd, vehicle = null, ticker = null, orderId = null, now = Date.now(),
+} = {}) {
   if (!env?.KV_TIMED || !userEmail || !signalId) return null;
   const state = await loadRiskState(env, userEmail, now);
+  const wasOpen = signalId in (state.open || {});
   state.open = { ...state.open, [signalId]: { usd: Math.max(0, num(usd)), vehicle, ticker, ts: now } };
-  // Deduped, so the day's tally stays right under replay like everything
-  // else here.
-  if (!state.placed.includes(signalId)) state.placed = [...state.placed, signalId];
+  // Count rounds, not signals — but stay idempotent. A distinct broker order
+  // id is the per-round identity; without one, a commit against a position
+  // that is already open can only be a replay.
+  const dupe = state.placed.some((p) => (
+    orderId ? p.order_id === orderId : (wasOpen && p.sid === signalId && !p.order_id)
+  ));
+  if (!dupe) state.placed = [...state.placed, { sid: signalId, order_id: orderId || null, ts: now }];
   return saveRiskState(env, userEmail, state, now);
 }
 
@@ -205,13 +255,36 @@ export async function settleRisk(env, userEmail, signalId, { realizedUsd = 0, re
 }
 
 /**
- * Max loss of a long-option ticket. The debit is the whole downside, so the
- * premium actually paid (or the ceiling we are willing to pay, before a fill
- * tells us better) times 100 times the lot count IS the risk.
+ * Cash outlay of a long-option ticket: premium x 100 x lots. This is the
+ * ceiling on what the position can lose, and what the account actually pays.
  */
 export function optionDebitUsd(premium, contracts) {
   const px = num(premium);
   const qty = Math.max(0, Math.round(num(contracts)));
   if (!(px > 0) || qty <= 0) return 0;
   return Math.round(px * 100 * qty * 100) / 100;
+}
+
+/**
+ * What an open ticket is charged against the day's budget: the loss taken if
+ * it runs to the hard stop. Never more than the debit — a stop wider than
+ * 100% is still bounded by the ticket.
+ */
+export function optionStopRiskUsd(premium, contracts, { stopFraction = DEFAULT_STOP_FRACTION } = {}) {
+  const debit = optionDebitUsd(premium, contracts);
+  if (!(debit > 0)) return 0;
+  const raw = Number(stopFraction);
+  const frac = Number.isFinite(raw) && raw > 0 ? Math.min(1, raw) : DEFAULT_STOP_FRACTION;
+  return Math.round(debit * frac * 100) / 100;
+}
+
+/**
+ * Translate a play's `hard_stop_pct` (a negative percentage, e.g. -50) into
+ * the fraction of the debit at risk. Falls back to the house stop when the
+ * play does not carry one.
+ */
+export function stopFractionFromPct(hardStopPct) {
+  const n = Number(hardStopPct);
+  if (!Number.isFinite(n) || n === 0) return DEFAULT_STOP_FRACTION;
+  return Math.min(1, Math.abs(n) / 100);
 }

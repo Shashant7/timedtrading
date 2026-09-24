@@ -26,8 +26,12 @@ import {
   releaseRisk,
   settleRisk,
   optionDebitUsd,
+  optionStopRiskUsd,
+  stopFractionFromPct,
+  DEFAULT_STOP_FRACTION,
   dailyLossLimitFor,
 } from "./options-risk-budget.js";
+import { HARD_STOP_PCT } from "./option-day-trade-plan.js";
 
 const OP = "op@x.com";
 const NOW = Date.parse("2026-09-23T17:46:23Z");
@@ -58,7 +62,51 @@ describe("optionDebitUsd — the debit IS the max loss", () => {
   });
 });
 
+describe("optionStopRiskUsd — the budget is charged the stop, not the ticket", () => {
+  it("tracks the hard stop the desk actually commits to", () => {
+    // If these drift apart the budget starts pricing a risk the doctrine
+    // does not take.
+    expect(DEFAULT_STOP_FRACTION).toBe(Math.abs(HARD_STOP_PCT) / 100);
+  });
+
+  it("charges half the debit at the house stop", () => {
+    expect(optionStopRiskUsd(0.59, 2)).toBe(59);
+    expect(optionStopRiskUsd(1.13, 3)).toBe(169.5);
+  });
+
+  it("never charges more than the ticket, however wide the stop", () => {
+    expect(optionStopRiskUsd(1.0, 1, { stopFraction: 2.5 })).toBe(100);
+    expect(optionStopRiskUsd(1.0, 1, { stopFraction: 1 })).toBe(100);
+  });
+
+  it("falls back to the house stop on a nonsense fraction", () => {
+    expect(optionStopRiskUsd(1.0, 1, { stopFraction: 0 })).toBe(50);
+    expect(optionStopRiskUsd(1.0, 1, { stopFraction: -0.4 })).toBe(50);
+    expect(optionStopRiskUsd(1.0, 1, { stopFraction: "wide" })).toBe(50);
+  });
+
+  it("is zero whenever the debit is", () => {
+    expect(optionStopRiskUsd(0, 3)).toBe(0);
+    expect(optionStopRiskUsd(1.0, 0)).toBe(0);
+  });
+
+  it("reads a play's own negative stop percentage", () => {
+    expect(stopFractionFromPct(-50)).toBe(0.5);
+    expect(stopFractionFromPct(-35)).toBe(0.35);
+    expect(stopFractionFromPct(-140)).toBe(1);
+    expect(stopFractionFromPct(null)).toBe(DEFAULT_STOP_FRACTION);
+    expect(stopFractionFromPct(0)).toBe(DEFAULT_STOP_FRACTION);
+  });
+});
+
 describe("dailyLossLimitFor", () => {
+  it("is the operator's $500, sized against the house 3-contract lot", () => {
+    expect(DEFAULT_DAILY_LOSS_LIMIT_USD).toBe(500);
+    // Three contracts of a typical $1.00 index put: $300 debit, $150 of stop
+    // risk. Three can be on at once, and several can be wrong.
+    expect(Math.floor(DEFAULT_DAILY_LOSS_LIMIT_USD / optionStopRiskUsd(1.0, 3))).toBe(3);
+  });
+
   it("defaults when the operator has not set one", () => {
     expect(dailyLossLimitFor({})).toBe(DEFAULT_DAILY_LOSS_LIMIT_USD);
     expect(dailyLossLimitFor(null)).toBe(DEFAULT_DAILY_LOSS_LIMIT_USD);
@@ -188,6 +236,49 @@ describe("commit / release are idempotent by signal id", () => {
     const snap = riskBudgetSnapshot(stateIn(kv), 1000);
     expect(snap.remaining_usd).toBe(1000);
     expect(snap.realized_pnl_usd).toBe(0);
+  });
+});
+
+describe("re-entry on the same plan is a new trade, not a replay", () => {
+  it("charges the second round after the first has closed", async () => {
+    const kv = kvMock();
+    await commitRisk(envOf(kv), OP, "dt:SPY:766P", { usd: 111, orderId: "A", now: NOW });
+    await settleRisk(envOf(kv), OP, "dt:SPY:766P", { realizedUsd: -27, remainingRiskUsd: 0, now: NOW });
+    expect(riskBudgetSnapshot(stateIn(kv), 1000).open_usd).toBe(0);
+
+    await commitRisk(envOf(kv), OP, "dt:SPY:766P", { usd: 120, orderId: "B", now: NOW });
+    const snap = riskBudgetSnapshot(stateIn(kv), 1000);
+    expect(snap.open_usd).toBe(120);
+    expect(snap.realized_loss_usd).toBe(27); // the first round still counts
+    expect(snap.consumed_usd).toBe(147);
+    expect(snap.placed_count).toBe(2);
+  });
+
+  it("still dedupes a replayed place — same order id, one round", async () => {
+    const kv = kvMock();
+    await commitRisk(envOf(kv), OP, "dt:SPY:766P", { usd: 111, orderId: "A", now: NOW });
+    await commitRisk(envOf(kv), OP, "dt:SPY:766P", { usd: 111, orderId: "A", now: NOW });
+    const snap = riskBudgetSnapshot(stateIn(kv), 1000);
+    expect(snap.open_usd).toBe(111);
+    expect(snap.placed_count).toBe(1);
+  });
+
+  it("dedupes a replay with no order id while the position is still open", async () => {
+    const kv = kvMock();
+    await commitRisk(envOf(kv), OP, "dt:SPY:766P", { usd: 111, now: NOW });
+    await commitRisk(envOf(kv), OP, "dt:SPY:766P", { usd: 111, now: NOW });
+    expect(riskBudgetSnapshot(stateIn(kv), 1000).placed_count).toBe(1);
+  });
+
+  it("keeps counting across a deploy that changed the stored shape", async () => {
+    // States written before 2026-09-24 held bare signal ids.
+    const kv = kvMock({
+      [RISK_STATE_KEY(OP, DATE)]: JSON.stringify({
+        date: DATE, realized_pnl_usd: 0, open: {}, placed: ["dt:QQQ:741P"],
+      }),
+    });
+    await commitRisk(envOf(kv), OP, "dt:SPY:768P", { usd: 59, orderId: "B", now: NOW });
+    expect(riskBudgetSnapshot(stateIn(kv), 1000).placed_count).toBe(2);
   });
 });
 

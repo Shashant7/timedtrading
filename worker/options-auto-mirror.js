@@ -41,6 +41,8 @@ import {
   releaseRisk,
   settleRisk,
   optionDebitUsd,
+  optionStopRiskUsd,
+  stopFractionFromPct,
 } from "./options-risk-budget.js";
 
 const PREF_KEY = (userEmail) => `timed:options:auto-mirror:${String(userEmail || "").toLowerCase()}`;
@@ -646,6 +648,56 @@ export function marketableCloseLimit({ event, mid, bid, tick } = {}) {
   return Math.round(Math.max(t, px) * 100) / 100;
 }
 
+/**
+ * Maximum a day-trade entry may pay over the mid it was decided on, as a
+ * fraction of that mid.
+ *
+ * Index front-month spreads measured over 3,099 marks on 2026-09-23: median
+ * 2.06% of mid, p90 3.75%, p99 14.3%. 8% clears the p90 book with room and
+ * refuses the p99 tail, which is the blown-out quote nobody should chase.
+ */
+export const ENTRY_MAX_SLIP_PCT = 0.08;
+
+/**
+ * Limit price for a day-trade BUY.
+ *
+ * The exit side has had a marketable rule since day one — `marketableCloseLimit`
+ * hits the live bid so a flatten actually flattens. The entry side had only a
+ * passive ceiling (`display_buy_ceil`, at most the FMV pin), and on
+ * 2026-09-23 that ceiling priced the only two orders that ever reached the
+ * broker: QQQ 741P at 09:46:23 and SPY 768P at 09:47:00. Both sat `working`
+ * below the market until they were cancelled at the close, while the
+ * contracts ran +110% and +102%. Two of the day's best reads, no position.
+ *
+ * So the entry prices at whichever is HIGHER: the passive ceiling, or the
+ * ask that actually crosses. The ceiling stops being a fill-blocker and goes
+ * back to being what it reads like — a statement of value. Chasing is bounded
+ * by ENTRY_MAX_SLIP_PCT over the mid, and a stale or blown-out ask (more than
+ * a quarter over mid) is ignored in favour of one tick through the mid.
+ *
+ * Pure. Returns null when there is no usable mid.
+ */
+export function marketableEntryLimit({ mid, ask, ceil, tick, maxSlipPct = ENTRY_MAX_SLIP_PCT } = {}) {
+  const m = Number(mid);
+  if (!(m > 0)) {
+    const c = Number(ceil);
+    return c > 0 ? Math.round(c * 100) / 100 : null;
+  }
+  const t = Number(tick) > 0 ? Number(tick) : optionTick(m);
+  const a = Number(ask);
+  const askUsable = a > 0 && a >= m && a <= m * 1.25;
+  const cross = askUsable ? a : m + t;
+  const slip = Number.isFinite(Number(maxSlipPct)) && Number(maxSlipPct) >= 0
+    ? Number(maxSlipPct)
+    : ENTRY_MAX_SLIP_PCT;
+  // One tick through the mid is always allowed, however tight the slip cap.
+  const slipCap = Math.max(m * (1 + slip), m + t);
+  const floor = Math.min(cross, slipCap);
+  const c = Number(ceil);
+  const limit = c > 0 ? Math.max(c, floor) : floor;
+  return Math.round(Math.max(t, limit) * 100) / 100;
+}
+
 export function extractMirrorFill(fired, requestedQty = 1) {
   const res = fired?.response || {};
   const fill = res.fill || res.broker_response?.fill || null;
@@ -1176,7 +1228,11 @@ async function settleIndexDtRisk(env, operatorEmail, signalId, mirror, { closedQ
   const sold = Math.max(0, Math.round(Number(closedQty) || 0));
   const out = Number(closePremium) || 0;
   const realizedUsd = (out - basis) * 100 * sold;
-  const remainingRiskUsd = optionDebitUsd(basis, remainingQty);
+  // Whatever is still held keeps the stop basis it was charged at, so a trim
+  // does not silently re-price the remainder.
+  const remainingRiskUsd = optionStopRiskUsd(basis, remainingQty, {
+    stopFraction: Number(mirror?.entry_stop_fraction) || undefined,
+  });
   try {
     return await settleRisk(env, operatorEmail, signalId, { realizedUsd, remainingRiskUsd });
   } catch (_) {
@@ -1378,9 +1434,21 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
       }
     }
 
-    const buyLimit = ctx.execution?.premium_band?.display_buy_ceil
+    // Price the entry where it can actually fill. The passive FMV ceiling is
+    // the floor of this decision, not the cap — see marketableEntryLimit.
+    const entryCeil = ctx.execution?.premium_band?.display_buy_ceil
       ?? ctx.execution?.premium_band?.buy_ceil
       ?? null;
+    const entryMid = ctx.premium
+      ?? ctx.execution?.premium_band?.premium
+      ?? play.premium?.mid
+      ?? null;
+    const entryAsk = ctx.ask
+      ?? ctx.execution?.premium_band?.ask
+      ?? play.premium?.ask
+      ?? play.legs?.[0]?.premium_ask
+      ?? null;
+    const buyLimit = marketableEntryLimit({ mid: entryMid, ask: entryAsk, ceil: entryCeil });
     // Adaptive sizing: downsize to fit both the notional and the max-loss
     // budget; keep a single-lot floor bounded by the hard notional ceiling.
     const sizing = planIndexDtEntrySizing({
@@ -1411,21 +1479,29 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     // 2026-09-23 — ONE limit governs this lane, and it is measured in
     // dollars. The count caps are gone: "2 per day" capped activity, not
     // loss, and on 2026-09-23 two limit orders that never filled spent the
-    // entire allowance 74 seconds after the open. For a long option the
-    // debit is the whole downside, so the budget is a real stop for the day.
+    // entire allowance 74 seconds after the open.
     //
-    // Risk is priced at the limit we are willing to PAY, not the mid — the
+    // The charge is the stop distance, not the ticket. These are managed
+    // against a hard premium stop, so the loss the desk accepts is that
+    // stop — charging the whole debit would price a risk the doctrine never
+    // takes and starve the book of its best entries.
+    //
+    // Both are priced at the limit we are willing to PAY, not the mid: the
     // budget must never be flattered by a price we might not get.
-    const entryRiskUsd = optionDebitUsd(
-      buyLimit ?? entryPlay.premium?.mid ?? play.premium?.mid,
-      entryContracts,
+    const entryPriceForRisk = buyLimit ?? entryPlay.premium?.mid ?? play.premium?.mid;
+    const entryDebitUsd = optionDebitUsd(entryPriceForRisk, entryContracts);
+    const stopFraction = stopFractionFromPct(
+      play.option_management?.hard_stop_pct ?? ctx.execution?.hard_stop_pct,
     );
+    const entryRiskUsd = optionStopRiskUsd(entryPriceForRisk, entryContracts, { stopFraction });
     const lossLimitUsd = dailyLossLimitFor(prefs);
     const budgetOk = await riskBudgetHasRoom(env, operatorEmail, {
       riskUsd: entryRiskUsd,
       limitUsd: lossLimitUsd,
     });
-    if (!budgetOk.ok) return { ...budgetOk, vehicle: vehicleKey, risk_usd: entryRiskUsd };
+    if (!budgetOk.ok) {
+      return { ...budgetOk, vehicle: vehicleKey, risk_usd: entryRiskUsd, debit_usd: entryDebitUsd };
+    }
 
     const fired = await fireAutoMirror(env, operatorEmail, {
       trade_id: signalId || null,
@@ -1454,7 +1530,7 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     // instead, as `placed_count`.
     if ((rec.persist || rec.pending) && signalId) {
       await commitRisk(env, operatorEmail, signalId, {
-        usd: entryRiskUsd, vehicle: vehicleKey, ticker,
+        usd: entryRiskUsd, vehicle: vehicleKey, ticker, orderId: fill.order_id || null,
       });
     }
 
@@ -1475,6 +1551,8 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
         entry_fill_status: rec.status,
         entry_premium: entryPremium,
         entry_risk_usd: entryRiskUsd,
+        entry_debit_usd: entryDebitUsd,
+        entry_stop_fraction: stopFraction,
         vehicle: vehicleKey,
       });
     } else if (signalId && rec.pending) {
@@ -1491,6 +1569,8 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
         entry_fill_status: rec.status,
         entry_premium: entryPremium,
         entry_risk_usd: entryRiskUsd,
+        entry_debit_usd: entryDebitUsd,
+        entry_stop_fraction: stopFraction,
         // What this order consumed, so whatever resolves it later can give
         // the slot back without having to re-derive the prefs it was sized
         // against. `entry_placed_at` is the staleness clock — `ts` moves on
