@@ -216,12 +216,19 @@ export async function riskBudgetHasRoom(env, userEmail, { riskUsd = 0, limitUsd 
  * deleted at the close, so the assignment charges it afresh, which is right.
  */
 export async function commitRisk(env, userEmail, signalId, {
-  usd, vehicle = null, ticker = null, orderId = null, now = Date.now(),
+  usd, vehicle = null, ticker = null, orderId = null, meta = null, now = Date.now(),
 } = {}) {
   if (!env?.KV_TIMED || !userEmail || !signalId) return null;
   const state = await loadRiskState(env, userEmail, now);
   const wasOpen = signalId in (state.open || {});
-  state.open = { ...state.open, [signalId]: { usd: Math.max(0, num(usd)), vehicle, ticker, ts: now } };
+  // `meta` rides along for callers that have no separate mirror to read the
+  // entry basis back out of at close time — the bridge's per-partner ledger
+  // is the only such caller. Settle and reconcile both spread the previous
+  // row, so it survives a re-price and a partial close.
+  state.open = {
+    ...state.open,
+    [signalId]: { usd: Math.max(0, num(usd)), vehicle, ticker, ts: now, ...(meta ? { meta } : {}) },
+  };
   // Count rounds, not signals — but stay idempotent. A distinct broker order
   // id is the per-round identity; without one, a commit against a position
   // that is already open can only be a replay.

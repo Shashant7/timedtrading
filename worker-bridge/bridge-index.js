@@ -3069,6 +3069,9 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
 async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Date.now(), mirror = false } = {}) {
   const { optionsStrategiesOn } = await import("./bridge-options-prefs.js");
   const reply = (body, status = 200) => ({ body, status });
+  // What the account held before this order, per the sell guard's own read
+  // of the broker. Used to settle the partner day-loss ledger.
+  let heldBeforeQty = null;
 
   if (!user.broker_integration_enabled) {
     return reply({ ok: false, rejected: true, reason: "user_disabled" });
@@ -3175,6 +3178,7 @@ async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Dat
         latency_ms: Date.now() - t0,
       });
     }
+    heldBeforeQty = Number(guard.held_qty) >= 0 ? Number(guard.held_qty) : null;
   }
 
   // Buy-side cash gate — options webhook historically skipped
@@ -3247,6 +3251,28 @@ async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Dat
     status: placeOk ? (fill?.status === "filled" ? "ok" : (fill?.status || "ok")) : "rejected",
     reject_reason: placeOk ? null : (placed?.error || fill?.reason || "place_failed"),
   });
+
+  // Partner day-loss ledger. Charged only after the broker accepts, so a
+  // failed place never consumes an allowance, and never for the operator —
+  // the main worker already keeps that account's budget and a second
+  // charge here would drift against it.
+  if (mirror && placeOk && sanitized.trade_id) {
+    try {
+      const { commitPartnerRisk, settlePartnerRisk } = await import("./bridge-options-risk.js");
+      const qty = Number(fill?.filled_qty) > 0 ? Number(fill.filled_qty) : Number(brokerOrder.qty);
+      const px = Number(brokerOrder.limit_price) || Number(sanitized.play?.premium?.mid) || 0;
+      if (String(brokerOrder.action || "").toUpperCase() === "SELL") {
+        await settlePartnerRisk(env, user, sanitized.trade_id, {
+          closedQty: qty, closePremium: px, heldBefore: heldBeforeQty,
+        });
+      } else {
+        await commitPartnerRisk(env, user, sanitized.trade_id, {
+          contracts: qty, premium: px, ticker: sanitized.ticker,
+          orderId: fill?.order_id || placed?.order_id || null,
+        });
+      }
+    } catch (_) { /* a ledger write must never unplace a live order */ }
+  }
 
   // Audit log (uses writeAudit which is the canonical helper).
   try {
@@ -3336,6 +3362,18 @@ async function fanOutOptionsMirrors(env, ctx, sanitized, payload, { t0 = Date.no
         }
         contracts = sized.contracts;
         row.sizing = sized;
+
+        // Last gate before the ticket: what the account's day has already
+        // cost. Caps rather than refuses, so an account with room for one
+        // contract takes one.
+        const { budgetContractsFor } = await import("./bridge-options-risk.js");
+        const budgeted = await budgetContractsFor(env, target, { contracts, premium });
+        row.budget = budgeted.budget;
+        if (!(budgeted.contracts > 0)) {
+          return { ...row, ok: false, skipped: true, reason: budgeted.reason, sizing: sized };
+        }
+        contracts = budgeted.contracts;
+        if (budgeted.contracts < sized.contracts) row.budget_reason = budgeted.reason;
       }
       const perPayload = optionsMirrorPayload(payload, target, { contracts });
       const perSanitized = {

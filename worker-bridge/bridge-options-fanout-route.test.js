@@ -293,6 +293,57 @@ describe("POST /bridge/options/order — partner fan-out", () => {
     expect(r.body.fanout).toBeUndefined();
   });
 
+  // `daily_loss_limit_usd` was stored, defaulted and displayed but
+  // enforced nowhere. Drive it through the real route, one order at a time.
+  it("stops a partner for the day once its loss budget is spent", async () => {
+    const e = makeEnv([opRoth, partnerCash]);
+    // $5.00 premium = $500 debit, $250 of stop risk a contract. The
+    // partner's $500 day stop therefore funds two contracts, total.
+    const rich = (sig) => buyPayload({
+      trade_id: sig,
+      play: {
+        archetype: "long_put", contracts: 1, premium: { mid: 5.0 },
+        expiration: "2026-09-25", strikes: { primary: 279 }, max_loss_usd: 500,
+        legs: [{ action: "BUY", optionType: "PUT", strike: 279, expiration: "2026-09-25", qty: 1, premium_mid: 5.0 }],
+      },
+    });
+
+    const first = await post(e, rich("dt:IWM:1"));
+    expect(first.body.fanout.results[0].ok).toBe(true);
+
+    const second = await post(e, rich("dt:IWM:2"));
+    expect(second.body.fanout.results[0].ok).toBe(true);
+
+    const third = await post(e, rich("dt:IWM:3"));
+    const blocked = third.body.fanout.results[0];
+    expect(blocked.ok).toBe(false);
+    expect(blocked.skipped).toBe(true);
+    expect(blocked.reason).toMatch(/daily_loss_budget_0_left_of_500/);
+
+    // The operator is NOT gated by the partner's ledger, nor by a bridge
+    // ledger of its own — the main worker owns that account's budget.
+    expect(third.body.ok).toBe(true);
+    expect(third.body.translated_order.qty).toBe(1);
+  });
+
+  it("caps the last entry of the day to what the budget can still carry", async () => {
+    const e = makeEnv([opRoth, partnerCash]);
+    // $1.00 premium = $50 of stop risk a contract; $500 funds ten.
+    const play = (sig, qty) => buyPayload({
+      trade_id: sig,
+      play: {
+        archetype: "long_put", contracts: qty, premium: { mid: 1.0 },
+        expiration: "2026-09-25", strikes: { primary: 279 }, max_loss_usd: 100 * qty,
+        legs: [{ action: "BUY", optionType: "PUT", strike: 279, expiration: "2026-09-25", qty, premium_mid: 1.0 }],
+      },
+    });
+    // Partner equity halves the model, so 18 model contracts -> 9 = $450.
+    await post(e, play("dt:IWM:a", 18));
+    // Only $50 left: one contract, not the 4 equity and caps would allow.
+    const next = await post(e, play("dt:IWM:b", 8));
+    expect(next.body.fanout.results[0].contracts).toBe(1);
+  });
+
   it("still requires a signature", async () => {
     const raw = JSON.stringify(buyPayload());
     const res = await worker.fetch(
