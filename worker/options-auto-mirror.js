@@ -1412,6 +1412,8 @@ async function checkMirrorCounters(env, operatorEmail, prefs, vehicleKey, vehicl
 // (auto-mirror off, vehicle disabled, globally paused, exit with no mirrored
 // entry, …) the same way equity skips already do, instead of a mystery pill.
 export const OPT_DT_MIRROR_LOG_KEY = "timed:opt-dt-mirror-log";
+/** Present only while a trim or close is still unmirrored. Read by /timed/health. */
+export const OPT_DT_REDUCE_RECON_KEY = "timed:opt-dt:reduce-unreconciled";
 const OPT_DT_MIRROR_LOG_MAX = 120;
 
 /**
@@ -1457,6 +1459,35 @@ export function deriveMirrorDecision(result = {}) {
   return { decision: "placed", reason: null, note: sizingNote, contracts };
 }
 
+/**
+ * Page when a reduce does not reach the broker.
+ *
+ * A rejected BUY costs an opportunity. A rejected TRIM or STOP leaves REAL
+ * contracts held against a model that has moved on, and on 2026-09-24 two of
+ * them did exactly that with nothing louder than one line in a KV ring. The
+ * reconciler will keep retrying, so this is deduped per signal and event —
+ * said once, not once a minute.
+ */
+async function alertUnmirroredReduce(env, entry) {
+  if (!env?.KV_TIMED) return;
+  const key = `timed:opt-dt:reduce-unmirrored:${entry.signal_id}:${entry.event}`;
+  try {
+    if (await env.KV_TIMED.get(key)) return;
+    await env.KV_TIMED.put(key, String(entry.ts), { expirationTtl: 86400 });
+    const { notifyDiscord } = await import("./alerts.js");
+    await notifyDiscord(env, {
+      title: `${entry.event} not mirrored — ${entry.ticker}`,
+      description: [
+        `The model ${entry.event === "TRIM" ? "trimmed" : "closed"} ${entry.signal_id} but the broker did not take the sell.`,
+        `Decision: ${entry.decision}${entry.reason ? ` (${entry.reason})` : ""}.`,
+        entry.contracts != null ? `${entry.contracts} contract(s) requested.` : "",
+        "The reconciler retries every minute during RTH; the position is still held until it clears.",
+      ].filter(Boolean).join("\n"),
+      color: 0xD64545,
+    }, "system");
+  } catch (_) { /* alerting is best-effort — never block a mirror on it */ }
+}
+
 export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
   if (!env?.KV_TIMED) return;
   const signalId = String(ctx?.signal_id || "").trim();
@@ -1485,6 +1516,10 @@ export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
     if (ring.length > OPT_DT_MIRROR_LOG_MAX) ring = ring.slice(-OPT_DT_MIRROR_LOG_MAX);
     await env.KV_TIMED.put(OPT_DT_MIRROR_LOG_KEY, JSON.stringify(ring), { expirationTtl: 3 * 86400 });
   } catch (_) { /* telemetry only — never block a mirror on it */ }
+
+  if (entry.side === "sell" && (decision === "rejected" || decision === "error")) {
+    await alertUnmirroredReduce(env, entry);
+  }
 }
 
 /**
@@ -1509,37 +1544,70 @@ export function parseIndexDtSignalId(signalId) {
   };
 }
 
-/** How far back a closed paper book is still worth flattening at the broker. */
-export const STRANDED_CLOSE_LOOKBACK_MS = 6 * 3600 * 1000;
+/** How far back an unmirrored reduce is still worth putting to the broker. */
+export const MIRROR_REDUCE_LOOKBACK_MS = 6 * 3600 * 1000;
 
 /**
- * Re-fire a close the broker never took.
+ * How many contracts the broker SHOULD still hold for this signal.
  *
- * Stage 5b only ever runs when the paper book emits an event, and a book that
- * has already closed emits nothing more. So a close that reached the bridge
- * and came back rejected — 2026-09-24 IWM 279P, `no_held_position` — was the
- * last word on that position: the mirror still said one contract held, the
- * model said flat, and nothing was left to disagree with. The contract sat
- * long in the account through a stop it had already taken.
- *
- * This is the half that closes that gap. A mirror that still holds contracts
- * whose paper book is closed is, by definition, a position the model does not
- * think it has. Rebuild the contract from the signal id, price it off a live
- * mark, and put the SELL back in front of the broker. Everything else —
- * dedupe, qty capping to the mirrored remainder, fill reconciliation, risk
- * settlement, the decision log — comes from Stage 5b unchanged.
+ * Read off the paper book's own state, never off an event. A reduce that
+ * never reached the broker leaves no event behind to replay, so the only
+ * durable statement of intent is the book: closed means flat, trimmed means
+ * the mirror's trim share is gone, open means untouched. `null` means the
+ * book does not say — and arithmetic we cannot trust must not move money.
  */
-export async function sweepStrandedIndexDtCloses(env, {
+export function targetMirrorRemaining(book, mirror) {
+  const status = String(book?.status || "").toLowerCase();
+  const total = Math.max(
+    Math.round(Number(mirror?.contracts) || 0),
+    Math.round(Number(mirror?.contracts_remaining) || 0),
+  );
+  if (!(total > 0)) return null;
+  if (status === "closed") return 0;
+  if (status === "open") return total;
+  if (status === "trimmed") {
+    // A 1-lot mirror cannot partial-trim, so `trimmed` is not drift for it —
+    // paper PROTECT has moved the stop and the model's EXIT/STOP flattens it.
+    // Same rule Stage 5b applies, kept in one place so the reconciler cannot
+    // chase a reduce the mirror would refuse.
+    if (total <= 1) return total;
+    return Math.max(0, total - Math.max(1, trimSellQty(total)));
+  }
+  return null;
+}
+
+/**
+ * Put back every reduce the broker never took — trims as well as closes.
+ *
+ * Stage 5b only ever runs when the paper book emits an event, and an event
+ * fires once. So any reduce the bridge refused was the last word on that
+ * position: on 2026-09-24 the IWM 279P and 280P stops both came back
+ * `no_held_position`, the mirrors still said one contract held, the model
+ * said flat, and nothing was left to disagree with. Both contracts sat long
+ * through stops they had already taken. A trim is worse, not better — it is
+ * silent by construction, because the position legitimately stays open
+ * afterwards and nothing about it looks wrong.
+ *
+ * So this does not look for events. It compares the contracts the mirror
+ * says the broker still holds against `targetMirrorRemaining`, and any
+ * positive difference is a reduce that is missing — TRIM when the book has
+ * trimmed, the book's own STOP/EXIT when it has closed. It rebuilds the
+ * contract from the signal id, prices it off a live mark, and puts the SELL
+ * back in front of the broker. Everything downstream — the index gate, the
+ * vehicle prefs, qty capping to the mirrored remainder, fill reconciliation,
+ * risk settlement, the decision log — is Stage 5b's, unchanged.
+ */
+export async function reconcileIndexDtMirrorPositions(env, {
   now = Date.now(),
-  lookbackMs = STRANDED_CLOSE_LOOKBACK_MS,
+  lookbackMs = MIRROR_REDUCE_LOOKBACK_MS,
   maxPages = 4,
   maxFire = 4,
   indicesFlagOn = true,
   loadBook,
   resolvePremium,
-  fireClose = maybeAutoMirrorIndexDayTradeEvent,
+  fireReduce = maybeAutoMirrorIndexDayTradeEvent,
 } = {}) {
-  const out = { scanned: 0, stranded: 0, fired: [], skipped: [] };
+  const out = { scanned: 0, drifted: 0, fired: [], skipped: [] };
   if (!env?.KV_TIMED) return out;
 
   const prefix = indexDtMirrorKey("");
@@ -1584,29 +1652,45 @@ export async function sweepStrandedIndexDtCloses(env, {
   for (const signalId of signalIds) {
     if (out.fired.length >= maxFire) break;
     const mirror = await loadIndexDtMirror(env, signalId);
-    if (!mirror?.entry_fired || mirror.exit_fired) continue;
-    if (!(Number(mirror.contracts_remaining) > 0)) continue;
+    if (!mirror?.entry_fired) continue;
+    const remaining = Math.round(Number(mirror.contracts_remaining));
+    if (!(remaining > 0)) continue;
     out.scanned++;
 
     const book = await readBook(signalId);
+    const target = targetMirrorRemaining(book, mirror);
+    if (target == null) continue;
+    if (remaining <= target) continue;
+
+    // Flattening and trimming are the same arithmetic; only the event the
+    // model raised differs, and that decides which pending order to respect
+    // and which clock measures staleness.
+    const closing = target === 0;
     const bookEvent = String(book?.event || "").toUpperCase();
-    if (String(book?.status || "").toLowerCase() !== "closed") continue;
-    if (bookEvent !== "STOP" && bookEvent !== "EXIT") continue;
-    // A still-working SELL is not stranded — Stage 5b polls it on the way in.
-    if (mirror.exit_pending && mirror.exit_order_id) {
-      out.skipped.push({ signal_id: signalId, reason: "exit_order_working" });
+    const event = closing
+      ? (bookEvent === "STOP" || bookEvent === "EXIT" ? bookEvent : "EXIT")
+      : "TRIM";
+
+    // A still-working SELL is not drift — Stage 5b polls it on the way in.
+    const working = closing
+      ? (mirror.exit_pending && mirror.exit_order_id)
+      : (mirror.trim_pending && mirror.trim_order_id);
+    if (working) {
+      out.skipped.push({ signal_id: signalId, event, reason: "reduce_order_working" });
       continue;
     }
-    const closedAt = Number(book?.exit_ts) || Number(book?.updated_at) || 0;
-    if (closedAt > 0 && (now - closedAt) > lookbackMs) {
-      out.skipped.push({ signal_id: signalId, reason: "close_too_old" });
+    const reducedAt = (closing
+      ? Number(book?.exit_ts)
+      : Number(book?.trim_ts)) || Number(book?.updated_at) || 0;
+    if (reducedAt > 0 && (now - reducedAt) > lookbackMs) {
+      out.skipped.push({ signal_id: signalId, event, reason: "reduce_too_old" });
       continue;
     }
-    out.stranded++;
+    out.drifted++;
 
     const contract = parseIndexDtSignalId(signalId);
     if (!contract) {
-      out.skipped.push({ signal_id: signalId, reason: "unparseable_signal_id" });
+      out.skipped.push({ signal_id: signalId, event, reason: "unparseable_signal_id" });
       continue;
     }
     const strike = Number(mirror.strike) > 0 ? Number(mirror.strike) : contract.strike;
@@ -1616,11 +1700,11 @@ export async function sweepStrandedIndexDtCloses(env, {
     const quote = await readPremium({ ...contract, strike, right });
     const mid = Number(quote?.mid);
     if (!(mid > 0)) {
-      out.skipped.push({ signal_id: signalId, reason: "no_live_premium" });
+      out.skipped.push({ signal_id: signalId, event, reason: "no_live_premium" });
       continue;
     }
 
-    // The minimum a close play needs to exist. Stage 5b re-prices it off the
+    // The minimum a reduce play needs to exist. Stage 5b re-prices it off the
     // live mid and bid below; this only has to name the contract.
     const play = {
       archetype: flavor === "put" ? "day_trade_put" : "day_trade_call",
@@ -1634,17 +1718,18 @@ export async function sweepStrandedIndexDtCloses(env, {
         optionType: right,
         strike,
         expiration: contract.expiration,
-        qty: Number(mirror.contracts_remaining) || 1,
+        qty: remaining,
       }],
     };
 
-    const result = await fireClose(env, {
-      event: bookEvent,
-      reason: "stranded_close_heal",
+    const result = await fireReduce(env, {
+      event,
+      reason: "mirror_qty_reconcile",
       ticker: contract.ticker,
       play,
       signal_id: signalId,
       book,
+      max_reduce_qty: remaining - target,
       premium: mid,
       bid: Number(quote?.bid) || null,
       strike,
@@ -1655,13 +1740,29 @@ export async function sweepStrandedIndexDtCloses(env, {
     out.fired.push({
       signal_id: signalId,
       ticker: contract.ticker,
-      event: bookEvent,
+      event,
+      held: remaining,
+      target,
       qty: result?.close_qty ?? null,
       limit_price: result?.limit_price ?? null,
       skipped: !!result?.skipped,
       reason: result?.reason || null,
     });
   }
+
+  // The key MEANS "a reduce is currently unmirrored", so it is removed the
+  // moment the books agree. A watchdog reading a field that lingers after the
+  // drift clears learns nothing; one that disappears is a signal either way.
+  try {
+    const stuck = out.skipped.concat(out.fired.filter((f) => f.skipped));
+    if (stuck.length) {
+      await env.KV_TIMED.put(OPT_DT_REDUCE_RECON_KEY, JSON.stringify({
+        ts: now, scanned: out.scanned, drifted: out.drifted, unmirrored: stuck,
+      }), { expirationTtl: 86400 });
+    } else if (out.scanned > 0) {
+      await env.KV_TIMED.delete(OPT_DT_REDUCE_RECON_KEY);
+    }
+  } catch (_) { /* telemetry only — never block a reduce on it */ }
 
   return out;
 }
@@ -1954,9 +2055,16 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
   const paperQty = computeIndexDayTradeCloseQty(event, book);
   // TRIM sells the smaller of the paper trim qty and the mirrored trim qty;
   // EXIT / STOP always flattens the full mirrored remainder.
-  const qty = event === "TRIM"
+  let qty = event === "TRIM"
     ? Math.min(Math.max(1, trimSellQty(mirroredTotal)), Math.max(1, paperQty), mirroredRemaining)
     : mirroredRemaining;
+  // The reconciler recomputes a reduce from state, not from the event, so it
+  // is the only caller that knows a trim already partially filled. Without
+  // this it would re-sell the whole trim share and leave the broker holding
+  // LESS than the model. A cap can only ever lower the qty.
+  const reduceCap = Math.round(Number(ctx.max_reduce_qty));
+  if (reduceCap > 0) qty = Math.min(qty, reduceCap);
+  if (!(qty > 0)) return { skipped: true, reason: "no_reduce_qty" };
   const mid = Number(ctx.premium);
   const bid = Number(ctx.bid ?? ctx.execution?.premium_band?.bid ?? play?.premium?.bid ?? play?.legs?.[0]?.premium_bid);
   const limitPrice = marketableCloseLimit({ event, mid, bid });

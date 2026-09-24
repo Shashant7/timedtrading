@@ -60909,6 +60909,20 @@ export default {
           });
           cronFailures = { count: active.length, ops: active, tracked: keys.length };
         } catch (_) { /* best-effort */ }
+        // A trim or close the broker never took leaves real contracts held
+        // against a model that has moved on. The reconciler removes this key
+        // as soon as the books agree, so its presence alone is the alarm.
+        let indexDtReduceUnmirrored = null;
+        try {
+          const rr = await kvGetJSON(KV, "timed:opt-dt:reduce-unreconciled");
+          if (rr && Array.isArray(rr.unmirrored) && rr.unmirrored.length) {
+            indexDtReduceUnmirrored = {
+              count: rr.unmirrored.length,
+              ageMin: rr.ts ? Math.round((Date.now() - rr.ts) / 60000) : null,
+              signals: rr.unmirrored.slice(0, 8),
+            };
+          }
+        } catch (_) { /* best-effort */ }
         let activeUsers30d = null;
         try {
           if (env?.DB) {
@@ -61053,6 +61067,7 @@ export default {
             scoringUserAddedTickers: scoringLast?.userAdded ?? null,
             cronTickAgeMin,
             cronFailures,
+            indexDtReduceUnmirrored,
             pricesAgeSec,
             staleSymbolCount,
             staleSymbolCountRaw,
@@ -85325,8 +85340,8 @@ export default {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         try {
-          const { sweepStrandedIndexDtCloses } = await import("./options-auto-mirror.js");
-          const out = await sweepStrandedIndexDtCloses(env, {
+          const { reconcileIndexDtMirrorPositions } = await import("./options-auto-mirror.js");
+          const out = await reconcileIndexDtMirrorPositions(env, {
             indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
             lookbackMs: Number(url.searchParams.get("lookback_ms")) || undefined,
           });
@@ -104585,18 +104600,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               }, "system").catch(() => {});
             }
           }
-          // A close the broker refused is the mirror image of the pending
-          // entry above: the paper book has already closed, so nothing will
-          // ever raise that event again and the contract stays long through
-          // a stop the model already took (IWM 279P, 2026-09-24). Runs after
-          // the entry sweep so a just-confirmed fill is visible to it.
+          // A reduce the broker refused is the mirror image of the pending
+          // entry above: the event fired once, so nothing will ever raise it
+          // again and the contracts stay held through a trim or stop the
+          // model already took (IWM 279P and 280P, 2026-09-24). Reduces are
+          // reconciled on QUANTITY, not on events — a missed trim leaves a
+          // position that legitimately stays open and so looks like nothing
+          // is wrong. Runs after the entry sweep so a just-confirmed fill is
+          // visible to it.
           if (isNyRegularMarketOpen()) {
-            const { sweepStrandedIndexDtCloses } = await import("./options-auto-mirror.js");
-            const _dtStranded = await sweepStrandedIndexDtCloses(env, {
+            const { reconcileIndexDtMirrorPositions } = await import("./options-auto-mirror.js");
+            const _dtQty = await reconcileIndexDtMirrorPositions(env, {
               indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
             });
-            if (_dtStranded?.fired?.length) {
-              console.log(`[OPT-DT-RECONCILE] stranded closes re-fired: ${JSON.stringify(_dtStranded.fired)}`);
+            if (_dtQty?.fired?.length) {
+              console.log(`[OPT-DT-RECONCILE] reduces re-fired: ${JSON.stringify(_dtQty.fired)}`);
+            }
+            if (_dtQty?.skipped?.length) {
+              console.log(`[OPT-DT-RECONCILE] reduces still unmirrored: ${JSON.stringify(_dtQty.skipped)}`);
             }
           }
           await recordCronSuccess(env, "index_dt_reconcile");

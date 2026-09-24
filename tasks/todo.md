@@ -30,11 +30,17 @@
 - [x] `normalizeWebullOptionsPositions` flat-maps legs + synthesizes OCC symbol
 - [x] Fail closed: unreadable right → `null` (never CALL); unlabelled combo
       leg → `direction_unknown`, skipped by `heldQtyForOption`
-- [x] `sweepStrandedIndexDtCloses` — a rejected close cannot retry itself
+- [x] `reconcileIndexDtMirrorPositions` — reduces reconciled on QUANTITY
+      (`targetMirrorRemaining`), so TRIM is first class alongside EXIT/STOP
       (RTH cron + `POST /timed/admin/index-dt/heal-closes` + COO lane)
+- [x] `ctx.max_reduce_qty` caps Stage 5b so a partially-filled trim is not
+      re-sold in full
+- [x] Rejected reduce pages from `recordIndexDtMirrorDecision` (deduped per
+      signal+event) + self-clearing `/timed/health.indexDtReduceUnmirrored`
 - [x] Regression tests from the captured live Webull payload; `npm test` green
-- [ ] Live IWM 279P is still long in the Roth — flattens when this deploys
-      (or on a manual `heal-closes` call once merged)
+- [ ] Live IWM 279P + 280P are still long in the Roth (0/1 DTE) — they flatten
+      on the first RTH reconcile tick after this merges and deploys, or
+      immediately via `POST /timed/admin/index-dt/heal-closes`
 
 ### Active
 ## Active — Daily Brief miss / OOM catch-up (2026-09-24)

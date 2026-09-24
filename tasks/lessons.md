@@ -51,16 +51,44 @@ demonstrably held.
   now synthesizes the OCC symbol from the parts, and the holdings label
   shows `?` for a right it cannot read rather than quietly calling
   everything a call.
-- **A rejected close cannot retry itself — same shape as yesterday's
-  pending entry.** Stage 5b only ever runs on a paper event, and the book
-  was already `closed`, so nothing would ever raise STOP for that signal
-  again: the mirror said 1 contract held, the model said flat, and there
-  was no third party to notice they disagreed. The 279P sat long through
-  a stop it had already taken. `sweepStrandedIndexDtCloses` runs on a
-  SCHEDULE over STATE — mirrors with `contracts_remaining > 0` whose book
-  is closed on STOP/EXIT — and rebuilds the contract from the signal id,
-  which is why the id being the contract matters. Fixing the parser alone
-  would have left the live position stranded.
+- **A rejected reduce cannot retry itself — same shape as yesterday's
+  pending entry.** Stage 5b only ever runs on a paper event, and an event
+  fires ONCE, so nothing would ever raise STOP for that signal again: the
+  mirror said 1 contract held, the model said flat, and there was no third
+  party to notice they disagreed. The 279P sat long through a stop it had
+  already taken, and while this was being written the 280P did it again at
+  10:35:40. Fixing the parser alone would have left both stranded.
+- **Reconcile on QUANTITY, never on the event.** The first cut of the
+  reconciler matched `book.status === "closed" && event in (STOP, EXIT)`,
+  which is still event-shaped thinking and misses the worse case: a TRIM.
+  A missed close at least leaves the model and the broker saying visibly
+  different things; a missed trim leaves a position that legitimately
+  stays open, so nothing about it looks wrong at all. The durable version
+  compares `mirror.contracts_remaining` against `targetMirrorRemaining(
+  book, mirror)` and treats any positive difference as a reduce that is
+  missing. The event only decides which pending order to respect and
+  which clock measures staleness. Every lane that mirrors a position
+  needs a target-quantity function, not a list of events to replay.
+- **A reconciler that recomputes a reduce must be able to ask for LESS
+  than the rule would.** Stage 5b sizes a TRIM as the full 50% share. Run
+  that again after a trim partially filled and it oversells — the broker
+  ends up holding less than the model, which is the same class of bug
+  pointing the other way. The reconciler is the only caller that knows
+  the exact shortfall, so it passes `ctx.max_reduce_qty`, and that cap can
+  only ever lower the qty. A repair that can overshoot is not a repair.
+- **The single-lot exemption has to live in ONE place.** Stage 5b refuses
+  to partial-trim a 1-lot mirror. If the target function did not agree,
+  the reconciler would see permanent drift on every trimmed single lot and
+  re-fire a reduce that gets skipped every minute for the rest of the day.
+  Both now read `trimSellQty` and the same `total <= 1` rule.
+- **"Rejected" has to be loud, because the retry makes it quiet.** A
+  reconciler that keeps trying also keeps the failure off anyone's screen.
+  The page therefore hangs off `recordIndexDtMirrorDecision` — the one
+  funnel every mirror decision passes through, so no future lane can add a
+  silent reject path — and is deduped per signal+event, not per day, since
+  each stranded contract is its own problem. The health field is keyed to
+  a KV marker that is DELETED once the books agree: a field that lingers
+  after the drift clears teaches a watchdog to ignore it.
 
 ## A lane that only wakes on an event cannot heal the event that stopped [2026-09-23]
 
