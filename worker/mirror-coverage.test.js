@@ -29,6 +29,7 @@ import {
   HEAL_TRADER_EXIT,
   HEAL_INDEX_ENTRY,
   HEAL_INDEX_EXIT,
+  HEAL_INDEX_DT_EXIT,
   HEAL_INTENT_DRAIN,
   COVERAGE_SNAPSHOT_KEY,
 } from "./mirror-coverage.js";
@@ -524,6 +525,9 @@ describe("heal routing — existing lanes only, never a new ST buy path", () => 
     expect(healForCoverageRow({ lane: "index_trend", event: "EXIT", status: "unmatched" })).toBe(HEAL_INDEX_EXIT);
     expect(healForCoverageRow({ lane: "convexity", event: "EXIT", status: "unmatched" })).toBe(HEAL_INTENT_DRAIN);
     expect(healForCoverageRow({ lane: "index_dt", event: "ENTRY", status: "unmatched" })).toBe(HEAL_PAGE_ONLY);
+    // A day-trade entry that missed is gone with the setup; a close that
+    // missed is a live contract the model thinks it is out of (IWM 279P).
+    expect(healForCoverageRow({ lane: "index_dt", event: "EXIT", status: "rejected" })).toBe(HEAL_INDEX_DT_EXIT);
   });
 
   it("heal plan de-dupes and drops page_only", () => {

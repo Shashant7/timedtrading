@@ -1487,6 +1487,185 @@ export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
   } catch (_) { /* telemetry only — never block a mirror on it */ }
 }
 
+/**
+ * Contract identity from a day-trade signal id: `dt:IWM:2026-09-24:2026-09-25:P:279`.
+ * The id IS the contract, which is what lets a close be rebuilt from nothing
+ * but the mirror record long after the play object is gone.
+ */
+export function parseIndexDtSignalId(signalId) {
+  const m = String(signalId || "").trim()
+    .match(/^dt:([A-Za-z]{1,6}):(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2}):([CPcp]):([0-9]+(?:\.[0-9]+)?)$/);
+  if (!m) return null;
+  const strike = Number(m[5]);
+  if (!(strike > 0)) return null;
+  const right = m[4].toUpperCase();
+  return {
+    ticker: m[1].toUpperCase(),
+    ny_date: m[2],
+    expiration: m[3],
+    right,
+    strike,
+    flavor: right === "P" ? "put" : "call",
+  };
+}
+
+/** How far back a closed paper book is still worth flattening at the broker. */
+export const STRANDED_CLOSE_LOOKBACK_MS = 6 * 3600 * 1000;
+
+/**
+ * Re-fire a close the broker never took.
+ *
+ * Stage 5b only ever runs when the paper book emits an event, and a book that
+ * has already closed emits nothing more. So a close that reached the bridge
+ * and came back rejected — 2026-09-24 IWM 279P, `no_held_position` — was the
+ * last word on that position: the mirror still said one contract held, the
+ * model said flat, and nothing was left to disagree with. The contract sat
+ * long in the account through a stop it had already taken.
+ *
+ * This is the half that closes that gap. A mirror that still holds contracts
+ * whose paper book is closed is, by definition, a position the model does not
+ * think it has. Rebuild the contract from the signal id, price it off a live
+ * mark, and put the SELL back in front of the broker. Everything else —
+ * dedupe, qty capping to the mirrored remainder, fill reconciliation, risk
+ * settlement, the decision log — comes from Stage 5b unchanged.
+ */
+export async function sweepStrandedIndexDtCloses(env, {
+  now = Date.now(),
+  lookbackMs = STRANDED_CLOSE_LOOKBACK_MS,
+  maxPages = 4,
+  maxFire = 4,
+  indicesFlagOn = true,
+  loadBook,
+  resolvePremium,
+  fireClose = maybeAutoMirrorIndexDayTradeEvent,
+} = {}) {
+  const out = { scanned: 0, stranded: 0, fired: [], skipped: [] };
+  if (!env?.KV_TIMED) return out;
+
+  const prefix = indexDtMirrorKey("");
+  const signalIds = [];
+  let cursor;
+  for (let page = 0; page < maxPages; page++) {
+    let listed;
+    try {
+      listed = await env.KV_TIMED.list({ prefix, limit: 1000, cursor });
+    } catch (_) {
+      break;
+    }
+    for (const k of listed?.keys || []) {
+      const id = String(k?.name || "").slice(prefix.length);
+      if (id) signalIds.push(id);
+    }
+    if (listed?.list_complete !== false || !listed?.cursor) break;
+    cursor = listed.cursor;
+  }
+
+  const readBook = loadBook || (async (signalId) => {
+    const { dayTradeBookKey } = await import("./option-day-trade-alerts.js");
+    try {
+      const raw = await env.KV_TIMED.get(dayTradeBookKey(signalId));
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  });
+  const readPremium = resolvePremium || (async (contract) => {
+    const { resolveLiveOptionPremium, buildOccSymbol } = await import("./options-marks.js");
+    return resolveLiveOptionPremium(env, {
+      ticker: contract.ticker,
+      expirationIso: contract.expiration,
+      right: contract.right,
+      strike: contract.strike,
+      optionSymbol: buildOccSymbol(contract.ticker, contract.expiration, contract.right, contract.strike),
+      now,
+    });
+  });
+
+  for (const signalId of signalIds) {
+    if (out.fired.length >= maxFire) break;
+    const mirror = await loadIndexDtMirror(env, signalId);
+    if (!mirror?.entry_fired || mirror.exit_fired) continue;
+    if (!(Number(mirror.contracts_remaining) > 0)) continue;
+    out.scanned++;
+
+    const book = await readBook(signalId);
+    const bookEvent = String(book?.event || "").toUpperCase();
+    if (String(book?.status || "").toLowerCase() !== "closed") continue;
+    if (bookEvent !== "STOP" && bookEvent !== "EXIT") continue;
+    // A still-working SELL is not stranded — Stage 5b polls it on the way in.
+    if (mirror.exit_pending && mirror.exit_order_id) {
+      out.skipped.push({ signal_id: signalId, reason: "exit_order_working" });
+      continue;
+    }
+    const closedAt = Number(book?.exit_ts) || Number(book?.updated_at) || 0;
+    if (closedAt > 0 && (now - closedAt) > lookbackMs) {
+      out.skipped.push({ signal_id: signalId, reason: "close_too_old" });
+      continue;
+    }
+    out.stranded++;
+
+    const contract = parseIndexDtSignalId(signalId);
+    if (!contract) {
+      out.skipped.push({ signal_id: signalId, reason: "unparseable_signal_id" });
+      continue;
+    }
+    const strike = Number(mirror.strike) > 0 ? Number(mirror.strike) : contract.strike;
+    const flavor = String(mirror.flavor || contract.flavor).toLowerCase();
+    const right = flavor === "put" ? "PUT" : "CALL";
+
+    const quote = await readPremium({ ...contract, strike, right });
+    const mid = Number(quote?.mid);
+    if (!(mid > 0)) {
+      out.skipped.push({ signal_id: signalId, reason: "no_live_premium" });
+      continue;
+    }
+
+    // The minimum a close play needs to exist. Stage 5b re-prices it off the
+    // live mid and bid below; this only has to name the contract.
+    const play = {
+      archetype: flavor === "put" ? "day_trade_put" : "day_trade_call",
+      ticker: contract.ticker,
+      _day_trade_flavor: flavor,
+      strikes: { primary: strike },
+      expiration: { iso: contract.expiration },
+      premium: { mid },
+      legs: [{
+        action: "BUY",
+        optionType: right,
+        strike,
+        expiration: contract.expiration,
+        qty: Number(mirror.contracts_remaining) || 1,
+      }],
+    };
+
+    const result = await fireClose(env, {
+      event: bookEvent,
+      reason: "stranded_close_heal",
+      ticker: contract.ticker,
+      play,
+      signal_id: signalId,
+      book,
+      premium: mid,
+      bid: Number(quote?.bid) || null,
+      strike,
+      expiration: { iso: contract.expiration },
+      flavor,
+      indicesFlagOn,
+    });
+    out.fired.push({
+      signal_id: signalId,
+      ticker: contract.ticker,
+      event: bookEvent,
+      qty: result?.close_qty ?? null,
+      limit_price: result?.limit_price ?? null,
+      skipped: !!result?.skipped,
+      reason: result?.reason || null,
+    });
+  }
+
+  return out;
+}
+
 export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
   let result;
   try {

@@ -54,6 +54,7 @@ export const HEAL_INVESTOR = "catchup-investor";
 export const HEAL_TRADER_EXIT = "catchup-trader-exits";
 export const HEAL_INDEX_ENTRY = "heal-index-trend-entries";
 export const HEAL_INDEX_EXIT = "heal-index-trend-closes";
+export const HEAL_INDEX_DT_EXIT = "heal-index-dt-closes";
 export const HEAL_INTENT_DRAIN = "drain-broker-intents";
 
 /** Lanes whose reduces are routed by manifest sleeve (trade_id → broker lot). */
@@ -475,6 +476,10 @@ export function healForCoverageRow(row) {
   if (lane === "investor") return HEAL_INVESTOR;
   if (lane === "trader") return open ? HEAL_PAGE_ONLY : HEAL_TRADER_EXIT;
   if (lane === "index_trend") return open ? HEAL_INDEX_ENTRY : HEAL_INDEX_EXIT;
+  // A day-trade ENTRY that missed is gone with the setup — nothing to heal
+  // hours later. A close that missed is a live contract the model thinks it
+  // is out of, and that one is worth re-firing.
+  if (lane === "index_dt" && !open) return HEAL_INDEX_DT_EXIT;
   if (lane === "convexity" && !open) return HEAL_INTENT_DRAIN;
   return HEAL_PAGE_ONLY;
 }

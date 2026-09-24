@@ -359,7 +359,7 @@ describe("summarizeHealAction keeps every lane in the log line", () => {
 // real misses.
 describe("_healModelBrokerCoverage — a lane that just worked backs off alone", () => {
   const NOW = Date.UTC(2026, 8, 15, 18, 0, 0);
-  const LANES = ["investor", "trader_exits", "index_entries", "index_closes", "intents"];
+  const LANES = ["investor", "trader_exits", "index_entries", "index_closes", "index_dt_closes", "intents"];
 
   function harness({ seed = {}, laneOk = () => true } = {}) {
     const store = new Map(Object.entries(seed));

@@ -2662,6 +2662,7 @@ const ROUTES = [
   ["GET",  "/timed/admin/broker/coverage",               "GET /timed/admin/broker/coverage"],
   ["POST", "/timed/admin/index-trend/heal-entries",      "POST /timed/admin/index-trend/heal-entries"],
   ["POST", "/timed/admin/index-trend/heal-closes",       "POST /timed/admin/index-trend/heal-closes"],
+  ["POST", "/timed/admin/index-dt/heal-closes",          "POST /timed/admin/index-dt/heal-closes"],
   ["GET",  "/timed/admin/convexity-tickets",             "GET /timed/admin/convexity-tickets"],
   ["GET",  "/timed/admin/execution/report-card",         "GET /timed/admin/execution/report-card"],
   ["GET",  "/timed/admin/execution/review",              "GET /timed/admin/execution/review"],
@@ -85320,6 +85321,20 @@ export default {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
+      if (routeKey === "POST /timed/admin/index-dt/heal-closes") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { sweepStrandedIndexDtCloses } = await import("./options-auto-mirror.js");
+          const out = await sweepStrandedIndexDtCloses(env, {
+            indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
+            lookbackMs: Number(url.searchParams.get("lookback_ms")) || undefined,
+          });
+          return sendJSON({ ok: true, ...out }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
 
       // 2026-07-21 — Durable silent-failure breadcrumb ring. Survives the
       // 256KB/request Cloudflare log cap that truncates late console.error
@@ -104568,6 +104583,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 ].filter(Boolean).join("\n"),
                 color: 0xE0A82E,
               }, "system").catch(() => {});
+            }
+          }
+          // A close the broker refused is the mirror image of the pending
+          // entry above: the paper book has already closed, so nothing will
+          // ever raise that event again and the contract stays long through
+          // a stop the model already took (IWM 279P, 2026-09-24). Runs after
+          // the entry sweep so a just-confirmed fill is visible to it.
+          if (isNyRegularMarketOpen()) {
+            const { sweepStrandedIndexDtCloses } = await import("./options-auto-mirror.js");
+            const _dtStranded = await sweepStrandedIndexDtCloses(env, {
+              indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
+            });
+            if (_dtStranded?.fired?.length) {
+              console.log(`[OPT-DT-RECONCILE] stranded closes re-fired: ${JSON.stringify(_dtStranded.fired)}`);
             }
           }
           await recordCronSuccess(env, "index_dt_reconcile");
