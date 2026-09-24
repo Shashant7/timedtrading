@@ -46,6 +46,30 @@ async function fetchPositions() {
     return null;
   }
 }
+async function fetchPaperPositions() {
+  try {
+    const r = await fetch(`${API_BASE}/timed/trades?source=paper`, {
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) {
+    return null;
+  }
+}
+async function fetchPaperHistory() {
+  try {
+    const r = await fetch(`${API_BASE}/timed/trades?source=paper_history`, {
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (_) {
+    return null;
+  }
+}
 async function fetchInvestorPositions() {
   try {
     const r = await fetch(`${API_BASE}/timed/investor/positions`, {
@@ -620,6 +644,24 @@ function PerformanceSection({
     hideHeadline: true
   }));
 }
+const OPEN_PANE_COPY = {
+  trader: {
+    title: "SHORT TERM · OPEN POSITIONS",
+    h2: "Currently held — Short Term book"
+  },
+  investor: {
+    title: "LONG TERM · OPEN POSITIONS",
+    h2: "Currently held — Long Term book"
+  },
+  day_trade: {
+    title: "DAY TRADE · OPEN POSITIONS",
+    h2: "Currently held — Index Day Trade options"
+  },
+  index_swing: {
+    title: "INDEX SWINGS · OPEN POSITIONS",
+    h2: "Currently held — LETF swing book"
+  }
+};
 function OpenPositionsTable({
   rows,
   mode,
@@ -633,6 +675,7 @@ function OpenPositionsTable({
   const totalPl = sumOpenPl(rows);
   const VUI = window.TimedVerdictUI || {};
   const showVerdict = window._ttIsPro && mode === "trader";
+  const copy = OPEN_PANE_COPY[mode] || OPEN_PANE_COPY.trader;
   const countLabel = failed ? "Couldn't load positions" : !loaded ? "Loading…" : `${rows.length} position${rows.length === 1 ? "" : "s"}`;
   const emptyLabel = failed ? "Couldn't load open positions — refresh to try again." : !loaded ? "Loading…" : "No open positions.";
   return h("div", {
@@ -645,9 +688,9 @@ function OpenPositionsTable({
     }
   }, h("div", {
     className: "tt-sec-title"
-  }, mode === "investor" ? "LONG TERM · OPEN POSITIONS" : "SHORT TERM · OPEN POSITIONS"), h("h2", {
+  }, copy.title), h("h2", {
     className: "tt-sec-h2"
-  }, `Currently held — ${mode === "investor" ? "Long Term book" : "Short Term book"}`), h("p", {
+  }, copy.h2), h("p", {
     className: "tt-sec-sub"
   }, countLabel)), rows.length > 0 && h("div", {
     className: "op-total"
@@ -660,10 +703,10 @@ function OpenPositionsTable({
     }
   }, fmtPnl(totalPl)))), h("div", {
     className: "tbl-scroll",
-    "data-accent": accent || "trader"
+    "data-accent": accent || mode || "trader"
   }, h("table", {
     className: "tbl tbl--condensed"
-  }, h("thead", null, h("tr", null, h("th", null, "Ticker"), showVerdict && h("th", null, "Verdict"), h("th", null, "Bias"), h("th", {
+  }, h("thead", null, h("tr", null, h("th", null, mode === "day_trade" || mode === "index_swing" ? "Vehicle" : "Ticker"), showVerdict && h("th", null, "Verdict"), h("th", null, "Bias"), h("th", {
     className: "num"
   }, "Entry"), h("th", {
     className: "num"
@@ -674,11 +717,12 @@ function OpenPositionsTable({
     colSpan: showVerdict ? 7 : 6
   }, emptyLabel)) : rows.map(r => {
     const openTicker = () => {
-      if (typeof r._onSelect === "function") r._onSelect(r.sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(r.sym)}`;
+      const sym = r.railSym || r.sym;
+      if (typeof r._onSelect === "function") r._onSelect(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
     };
     const plPctCls = r.plPct == null ? "" : r.plPct >= 0 ? "up" : "dn";
     const plDollarCls = r.plDollar == null ? "" : r.plDollar >= 0 ? "up" : "dn";
-    const vd = verdictMap && verdictMap[r.sym];
+    const vd = verdictMap && verdictMap[r.railSym || r.sym];
     const tv = vd && vd.trader;
     return h("tr", {
       key: r._key
@@ -786,49 +830,134 @@ function buildInvestorRows(investorPositions, priceMap, onSelect) {
   });
   return out;
 }
+function buildPaperRows(paperTrades, lane, onSelect) {
+  if (!Array.isArray(paperTrades)) return [];
+  const out = [];
+  for (const t of paperTrades) {
+    if (String(t?._paper_lane || "") !== lane) continue;
+    const s = String(t?.status || "").toUpperCase();
+    const isOpen = s === "OPEN" || s === "TP_HIT_TRIM" || !s && !(t?.exit_ts ?? t?.exitTs);
+    if (!isOpen) continue;
+    const underlying = String(t?.ticker || "").toUpperCase();
+    const vehicle = String(t?._vehicle_label || t?._vehicle_ticker || underlying).toUpperCase();
+    const dir = String(t?.direction || "").toUpperCase() || "LONG";
+    const ep = Number(t?.entry_price ?? t?.entryPrice ?? t?.entry_premium) || null;
+    const cur = Number(t?.mark_price ?? t?.current_price ?? t?.last_premium) || null;
+    const isOpt = String(t?.instrument || "") === "option";
+    const qty = Number(t?.contracts ?? t?.shares ?? t?.qty) || null;
+    const dirMul = dir === "SHORT" ? -1 : 1;
+    let plPct = Number(t?.pnl_pct);
+    if (!Number.isFinite(plPct) && cur && ep && ep > 0) {
+      plPct = (cur - ep) / ep * 100 * dirMul;
+    }
+    let plDollar = null;
+    if (cur && ep && qty) {
+      plDollar = isOpt ? (cur - ep) * qty * 100 * dirMul : (cur - ep) * qty * dirMul;
+    }
+    out.push({
+      _key: `p-${lane}-${vehicle}-${t.entry_ts || t.entryTs || t.id || ""}`,
+      _onSelect: onSelect,
+      sym: vehicle,
+      railSym: underlying,
+      dir,
+      ep,
+      entryTs: Number(t?.entry_ts ?? t?.entryTs ?? 0),
+      cur,
+      plPct: Number.isFinite(plPct) ? plPct : null,
+      plDollar: Number.isFinite(plDollar) ? plDollar : null,
+      status: s || "OPEN"
+    });
+  }
+  out.sort((a, b) => {
+    const aHas = Number.isFinite(a.plPct);
+    const bHas = Number.isFinite(b.plPct);
+    if (aHas && bHas) return b.plPct - a.plPct;
+    if (aHas) return -1;
+    if (bHas) return 1;
+    return b.entryTs - a.entryTs;
+  });
+  return out;
+}
+const LANE_META = {
+  trader: {
+    key: "trader",
+    label: "Short Term",
+    pill: "lane-trader"
+  },
+  investor: {
+    key: "investor",
+    label: "Long Term",
+    pill: "lane-investor"
+  },
+  index_day_trade: {
+    key: "index_day_trade",
+    label: "Day Trade",
+    pill: "lane-day_trade"
+  },
+  index_swing: {
+    key: "index_swing",
+    label: "Index Swings",
+    pill: "lane-index_swing"
+  }
+};
+function laneMeta(lane) {
+  return LANE_META[lane] || {
+    key: lane || "trader",
+    label: String(lane || "—"),
+    pill: "lane-trader"
+  };
+}
 function TradeHistory({
   trades,
+  laneFilter,
   onSelectTicker
 }) {
   const rows = useMemo(() => {
     if (!Array.isArray(trades)) return [];
     return trades.filter(t => {
       const s = String(t?.status || "").toUpperCase();
-      return s === "WIN" || s === "LOSS" || s === "FLAT" || s === "CLOSED" || !!(t?.exit_ts ?? t?.exitTs);
+      const closed = s === "WIN" || s === "LOSS" || s === "FLAT" || s === "CLOSED" || !!(t?.exit_ts ?? t?.exitTs);
+      if (!closed) return false;
+      if (!laneFilter || laneFilter === "all") return true;
+      return String(t?._lane || "") === laneFilter;
     }).sort((a, b) => Number(b?.exit_ts || b?.exitTs || 0) - Number(a?.exit_ts || a?.exitTs || 0));
-  }, [trades]);
+  }, [trades, laneFilter]);
   return h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
   }, "TRADE HISTORY"), h("div", {
     className: "tt-sec-h"
-  }, "Recent closed trades"), h("div", {
+  }, "Recent closed trades — all model lanes"), h("div", {
     className: "tbl-scroll"
   }, h("table", {
     className: "tbl"
-  }, h("thead", null, h("tr", null, h("th", null, "Ticker"), h("th", null, "Dir"), h("th", null, "Entry"), h("th", null, "Exit"), h("th", null, "Open"), h("th", null, "Close"), h("th", null, "Realized $"), h("th", null, "Realized %"), h("th", null, "Result"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
+  }, h("thead", null, h("tr", null, h("th", null, "Lane"), h("th", null, "Ticker"), h("th", null, "Dir"), h("th", null, "Entry"), h("th", null, "Exit"), h("th", null, "Open"), h("th", null, "Close"), h("th", null, "Realized $"), h("th", null, "Realized %"), h("th", null, "Result"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
     className: "empty",
-    colSpan: 9
+    colSpan: 10
   }, "No closed trades yet.")) : rows.slice(0, 100).map(t => {
     const sym = String(t?.ticker || "").toUpperCase();
+    const display = String(t?._vehicle_label || sym).toUpperCase();
     const dir = String(t?.direction || "").toUpperCase();
     const isLong = dir === "LONG";
     const realized = Number(t?.realized_pnl ?? t?.realizedPnl ?? t?.pnl);
     const realizedPct = Number(t?.realized_pct ?? t?.realizedPct ?? t?.pct_return);
     const result = String(t?.status || "").toUpperCase() || (realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "FLAT");
+    const meta = laneMeta(t?._lane);
     const openTicker = () => {
       if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
     };
     return h("tr", {
-      key: `${sym}-${t.exit_ts || t.exitTs || sym}-${t.entry_ts || ""}`
-    }, h("td", {
+      key: `${meta.key}-${sym}-${t.exit_ts || t.exitTs || sym}-${t.entry_ts || ""}-${t.id || ""}`
+    }, h("td", null, h("span", {
+      className: `lane-pill ${meta.pill}`
+    }, meta.label)), h("td", {
       className: "sym",
       onClick: openTicker,
       style: {
         cursor: "pointer"
       }
-    }, sym), h("td", {
+    }, display), h("td", {
       className: isLong ? "up" : "dn"
     }, dir || "—"), h("td", null, fmtUsdDec(Number(t?.entry_price ?? t?.entryPrice))), h("td", null, fmtUsdDec(Number(t?.exit_price ?? t?.exitPrice))), h("td", null, fmtDate(Number(t?.entry_ts ?? t?.entryTs))), h("td", null, fmtDate(Number(t?.exit_ts ?? t?.exitTs))), h("td", {
       className: realized >= 0 ? "up" : "dn"
@@ -839,29 +968,109 @@ function TradeHistory({
     }, result));
   })))));
 }
+function ModelActivity({
+  actions,
+  laneFilter,
+  onSelectTicker
+}) {
+  const rows = useMemo(() => {
+    if (!Array.isArray(actions)) return [];
+    return actions.filter(a => {
+      if (!laneFilter || laneFilter === "all") return true;
+      if (laneFilter === "trader" || laneFilter === "investor") return false;
+      return String(a?.lane || "") === laneFilter;
+    }).sort((a, b) => (Number(b?.ts) || 0) - (Number(a?.ts) || 0));
+  }, [actions, laneFilter]);
+  const show = laneFilter === "all" || laneFilter === "index_day_trade" || laneFilter === "index_swing";
+  if (!show) return null;
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "MODEL ACTIVITY"), h("div", {
+    className: "tt-sec-h"
+  }, "Day Trade + Index Swings — every action the model took"), h("div", {
+    className: "tbl-scroll"
+  }, h("table", {
+    className: "tbl"
+  }, h("thead", null, h("tr", null, h("th", null, "When"), h("th", null, "Lane"), h("th", null, "Event"), h("th", null, "Vehicle"), h("th", {
+    className: "num"
+  }, "Qty"), h("th", {
+    className: "num"
+  }, "Price"), h("th", null, "Reason"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
+    className: "empty",
+    colSpan: 7
+  }, "No paper-lane actions in the recent window.")) : rows.slice(0, 120).map((a, i) => {
+    const meta = laneMeta(a?.lane);
+    const vehicle = String(a?.vehicle || a?.ticker || "").toUpperCase();
+    const underlying = String(a?.ticker || "").toUpperCase();
+    const ev = String(a?.event || "").toUpperCase();
+    const openTicker = () => {
+      if (!underlying) return;
+      if (typeof onSelectTicker === "function") onSelectTicker(underlying);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(underlying)}`;
+    };
+    const evCls = ev === "BUY" ? "up" : ev === "STOP" || ev === "EXIT" ? "dn" : "";
+    return h("tr", {
+      key: `${a.signal_id || vehicle}-${a.ts}-${ev}-${i}`
+    }, h("td", null, fmtDate(Number(a.ts))), h("td", null, h("span", {
+      className: `lane-pill ${meta.pill}`
+    }, meta.label)), h("td", {
+      className: evCls
+    }, ev || "—"), h("td", {
+      className: "sym",
+      onClick: openTicker,
+      style: {
+        cursor: underlying ? "pointer" : "default"
+      }
+    }, vehicle || "—"), h("td", {
+      className: "num"
+    }, Number(a.qty) > 0 ? String(a.qty) : "—"), h("td", {
+      className: "num"
+    }, fmtUsdDec(Number(a.price))), h("td", {
+      style: {
+        fontFamily: "var(--tt-font)",
+        color: "var(--tt-text-muted)",
+        fontSize: 12
+      }
+    }, a.reason ? String(a.reason) : "—"));
+  })))));
+}
 function PortfolioApp() {
   const [eq, setEq] = useState(null);
   const [positions, setPositions] = useState(null);
   const [investorPositions, setInvestorPositions] = useState(null);
+  const [paperPositions, setPaperPositions] = useState(null);
   const [priceMap, setPriceMap] = useState(null);
   const [traderHistory, setTraderHistory] = useState(null);
   const [investorHistory, setInvestorHistory] = useState(null);
+  const [paperHistory, setPaperHistory] = useState(null);
+  const [paperActions, setPaperActions] = useState(null);
   const [monthlyMode, setMonthlyMode] = useState("trader");
+  const [historyLane, setHistoryLane] = useState("all");
   const [error, setError] = useState(null);
   const [allData, setAllData] = useState(null);
   const [positionsFailed, setPositionsFailed] = useState(false);
   const [investorPositionsFailed, setInvestorPositionsFailed] = useState(false);
+  const [paperPositionsFailed, setPaperPositionsFailed] = useState(false);
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [e, p, invPos, ht, hi, prices] = await Promise.all([fetchEquityCurve(), fetchPositions(), fetchInvestorPositions(), fetchHistoryByMode("trader"), fetchHistoryByMode("investor"), fetchPriceMap()]);
+        const [e, p, invPos, paper, ht, hi, ph, prices] = await Promise.all([fetchEquityCurve(), fetchPositions(), fetchInvestorPositions(), fetchPaperPositions(), fetchHistoryByMode("trader"), fetchHistoryByMode("investor"), fetchPaperHistory(), fetchPriceMap()]);
         if (!alive) return;
         if (e?.ok) setEq(e);else setError("Failed to load equity curve");
         if (p?.ok) setPositions(p.trades || []);else setPositionsFailed(true);
         if (invPos?.ok) setInvestorPositions(invPos.positions || []);else setInvestorPositionsFailed(true);
+        if (paper?.ok) setPaperPositions(paper.trades || []);else setPaperPositionsFailed(true);
         if (ht?.ok) setTraderHistory(ht.trades || []);
         if (hi?.ok) setInvestorHistory(hi.trades || []);
+        if (ph?.ok) {
+          setPaperHistory(ph.trades || []);
+          setPaperActions(ph.actions || []);
+        } else {
+          setPaperHistory([]);
+          setPaperActions([]);
+        }
         if (prices) setPriceMap(prices);
       } catch (err) {
         if (alive) setError(String(err?.message || err));
@@ -977,12 +1186,25 @@ function PortfolioApp() {
   const investorPayload = eq?.investor || null;
   const traderRows = useMemo(() => buildTraderRows(positions || [], priceMap, onSelectTicker), [positions, priceMap, onSelectTicker]);
   const investorRows = useMemo(() => buildInvestorRows(investorPositions || [], priceMap, onSelectTicker), [investorPositions, priceMap, onSelectTicker]);
+  const dayTradeRows = useMemo(() => buildPaperRows(paperPositions || [], "index_day_trade", onSelectTicker), [paperPositions, onSelectTicker]);
+  const indexSwingRows = useMemo(() => buildPaperRows(paperPositions || [], "index_swing", onSelectTicker), [paperPositions, onSelectTicker]);
   const traderOpenPl = useMemo(() => positions == null ? null : sumOpenPl(traderRows), [positions, traderRows]);
   const investorOpenPl = useMemo(() => investorPositions == null ? null : sumOpenPl(investorRows), [investorPositions, investorRows]);
+  const allHistory = useMemo(() => {
+    const tag = (arr, lane) => (Array.isArray(arr) ? arr : []).map(t => ({
+      ...t,
+      _lane: t._lane || lane,
+      _lane_label: t._lane_label || laneMeta(lane).label
+    }));
+    return [...tag(traderHistory, "trader"), ...tag(investorHistory, "investor"), ...tag(paperHistory, null).map(t => ({
+      ...t,
+      _lane: t._lane || t._paper_lane || "index_day_trade"
+    }))];
+  }, [traderHistory, investorHistory, paperHistory]);
   const [verdictMap, setVerdictMap] = useState({});
   useEffect(() => {
     if (!window._ttIsPro || !window.TimedVerdictUI?.fetchVerdict) return;
-    const syms = [...new Set([...traderRows.map(r => r.sym), ...investorRows.map(r => r.sym)].filter(Boolean))];
+    const syms = [...new Set([...traderRows.map(r => r.sym), ...investorRows.map(r => r.sym), ...dayTradeRows.map(r => r.railSym || r.sym), ...indexSwingRows.map(r => r.railSym || r.sym)].filter(Boolean))];
     if (!syms.length) return;
     let alive = true;
     Promise.all(syms.map(sym => window.TimedVerdictUI.fetchVerdict({
@@ -999,7 +1221,8 @@ function PortfolioApp() {
     return () => {
       alive = false;
     };
-  }, [traderRows, investorRows]);
+  }, [traderRows, investorRows, dayTradeRows, indexSwingRows]);
+  const openBooksReady = positions != null || investorPositions != null || paperPositions != null;
   return h(React.Fragment, null, loading && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -1010,7 +1233,7 @@ function PortfolioApp() {
     className: "label"
   }, "PORTFOLIO"), h("h1", null, "How the model is performing"), h("div", {
     className: "sub"
-  }, "Both modes track a $100,000 paper-capital starting balance. Equity curves, max drawdown, and Sharpe ratio are computed from the daily portfolio snapshots stored after each scoring run."))), h("section", {
+  }, "Short Term, Long Term, Day Trade, and Index Swings — open risk, closed trades, and every action the model took. Equity curves for Short Term and Long Term still track the $100,000 paper books."))), h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
@@ -1041,7 +1264,7 @@ function PortfolioApp() {
     payload: investorPayload,
     history: investorHistory,
     openPnlOverride: investorOpenPl
-  }))), positions || investorPositions ? h("section", {
+  }))), openBooksReady ? h("section", {
     className: "op-grid"
   }, h(OpenPositionsTable, {
     rows: traderRows,
@@ -1057,6 +1280,20 @@ function PortfolioApp() {
     verdictMap,
     loaded: investorPositions != null,
     failed: investorPositionsFailed
+  }), h(OpenPositionsTable, {
+    rows: dayTradeRows,
+    mode: "day_trade",
+    accent: "day_trade",
+    verdictMap,
+    loaded: paperPositions != null,
+    failed: paperPositionsFailed
+  }), h(OpenPositionsTable, {
+    rows: indexSwingRows,
+    mode: "index_swing",
+    accent: "index_swing",
+    verdictMap,
+    loaded: paperPositions != null,
+    failed: paperPositionsFailed
   })) : h("section", {
     className: "tt-row"
   }, h("div", {
@@ -1101,8 +1338,35 @@ function PortfolioApp() {
     mode: monthlyMode,
     traderOpenPl,
     investorOpenPl
-  })), traderHistory || investorHistory ? h(TradeHistory, {
-    trades: monthlyMode === "trader" ? traderHistory || [] : investorHistory || [],
+  })), h("section", {
+    className: "tt-row",
+    style: {
+      marginBottom: 12
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: 10
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "HISTORY & ACTIVITY"), h("div", {
+    className: "tt-sec-h",
+    style: {
+      margin: 0
+    }
+  }, "Filter by lane")), h("div", {
+    className: "mode-toggle"
+  }, [["all", "All"], ["trader", "Short Term"], ["investor", "Long Term"], ["index_day_trade", "Day Trade"], ["index_swing", "Index Swings"]].map(([key, label]) => h("button", {
+    key,
+    className: historyLane === key ? "active" : "",
+    onClick: () => setHistoryLane(key)
+  }, label))))), traderHistory || investorHistory || paperHistory ? h(TradeHistory, {
+    trades: allHistory,
+    laneFilter: historyLane,
     onSelectTicker
   }) : h("section", {
     className: "tt-row"
@@ -1116,7 +1380,11 @@ function PortfolioApp() {
       height: 200,
       borderRadius: 12
     }
-  }))), RailOverlay && railTickerObj && h(RailOverlay, {
+  })), paperActions != null && h(ModelActivity, {
+    actions: paperActions,
+    laneFilter: historyLane,
+    onSelectTicker
+  })), RailOverlay && railTickerObj && h(RailOverlay, {
     ticker: railTickerObj,
     allLoadedData: allData,
     initialRailTab: railInitialTab,
@@ -1133,6 +1401,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1789936652903:875261041
+// cache-bust:1790227555459:702776218
 
-// cache-bust:1789936652903:875261041
+// cache-bust:1790227555459:702776218

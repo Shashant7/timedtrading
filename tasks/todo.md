@@ -22,11 +22,18 @@
 
 ### Active
 ### Active
+## Active — Portfolio all lanes (2026-09-24)
+
+- [x] Open-risk panes: Short Term + Long Term + Day Trade + Index Swings
+- [x] History/activity: paper-lane actions + closed trades with Lane column
+- [x] Worker `source=paper_history` from opt-dt / idx-trend action rings
+- [x] Build frontend, test, commit, push, PR (#1491)
+
 ## Active — Broker UI scan refine (2026-09-24)
 
-- [ ] Broker Connections: account cards with labeled lanes + nested options detail
-- [ ] Mission Control Bridge: face-level options summary; Global Auto-Mirror near KPIs; clearer collapse titles
-- [ ] Build frontend + visual QA artifacts
+- [x] Broker Connections: account cards with labeled lanes + nested options detail
+- [x] Mission Control Bridge: face-level options summary; Global Auto-Mirror near KPIs; clearer collapse titles
+- [x] Build frontend + visual QA artifacts
 
 ## Active — Options account prefs alignment (2026-09-24)
 

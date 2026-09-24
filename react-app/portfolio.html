@@ -84,6 +84,7 @@
       .tt-card-pad { padding: 16px 18px; }
       .tt-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
       .tt-sec-h { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: var(--tt-text); margin-bottom: 10px; }
+      .tt-sec-sub { font-size: 12px; color: var(--tt-text-muted); margin: 0; }
 
       /* Top nav */
       nav.topnav {
@@ -324,8 +325,10 @@
       /* Subtle accent on the left edge of each section's table */
       .tbl-scroll[data-accent="trader"] { border-left: 2px solid rgba(52,211,153,0.45); }
       .tbl-scroll[data-accent="investor"] { border-left: 2px solid rgba(167,139,250,0.45); }
+      .tbl-scroll[data-accent="day_trade"] { border-left: 2px solid rgba(34,211,238,0.50); }
+      .tbl-scroll[data-accent="index_swing"] { border-left: 2px solid rgba(251,191,36,0.55); }
 
-      /* V15 P0.7.182 — Side-by-side Open Positions grid */
+      /* Open Positions — four lanes (ST / LT / Day Trade / Index Swings) */
       .op-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -337,6 +340,45 @@
       }
       .op-pane { min-width: 0; }
       .op-pane .tbl-scroll { max-height: 460px; }
+      .op-pane .tt-sec-h2 {
+        font-size: 15px;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        color: var(--tt-text);
+        margin: 0 0 2px;
+      }
+
+      .lane-pill {
+        display: inline-flex;
+        align-items: center;
+        font-family: var(--tt-font);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 2px 7px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+      .lane-pill.lane-trader {
+        background: rgba(52,211,153,0.10);
+        color: var(--tt-up-soft);
+        border: 1px solid rgba(52,211,153,0.25);
+      }
+      .lane-pill.lane-investor {
+        background: rgba(167,139,250,0.10);
+        color: var(--tt-violet);
+        border: 1px solid rgba(167,139,250,0.25);
+      }
+      .lane-pill.lane-day_trade {
+        background: rgba(34,211,238,0.10);
+        color: var(--tt-cyan);
+        border: 1px solid rgba(34,211,238,0.30);
+      }
+      .lane-pill.lane-index_swing {
+        background: rgba(251,191,36,0.10);
+        color: #fbbf24;
+        border: 1px solid rgba(251,191,36,0.30);
+      }
 
       /* Condensed table — tighter columns + smaller padding so two
          tables fit in the side-by-side grid without horizontal scroll. */
@@ -355,6 +397,7 @@
         background: var(--tt-bg-elev);
         border: 1px solid var(--tt-border);
         border-radius: 999px;
+        flex-wrap: wrap;
       }
       .mode-toggle button {
         font-family: var(--tt-font);
@@ -450,6 +493,26 @@
       async function fetchPositions() {
         try {
           const r = await fetch(`${API_BASE}/timed/trades?source=positions`, {
+            credentials: "include", cache: "no-store",
+          });
+          if (!r.ok) return null;
+          return await r.json();
+        } catch (_) { return null; }
+      }
+      // Index Day-Trade options + Index Swings LETF (paper lanes).
+      async function fetchPaperPositions() {
+        try {
+          const r = await fetch(`${API_BASE}/timed/trades?source=paper`, {
+            credentials: "include", cache: "no-store",
+          });
+          if (!r.ok) return null;
+          return await r.json();
+        } catch (_) { return null; }
+      }
+      // Closed paper-lane trades + raw BUY/TRIM/EXIT/STOP action tape.
+      async function fetchPaperHistory() {
+        try {
+          const r = await fetch(`${API_BASE}/timed/trades?source=paper_history`, {
             credentials: "include", cache: "no-store",
           });
           if (!r.ok) return null;
@@ -892,12 +955,31 @@
       // (Active Trader card → trader table, Investor card → investor
       // table) per user feedback "Portfolio Open Positions should
       // separate each Active Trader and Investor into two sections,
-      // underneath the Equity Curves".
-      // V15 P0.7.182 — Condensed table, side-by-side layout.
+      // underneath the Equity Curves". Paper lanes (Day Trade /
+      // Index Swings) sit in the same grid.
       // Columns kept: Ticker / Bias / Entry / Open P&L % / Open P&L $
       // / Entry Date. Current price + Status dropped — Current is
       // implicit in the live Open P&L; Status was redundant with the
-      // section header ("ACTIVE TRADER · OPEN POSITIONS").
+      // section header.
+      const OPEN_PANE_COPY = {
+        trader: {
+          title: "SHORT TERM · OPEN POSITIONS",
+          h2: "Currently held — Short Term book",
+        },
+        investor: {
+          title: "LONG TERM · OPEN POSITIONS",
+          h2: "Currently held — Long Term book",
+        },
+        day_trade: {
+          title: "DAY TRADE · OPEN POSITIONS",
+          h2: "Currently held — Index Day Trade options",
+        },
+        index_swing: {
+          title: "INDEX SWINGS · OPEN POSITIONS",
+          h2: "Currently held — LETF swing book",
+        },
+      };
+
       function OpenPositionsTable({ rows, mode, accent, verdictMap, loaded = true, failed = false }) {
         if (!Array.isArray(rows)) return null;
         const fmtPnl = (n) => Number.isFinite(n)
@@ -906,6 +988,7 @@
         const totalPl = sumOpenPl(rows);
         const VUI = window.TimedVerdictUI || {};
         const showVerdict = window._ttIsPro && mode === "trader";
+        const copy = OPEN_PANE_COPY[mode] || OPEN_PANE_COPY.trader;
         // "0 positions" is a claim about the book. Only make it once the
         // book has actually been read.
         const countLabel = failed
@@ -922,8 +1005,8 @@
         return h("div", { className: "op-pane" },
           h("div", { className: "op-head" },
             h("div", { style: { minWidth: 0 } },
-              h("div", { className: "tt-sec-title" }, mode === "investor" ? "LONG TERM · OPEN POSITIONS" : "SHORT TERM · OPEN POSITIONS"),
-              h("h2", { className: "tt-sec-h2" }, `Currently held — ${mode === "investor" ? "Long Term book" : "Short Term book"}`),
+              h("div", { className: "tt-sec-title" }, copy.title),
+              h("h2", { className: "tt-sec-h2" }, copy.h2),
               h("p", { className: "tt-sec-sub" }, countLabel),
             ),
             rows.length > 0 && h("div", { className: "op-total" },
@@ -934,11 +1017,11 @@
               }, fmtPnl(totalPl)),
             ),
           ),
-          h("div", { className: "tbl-scroll", "data-accent": accent || "trader" },
+          h("div", { className: "tbl-scroll", "data-accent": accent || mode || "trader" },
             h("table", { className: "tbl tbl--condensed" },
               h("thead", null,
                 h("tr", null,
-                  h("th", null, "Ticker"),
+                  h("th", null, mode === "day_trade" || mode === "index_swing" ? "Vehicle" : "Ticker"),
                   showVerdict && h("th", null, "Verdict"),
                   h("th", null, "Bias"),
                   h("th", { className: "num" }, "Entry"),
@@ -952,12 +1035,13 @@
                   ? h("tr", null, h("td", { className: "empty", colSpan: showVerdict ? 7 : 6 }, emptyLabel))
                   : rows.map((r) => {
                       const openTicker = () => {
-                        if (typeof r._onSelect === "function") r._onSelect(r.sym);
-                        else window.location.href = `/index-react.html?ticker=${encodeURIComponent(r.sym)}`;
+                        const sym = r.railSym || r.sym;
+                        if (typeof r._onSelect === "function") r._onSelect(sym);
+                        else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
                       };
                       const plPctCls = r.plPct == null ? "" : (r.plPct >= 0 ? "up" : "dn");
                       const plDollarCls = r.plDollar == null ? "" : (r.plDollar >= 0 ? "up" : "dn");
-                      const vd = verdictMap && verdictMap[r.sym];
+                      const vd = verdictMap && verdictMap[r.railSym || r.sym];
                       const tv = vd && vd.trader;
                       return h("tr", { key: r._key },
                         h("td", { className: "sym", onClick: openTicker, style: { cursor: "pointer" } }, r.sym),
@@ -1070,25 +1154,92 @@
         return out;
       }
 
-      // ── TradeHistory — closed trades (most recent first).
-      function TradeHistory({ trades, onSelectTicker }) {
+      // Paper-lane open rows (Day Trade options / Index Swings LETF).
+      // Marks come from the paper trade payload (premium / LETF last).
+      function buildPaperRows(paperTrades, lane, onSelect) {
+        if (!Array.isArray(paperTrades)) return [];
+        const out = [];
+        for (const t of paperTrades) {
+          if (String(t?._paper_lane || "") !== lane) continue;
+          const s = String(t?.status || "").toUpperCase();
+          const isOpen = s === "OPEN" || s === "TP_HIT_TRIM" || (!s && !(t?.exit_ts ?? t?.exitTs));
+          if (!isOpen) continue;
+          const underlying = String(t?.ticker || "").toUpperCase();
+          const vehicle = String(t?._vehicle_label || t?._vehicle_ticker || underlying).toUpperCase();
+          const dir = String(t?.direction || "").toUpperCase() || "LONG";
+          const ep = Number(t?.entry_price ?? t?.entryPrice ?? t?.entry_premium) || null;
+          const cur = Number(t?.mark_price ?? t?.current_price ?? t?.last_premium) || null;
+          const isOpt = String(t?.instrument || "") === "option";
+          const qty = Number(t?.contracts ?? t?.shares ?? t?.qty) || null;
+          const dirMul = dir === "SHORT" ? -1 : 1;
+          let plPct = Number(t?.pnl_pct);
+          if (!Number.isFinite(plPct) && cur && ep && ep > 0) {
+            plPct = ((cur - ep) / ep) * 100 * dirMul;
+          }
+          let plDollar = null;
+          if (cur && ep && qty) {
+            plDollar = isOpt
+              ? (cur - ep) * qty * 100 * dirMul
+              : (cur - ep) * qty * dirMul;
+          }
+          out.push({
+            _key: `p-${lane}-${vehicle}-${t.entry_ts || t.entryTs || t.id || ""}`,
+            _onSelect: onSelect,
+            sym: vehicle,
+            railSym: underlying,
+            dir, ep,
+            entryTs: Number(t?.entry_ts ?? t?.entryTs ?? 0),
+            cur,
+            plPct: Number.isFinite(plPct) ? plPct : null,
+            plDollar: Number.isFinite(plDollar) ? plDollar : null,
+            status: s || "OPEN",
+          });
+        }
+        out.sort((a, b) => {
+          const aHas = Number.isFinite(a.plPct);
+          const bHas = Number.isFinite(b.plPct);
+          if (aHas && bHas) return b.plPct - a.plPct;
+          if (aHas) return -1;
+          if (bHas) return 1;
+          return b.entryTs - a.entryTs;
+        });
+        return out;
+      }
+
+      const LANE_META = {
+        trader: { key: "trader", label: "Short Term", pill: "lane-trader" },
+        investor: { key: "investor", label: "Long Term", pill: "lane-investor" },
+        index_day_trade: { key: "index_day_trade", label: "Day Trade", pill: "lane-day_trade" },
+        index_swing: { key: "index_swing", label: "Index Swings", pill: "lane-index_swing" },
+      };
+
+      function laneMeta(lane) {
+        return LANE_META[lane] || { key: lane || "trader", label: String(lane || "—"), pill: "lane-trader" };
+      }
+
+      // ── TradeHistory — closed trades across all lanes (most recent first).
+      function TradeHistory({ trades, laneFilter, onSelectTicker }) {
         const rows = useMemo(() => {
           if (!Array.isArray(trades)) return [];
           return trades
             .filter((t) => {
               const s = String(t?.status || "").toUpperCase();
-              return s === "WIN" || s === "LOSS" || s === "FLAT" || s === "CLOSED" || !!(t?.exit_ts ?? t?.exitTs);
+              const closed = s === "WIN" || s === "LOSS" || s === "FLAT" || s === "CLOSED" || !!(t?.exit_ts ?? t?.exitTs);
+              if (!closed) return false;
+              if (!laneFilter || laneFilter === "all") return true;
+              return String(t?._lane || "") === laneFilter;
             })
             .sort((a, b) => Number(b?.exit_ts || b?.exitTs || 0) - Number(a?.exit_ts || a?.exitTs || 0));
-        }, [trades]);
+        }, [trades, laneFilter]);
 
         return h("section", { className: "tt-row" },
           h("div", { className: "tt-sec-title" }, "TRADE HISTORY"),
-          h("div", { className: "tt-sec-h" }, "Recent closed trades"),
+          h("div", { className: "tt-sec-h" }, "Recent closed trades — all model lanes"),
           h("div", { className: "tbl-scroll" },
             h("table", { className: "tbl" },
               h("thead", null,
                 h("tr", null,
+                  h("th", null, "Lane"),
                   h("th", null, "Ticker"),
                   h("th", null, "Dir"),
                   h("th", null, "Entry"),
@@ -1102,20 +1253,23 @@
               ),
               h("tbody", null,
                 rows.length === 0
-                  ? h("tr", null, h("td", { className: "empty", colSpan: 9 }, "No closed trades yet."))
+                  ? h("tr", null, h("td", { className: "empty", colSpan: 10 }, "No closed trades yet."))
                   : rows.slice(0, 100).map((t) => {
                       const sym = String(t?.ticker || "").toUpperCase();
+                      const display = String(t?._vehicle_label || sym).toUpperCase();
                       const dir = String(t?.direction || "").toUpperCase();
                       const isLong = dir === "LONG";
                       const realized = Number(t?.realized_pnl ?? t?.realizedPnl ?? t?.pnl);
                       const realizedPct = Number(t?.realized_pct ?? t?.realizedPct ?? t?.pct_return);
                       const result = String(t?.status || "").toUpperCase() || (realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "FLAT");
+                      const meta = laneMeta(t?._lane);
                       const openTicker = () => {
                         if (typeof onSelectTicker === "function") onSelectTicker(sym);
                         else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
                       };
-                      return h("tr", { key: `${sym}-${t.exit_ts || t.exitTs || sym}-${t.entry_ts || ""}` },
-                        h("td", { className: "sym", onClick: openTicker, style: { cursor: "pointer" } }, sym),
+                      return h("tr", { key: `${meta.key}-${sym}-${t.exit_ts || t.exitTs || sym}-${t.entry_ts || ""}-${t.id || ""}` },
+                        h("td", null, h("span", { className: `lane-pill ${meta.pill}` }, meta.label)),
+                        h("td", { className: "sym", onClick: openTicker, style: { cursor: "pointer" } }, display),
                         h("td", { className: isLong ? "up" : "dn" }, dir || "—"),
                         h("td", null, fmtUsdDec(Number(t?.entry_price ?? t?.entryPrice))),
                         h("td", null, fmtUsdDec(Number(t?.exit_price ?? t?.exitPrice))),
@@ -1134,32 +1288,105 @@
         );
       }
 
+      // Chronological paper-lane action tape (BUY / TRIM / EXIT / STOP).
+      function ModelActivity({ actions, laneFilter, onSelectTicker }) {
+        const rows = useMemo(() => {
+          if (!Array.isArray(actions)) return [];
+          return actions
+            .filter((a) => {
+              if (!laneFilter || laneFilter === "all") return true;
+              if (laneFilter === "trader" || laneFilter === "investor") return false;
+              return String(a?.lane || "") === laneFilter;
+            })
+            .sort((a, b) => (Number(b?.ts) || 0) - (Number(a?.ts) || 0));
+        }, [actions, laneFilter]);
+
+        const show = laneFilter === "all"
+          || laneFilter === "index_day_trade"
+          || laneFilter === "index_swing";
+        if (!show) return null;
+
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-sec-title" }, "MODEL ACTIVITY"),
+          h("div", { className: "tt-sec-h" }, "Day Trade + Index Swings — every action the model took"),
+          h("div", { className: "tbl-scroll" },
+            h("table", { className: "tbl" },
+              h("thead", null,
+                h("tr", null,
+                  h("th", null, "When"),
+                  h("th", null, "Lane"),
+                  h("th", null, "Event"),
+                  h("th", null, "Vehicle"),
+                  h("th", { className: "num" }, "Qty"),
+                  h("th", { className: "num" }, "Price"),
+                  h("th", null, "Reason"),
+                ),
+              ),
+              h("tbody", null,
+                rows.length === 0
+                  ? h("tr", null, h("td", { className: "empty", colSpan: 7 }, "No paper-lane actions in the recent window."))
+                  : rows.slice(0, 120).map((a, i) => {
+                      const meta = laneMeta(a?.lane);
+                      const vehicle = String(a?.vehicle || a?.ticker || "").toUpperCase();
+                      const underlying = String(a?.ticker || "").toUpperCase();
+                      const ev = String(a?.event || "").toUpperCase();
+                      const openTicker = () => {
+                        if (!underlying) return;
+                        if (typeof onSelectTicker === "function") onSelectTicker(underlying);
+                        else window.location.href = `/index-react.html?ticker=${encodeURIComponent(underlying)}`;
+                      };
+                      const evCls = ev === "BUY" ? "up" : (ev === "STOP" || ev === "EXIT" ? "dn" : "");
+                      return h("tr", { key: `${a.signal_id || vehicle}-${a.ts}-${ev}-${i}` },
+                        h("td", null, fmtDate(Number(a.ts))),
+                        h("td", null, h("span", { className: `lane-pill ${meta.pill}` }, meta.label)),
+                        h("td", { className: evCls }, ev || "—"),
+                        h("td", { className: "sym", onClick: openTicker, style: { cursor: underlying ? "pointer" : "default" } }, vehicle || "—"),
+                        h("td", { className: "num" }, Number(a.qty) > 0 ? String(a.qty) : "—"),
+                        h("td", { className: "num" }, fmtUsdDec(Number(a.price))),
+                        h("td", { style: { fontFamily: "var(--tt-font)", color: "var(--tt-text-muted)", fontSize: 12 } },
+                          a.reason ? String(a.reason) : "—",
+                        ),
+                      );
+                    }),
+              ),
+            ),
+          ),
+        );
+      }
+
       // ── PortfolioApp ────────────────────────────────────────────
       function PortfolioApp() {
         const [eq, setEq] = useState(null);
         const [positions, setPositions] = useState(null);
         const [investorPositions, setInvestorPositions] = useState(null);
+        const [paperPositions, setPaperPositions] = useState(null);
         const [priceMap, setPriceMap] = useState(null);
         const [traderHistory, setTraderHistory] = useState(null);
         const [investorHistory, setInvestorHistory] = useState(null);
+        const [paperHistory, setPaperHistory] = useState(null);
+        const [paperActions, setPaperActions] = useState(null);
         const [monthlyMode, setMonthlyMode] = useState("trader");
+        const [historyLane, setHistoryLane] = useState("all");
         const [error, setError] = useState(null);
         const [allData, setAllData] = useState(null);
         // A failed positions fetch is not an empty book. Tracked separately
         // so the tables can say so instead of reporting "0 positions".
         const [positionsFailed, setPositionsFailed] = useState(false);
         const [investorPositionsFailed, setInvestorPositionsFailed] = useState(false);
+        const [paperPositionsFailed, setPaperPositionsFailed] = useState(false);
 
         useEffect(() => {
           let alive = true;
           (async () => {
             try {
-              const [e, p, invPos, ht, hi, prices] = await Promise.all([
+              const [e, p, invPos, paper, ht, hi, ph, prices] = await Promise.all([
                 fetchEquityCurve(),
                 fetchPositions(),
                 fetchInvestorPositions(),
+                fetchPaperPositions(),
                 fetchHistoryByMode("trader"),
                 fetchHistoryByMode("investor"),
+                fetchPaperHistory(),
                 // Prices only. The full /timed/all snapshot is ~30MB for an
                 // entitled user (~80KB with ?slim=1) and all this load needs
                 // from it is the price overlay. Pulling the full payload here
@@ -1174,8 +1401,17 @@
               if (p?.ok) setPositions(p.trades || []); else setPositionsFailed(true);
               if (invPos?.ok) setInvestorPositions(invPos.positions || []);
               else setInvestorPositionsFailed(true);
+              if (paper?.ok) setPaperPositions(paper.trades || []);
+              else setPaperPositionsFailed(true);
               if (ht?.ok) setTraderHistory(ht.trades || []);
               if (hi?.ok) setInvestorHistory(hi.trades || []);
+              if (ph?.ok) {
+                setPaperHistory(ph.trades || []);
+                setPaperActions(ph.actions || []);
+              } else {
+                setPaperHistory([]);
+                setPaperActions([]);
+              }
               if (prices) setPriceMap(prices);
             } catch (err) { if (alive) setError(String(err?.message || err)); }
           })();
@@ -1307,6 +1543,14 @@
           () => buildInvestorRows(investorPositions || [], priceMap, onSelectTicker),
           [investorPositions, priceMap, onSelectTicker],
         );
+        const dayTradeRows = useMemo(
+          () => buildPaperRows(paperPositions || [], "index_day_trade", onSelectTicker),
+          [paperPositions, onSelectTicker],
+        );
+        const indexSwingRows = useMemo(
+          () => buildPaperRows(paperPositions || [], "index_swing", onSelectTicker),
+          [paperPositions, onSelectTicker],
+        );
         // null, not 0, while the book is unknown. 0 is a finite number, so
         // handing it to the equity card as openPnlOverride SUPPRESSED the
         // curve's own unrealized figure and rendered a confident "$0.00".
@@ -1319,12 +1563,30 @@
           [investorPositions, investorRows],
         );
 
+        const allHistory = useMemo(() => {
+          const tag = (arr, lane) => (Array.isArray(arr) ? arr : []).map((t) => ({
+            ...t,
+            _lane: t._lane || lane,
+            _lane_label: t._lane_label || laneMeta(lane).label,
+          }));
+          return [
+            ...tag(traderHistory, "trader"),
+            ...tag(investorHistory, "investor"),
+            ...tag(paperHistory, null).map((t) => ({
+              ...t,
+              _lane: t._lane || t._paper_lane || "index_day_trade",
+            })),
+          ];
+        }, [traderHistory, investorHistory, paperHistory]);
+
         const [verdictMap, setVerdictMap] = useState({});
         useEffect(() => {
           if (!window._ttIsPro || !window.TimedVerdictUI?.fetchVerdict) return;
           const syms = [...new Set([
             ...traderRows.map((r) => r.sym),
             ...investorRows.map((r) => r.sym),
+            ...dayTradeRows.map((r) => r.railSym || r.sym),
+            ...indexSwingRows.map((r) => r.railSym || r.sym),
           ].filter(Boolean))];
           if (!syms.length) return;
           let alive = true;
@@ -1339,7 +1601,9 @@
             setVerdictMap(next);
           });
           return () => { alive = false; };
-        }, [traderRows, investorRows]);
+        }, [traderRows, investorRows, dayTradeRows, indexSwingRows]);
+
+        const openBooksReady = positions != null || investorPositions != null || paperPositions != null;
 
         return h(React.Fragment, null,
           loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading Portfolio" }),
@@ -1349,7 +1613,7 @@
                 h("div", { className: "label" }, "PORTFOLIO"),
                 h("h1", null, "How the model is performing"),
                 h("div", { className: "sub" },
-                  "Both modes track a $100,000 paper-capital starting balance. Equity curves, max drawdown, and Sharpe ratio are computed from the daily portfolio snapshots stored after each scoring run.",
+                  "Short Term, Long Term, Day Trade, and Index Swings — open risk, closed trades, and every action the model took. Equity curves for Short Term and Long Term still track the $100,000 paper books.",
                 ),
               ),
             ),
@@ -1380,14 +1644,8 @@
                     }),
                   ),
             ),
-            // Open positions — two condensed tables sitting side-by-
-            // side underneath the equity curves (one column per
-            // mode), so each table aligns under its own curve. On
-            // narrow screens they stack vertically. Columns kept:
-            // Ticker / Bias / Entry / Open P&L % / Open P&L $ /
-            // Entry Date. Strips Current price + Status to keep the
-            // tables narrow enough for the side-by-side grid.
-            (positions || investorPositions)
+            // Open positions — four lanes in a 2×2 grid.
+            openBooksReady
               ? h("section", { className: "op-grid" },
                   h(OpenPositionsTable, {
                     rows: traderRows,
@@ -1405,6 +1663,22 @@
                     loaded: investorPositions != null,
                     failed: investorPositionsFailed,
                   }),
+                  h(OpenPositionsTable, {
+                    rows: dayTradeRows,
+                    mode: "day_trade",
+                    accent: "day_trade",
+                    verdictMap,
+                    loaded: paperPositions != null,
+                    failed: paperPositionsFailed,
+                  }),
+                  h(OpenPositionsTable, {
+                    rows: indexSwingRows,
+                    mode: "index_swing",
+                    accent: "index_swing",
+                    verdictMap,
+                    loaded: paperPositions != null,
+                    failed: paperPositionsFailed,
+                  }),
                 )
               : h("section", { className: "tt-row" },
                   h("div", { className: "tt-sec-title" }, "OPEN POSITIONS"),
@@ -1415,7 +1689,7 @@
             // Uses the production TradesPerformance component from
             // /trades-performance.js — the same one /simulation-dashboard
             // uses — so the calendar / monthly table / setup breakdown
-            // render identically to the legacy page.
+            // render identically to the legacy page. Ledger-backed ST/LT only.
             !loading && h("section", { className: "tt-row" },
               h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 10 } },
                 h("div", null,
@@ -1438,15 +1712,42 @@
                 investorOpenPl,
               }),
             ),
-            // Trade history table (recent closed trades — supplements the
-            // calendar above with a row-by-row view).
-            (traderHistory || investorHistory)
-              ? h(TradeHistory, { trades: monthlyMode === "trader" ? (traderHistory || []) : (investorHistory || []), onSelectTicker })
+            // Lane filter for history + activity
+            h("section", { className: "tt-row", style: { marginBottom: 12 } },
+              h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 } },
+                h("div", null,
+                  h("div", { className: "tt-sec-title" }, "HISTORY & ACTIVITY"),
+                  h("div", { className: "tt-sec-h", style: { margin: 0 } }, "Filter by lane"),
+                ),
+                h("div", { className: "mode-toggle" },
+                  [
+                    ["all", "All"],
+                    ["trader", "Short Term"],
+                    ["investor", "Long Term"],
+                    ["index_day_trade", "Day Trade"],
+                    ["index_swing", "Index Swings"],
+                  ].map(([key, label]) =>
+                    h("button", {
+                      key,
+                      className: historyLane === key ? "active" : "",
+                      onClick: () => setHistoryLane(key),
+                    }, label),
+                  ),
+                ),
+              ),
+            ),
+            (traderHistory || investorHistory || paperHistory)
+              ? h(TradeHistory, { trades: allHistory, laneFilter: historyLane, onSelectTicker })
               : h("section", { className: "tt-row" },
                   h("div", { className: "tt-sec-title" }, "TRADE HISTORY"),
                   h("div", { className: "tt-sec-h" }, "Recent closed trades"),
                   h("div", { className: "sk", style: { height: 200, borderRadius: 12 } }),
                 ),
+            paperActions != null && h(ModelActivity, {
+              actions: paperActions,
+              laneFilter: historyLane,
+              onSelectTicker,
+            }),
           ),
           // Right rail slide-in (TickerDetailRightRail).
           RailOverlay && railTickerObj && h(RailOverlay, {
