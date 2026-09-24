@@ -41,6 +41,8 @@ the broker, new tables.
 - [ ] Phase 2: retire the KV mirror / risk ledger for day trades once the
       kernel has run clean for five sessions
 - [ ] Queue-based fan-out before accounts outgrow sequential converge
+- [ ] Phase 3 — converge reconciler, sharded sweeps, load test at 2,000
+- [ ] Phase 4 — Short Term + index-trend onto the kernel; retire manifest
 - [ ] NVDA divergence (Roth 9.28 vs target 1; partner 1 vs 9.14) — needs
       an operator call, not a code change
 
