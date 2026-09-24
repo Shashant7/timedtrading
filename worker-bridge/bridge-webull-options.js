@@ -178,15 +178,64 @@ function looksLikeOptionRow(p) {
       && (p?.underlying_symbol || p?.underlyingSymbol || p?.underlying)) {
     return true;
   }
+  if (Array.isArray(p?.legs) && p.legs.some(looksLikeOptionRow)) return true;
   return !!parseOccOptionSymbol(p?.symbol || p?.ticker);
 }
 
+/**
+ * CALL / PUT, or null when the source said nothing recognizable.
+ *
+ * Never guess. A row whose right cannot be read must not be foldable onto a
+ * contract key at all — defaulting to CALL is how a held PUT stopped
+ * matching its own SELL (see normalizeWebullOptionsPositions).
+ */
 function normalizeOptionRight(raw) {
   const r = String(raw || "").toUpperCase().replace(/[^A-Z]/g, "");
-  if (r === "P" || r === "PUT" || r.startsWith("PUT")) return "PUT";
-  if (r === "C" || r === "CALL" || r.startsWith("CALL")) return "CALL";
+  if (r === "P" || r.startsWith("PUT")) return "PUT";
+  if (r === "C" || r.startsWith("CALL")) return "CALL";
   if (r.includes("PUT")) return "PUT";
-  return "CALL";
+  if (r.includes("CALL")) return "CALL";
+  return null;
+}
+
+function optionSide(raw) {
+  const s = String(raw || "").toUpperCase();
+  if (s.includes("SELL") || s.includes("SHORT")) return "SELL";
+  if (s.includes("BUY") || s.includes("LONG")) return "BUY";
+  return null;
+}
+
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** OCC root for a contract Webull only describes in fields. */
+function occFromParts(underlying, expiration, right, strike) {
+  const und = String(underlying || "").toUpperCase();
+  const m = String(expiration || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const k = Number(strike);
+  const r = right === "PUT" ? "P" : right === "CALL" ? "C" : null;
+  if (!und || !m || !r || !(k > 0)) return null;
+  return `${und}${m[1].slice(2)}${m[2]}${m[3]}${r}${String(Math.round(k * 1000)).padStart(8, "0")}`;
+}
+
+/**
+ * Flatten a Webull options position into one row per contract.
+ *
+ * Webull returns an option holding as a COMBO row: the contract itself
+ * (`option_type`, `option_expire_date`, `option_exercise_price`) lives on
+ * `legs[]`, and the top level carries only the underlying symbol and the
+ * combo quantity. Reading the top level alone yields strike `null`,
+ * expiration `null` and an unknown right for every position, which is why
+ * the 2026-09-24 IWM 279P stop-out was rejected `no_held_position` by the
+ * SELL guard while the contract sat long in the account. Flat rows (other
+ * brokers, OCC symbols) still pass through unchanged.
+ */
+function optionRowsFromPosition(p) {
+  const legs = Array.isArray(p?.legs) ? p.legs.filter(looksLikeOptionRow) : [];
+  if (!legs.length) return [{ row: p, leg: null, comboLegs: 1 }];
+  return legs.map((leg) => ({ row: p, leg, comboLegs: legs.length }));
 }
 
 export function normalizeWebullOptionsPositions(positionsResp) {
@@ -197,23 +246,59 @@ export function normalizeWebullOptionsPositions(positionsResp) {
   const rows = extractWebullPositionRows(positionsResp);
   return rows
     .filter(looksLikeOptionRow)
-    .map((p) => {
-      const occ = parseOccOptionSymbol(p.symbol || p.ticker);
-      const qty = Number(p.qty ?? p.quantity);
-      const strike = Number(p.strike_price ?? p.strike ?? occ?.strike);
-      const underlying = String(
-        p.underlying_symbol || p.underlyingSymbol || p.underlying || occ?.underlying || "",
+    .flatMap(optionRowsFromPosition)
+    .map(({ row: p, leg, comboLegs }) => {
+      const src = leg || p;
+      const occ = parseOccOptionSymbol(src.symbol || src.ticker)
+        || parseOccOptionSymbol(p.symbol || p.ticker);
+      const right = normalizeOptionRight(
+        src.option_type ?? src.optionType ?? p.option_type ?? p.optionType ?? occ?.option_type,
+      );
+      const strike = num(
+        src.option_exercise_price ?? src.optionExercisePrice
+        ?? src.strike_price ?? src.strikePrice ?? src.strike
+        ?? p.option_exercise_price ?? p.strike_price ?? p.strikePrice ?? p.strike
+        ?? occ?.strike,
+      );
+      const expiration = src.option_expire_date || src.optionExpireDate || src.expiration
+        || p.option_expire_date || p.optionExpireDate || p.expiration
+        || occ?.expiration || null;
+      const underlyingRaw = src.underlying_symbol || src.underlyingSymbol || src.underlying
+        || p.underlying_symbol || p.underlyingSymbol || p.underlying
+        || occ?.underlying
+        || (parseOccOptionSymbol(src.symbol) ? null : src.symbol)
+        || p.symbol || p.ticker || "";
+      const underlying = String(underlyingRaw).toUpperCase();
+
+      const magnitude = num(src.quantity ?? src.qty ?? p.quantity ?? p.qty);
+      const side = optionSide(src.side ?? src.action ?? p.side ?? p.action);
+      const qty = magnitude == null ? null : (side === "SELL" ? -Math.abs(magnitude) : magnitude);
+
+      const symbol = String(
+        (parseOccOptionSymbol(src.symbol) ? src.symbol : null)
+        || (parseOccOptionSymbol(p.symbol) ? p.symbol : null)
+        || occFromParts(underlying, expiration, right, strike)
+        || p.symbol || p.ticker || "",
       ).toUpperCase();
+
       return {
-        symbol: String(p.symbol || p.ticker || "").toUpperCase(),
+        symbol,
         underlying: underlying || String(occ?.underlying || "").toUpperCase(),
         qty,
-        option_type: normalizeOptionRight(p.option_type || p.optionType || occ?.option_type),
-        strike: Number.isFinite(strike) ? strike : null,
-        expiration: p.option_expire_date || p.optionExpireDate || p.expiration || occ?.expiration || null,
-        avg_cost: Number(p.cost_price ?? p.avg_cost ?? p.avgCost) || null,
-        unrealized_pnl: Number(p.unrealized_profit_loss ?? p.unrealized_pnl ?? p.unrealizedPnl) || null,
-        market_value: Number(p.market_value ?? p.marketValue) || null,
+        option_type: right,
+        strike,
+        expiration,
+        avg_cost: Number(src.cost_price ?? src.avg_cost ?? src.avgCost
+          ?? p.cost_price ?? p.avg_cost ?? p.avgCost) || null,
+        unrealized_pnl: Number(src.unrealized_profit_loss ?? src.unrealized_pnl ?? src.unrealizedPnl
+          ?? p.unrealized_profit_loss ?? p.unrealized_pnl ?? p.unrealizedPnl) || null,
+        market_value: Number(src.market_value ?? src.marketValue
+          ?? p.market_value ?? p.marketValue) || null,
+        // A multi-leg combo does not say which legs are long and which are
+        // short. Selling a leg we are already short of is the one mistake
+        // this whole guard exists to prevent, so such a row is marked
+        // unusable for holdings math rather than assumed long.
+        direction_unknown: comboLegs > 1 && !side,
         raw: p,
       };
     })

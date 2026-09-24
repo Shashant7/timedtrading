@@ -6,6 +6,120 @@
 
 ---
 
+## The broker had the position; we had parsed it into nothing [2026-09-24]
+
+"IWM day trade entered and mirrored but the stop out is not mirroring."
+The stop DID go out. `timed:opt-dt-mirror-log` had it at
+`09-24 10:05:48 STOP side=sell decision=rejected reason=no_held_position
+contracts=1 sig=dt:IWM:2026-09-24:2026-09-25:P:279`. Our own bridge
+refused our own SELL because it could not see a position the account
+demonstrably held.
+
+- **"Not mirroring" and "rejected" look identical from the UI, and only
+  one of them is a mirror bug.** The decision log distinguishes them in
+  one line. Reading it first is what turned a search through the mirror
+  gates into a bridge-side parsing bug. Same lesson as 2026-09-23: read
+  the log out of production before theorising from the source.
+- **Webull returns an option holding as a COMBO row.** The contract lives
+  on `legs[]` — `option_type`, `option_expire_date`,
+  `option_exercise_price` (NOT `strike_price`, which is what the code
+  looked for). The top level carries only the underlying `symbol` and the
+  combo `quantity`. `normalizeWebullOptionsPositions` read the top level,
+  so the live payload for a Roth IRA visibly holding
+  `IWM 2026-09-25 PUT 279` normalized to
+  `{symbol:"IWM", strike:null, expiration:null, option_type:"CALL"}`.
+  Fetch the raw payload (`POST /timed/admin/broker-bridge/webull/test`,
+  `action: get_positions`) and diff it against what the normalizer
+  produced; do not trust a field name that "looks right".
+- **A defaulted field is worse than a missing one.** `normalizeOptionRight`
+  ended in `return "CALL"`, and `positionContractKey`'s `rightFlag`
+  answered CALL for anything not starting with P. So an unreadable right
+  did not raise, it asserted — a held PUT keyed as a call matched nothing,
+  and a stray call key could have matched something the account does not
+  hold. Both now return `null`, and a combo leg the broker did not label
+  long or short is `direction_unknown` and skipped outright: selling a leg
+  already short is the naked position this guard exists to prevent.
+- **This was never an IWM bug.** It rejected EVERY options SELL mirror,
+  and it had been doing so for as long as the normalizer existed. A guard
+  that always says no is indistinguishable from a guard that works until
+  something needs to get through. The regression tests are built from the
+  captured live payload shape, not from a hand-written row that agrees
+  with the parser.
+- **The blast radius reached the UI.** `optionHoldingKey` keyed on the
+  (top-level, underlying) `symbol`, so the Roth's two IWM options
+  collided on one key and only one rendered — as "IWM 0C". The normalizer
+  now synthesizes the OCC symbol from the parts, and the holdings label
+  shows `?` for a right it cannot read rather than quietly calling
+  everything a call.
+- **A rejected reduce cannot retry itself — same shape as yesterday's
+  pending entry.** Stage 5b only ever runs on a paper event, and an event
+  fires ONCE, so nothing would ever raise STOP for that signal again: the
+  mirror said 1 contract held, the model said flat, and there was no third
+  party to notice they disagreed. The 279P sat long through a stop it had
+  already taken, and while this was being written the 280P did it again at
+  10:35:40. Fixing the parser alone would have left both stranded.
+- **Reconcile on QUANTITY, never on the event.** The first cut of the
+  reconciler matched `book.status === "closed" && event in (STOP, EXIT)`,
+  which is still event-shaped thinking and misses the worse case: a TRIM.
+  A missed close at least leaves the model and the broker saying visibly
+  different things; a missed trim leaves a position that legitimately
+  stays open, so nothing about it looks wrong at all. The durable version
+  compares `mirror.contracts_remaining` against `targetMirrorRemaining(
+  book, mirror)` and treats any positive difference as a reduce that is
+  missing. The event only decides which pending order to respect and
+  which clock measures staleness. Every lane that mirrors a position
+  needs a target-quantity function, not a list of events to replay.
+- **A reconciler that recomputes a reduce must be able to ask for LESS
+  than the rule would.** Stage 5b sizes a TRIM as the full 50% share. Run
+  that again after a trim partially filled and it oversells — the broker
+  ends up holding less than the model, which is the same class of bug
+  pointing the other way. The reconciler is the only caller that knows
+  the exact shortfall, so it passes `ctx.max_reduce_qty`, and that cap can
+  only ever lower the qty. A repair that can overshoot is not a repair.
+- **The single-lot exemption has to live in ONE place.** Stage 5b refuses
+  to partial-trim a 1-lot mirror. If the target function did not agree,
+  the reconciler would see permanent drift on every trimmed single lot and
+  re-fire a reduce that gets skipped every minute for the rest of the day.
+  Both now read `trimSellQty` and the same `total <= 1` rule.
+- **A refusal must not be able to blame the account for our bug.** The
+  reject read `no_held_position`, which is a perfectly correct-looking
+  answer — it is what a guard says when someone tries to sell something
+  they do not own. That is why four hours and two stranded contracts went
+  by: the log line looked like the system working. "Not held" and "could
+  not read what is held" have to be different reasons, because only one of
+  them is ours to fix. `unresolvedOptionRows` now finds option rows the
+  keyer cannot key and the guard answers `positions_unresolved` instead;
+  a matched-but-`direction_unknown` row answers
+  `position_direction_unknown`. Both still block the sell — the fix is to
+  the NAME, not the behaviour. Detecting them keys off field PRESENCE, not
+  values, because the broken row's every contract field was null.
+- **A late repair must be labelled, and a LUCKY one most of all.** The
+  market turned after both stops, so by 11:00 ET the two stranded puts
+  were winners — IWM at 280.03, sitting on the day's low, with a 280
+  strike. That is the most dangerous possible shape for this bug: the
+  repair fills at today's price, and the gap between it and the model's
+  stop shows up as a large GAIN. Nothing in the record said why. The
+  execution review joins the decision log against the paper rows, so a
+  stop mirrored hours late at a much better price reads as good
+  execution, and the learning loops would take a lesson about stop
+  placement from
+  what was only a parser bug. Provenance now travels all the way in:
+  `exit_via`/`trim_via: "reconcile"`, `reduce_paper_premium`,
+  `reduce_lag_ms` on the mirror, and `via: "reconcile"` on the log row —
+  a SEPARATE field from `reason`, because `reason` is nulled the moment
+  the decision is `mirrored`, which is exactly when a repair is hardest
+  to spot. **Flatten it anyway.** A stranded position has no stop, no
+  target and no owner; being green is luck, and on 1 DTE luck reverses
+  inside a minute.
+- **"Rejected" has to be loud, because the retry makes it quiet.** A
+  reconciler that keeps trying also keeps the failure off anyone's screen.
+  The page therefore hangs off `recordIndexDtMirrorDecision` — the one
+  funnel every mirror decision passes through, so no future lane can add a
+  silent reject path — and is deduped per signal+event, not per day, since
+  each stranded contract is its own problem. The health field is keyed to
+  a KV marker that is DELETED once the books agree: a field that lingers
+  after the drift clears teaches a watchdog to ignore it.
+
 ## A lane that only wakes on an event cannot heal the event that stopped [2026-09-23]
 
 Eleven index day trades were alerted, zero reached the broker as

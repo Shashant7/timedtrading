@@ -21,6 +21,28 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+## Active — Index DT stop-out not mirroring / IWM 279P (2026-09-24)
+
+- [x] Root cause: bridge SELL guard rejected `no_held_position` — Webull
+      option positions are combo rows, contract is on `legs[]`
+      (`option_exercise_price`, not `strike_price`), so every position
+      normalized to `strike:null, expiration:null, option_type:"CALL"`
+- [x] `normalizeWebullOptionsPositions` flat-maps legs + synthesizes OCC symbol
+- [x] Fail closed: unreadable right → `null` (never CALL); unlabelled combo
+      leg → `direction_unknown`, skipped by `heldQtyForOption`
+- [x] `reconcileIndexDtMirrorPositions` — reduces reconciled on QUANTITY
+      (`targetMirrorRemaining`), so TRIM is first class alongside EXIT/STOP
+      (RTH cron + `POST /timed/admin/index-dt/heal-closes` + COO lane)
+- [x] `ctx.max_reduce_qty` caps Stage 5b so a partially-filled trim is not
+      re-sold in full
+- [x] Rejected reduce pages from `recordIndexDtMirrorDecision` (deduped per
+      signal+event) + self-clearing `/timed/health.indexDtReduceUnmirrored`
+- [x] Regression tests from the captured live Webull payload; `npm test` green
+- [ ] Live IWM 279P + 280P are still long in the Roth (0/1 DTE) — they flatten
+      on the first RTH reconcile tick after this merges and deploys, or
+      immediately via `POST /timed/admin/index-dt/heal-closes`
+
+### Active
 ## Active — Daily Brief miss / OOM catch-up (2026-09-24)
 
 - [x] Root cause: tt-research `exceededMemory` at 13:01 UTC on morning slot

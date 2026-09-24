@@ -579,6 +579,69 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   and never refund. Pre-field mirrors use `ts` for the staleness clock.
   Sweep prefix is `timed:opt-dt-mirror:` — the
   colon is what keeps it off `timed:opt-dt-mirror-log`.
+- **TRIMS AND CLOSES ARE RECONCILED ON QUANTITY, NOT ON EVENTS
+  (2026-09-24)**: Stage 5b only runs on a paper event and an event fires
+  ONCE, so any reduce the bridge refused was the last word — the mirror said
+  1 held, the model said flat, nothing was left to disagree. IWM 279P
+  (10:05:48 ET) and 280P (10:35:40 ET) both logged
+  `decision=rejected reason=no_held_position` and both stayed long on 0/1 DTE.
+  `reconcileIndexDtMirrorPositions` (RTH, on `index_dt_reconcile`;
+  `POST /timed/admin/index-dt/heal-closes`; COO `index_dt_closes` lane)
+  compares `mirror.contracts_remaining` against `targetMirrorRemaining(book,
+  mirror)` — closed → 0, trimmed → total − `trimSellQty(total)`, open →
+  total, 1-lot trimmed → total (Stage 5b refuses to partial-trim a single
+  lot), unknown status → `null` (never act on arithmetic the book does not
+  support). Any positive difference is a missing reduce; it rebuilds the
+  contract from the signal id (the id IS the contract) and re-fires through
+  Stage 5b with `ctx.max_reduce_qty` = the exact shortfall, which can only
+  LOWER Stage 5b's qty — without it a partially-filled trim gets re-sold in
+  full and the broker ends up holding less than the model. **A missed TRIM is
+  the dangerous one**: the position legitimately stays open afterwards, so
+  nothing looks wrong. `healForCoverageRow` routes a closed `index_dt` row
+  here; a missed day-trade ENTRY still routes nowhere (the setup is gone).
+- **`no_held_position` no longer covers for a parser bug (2026-09-24)**:
+  "the account does not hold this" and "what the account holds could not be
+  read" both have to block a SELL, but they are not the same fact and only one
+  is a bug in our code. `unresolvedOptionRows` (bridge) finds option rows —
+  detected by field KEY PRESENCE, since the broken case is all-null values —
+  that `positionContractKey` cannot key, and the guard then returns
+  `positions_unresolved` (with `unresolved_count`) instead. A row that DOES
+  match but is `direction_unknown` returns `position_direction_unknown`. Still
+  fail-closed; just no longer wearing a reason that reads as a correct refusal.
+- **A repair is LABELLED as a repair (2026-09-24)**: a reconciled reduce fills
+  at today's price, not the price the model left at. The market turned after
+  the IWM stops, so the stranded puts came back as WINNERS — and an unlabelled
+  gain is worse than an unlabelled loss, because the execution review reads a
+  stop mirrored hours late at a much better price as good execution and the
+  learning loops would take a lesson about stop placement from a parser bug.
+  `MIRROR_RECONCILE_REASON` travels into the records: the mirror gets
+  `exit_via`/`trim_via: "reconcile"` plus `reduce_paper_premium` and
+  `reduce_lag_ms`, and the decision-log row carries `via: "reconcile"` — which
+  must be a SEPARATE field from `reason`, since `reason` is nulled on a
+  `mirrored` decision. Economics stay honest either way: `settleIndexDtRisk`
+  and the budget reconcile both book at the real close price, never the paper
+  stop.
+- **A rejected reduce pages; it is never just a log line (2026-09-24)**: every
+  mirror decision funnels through `recordIndexDtMirrorDecision`, so a `sell`
+  that comes back `rejected`/`error` posts to the Discord system lane, deduped
+  per signal+event (`timed:opt-dt:reduce-unmirrored:{sig}:{event}`, 1d) since
+  the reconciler retries every minute. The reconciler also keeps
+  `timed:opt-dt:reduce-unreconciled` alive ONLY while a reduce is still
+  unmirrored and deletes it once the books agree —
+  `/timed/health.indexDtReduceUnmirrored` is therefore self-clearing, which a
+  lingering field would not be.
+- **Webull option positions are COMBO rows — the contract is on `legs[]`
+  (2026-09-24)**: `option_type` / `option_expire_date` /
+  `option_exercise_price` (NOT `strike_price`) live on the leg; the top level
+  carries only the underlying `symbol` and the combo `quantity`. Reading the
+  top level gave every position `strike:null, expiration:null` and a defaulted
+  CALL right, so `heldQtyForOption` matched nothing and EVERY options SELL
+  mirror was rejected `no_held_position` — and two IWM options collided on one
+  holding key in Broker Connections ("IWM 0C"). `normalizeWebullOptionsPositions`
+  flat-maps legs and synthesizes the OCC symbol from the parts. An unreadable
+  right is now `null`, never CALL, and an unlabelled combo leg is
+  `direction_unknown` and skipped by the guard — selling a leg already short
+  is the naked position the guard exists to prevent.
 - EXIT/STOP price the bid (or mid − 1 tick). Paper sizing is opt-in
   (`index_dt_follow_paper_size`, default OFF = 1 lot).
 - Trader `closeTradeAtPrice` must vehicle-gate like ENTRY/TRIM

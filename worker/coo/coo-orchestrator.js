@@ -453,7 +453,7 @@ export async function runSelfHealing(env, options = {}) {
     } else if (check.id === "model_broker_coverage") {
       action = enabled
         ? await _healModelBrokerCoverage(env)
-        : { ok: true, dry_run: true, would_do: "POST catchup-investor + catchup-trader-exits + index-trend heal-entries/closes + broker-intents/drain" };
+        : { ok: true, dry_run: true, would_do: "POST catchup-investor + catchup-trader-exits + index-trend heal-entries/closes + index-dt heal-closes + broker-intents/drain" };
     } else if (check.id === "compute_freshness") {
       action = enabled
         ? await _healComputeFreshness(env)
@@ -517,6 +517,7 @@ const MODEL_BROKER_COVERAGE_LANES = [
   },
   { id: "index_entries", run: (env) => _dispatchJson(env, "/timed/admin/index-trend/heal-entries", { method: "POST" }) },
   { id: "index_closes", run: (env) => _dispatchJson(env, "/timed/admin/index-trend/heal-closes", { method: "POST" }) },
+  { id: "index_dt_closes", run: (env) => _dispatchJson(env, "/timed/admin/index-dt/heal-closes", { method: "POST" }) },
   { id: "intents", run: (env) => _dispatchJson(env, "/timed/admin/broker-intents/drain", { method: "POST" }) },
 ];
 

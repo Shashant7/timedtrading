@@ -16,6 +16,15 @@ function rightFlag(v) {
   return s.startsWith("P") ? "P" : "C";
 }
 
+/** "P" / "C", or null when the source named no right at all. */
+function explicitRightFlag(v) {
+  const s = String(v ?? "").toUpperCase().replace(/[^A-Z]/g, "");
+  if (!s) return null;
+  if (s === "P" || s.startsWith("PUT")) return "P";
+  if (s === "C" || s.startsWith("CALL")) return "C";
+  return null;
+}
+
 function expIso(v) {
   const s = String(v || "").trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
@@ -38,12 +47,19 @@ export function optionContractKey({ ticker, expiration, strike, optionType } = {
 /** Fold Webull / IBKR / OCC-ish rows onto the same key. */
 export function positionContractKey(p, fallbackTicker = null) {
   if (!p) return null;
-  const fromFields = optionContractKey({
+  // A row whose right is not stated cannot be folded onto a key from its
+  // fields — `rightFlag` would call it a CALL, and a held PUT keyed as a
+  // CALL matches nothing while a stray CALL key could match something it
+  // is not. Fall through to the OCC symbol, which carries the right.
+  const statedRight = explicitRightFlag(
+    p.option_type ?? p.optionType ?? p.putOrCall ?? p.right ?? p.type,
+  );
+  const fromFields = statedRight ? optionContractKey({
     ticker: p.underlying || p.underlying_symbol || p.ticker || p.symbol || fallbackTicker,
     expiration: p.expiration || p.option_expire_date || p.exp || p.expiry,
-    strike: p.strike ?? p.strike_price,
-    optionType: p.option_type || p.optionType || p.putOrCall || p.right || p.type,
-  });
+    strike: p.strike ?? p.strike_price ?? p.option_exercise_price,
+    optionType: statedRight,
+  }) : null;
   if (fromFields) {
     // Prefer underlying for index ETFs (Webull `symbol` is often the OCC).
     if (p.underlying || p.underlying_symbol || p.ticker) return fromFields;
@@ -80,12 +96,43 @@ export function heldQtyForOption(positions, spec) {
   if (!want) return 0;
   let held = 0;
   for (const p of Array.isArray(positions) ? positions : []) {
+    // A leg of a combo the broker did not label long or short could be
+    // either. Counting it as held is how a SELL turns into a naked short.
+    if (p?.direction_unknown) continue;
     const key = positionContractKey(p, spec.ticker);
     if (key !== want) continue;
     const q = num(p.qty ?? p.quantity ?? p.position ?? p.size);
     if (q != null) held += q;
   }
   return held;
+}
+
+const OPTION_FIELD_KEYS = [
+  "option_type", "optionType", "right", "putOrCall",
+  "strike", "strike_price", "option_exercise_price",
+  "expiration", "option_expire_date",
+];
+
+/**
+ * Option rows the account holds that could not be resolved to a contract.
+ *
+ * "The account does not hold this" and "the contract the account holds could
+ * not be read" must block a SELL identically, but they are not the same fact
+ * and only one of them is a bug here. For as long as the Webull parser
+ * existed the bug wore the other's name: `no_held_position` on a put sitting
+ * right there in the account, which reads as a correct refusal. Naming it
+ * separately is what makes a parser regression look like a parser regression.
+ */
+export function unresolvedOptionRows(positions) {
+  return (Array.isArray(positions) ? positions : []).filter((p) => {
+    if (!p || typeof p !== "object" || p.direction_unknown) return false;
+    // Key PRESENCE, not a non-null value: an option row whose every contract
+    // field came back null is exactly the case being looked for, and testing
+    // the values would skip it.
+    const looksLikeOption = OPTION_FIELD_KEYS.some((k) => k in p)
+      || parseOccKey(p.symbol) != null;
+    return looksLikeOption && positionContractKey(p) == null;
+  });
 }
 
 /**
@@ -113,8 +160,29 @@ export function guardOptionsSellQty({
     return { ok: false, reason: "positions_unavailable", requested_qty: requested };
   }
 
-  const held = heldQtyForOption(positions, { ticker, expiration, strike, optionType });
+  const spec = { ticker, expiration, strike, optionType };
+  const held = heldQtyForOption(positions, spec);
   if (!(held > 0)) {
+    // Still fail closed — a SELL we cannot justify is how a long becomes a
+    // naked short — but say WHY, so a parser that has stopped reading its own
+    // holdings cannot hide behind a reason that looks like a correct refusal.
+    const unresolved = unresolvedOptionRows(positions);
+    if (unresolved.length) {
+      return {
+        ok: false,
+        reason: "positions_unresolved",
+        unresolved_count: unresolved.length,
+        held_qty: 0,
+        requested_qty: requested,
+      };
+    }
+    const want = optionContractKey(spec);
+    const blind = want && positions.some(
+      (p) => p?.direction_unknown && positionContractKey(p, ticker) === want,
+    );
+    if (blind) {
+      return { ok: false, reason: "position_direction_unknown", held_qty: 0, requested_qty: requested };
+    }
     return { ok: false, reason: "no_held_position", held_qty: 0, requested_qty: requested };
   }
   if (requested > held + 1e-9) {
