@@ -17,37 +17,37 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1789936652903" />
-    <script defer src="/vendor/react.production.min.js?v=1789936652903"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1789936652903"></script>
-    <script defer src="shared-verdict-ui.js?v=1789936652903"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1789936652903" />
-<script defer src="auth-gate.js?v=1789936652903"></script>
-    <script defer src="tt-fetch-cache.js?v=1789936652903"></script>
-    <script src="tt-bottom-nav.js?v=1789936652903" defer></script>
-    <script defer src="investor-nav-badge.js?v=1789936652903"></script>
-    <script src="tt-nav-extras.js?v=1789936652903" defer></script>
-    <script src="tt-global-search.js?v=1789936652903" defer></script>
-    <script src="tt-rail-bridge.js?v=1789936652903" defer></script>
-    <script defer src="shared-price-utils.js?v=1789936652903"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1790227555459" />
+    <script defer src="/vendor/react.production.min.js?v=1790227555459"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1790227555459"></script>
+    <script defer src="shared-verdict-ui.js?v=1790227555459"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1790227555459" />
+<script defer src="auth-gate.js?v=1790227555459"></script>
+    <script defer src="tt-fetch-cache.js?v=1790227555459"></script>
+    <script src="tt-bottom-nav.js?v=1790227555459" defer></script>
+    <script defer src="investor-nav-badge.js?v=1790227555459"></script>
+    <script src="tt-nav-extras.js?v=1790227555459" defer></script>
+    <script src="tt-global-search.js?v=1790227555459" defer></script>
+    <script src="tt-rail-bridge.js?v=1790227555459" defer></script>
+    <script defer src="shared-price-utils.js?v=1790227555459"></script>
     <!-- TradesPerformance — same component the legacy /simulation-dashboard
          uses. Provides the P&L calendar + monthly perf table + setup
          breakdown. Loaded via window.TradesPerformanceFactory(deps). -->
-    <script defer src="trades-performance.js?v=1789936652903"></script>
+    <script defer src="trades-performance.js?v=1790227555459"></script>
     <!-- Right rail factory + helpers + bootstrap so positions / history
          rows open the same ticker-detail panel /index-react.html uses.
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
-    <script defer src="tt-bubble-map-0714m.compiled.js?v=1789936652903"></script>
-    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1789936652903"></script>
-    <script defer src="shared-list-presets.js?v=1789936652903"></script>
-    <script defer src="shared-mtf-chips.js?v=1789936652903"></script>
-    <script defer src="shared-rail-helpers.js?v=1789936652903"></script>
-    <script defer src="tt-cycle-intel.js?v=1789936652903"></script>
-    <script defer src="tt-harmonic-chart.js?v=1789936652903"></script>
-    <script defer src="shared-right-rail.compiled.js?v=1789936652903"></script>
-    <script defer src="ticker-spider-chart.js?v=1789936652903"></script>
-    <script defer src="shared-rail-bootstrap.js?v=1789936652903"></script>
+    <script defer src="tt-bubble-map-0714m.compiled.js?v=1790227555459"></script>
+    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1790227555459"></script>
+    <script defer src="shared-list-presets.js?v=1790227555459"></script>
+    <script defer src="shared-mtf-chips.js?v=1790227555459"></script>
+    <script defer src="shared-rail-helpers.js?v=1790227555459"></script>
+    <script defer src="tt-cycle-intel.js?v=1790227555459"></script>
+    <script defer src="tt-harmonic-chart.js?v=1790227555459"></script>
+    <script defer src="shared-right-rail.compiled.js?v=1790227555459"></script>
+    <script defer src="ticker-spider-chart.js?v=1790227555459"></script>
+    <script defer src="shared-rail-bootstrap.js?v=1790227555459"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -90,6 +90,7 @@
       .tt-card-pad { padding: 16px 18px; }
       .tt-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
       .tt-sec-h { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; color: var(--tt-text); margin-bottom: 10px; }
+      .tt-sec-sub { font-size: 12px; color: var(--tt-text-muted); margin: 0; }
 
       /* Top nav */
       nav.topnav {
@@ -330,8 +331,10 @@
       /* Subtle accent on the left edge of each section's table */
       .tbl-scroll[data-accent="trader"] { border-left: 2px solid rgba(52,211,153,0.45); }
       .tbl-scroll[data-accent="investor"] { border-left: 2px solid rgba(167,139,250,0.45); }
+      .tbl-scroll[data-accent="day_trade"] { border-left: 2px solid rgba(34,211,238,0.50); }
+      .tbl-scroll[data-accent="index_swing"] { border-left: 2px solid rgba(251,191,36,0.55); }
 
-      /* V15 P0.7.182 — Side-by-side Open Positions grid */
+      /* Open Positions — four lanes (ST / LT / Day Trade / Index Swings) */
       .op-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -343,6 +346,45 @@
       }
       .op-pane { min-width: 0; }
       .op-pane .tbl-scroll { max-height: 460px; }
+      .op-pane .tt-sec-h2 {
+        font-size: 15px;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        color: var(--tt-text);
+        margin: 0 0 2px;
+      }
+
+      .lane-pill {
+        display: inline-flex;
+        align-items: center;
+        font-family: var(--tt-font);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 2px 7px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+      .lane-pill.lane-trader {
+        background: rgba(52,211,153,0.10);
+        color: var(--tt-up-soft);
+        border: 1px solid rgba(52,211,153,0.25);
+      }
+      .lane-pill.lane-investor {
+        background: rgba(167,139,250,0.10);
+        color: var(--tt-violet);
+        border: 1px solid rgba(167,139,250,0.25);
+      }
+      .lane-pill.lane-day_trade {
+        background: rgba(34,211,238,0.10);
+        color: var(--tt-cyan);
+        border: 1px solid rgba(34,211,238,0.30);
+      }
+      .lane-pill.lane-index_swing {
+        background: rgba(251,191,36,0.10);
+        color: #fbbf24;
+        border: 1px solid rgba(251,191,36,0.30);
+      }
 
       /* Condensed table — tighter columns + smaller padding so two
          tables fit in the side-by-side grid without horizontal scroll. */
@@ -361,6 +403,7 @@
         background: var(--tt-bg-elev);
         border: 1px solid var(--tt-border);
         border-radius: 999px;
+        flex-wrap: wrap;
       }
       .mode-toggle button {
         font-family: var(--tt-font);
@@ -408,7 +451,7 @@
   </head>
   <body class="vf-page">
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1789936652903"></script>
+    <script defer src="shared-nav.js?v=1790227555459"></script>
 
     <div id="root">
       <main>
@@ -416,7 +459,7 @@
       </main>
     </div>
 
-    <script defer src="portfolio.compiled.js?v=1789936652903"></script>
+    <script defer src="portfolio.compiled.js?v=1790227555459"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -424,4 +467,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1789936652903:875261041 -->
+<!-- cache-bust:1790227555459:702776218 -->
