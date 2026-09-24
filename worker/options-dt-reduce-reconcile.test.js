@@ -278,6 +278,22 @@ describe("reconcileIndexDtMirrorPositions — closes", () => {
     expect(out.skipped).toHaveLength(0);
   });
 
+  // An order the broker cannot find must not be read as an order it is
+  // holding. Nothing auto-sells on it — the mirror still stands pat — but the
+  // breadcrumb has to say which of the two it is, or a lookup that silently
+  // fails looks exactly like a limit patiently sitting there.
+  it("names a reduce the broker has no record of", async () => {
+    const { fired, run } = harness({
+      mirror: mirroredHolding({ exit_pending: true, exit_order_id: "WB1" }),
+    });
+    const out = await run({ resolveWorking: async () => ({ outcome: "working", missing: true }) });
+
+    expect(fired).toHaveLength(0);
+    expect(out.skipped).toContainEqual({
+      signal_id: SIG, event: "STOP", reason: "reduce_order_unknown_to_broker",
+    });
+  });
+
   it("will not poll the broker without an operator to poll it as", async () => {
     const { fired, run } = harness({
       mirror: mirroredHolding({ exit_pending: true, exit_order_id: "WB1" }),
@@ -489,6 +505,16 @@ describe("resolvePendingIndexDtReduce", () => {
   it("reports a reduce that is genuinely still working", async () => {
     const r = await call(pending(), { status: "working", order_id: "WB1" });
     expect(r.outcome).toBe("working");
+    expect(r.missing).toBeFalsy();
+    expect(r.env.KV_TIMED.store.size).toBe(0);
+  });
+
+  it("flags a reduce the broker's order history does not contain", async () => {
+    const r = await call(pending(), { status: "working", order_id: "WB1", lookup_missing: true });
+    expect(r.outcome).toBe("working");
+    expect(r.missing).toBe(true);
+    // Standing pat is the only safe move: an unindexed order is still an
+    // order, and nothing here may decide a position is gone.
     expect(r.env.KV_TIMED.store.size).toBe(0);
   });
 

@@ -923,7 +923,15 @@ async function pollFillIfNeeded(env, operatorEmail, fill, requestedQty) {
       requested_qty: requestedQty,
     });
     const next = polled?.response?.fill;
-    if (!next) return fill;
+    // The status stays `working`: an order the broker cannot find might be one
+    // it has not indexed yet, and nothing here may assume a position is gone.
+    // But the two must not read the same, or a lookup that silently fails
+    // looks exactly like a limit that is patiently sitting there.
+    if (!next) {
+      return polled?.response?.not_found
+        ? { ...fill, polled: true, lookup_missing: true, searched: polled.response.searched ?? null }
+        : fill;
+    }
     return {
       ...fill,
       status: String(next.status || fill.status).toLowerCase(),
@@ -1119,8 +1127,12 @@ export async function resolvePendingIndexDtEntry(env, operatorEmail, signalId, m
  * a paper event. Stage 5b calls this on its way in; the quantity reconciler
  * calls it on a schedule.
  *
- * Returns { outcome, reconcile, mirror } with outcome one of:
+ * Returns { outcome, missing, reconcile, mirror } with outcome one of:
  *   not_pending | filled | working | rejected
+ *
+ * `missing` marks a `working` the broker has no record of — still not a
+ * position anyone may write off, but not the same statement as "it is
+ * sitting there", and the caller reports the two apart.
  */
 export async function resolvePendingIndexDtReduce(env, operatorEmail, signalId, mirror, {
   event = "EXIT",
@@ -1141,6 +1153,9 @@ export async function resolvePendingIndexDtReduce(env, operatorEmail, signalId, 
   // order's CUMULATIVE fill, so waiting costs nothing and settling twice off
   // a decrement would double-subtract. Let the order finish.
   if (rec.persist && rec.pending) return { outcome: "working", reconcile: rec, mirror };
+  if (!rec.persist && polled?.lookup_missing) {
+    return { outcome: "working", missing: true, reconcile: rec, mirror };
+  }
   if (rec.persist) {
     const remainingAfter = Math.max(0, (Number(mirror.contracts_remaining) || 0) - rec.filledQty);
     const patch = event === "TRIM"
@@ -1814,7 +1829,11 @@ export async function reconcileIndexDtMirrorPositions(env, {
         continue;
       }
       if (r.outcome !== "rejected") {
-        out.skipped.push({ signal_id: signalId, event, reason: "reduce_order_working" });
+        out.skipped.push({
+          signal_id: signalId,
+          event,
+          reason: r.missing ? "reduce_order_unknown_to_broker" : "reduce_order_working",
+        });
         continue;
       }
       // Rejected. The pending flags are the last word on an order that no
