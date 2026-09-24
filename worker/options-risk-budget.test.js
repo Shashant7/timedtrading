@@ -136,6 +136,7 @@ describe("riskBudgetSnapshot", () => {
       open: { a: { usd: 118 }, b: { usd: 232 } },
     };
     const snap = riskBudgetSnapshot(s, 1000);
+    expect(snap.date).toBe(DATE);
     expect(snap.open_usd).toBe(350);
     expect(snap.open_count).toBe(2);
     expect(snap.realized_loss_usd).toBe(150);

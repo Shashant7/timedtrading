@@ -164,6 +164,10 @@ export function riskBudgetSnapshot(state, limitUsd) {
   const consumedUsd = openUsd + realizedLossUsd;
   const limit = Math.max(0, num(limitUsd));
   return {
+    // The NEW YORK trading day this ledger covers. Worth surfacing: a UTC
+    // key would read 2026-09-24 at 20:05 ET on the 23rd, and the only way
+    // to see that from outside is to be told which day is being reported.
+    date: state?.date || null,
     limit_usd: limit,
     open_usd: Math.round(openUsd * 100) / 100,
     open_count: openRows.length,
