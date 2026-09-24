@@ -741,7 +741,17 @@ export function reconcileIndexDtFill({ event, requestedQty, fill } = {}) {
   const requested = Math.max(1, Math.round(Number(requestedQty) || 1));
   const qty = Number(fill?.filled_qty);
   if (status === "rejected" || status === "cancelled") {
-    return { persist: false, pending: false, filledQty: 0, status, reason: `order_${status}` };
+    // Keep the broker's own words alongside our label. `order_rejected` says
+    // the reduce did not happen; only the broker's reason says whether
+    // re-offering it could ever work.
+    return {
+      persist: false,
+      pending: false,
+      filledQty: 0,
+      status,
+      reason: `order_${status}`,
+      broker_reason: fill?.reason ? String(fill.reason) : null,
+    };
   }
   if (fill?.mock || fill?.assumed) {
     return { persist: true, pending: false, filledQty: requested, status: "filled" };
@@ -762,6 +772,23 @@ export function reconcileIndexDtFill({ event, requestedQty, fill } = {}) {
     return { persist: true, pending: false, filledQty: qty > 0 ? Math.round(qty) : requested, status: "filled" };
   }
   return { persist: false, pending: true, filledQty: 0, status };
+}
+
+/**
+ * Does a rejection mean the position is GONE, or only that the order was
+ * refused? Re-offering fixes the second and can never fix the first.
+ *
+ * Only `no_held_position` qualifies. The SELL guard reserves that name for
+ * "the holdings read fine and this contract is not among them", and reports
+ * `positions_unavailable`, `positions_unresolved` or
+ * `position_direction_unknown` when it could not read the account — the
+ * three cases where standing the mirror down would abandon a live option.
+ * That separation is the whole reason the guard names them apart.
+ */
+export function isBrokerFlatReject(rec) {
+  if (!rec || rec.persist || rec.pending) return false;
+  return /(^|[^a-z_])no_held_position([^a-z_]|$)/
+    .test(String(rec.broker_reason || "").toLowerCase());
 }
 
 export function resolveIndexDtEntryContracts({ prefs, play, book, size, vehicleRow } = {}) {
@@ -2162,6 +2189,29 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
       ? { trim_pending: true, trim_qty: qty, trim_order_id: fill.order_id || rec.order_id || null, trim_premium: limitPrice }
       : { exit_pending: true, exit_qty: qty, exit_order_id: fill.order_id || rec.order_id || null, exit_premium: limitPrice, exit_event: event };
     await saveIndexDtMirror(env, signalId, patch);
+  } else if (isBrokerFlatReject(rec)) {
+    // The one rejection that re-offering cannot fix. `no_held_position` is
+    // the SELL guard's verdict for "holdings read fine and this contract is
+    // not among them" — it refuses to use that name when the rows came back
+    // unreadable (`positions_unresolved`), ambiguous
+    // (`position_direction_unknown`) or not at all (`positions_unavailable`),
+    // which is what makes it safe to treat as final here.
+    //
+    // Without a terminal branch the reduce simply repeated: on 2026-09-24
+    // IWM 280P took the identical rejection once a minute for four hours
+    // after the operator had closed it by hand, and the day's risk budget
+    // held all five hand-closed contracts open — $448 of $500 charged to
+    // positions that no longer existed, which blocks every later entry.
+    //
+    // Nothing is sold here, so no exit_premium is written: there is no fill
+    // to attribute and execution stats must not gain a phantom one.
+    const patch = event === "TRIM"
+      ? { trim_fired: true, trim_pending: false, trim_qty: 0, trim_via: "broker_flat", contracts_remaining: 0 }
+      : { exit_fired: true, exit_pending: false, exit_qty: 0, exit_event: event, exit_via: "broker_flat", contracts_remaining: 0 };
+    await saveIndexDtMirror(env, signalId, patch);
+    try {
+      await releaseRisk(env, operatorEmail, signalId, { now: Date.now() });
+    } catch (_) { /* budget stays consumed — fails restrictive */ }
   }
 
   return {
