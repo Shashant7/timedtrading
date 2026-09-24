@@ -216,13 +216,39 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
   // The book is already persisted above, so a crash here cannot leave a
   // broker position with no paper state behind it. Order is: persist, place,
   // then tell everyone.
+  // The model's intent goes on record before any order does, so every
+  // account's follow-through can be checked against it later. A D1 failure
+  // costs the record, never the order.
+  const legBook = decision.nextBook || book;
+  let leg = null;
+  if (env?.DB) {
+    try {
+      const { recordModelLeg } = await import("./mirror-kernel.js");
+      leg = await recordModelLeg(env.DB, {
+        lane: "index_dt",
+        signalId: persistSignalId,
+        entryTs: legBook?.entry_ts,
+        ticker: payload.ticker,
+        event: decision.event,
+        openedQty: legBook?.contracts,
+        remainingAfter: legBook?.contracts_remaining ?? legBook?.contracts,
+        paperPrice: payload.premium ?? payload.execution?.premium_band?.premium,
+        now: payload.now || Date.now(),
+      });
+    } catch (e) {
+      console.warn("[MIRROR KERNEL] model leg not recorded:", String(e?.message || e).slice(0, 160));
+    }
+  }
+
   if (typeof payload.onEvent === "function") {
     try {
       await payload.onEvent({
         event: decision.event,
         reason: decision.reason || null,
-        book: decision.nextBook || book,
+        book: legBook,
         signal_id: persistSignalId,
+        position_id: leg?.position_id || null,
+        leg_seq: leg?.seq ?? null,
       });
     } catch (_) { /* a broken listener must not stop the notification */ }
   }

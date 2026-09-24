@@ -96144,6 +96144,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                               ticker: _dtSym,
                               play: _dtPrimary || _dtPlay,
                               signal_id: _mirrorSid,
+                              position_id: ev.position_id || null,
+                              leg_seq: ev.leg_seq ?? null,
                               execution: _dtExecution,
                               book: ev.book || null,
                               size: _dtExecution.size || ev.book?.size || null,

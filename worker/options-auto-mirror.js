@@ -33,6 +33,7 @@ import { trimSellQty } from "./option-day-trade-plan.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import { getThemesForTicker } from "./sector-mapping.js";
 import { bridgeResponseIsOk } from "./broker-bridge-client.js";
+import { dayTradePositionId } from "./mirror-kernel.js";
 import {
   DEFAULT_DAILY_LOSS_LIMIT_USD,
   dailyLossLimitFor,
@@ -618,6 +619,19 @@ export async function maybeAutoMirror(env, ctx) {
  */
 export async function maybeAutoMirrorIndexDayTrade(env, ctx = {}) {
   return maybeAutoMirrorIndexDayTradeEvent(env, { ...ctx, event: "BUY" });
+}
+
+/**
+ * The kernel position and leg an order belongs to, for the bridge to record
+ * every account's sleeve against. Derived from the book's entry stamp when
+ * the caller (the reconciler, a heal) did not carry the leg through.
+ */
+export function indexDtKernelIds(ctx = {}, signalId = null) {
+  const positionId = ctx.position_id
+    || dayTradePositionId(signalId || ctx.signal_id, ctx.book?.entry_ts);
+  if (!positionId) return {};
+  const seq = Number.isInteger(ctx.leg_seq) ? ctx.leg_seq : null;
+  return { position_id: positionId, ...(seq != null ? { leg_seq: seq } : {}) };
 }
 
 export function indexDtMirrorKey(signalId) {
@@ -2217,6 +2231,7 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
       vehicle: vehicleKey,
       confluence_verdict: ctx.confluence || null,
       source: "auto_mirror_index_dt",
+      ...indexDtKernelIds(ctx, signalId),
       lifecycle: "entry",
       side: "buy",
       execution_action: ctx.execution?.action || null,
@@ -2417,6 +2432,7 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     play: closePlay,
     vehicle: vehicleKey,
     source: "auto_mirror_index_dt_close",
+    ...indexDtKernelIds(ctx, signalId),
     lifecycle,
     side: event === "TRIM" ? "trim" : "exit",
     close_event: event,

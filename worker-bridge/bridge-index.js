@@ -1815,6 +1815,17 @@ export default {
         return await handleOptionsOrderStatus(env, payload);
       }
 
+      // POST /bridge/options/converge — bring every account's sleeve of one
+      // model position to its target, confirmed against live holdings.
+      if (method === "POST" && path === "/bridge/options/converge") {
+        const rawBody = await req.text();
+        const sigFail = await requireWebhookSignature(env, req, rawBody);
+        if (sigFail) return sigFail;
+        let payload;
+        try { payload = JSON.parse(rawBody); } catch (_) { return json({ ok: false, error: "bad_json" }, 400); }
+        return await handleOptionsConverge(env, ctx, payload);
+      }
+
       if (method === "POST" && path === "/bridge/options/order/cancel") {
         const rawBody = await req.text();
         const sigFail = await requireWebhookSignature(env, req, rawBody);
@@ -3008,6 +3019,10 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
   const sanitized = {
     user_id: String(payload?.user_id || "").toLowerCase(),
     trade_id: payload?.trade_id || null,
+    // The kernel position and leg this order serves; every account's sleeve
+    // is recorded against them (worker/mirror-kernel.js).
+    position_id: payload?.position_id ? String(payload.position_id).slice(0, 160) : null,
+    leg_seq: Number.isInteger(payload?.leg_seq) ? payload.leg_seq : null,
     ticker: String(payload?.ticker || "").toUpperCase(),
     play: payload?.play || null,
     confluence: payload?.confluence_verdict || null,
@@ -3066,20 +3081,47 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
  * is clamped to the position that account actually holds instead of being
  * refused. See clampReduceToHeld for why that asymmetry is deliberate.
  */
-async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Date.now(), mirror = false } = {}) {
+async function placeOptionsOrderForAccount(env, ctx, sanitized, user, {
+  t0 = Date.now(),
+  mirror = false,
+  kernelIsOwner = !mirror,
+  // The partner day-loss ledger. Normally the same as `mirror`; the kernel's
+  // converge sells for the OWNER with mirror semantics (clamp to held) but
+  // that account's budget belongs to the main worker, not this ledger.
+  partnerLedger = mirror,
+} = {}) {
   const { optionsStrategiesOn } = await import("./bridge-options-prefs.js");
   const reply = (body, status = 200) => ({ body, status });
+  // Every order for every account is an attempt against that account's
+  // sleeve of the model position (worker/mirror-kernel.js).
+  const kernel = await import("./bridge-mirror-kernel.js");
+  const kctx = kernel.kernelContext(env, sanitized, user, { isOwner: kernelIsOwner });
+  let coid = null;
+  const record = async (args) => {
+    await recordOptionsAccountFill(env, args);
+    await kernel.kernelRecordOutcome(kctx, {
+      coid,
+      brokerOrder: args.brokerOrder,
+      sanitized,
+      fill: args.fill,
+      placed: args.placed,
+      placeOk: args.status !== "rejected",
+      rejectReason: args.reject_reason,
+    });
+  };
   // What the account held before this order, per the sell guard's own read
   // of the broker. Used to settle the partner day-loss ledger.
   let heldBeforeQty = null;
 
   if (!user.broker_integration_enabled) {
+    await kernel.kernelRecordSkip(kctx, "user_disabled");
     return reply({ ok: false, rejected: true, reason: "user_disabled" });
   }
   // Options-specific gate — separate from stock enablement so users
   // can authorize stocks-only without options. Broker Connections
   // toggle writes options_enabled + long_call/long_put vehicles.
   if (!optionsStrategiesOn(user) && user.role !== "operator") {
+    await kernel.kernelRecordSkip(kctx, "options_not_enabled");
     return reply({ ok: false, rejected: true, reason: "options_not_enabled" });
   }
 
@@ -3133,7 +3175,7 @@ async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Dat
     const { applyOptionsSellGuard } = await import("./bridge-options-guard.js");
     const loaded = await loadOptionsPositionsForGuard(env, user, broker);
     if (loaded.error && loaded.positions == null) {
-      await recordOptionsAccountFill(env, {
+      await record({
         user, sanitized, brokerOrder,
         status: "rejected",
         reject_reason: "positions_unavailable",
@@ -3161,7 +3203,7 @@ async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Dat
       }
     }
     if (!guard.ok) {
-      await recordOptionsAccountFill(env, {
+      await record({
         user, sanitized, brokerOrder,
         status: "rejected",
         reject_reason: guard.reason || "no_tracked_option_entry",
@@ -3219,7 +3261,7 @@ async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Dat
       const unit = premium > 0 && premium < 50 ? premium * 100 : (debit / qty);
       const maxQty = maxQtyForCeiling({ usableUsd: usable, entryUsd: unit });
       if (maxQty < 1) {
-        await recordOptionsAccountFill(env, {
+        await record({
           user, sanitized, brokerOrder,
           status: "rejected",
           reject_reason: "insufficient_buying_power",
@@ -3248,11 +3290,13 @@ async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Dat
     }
   }
 
-  // Live execution.
+  // Live execution. The attempt is on record, under the id the broker will
+  // see, before the order leaves.
+  coid = await kernel.kernelBeforeSend(kctx, brokerOrder, sanitized);
   const placed = await placeFn(env, user, brokerOrder);
   const fill = await resolveOptionsPlaceFill(env, user, placed, brokerOrder);
   const placeOk = !!placed?.ok;
-  await recordOptionsAccountFill(env, {
+  await record({
     user, sanitized, brokerOrder, fill, placed,
     status: placeOk ? (fill?.status === "filled" ? "ok" : (fill?.status || "ok")) : "rejected",
     reject_reason: placeOk ? null : (placed?.error || fill?.reason || "place_failed"),
@@ -3262,7 +3306,7 @@ async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Dat
   // failed place never consumes an allowance, and never for the operator —
   // the main worker already keeps that account's budget and a second
   // charge here would drift against it.
-  if (mirror && placeOk && sanitized.trade_id) {
+  if (partnerLedger && placeOk && sanitized.trade_id) {
     try {
       const { commitPartnerRisk, settlePartnerRisk } = await import("./bridge-options-risk.js");
       const qty = Number(fill?.filled_qty) > 0 ? Number(fill.filled_qty) : Number(brokerOrder.qty);
@@ -3341,6 +3385,11 @@ async function fanOutOptionsMirrors(env, ctx, sanitized, payload, { t0 = Date.no
     || String(sanitized.play?.side || "").toLowerCase() === "sell"
     || sanitized.play?._day_trade_close === true;
 
+  const { kernelContext, kernelRecordSkip } = await import("./bridge-mirror-kernel.js");
+  const recordFanoutSkip = (target, reason) => kernelRecordSkip(
+    kernelContext(env, sanitized, target, { isOwner: false }), reason,
+  );
+
   const dispatchOne = async (target) => {
     const row = {
       user_id: target.user_id,
@@ -3364,6 +3413,7 @@ async function fanOutOptionsMirrors(env, ctx, sanitized, payload, { t0 = Date.no
           }),
         });
         if (!(sized.contracts > 0)) {
+          await recordFanoutSkip(target, sized.reason);
           return { ...row, ok: false, skipped: true, reason: sized.reason, sizing: sized };
         }
         contracts = sized.contracts;
@@ -3376,6 +3426,7 @@ async function fanOutOptionsMirrors(env, ctx, sanitized, payload, { t0 = Date.no
         const budgeted = await budgetContractsFor(env, target, { contracts, premium });
         row.budget = budgeted.budget;
         if (!(budgeted.contracts > 0)) {
+          await recordFanoutSkip(target, budgeted.reason);
           return { ...row, ok: false, skipped: true, reason: budgeted.reason, sizing: sized };
         }
         contracts = budgeted.contracts;
@@ -3526,6 +3577,180 @@ export async function lookupOptionsOrderFill(env, user, orderId, { adapter: inje
   }
 }
 
+/** An order recorded as `sending` that the broker has never heard of, after this long, never left. */
+const CONVERGE_SENDING_STALE_MS = 3 * 60 * 1000;
+
+/**
+ * Bring every account's sleeve of one model position to its target.
+ *
+ * The follow-through half of "did the stop actually happen at the broker":
+ * for each account holding the position, resolve any order still in flight
+ * by asking for it by id, read the account's live holding of the contract,
+ * and sell whatever the sleeve holds above `sleeveTarget`. An account is
+ * verified only on a clean holdings read at target. The owner's account is
+ * an ordinary sleeve here.
+ *
+ * Accounts run one after another. At the design's scale this becomes a queue
+ * consumer (docs/entangled-mirror-design.md §7); two accounts do not need one.
+ */
+async function handleOptionsConverge(env, ctx, payload) {
+  const t0 = Date.now();
+  const db = env?.BRIDGE_DB;
+  const positionId = String(payload?.position_id || "").trim();
+  const model = {
+    opened_qty: Number(payload?.model?.opened_qty) || 0,
+    remaining_qty: Math.max(0, Number(payload?.model?.remaining_qty) || 0),
+  };
+  const closePlay = payload?.close_play;
+  const leg = closePlay?.legs?.[0];
+  const seq = Number.isInteger(payload?.leg_seq) ? payload.leg_seq : null;
+  if (!db?.prepare || !positionId || !(model.opened_qty > 0) || !leg) {
+    return json({ ok: false, error: "missing_required_fields" }, 400);
+  }
+  if (env?.BRIDGE_KILL_SWITCH === "true") {
+    return json({ ok: false, rejected: true, reason: "global_kill_switch" }, 200);
+  }
+
+  const K = await import("../worker/mirror-kernel.js");
+  const KB = await import("./bridge-mirror-kernel.js");
+  const { heldQtyForOption } = await import("./bridge-options-guard.js");
+  const { isBridgeMockMode } = await import("./bridge-webull-config.js");
+  const mock = isBridgeMockMode(env);
+  const spec = {
+    ticker: String(closePlay.ticker || payload?.ticker || "").toUpperCase(),
+    expiration: leg.expiration,
+    strike: leg.strike,
+    optionType: leg.optionType,
+  };
+
+  const sleeveFor = async (accountId) => (await K.loadSleeves(db, positionId))
+    .find((s) => s.account_id === accountId);
+
+  const results = [];
+  for (let sleeve of await K.loadSleeves(db, positionId)) {
+    const out = {
+      account_id: sleeve.account_id,
+      user_id: sleeve.user_id,
+      is_owner: sleeve.is_owner,
+      opened_qty: sleeve.opened_qty,
+      remaining_before: sleeve.remaining_qty,
+    };
+    results.push(out);
+
+    // Declined at entry and nothing in flight: nothing to follow through.
+    if (!(sleeve.opened_qty > 0) && !(sleeve.in_flight > 0)) {
+      out.action = "never_opened";
+      out.divergence = sleeve.divergence_reason || null;
+      continue;
+    }
+    const user = sleeve.user_id ? await readUser(env, sleeve.user_id) : null;
+    if (!user) { out.action = "unknown"; out.reason = "user_not_found"; continue; }
+    const userMock = mock || !!user.mock_mode;
+
+    // An order in flight is resolved by asking the broker, never assumed.
+    if (sleeve.in_flight > 0) {
+      for (const a of await K.listInFlightAttempts(db, { positionId, accountId: sleeve.account_id })) {
+        if (userMock) {
+          await KB.kernelApplyPolledFill(db, a, { status: "filled", filled_qty: a.requested_qty, order_id: a.broker_order_id || a.client_order_id });
+          continue;
+        }
+        const looked = await lookupOptionsOrderFill(env, user, a.broker_order_id || a.client_order_id);
+        if (looked.ok && looked.fill) {
+          await KB.kernelApplyPolledFill(db, a, looked.fill);
+        } else if (looked.ok && !looked.fill && a.status === "sending"
+          && Date.now() - (Number(a.placed_at) || 0) > CONVERGE_SENDING_STALE_MS) {
+          await K.upsertAttempt(db, {
+            clientOrderId: a.client_order_id, positionId, accountId: a.account_id, side: a.side,
+            status: "dead", reason: "unknown_to_broker",
+          });
+        }
+      }
+      sleeve = (await sleeveFor(sleeve.account_id)) || sleeve;
+    }
+
+    const readHeld = async () => {
+      if (userMock) {
+        const m = payload?.mock_held?.[sleeve.account_id];
+        return Number.isFinite(Number(m)) ? Number(m) : sleeve.remaining_qty;
+      }
+      const loaded = await loadOptionsPositionsForGuard(env, user, String(user.broker || "webull").toLowerCase());
+      return loaded.positions == null ? null : heldQtyForOption(loaded.positions, spec);
+    };
+
+    let held = await readHeld();
+    let plan = K.planSleeveConverge({ model, sleeve, held });
+    if (plan.action === "reanchor") {
+      // The holder sold on their own. Their account, their call: record it
+      // and stop trying to sell contracts that are gone.
+      await K.upsertAttempt(db, {
+        clientOrderId: `ext-${await K.kernelClientOrderId({ positionId, seq, accountId: sleeve.account_id, attempt: 0 })}`.slice(0, 40),
+        positionId, accountId: sleeve.account_id, userId: sleeve.user_id, seq,
+        side: "external", filledQty: plan.external_qty, status: "filled",
+        reason: K.DIVERGENCE.EXTERNAL_REDUCTION, source: "kernel_converge",
+      });
+      out.external_qty = plan.external_qty;
+      sleeve = (await sleeveFor(sleeve.account_id)) || sleeve;
+      plan = K.planSleeveConverge({ model, sleeve, held });
+    }
+    out.held = held;
+    out.target = plan.target ?? null;
+    out.action = plan.action;
+    if (plan.reason) out.reason = plan.reason;
+
+    if (plan.action === "sell" && !payload?.dry_run) {
+      const qty = plan.qty;
+      const perPlay = {
+        ...closePlay,
+        contracts: qty,
+        legs: [{ ...leg, qty }],
+        max_loss_usd: Math.round((Number(closePlay?.premium?.mid) || 0) * 100 * qty),
+      };
+      const placed = await placeOptionsOrderForAccount(env, ctx, {
+        user_id: String(sleeve.user_id || "").toLowerCase(),
+        trade_id: payload?.trade_id || closePlay.trade_id || null,
+        position_id: positionId,
+        leg_seq: seq,
+        ticker: spec.ticker,
+        play: perPlay,
+        source: "kernel_converge",
+        ts: Date.now(),
+      }, user, { mirror: true, kernelIsOwner: sleeve.is_owner, partnerLedger: !sleeve.is_owner });
+      out.sold = {
+        ok: !!placed.body?.ok,
+        qty: Number(placed.body?.translated_order?.qty) || qty,
+        reason: placed.body?.reason || null,
+        fill: placed.body?.fill || null,
+      };
+    } else if (plan.action === "verified") {
+      // A holder's own sale stays on the record even when it happened to land
+      // on target: the account got there, but the mirror did not take it
+      // there, and its fill is not the model's.
+      const keep = sleeve.divergence_reason === K.DIVERGENCE.EXTERNAL_REDUCTION ? sleeve.divergence_reason : null;
+      const reason = plan.divergence || keep
+        || (out.external_qty ? K.DIVERGENCE.EXTERNAL_REDUCTION : null);
+      await K.setSleeveStatus(db, {
+        positionId,
+        accountId: sleeve.account_id,
+        status: plan.target === 0 ? "closed" : (reason ? "diverged" : "open"),
+        reason,
+        verifiedSeq: seq ?? 0,
+      });
+      if (reason) out.divergence = reason;
+    }
+  }
+
+  const settled = (r) => r.action === "verified" || r.action === "never_opened";
+  return json({
+    ok: true,
+    position_id: positionId,
+    leg_seq: seq,
+    accounts: results.length,
+    all_verified: results.length > 0 && results.every(settled),
+    results,
+    latency_ms: Date.now() - t0,
+  });
+}
+
 async function handleOptionsOrderStatus(env, payload) {
   const userId = String(payload?.user_id || "").toLowerCase();
   const orderId = String(payload?.order_id || payload?.trade_id || "").trim();
@@ -3546,6 +3771,14 @@ async function handleOptionsOrderStatus(env, payload) {
     });
   }
   const looked = await lookupOptionsOrderFill(env, user, orderId);
+  if (looked.ok && looked.fill && env?.BRIDGE_DB) {
+    try {
+      const { findAttemptByBrokerOrder } = await import("../worker/mirror-kernel.js");
+      const { kernelApplyPolledFill } = await import("./bridge-mirror-kernel.js");
+      const attemptRow = await findAttemptByBrokerOrder(env.BRIDGE_DB, looked.fill.order_id || orderId);
+      if (attemptRow) await kernelApplyPolledFill(env.BRIDGE_DB, attemptRow, looked.fill);
+    } catch (_) { /* the kernel record is never the caller's problem */ }
+  }
   return json({
     ok: !!looked.ok,
     fill: looked.fill || null,
