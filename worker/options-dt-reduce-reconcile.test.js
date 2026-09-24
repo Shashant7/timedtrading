@@ -124,6 +124,16 @@ describe("targetMirrorRemaining", () => {
     expect(targetMirrorRemaining({ status: "closed" }, { contracts: 3 })).toBe(0);
   });
 
+  // `closed` survives a single tick: armIndexDayTradePlan flips it to `flat`
+  // on the next WAIT/SELL so a re-entry is allowed. So `flat` is the state a
+  // finished day trade actually sits in, and mapping only `closed` gave the
+  // reconciler about a minute to notice a drift before going blind — which is
+  // why IWM 280P, one of the two trades this reconciler was written for, was
+  // still unhealed four hours later.
+  it("a flat book means the broker should hold nothing, same as closed", () => {
+    expect(targetMirrorRemaining({ status: "flat" }, { contracts: 3 })).toBe(0);
+  });
+
   it("an open book means the broker should hold everything", () => {
     expect(targetMirrorRemaining({ status: "open" }, { contracts: 3 })).toBe(3);
   });
@@ -179,6 +189,18 @@ describe("reconcileIndexDtMirrorPositions — closes", () => {
     expect(leg).toMatchObject({ optionType: "PUT", strike: 279, expiration: "2026-09-25" });
     expect(fired[0].play.archetype).toBe("day_trade_put");
     expect(fired[0].expiration).toEqual({ iso: "2026-09-25" });
+  });
+
+  // The IWM 280P shape, read back off production four hours after the stop:
+  // status `flat`, event `STOP`, its own exit_premium and exit_ts, and a
+  // mirror still claiming a contract held.
+  it("re-fires the close for a book that has already gone flat", async () => {
+    const { fired, run } = harness({ book: closedBook({ status: "flat" }) });
+    const out = await run();
+
+    expect(out.no_target).toHaveLength(0);
+    expect(out.drifted).toBe(1);
+    expect(fired[0]).toMatchObject({ event: "STOP", signal_id: SIG, strike: 279 });
   });
 
   it("closes on EXIT when the book closed without naming a sell event", async () => {
@@ -409,6 +431,26 @@ describe("reconcileIndexDtMirrorPositions — telemetry", () => {
         reconcile: { persist: false, pending: true, filledQty: 0, status: "working", order_id: "X1" },
       }),
     });
+    expect(env.KV_TIMED.store.has(OPT_DT_REDUCE_RECON_KEY)).toBe(false);
+  });
+
+  // A status the reconciler cannot map is not drift it can act on, but it is
+  // also not nothing. The `continue` that used to stand there recorded no
+  // trace at all, so a mirror holding a contract against an unmappable book
+  // was indistinguishable from one that agreed.
+  it("records a mirror it could not judge instead of skipping it silently", async () => {
+    const { fired, run } = harness();
+    const out = await run({ loadBook: async () => null });
+
+    expect(fired).toHaveLength(0);
+    expect(out.no_target).toEqual([{ signal_id: SIG, held: 1, book_status: null }]);
+  });
+
+  it("does not page on a mirror it could not judge", async () => {
+    // Book TTL is 3 days and the pending sweep re-stamps mirrors, so a mirror
+    // can outlive its book. That must not become a standing page.
+    const { env, run } = harness();
+    await run({ loadBook: async () => ({ status: "pending_entry" }) });
     expect(env.KV_TIMED.store.has(OPT_DT_REDUCE_RECON_KEY)).toBe(false);
   });
 

@@ -1606,7 +1606,20 @@ export function targetMirrorRemaining(book, mirror) {
     Math.round(Number(mirror?.contracts_remaining) || 0),
   );
   if (!(total > 0)) return null;
-  if (status === "closed") return 0;
+  // `closed` lasts a single tick. `armIndexDayTradePlan` flips it to `flat`
+  // on the next WAIT/SELL so a re-entry is allowed, which makes `flat` the
+  // state a finished day trade actually sits in — carrying its own
+  // exit_premium and exit_ts. Mapping only `closed` meant the reconciler
+  // could heal a drifted mirror for about a minute and was blind to it
+  // afterwards, silently: an unmapped status returned null and the caller
+  // skipped without even a telemetry line. IWM 280P on 2026-09-24 is one of
+  // the two incidents this reconciler was written for and it still sat
+  // unhealed four hours later for exactly this reason.
+  //
+  // `flat` is also the default for a book that never opened, which cannot
+  // reach here: `total` comes from the MIRROR, and a mirror with a filled
+  // entry against a book holding nothing is drift either way.
+  if (status === "closed" || status === "flat") return 0;
   if (status === "open") return total;
   if (status === "trimmed") {
     // A 1-lot mirror cannot partial-trim, so `trimmed` is not drift for it —
@@ -1650,7 +1663,7 @@ export async function reconcileIndexDtMirrorPositions(env, {
   resolvePremium,
   fireReduce = maybeAutoMirrorIndexDayTradeEvent,
 } = {}) {
-  const out = { scanned: 0, drifted: 0, fired: [], skipped: [] };
+  const out = { scanned: 0, drifted: 0, fired: [], skipped: [], no_target: [] };
   if (!env?.KV_TIMED) return out;
 
   const prefix = indexDtMirrorKey("");
@@ -1702,7 +1715,19 @@ export async function reconcileIndexDtMirrorPositions(env, {
 
     const book = await readBook(signalId);
     const target = targetMirrorRemaining(book, mirror);
-    if (target == null) continue;
+    if (target == null) {
+      // Recorded, not paged. Every status the plan engine writes is mapped, so
+      // this is either a book whose 3-day TTL expired under a mirror the
+      // pending sweep kept re-stamping, or a status nothing writes. Both mean
+      // "cannot tell", which must not move money — but a bare `continue` is
+      // how the unmapped `flat` status hid IWM 280P for four hours.
+      out.no_target.push({
+        signal_id: signalId,
+        held: remaining,
+        book_status: String(book?.status || "") || null,
+      });
+      continue;
+    }
     if (remaining <= target) continue;
 
     // Flattening and trimming are the same arithmetic; only the event the
