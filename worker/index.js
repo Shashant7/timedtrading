@@ -104480,8 +104480,44 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           } else if (r?.watched > 0) {
             console.log(`[OPT-DT-RECONCILE] watching ${r.watched} pending over ${r.passes} passes (${r.reason})`);
           }
+          const _dtBudget = r?.budget;
+          if (_dtBudget?.freed || _dtBudget?.repriced || _dtBudget?.drift) {
+            console.log(`[OPT-DT-RECONCILE] budget repair: freed=${_dtBudget.freed} repriced=${_dtBudget.repriced} drift=${_dtBudget.drift} usd=${_dtBudget.freedUsd} ${JSON.stringify(_dtBudget.driftSignals || [])}`);
+          }
+          // The budget hitting zero stops the lane trading for the rest of
+          // the day. That is the system working, but it is silent from the
+          // outside and looks exactly like "no setups today" — so say it
+          // once, on the day it happens.
+          const _dtSnap = _dtBudget?.snapshot;
+          if (_dtSnap?.enforced && _dtSnap.remaining_usd <= 0) {
+            const _dtDay = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+            const _dtPageKey = `timed:opt-dt:budget-exhausted:${_dtDay}`;
+            const _dtSeen = await env.KV_TIMED.get(_dtPageKey).catch(() => null);
+            if (!_dtSeen) {
+              await env.KV_TIMED.put(_dtPageKey, String(Date.now()), { expirationTtl: 86400 * 2 }).catch(() => {});
+              await notifyDiscord(env, {
+                title: "Day-trade loss budget exhausted",
+                description: [
+                  `The index day-trade lane has stopped taking new entries for ${_dtDay}.`,
+                  `Realised loss $${_dtSnap.realized_loss_usd} + open risk $${_dtSnap.open_usd} = $${_dtSnap.consumed_usd} of the $${_dtSnap.limit_usd} daily limit.`,
+                  `${_dtSnap.placed_count} entries placed today.`,
+                  _dtBudget?.drift ? `${_dtBudget.drift} signal(s) could not be reconciled against the mirror.` : "",
+                ].filter(Boolean).join("\n"),
+                color: 0xE0A82E,
+              }, "system").catch(() => {});
+            }
+          }
+          await recordCronSuccess(env, "index_dt_reconcile");
         } catch (e) {
           console.warn("[OPT-DT-RECONCILE] threw:", String(e?.message || e).slice(0, 160));
+          // Nothing else watches this lane. Without a tombstone a reconcile
+          // loop that dies leaves pending entries unwatched in total silence,
+          // which is the failure it exists to prevent.
+          await recordCronFailure(env, {
+            op: "index_dt_reconcile",
+            error: String(e?.message || e),
+            caller: "scheduled:index_dt_reconcile",
+          }).catch(() => {});
         }
       })());
     }
