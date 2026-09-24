@@ -6,6 +6,61 @@
 
 ---
 
+## An id truncated from the wrong end stops being an id [2026-09-24]
+
+"I had to flatten IWM as the stop out never took effect." The model's
+IWM 278P stop fired at 16:17Z and the reduce went to the broker every
+minute for eighteen minutes. All twenty attempts came back from Webull
+with `Please do not place an order repeatedly`. At 16:35:44Z the
+contract was sold by hand at 0.37 against the model's 0.44 stop.
+
+The cause was one `.slice()` on the wrong end of a string:
+
+```js
+`tt-opt-${order.trade_id || "na"}-${crypto.randomUUID().slice(0, 8)}`.slice(0, 32)
+```
+
+`dt:IWM:2026-09-24:2026-09-25:P:278` is 34 characters. `tt-opt-` plus
+that already overruns 32, so the trailing slice ate the uuid **and** the
+strike, and every close for a ticker that day produced the identical id
+`tt-opt-dt:IWM:2026-09-24:2026-09`. Webull treats a reused
+client_order_id as a repeat. The first close per ticker per day was
+accepted; every later one was refused forever. IWM 279P spent the IWM id
+at 15:10:17Z — 67 minutes before the 278P stop even existed.
+
+- **Entropy added before a truncation is not entropy.** The uuid was
+  there precisely to make each submission unique and it was the first
+  thing discarded. Reserve the suffix, then spend what is left on the
+  human-readable part — never the reverse.
+- **The one accepted order per ticker is what made this invisible.** DIA
+  and QQQ each closed cleanly that morning, so the lane looked alive.
+  Only the second close of a ticker ever failed, which reads as a flaky
+  broker rather than a deterministic collision.
+- **`Please do not place an order repeatedly` is overloaded.** The
+  2026-09-18 incident proved it can mean "submitting too fast"
+  (CONTEXT.md's throttle entry, retry heals it). It ALSO means "this
+  client_order_id is already used", which no retry will ever heal.
+  Same string, opposite remedy. Tell them apart by cadence: a throttle
+  clears within seconds, a duplicate id never does.
+- **Read the broker's own order list, not just our ledger.** Our mirror
+  row said `entry_fill_status: filled, contracts_remaining: 1` and the
+  decision log said `rejected / no_held_position` — neither named the
+  cause. `list_orders` showed it in one screen: three SELLs that day,
+  client_order_ids `tt-opt-dt:{IWM,DIA,QQQ}:2026-09-24:2026-09`, one per
+  ticker. It also showed the operator's seven manual closes, which is
+  what made the `no_held_position` rejects correct rather than a
+  second bug — the positions guard was right every time.
+- **A reduce that fires and is rejected is not "fired".**
+  `timed:opt-dt:reduce-unreconciled` only recorded reduces Stage 5b
+  refused to send (`skipped: true`). A reduce the BROKER rejected
+  recorded `skipped: false` and vanished from the telemetry, so
+  `/timed/health.indexDtReduceUnmirrored` listed the two closes that had
+  actually placed and not the one that could not. The watchdog watched
+  the healthy trades. Now it reads the fill reconciler's verdict:
+  neither persisted nor working means unmirrored.
+
+---
+
 ## A limitation nobody re-read is indistinguishable from a bug [2026-09-24]
 
 "The partner Webull account never received the day trades?" It never
