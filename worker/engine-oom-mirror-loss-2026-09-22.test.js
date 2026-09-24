@@ -270,8 +270,43 @@ describe("only one heavy phase of the tick at a time", () => {
     expect(Number(decl[1])).toBeLessThanOrEqual(660);
     // Measured from the tick's claim, not from the pass's own start, or a
     // slow scoring phase ahead of it buys the pass nothing.
-    expect(src).toContain("(_fiveMinHeavyPassSince || _kanbanStart) + KANBAN_ENTRY_BUDGET_MS");
+    expect(src).toContain("(_tickClaimedAt || _kanbanStart) + KANBAN_ENTRY_BUDGET_MS");
     expect(src).toContain("deadlineAt: _kanbanDeadline,");
+  });
+
+  it("budgets off the claim time, not off the lease it releases early", () => {
+    // The lease answers "is another pass running", and it is cleared before
+    // the monitoring passes run. The wall keeps counting until the invocation
+    // ends, so the budget needs its own clock.
+    expect(src).toContain("_tickClaimedAt = _fiveMinHeavyPassSince;");
+    expect(src).toContain("const _tickTimeLeftMs = () => (_tickClaimedAt");
+    expect(src).toContain("? _tickClaimedAt + TICK_WALL_MS - TICK_SAFETY_MS - Date.now()");
+    // Infinity, not 0, when nothing claimed: the monolith and the non-*/5
+    // schedules share this handler and must not be budgeted off a stale claim.
+    expect(src).toContain("      : Infinity);");
+  });
+
+  it("keeps the ingest-coverage sweep off the engine entirely", () => {
+    // `ctx.waitUntil` in a cron handler defers nothing — there is no response
+    // to return early, so the invocation stays alive until it settles. The
+    // sweep measured 138s behind a tail that had finished at 728s, which is
+    // what carried the 15:10 tick to 866s of a 900s wall. It watches the
+    // INGEST feed's `ingest_ts`, which is the monolith's job, and its
+    // suppression key is global, so both roles were racing the same KV keys.
+    expect(src).toContain([
+      "    if (_isDedicatedEngine) {",
+      "      // Nothing to log: the monolith's pass covers the same universe.",
+      "    } else if (_tickTimeLeftMs() >= 60 * 1000) {",
+      "      ctx.waitUntil(",
+      "        checkIngestCoverage(KV, now).catch((err) =>",
+    ].join("\n"));
+  });
+
+  it("skips the remaining monitoring pass on a tick that has spent its wall", () => {
+    expect(src).toContain("} else if (_tickTimeLeftMs() >= 60 * 1000) {");
+    expect(src).toContain("[INGEST COVERAGE] skipped:");
+    expect(src).toContain("if (isProactiveAlertTime && _tickTimeLeftMs() < 90 * 1000) {");
+    expect(src).toContain("[PROACTIVE ALERTS] skipped:");
   });
 
   it("keeps the D1 sync chunk small enough that three sets of it fit", () => {
@@ -281,6 +316,63 @@ describe("only one heavy phase of the tick at a time", () => {
     const decl = src.match(/const _D1_CHUNK = (\d+);/);
     expect(decl).not.toBeNull();
     expect(Number(decl[1])).toBeLessThanOrEqual(15);
+  });
+
+  it("bounds the tail's D1 sync instead of trusting the changed-set to be small", () => {
+    // The sync was written for "~30-80 changed tickers a tick". During RTH
+    // every price moves every tick, so the changed set is the whole universe:
+    // the pass went from 73-132s before the open to 280s+ after it, and being
+    // the last phase it is what Cloudflare's 900s kill landed on. `[SCORING]
+    // deferred tail done` stopped appearing entirely from 13:30 UTC.
+    expect(src).toContain('import { planLatestSyncBatch, advanceSyncCursor } from "./d1-latest-sync-plan.js";');
+    // The bound is whatever fits in the wall time actually left, so a tick
+    // that spent 600s upstream syncs fewer rows rather than being killed with
+    // none of them written.
+    expect(src).toContain("const _d1CapRoom = _tickTimeLeftMs() - TICK_MONITOR_RESERVE_MS - D1_LATEST_SYNC_FIXED_MS;");
+    expect(src).toContain("Math.max(D1_LATEST_SYNC_MIN, Math.floor(_d1CapRoom / D1_LATEST_SYNC_ROW_MS)),");
+    expect(src).toContain("cap: _d1Cap,");
+    expect(src).toContain("cursor: _d1LatestSyncCursor,");
+    // The ceiling has to be low enough to fit the reserve at the measured RTH
+    // row cost; the floor high enough to still cover the must-sync set.
+    const max = Number(src.match(/const D1_LATEST_SYNC_MAX = (\d+);/)?.[1]);
+    const min = Number(src.match(/const D1_LATEST_SYNC_MIN = (\d+);/)?.[1]);
+    const rowMs = Number(src.match(/const D1_LATEST_SYNC_ROW_MS = (\d+);/)?.[1]);
+    expect(max).toBeLessThanOrEqual(120);
+    expect(min).toBeGreaterThanOrEqual(20);
+    expect(min).toBeLessThan(max);
+    expect(rowMs).toBeGreaterThanOrEqual(1000);
+    // The loop has to walk the PLAN, not the raw changed set.
+    expect(src).toContain("const _d1Syms = _d1Plan.batch;");
+    // And the cursor may only advance over rows the tick actually reached.
+    expect(src).toContain("_d1LatestSyncCursor = advanceSyncCursor(_d1Plan, _d1Attempted);");
+  });
+
+  it("never lets the cap defer an open position or a fresh stage flip", () => {
+    // `prev_kanban_stage` is no substitute for a per-tick flip: it holds the
+    // last transition's SOURCE lane indefinitely, so it reads as "changed"
+    // for almost every ticker that ever moved lanes.
+    expect(src).toContain("const stageFlipped = new Set();");
+    expect(src).toContain("stageFlipped.add(ticker);");
+    expect(src).toContain("const _d1MustSync = new Set(stageFlipped);");
+    expect(src).toContain("_d1MustSync.add(_tk);");
+    expect(src).toContain("mustSync: _d1MustSync,");
+  });
+
+  it("gives the tail its own backstop short of the 900s wall", () => {
+    // Everything upstream overrunning lands on the last phase. Stopping with
+    // a logged count beats being killed mid-sweep with nothing written.
+    expect(src).toContain("const TICK_WALL_MS = 900 * 1000;");
+    expect(src).toContain("const SCORING_TAIL_BUDGET_MS = TICK_WALL_MS - TICK_SAFETY_MS - TICK_MONITOR_RESERVE_MS;");
+    // Measured from the tick's claim, like the entry deadline.
+    expect(src).toContain("(_tickClaimedAt || _d1Now) + SCORING_TAIL_BUDGET_MS");
+    const loop = src.indexOf("for (let _ci = 0; _ci < _d1Syms.length; _ci += _D1_CHUNK) {");
+    expect(loop).toBeGreaterThan(0);
+    // The check comes before the chunk's KV hydration — a deadline checked
+    // after the expensive part is decoration.
+    const body = src.slice(loop);
+    expect(body.indexOf("if (Date.now() >= _tailDeadline) {")).toBeGreaterThan(0);
+    expect(body.indexOf("if (Date.now() >= _tailDeadline) {"))
+      .toBeLessThan(body.indexOf("hydrateSnapshotRows("));
   });
 
   it("does not park a full payload on the thin-slice patch list", () => {

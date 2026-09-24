@@ -128,6 +128,29 @@
       of the list, and management is never deferred. Live: `Processed 216
       actionable, DEFERRED 52 lowest-ranked, in 368s`, tail then ran in 94s
       inside a 699s tick.
+- [x] **And the deadline was right while the budget was wrong (2026-09-23).**
+      From the 13:30 open the tick hit 900s again even though the entry pass
+      was deferring exactly as designed (`DEFERRED 92 ... in 311s`). The
+      overrun was in the LAST phase — the tail's D1 `ticker_latest` sync,
+      whose own comment claimed "most ticks only have ~30-80 tickers whose
+      score/stage/price actually changed". Overnight that holds (`32 written,
+      297 unchanged-skipped`); from the bell every price moves every tick, so
+      the changed set IS the universe and the pass went from 73-132s to
+      280s+. `[SCORING] deferred tail done` stopped appearing at 13:30 and
+      did not return, meaning the rows were not being written at all. Fixed
+      in three parts. (a) `worker/d1-latest-sync-plan.js` caps and rotates:
+      open positions and this tick's stage flips sync every tick, the quiet
+      remainder sweeps over the next few, and the cursor advances only over
+      rows the tick actually reached. A per-tick flip has to come from the
+      scoring loop's own `_stageFlip` — `prev_kanban_stage` holds the last
+      transition's SOURCE lane forever and would have exempted the whole
+      universe. (b) The cap is derived from the wall time actually left, so a
+      tick that spends 600s upstream syncs fewer rows instead of dying with
+      none written; floor 40, ceiling 120. (c) The monitoring passes behind
+      the tail (`checkIngestCoverage` ~245 KV reads, proactive alerts up to
+      600) are skipped with a logged reason when under 60s / 90s of wall —
+      `ctx.waitUntil` in a cron handler defers nothing, and on the 14:30 tick
+      those reads turned a tail that finished at 836s into a kill at 900s.
 - [ ] **`timed-trading-ingest` still OOMs its `*/5` during RTH.** Three real
       causes are fixed (the pre-warm fan, the bar-pass overlap, the chart
       calendar sharing that lane) and the overnight window is clean, but
