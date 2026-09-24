@@ -153,6 +153,41 @@ function playbookFor(checkId) {
   };
 }
 
+export const INCIDENT_ANOMALY_SAMPLE = 5;
+
+const ANOMALY_SEVERITY_RANK = { fail: 0, warn: 1 };
+
+/**
+ * The sample an operator actually needs: failures first.
+ *
+ * An incident stores five anomalies out of however many the check found.
+ * Taking the first five in the check's own emission order is a coin flip
+ * on whether any of them is the reason the incident exists.
+ *
+ * 2026-09-24 — `model_broker_coverage` reported 29 anomalies, 18 of them
+ * `fail`. The check's order put eleven investor DCA warnings first, so the
+ * incident record carried five "mirrored only in part (insufficient cash)"
+ * warnings under a `fail` severity and not one of the eighteen failures.
+ * Read on its own it says the sweep is failing over nothing — three real
+ * trim drifts and fifteen declined day-trade entries were invisible, and
+ * the on-call read (mine) was that the sweep was clean but noisy.
+ *
+ * Severity order is stable within a rank, so the check's own ordering
+ * still decides which failures make the cut.
+ */
+export function worstAnomalies(anomalies, limit = INCIDENT_ANOMALY_SAMPLE) {
+  const list = Array.isArray(anomalies) ? anomalies : [];
+  return list
+    .map((a, i) => ({ a, i }))
+    .sort((x, y) => {
+      const rx = ANOMALY_SEVERITY_RANK[x.a?.severity] ?? 2;
+      const ry = ANOMALY_SEVERITY_RANK[y.a?.severity] ?? 2;
+      return rx === ry ? x.i - y.i : rx - ry;
+    })
+    .slice(0, limit)
+    .map((e) => e.a);
+}
+
 function incidentFingerprint(check) {
   const first = check.anomalies?.[0];
   const ticker = first?.ticker ? String(first.ticker).toUpperCase() : "";
@@ -241,7 +276,9 @@ export async function syncIncidentsFromSweep(env, sweep, healResult = null) {
       agent_prompt: pb.agent_prompt,
       files_hint: pb.files_hint || [],
       fingerprint: fp,
-      anomalies: (check.anomalies || []).slice(0, 5),
+      anomalies: worstAnomalies(check.anomalies),
+      anomaly_count: (check.anomalies || []).length,
+      anomaly_fail_count: (check.anomalies || []).filter((a) => a?.severity === "fail").length,
       first_seen_ts: prev?.first_seen_ts || now,
       last_seen_ts: now,
       heal_attempts: healAttempts.slice(-5),
@@ -301,8 +338,19 @@ export function buildAgentIssueBody(incident) {
     "",
     "### Anomalies",
   ];
-  for (const a of (incident.anomalies || [])) {
-    lines.push(`- ${a.ticker ? `\`${a.ticker}\` ` : ""}${a.detail || ""}`);
+  const shown = incident.anomalies || [];
+  const total = Number(incident.anomaly_count);
+  const fails = Number(incident.anomaly_fail_count);
+  if (Number.isFinite(total) && total > 0) {
+    lines.push(
+      `${total} anomal${total === 1 ? "y" : "ies"}`
+      + (Number.isFinite(fails) ? `, ${fails} of severity \`fail\`` : "")
+      + (total > shown.length ? ` — worst ${shown.length} shown` : ""),
+      "",
+    );
+  }
+  for (const a of shown) {
+    lines.push(`- ${a.severity ? `**${a.severity}** ` : ""}${a.ticker ? `\`${a.ticker}\` ` : ""}${a.detail || ""}`);
   }
   lines.push("", "### Remediation (from sweep)", incident.remediation || "(none)", "");
   lines.push("### Agent task", incident.agent_prompt || "", "");
