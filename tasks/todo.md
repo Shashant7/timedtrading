@@ -21,6 +21,25 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+## Active — Entangled mirror: model → broker for N accounts (2026-09-24)
+
+Design: [`docs/entangled-mirror-design.md`](../docs/entangled-mirror-design.md).
+Awaiting operator decisions in §8 before Phase 1.
+
+- [x] Map both mirrored paths end to end (Short Term equity, day-trade options)
+- [x] Design: sleeves per account, target-state reduces (`sleeveTarget`),
+      outbox write path, closed divergence set, derived risk budget
+- [ ] Operator decisions (§8): 1-lot sizing, operator as ordinary sleeve,
+      entry fill policy, no native stops, new tables vs manifest
+- [ ] **Phase 0** — Short Term `reduce_pct` sent as fraction of original but
+      applied to remaining (trim-to-full after a 50% trim leaves 25%);
+      `listConnectedUsers` uncursored at 100; 27 stale model-closed trader
+      sleeves; day-trade `position_id` per round
+- [ ] Phase 1 — kernel tables + invariants, shadow mode for both accounts
+- [ ] Phase 2 — day trades dispatched through the kernel
+- [ ] Phase 3 — converge reconciler, sharded sweeps, load test at 2,000
+- [ ] Phase 4 — Short Term + index-trend onto the kernel; retire manifest
+
 ## Active — Index DT entry timing review / profit-lock floor (2026-09-24)
 
 - [x] Review the scoring → entry-trigger path for "we are a step behind"

@@ -37,6 +37,7 @@
 - [WORKER_BASED_CALCULATIONS.md](WORKER_BASED_CALCULATIONS.md) — server-side scoring + Kanban
 - [MODEL_PIPELINE.md](MODEL_PIPELINE.md) — model pipeline
 - [D1_LEDGER_SOURCE_OF_TRUTH.md](D1_LEDGER_SOURCE_OF_TRUTH.md) — D1 ledger + positions
+- [entangled-mirror-design.md](entangled-mirror-design.md) — proposal: model action to broker action for N accounts (sleeves, target-state reduces, closed divergence set)
 - [D1_RETENTION_POLICY.md](D1_RETENTION_POLICY.md) — retention policy
 
 ## Live operations
