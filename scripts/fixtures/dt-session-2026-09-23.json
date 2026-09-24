@@ -1,0 +1,384 @@
+{
+ "session": "2026-09-23",
+ "source": "production timed:opt-dt-actions joined to option_marks",
+ "events": [
+  {
+   "ts": 1790171108037,
+   "event": "BUY",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:768",
+   "contracts": 2,
+   "premium": 0.59,
+   "reason": null,
+   "bid": 0.58,
+   "ask": 0.59
+  },
+  {
+   "ts": 1790171110361,
+   "event": "BUY",
+   "ticker": "QQQ",
+   "signal_id": "dt:QQQ:2026-09-23:2026-09-24:P:741",
+   "contracts": 2,
+   "premium": 1.29,
+   "reason": null
+  },
+  {
+   "ts": 1790171114963,
+   "event": "BUY",
+   "ticker": "DIA",
+   "signal_id": "dt:DIA:2026-09-23:2026-09-24:P:514",
+   "contracts": 2,
+   "premium": 0.97,
+   "reason": null
+  },
+  {
+   "ts": 1790171475622,
+   "event": "BUY",
+   "ticker": "IWM",
+   "signal_id": "dt:IWM:2026-09-23:2026-09-24:P:283",
+   "contracts": 2,
+   "premium": 0.64,
+   "reason": null,
+   "bid": 0.67,
+   "ask": 0.68
+  },
+  {
+   "ts": 1790171773829,
+   "event": "TRIM",
+   "ticker": "QQQ",
+   "signal_id": "dt:QQQ:2026-09-23:2026-09-24:P:741",
+   "contracts": 1,
+   "premium": 2.05,
+   "reason": null
+  },
+  {
+   "ts": 1790172194334,
+   "event": "TRIM",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:768",
+   "contracts": 1,
+   "premium": 0.99,
+   "reason": null
+  },
+  {
+   "ts": 1790172489074,
+   "event": "EXIT",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:768",
+   "contracts": 1,
+   "premium": 1.19,
+   "reason": "tp2"
+  },
+  {
+   "ts": 1790172491516,
+   "event": "EXIT",
+   "ticker": "QQQ",
+   "signal_id": "dt:QQQ:2026-09-23:2026-09-24:P:741",
+   "contracts": 1,
+   "premium": 2.71,
+   "reason": "tp2"
+  },
+  {
+   "ts": 1790172594891,
+   "event": "BUY",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:766",
+   "contracts": 3,
+   "premium": 0.74,
+   "reason": null
+  },
+  {
+   "ts": 1790172694472,
+   "event": "BUY",
+   "ticker": "QQQ",
+   "signal_id": "dt:QQQ:2026-09-23:2026-09-24:P:738",
+   "contracts": 3,
+   "premium": 2.15,
+   "reason": null,
+   "bid": 2.14,
+   "ask": 2.15
+  },
+  {
+   "ts": 1790173384244,
+   "event": "TRIM",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:766",
+   "contracts": 1,
+   "premium": 1.23,
+   "reason": null
+  },
+  {
+   "ts": 1790173613527,
+   "event": "TRIM",
+   "ticker": "IWM",
+   "signal_id": "dt:IWM:2026-09-23:2026-09-24:P:283",
+   "contracts": 1,
+   "premium": 0.96,
+   "reason": null,
+   "bid": 0.95,
+   "ask": 0.97
+  },
+  {
+   "ts": 1790174187792,
+   "event": "STOP",
+   "ticker": "QQQ",
+   "signal_id": "dt:QQQ:2026-09-23:2026-09-24:P:738",
+   "contracts": 3,
+   "premium": 2.11,
+   "reason": "breakeven_stop"
+  },
+  {
+   "ts": 1790174255570,
+   "event": "BUY",
+   "ticker": "QQQ",
+   "signal_id": "dt:QQQ:2026-09-23:2026-09-24:P:736",
+   "contracts": 3,
+   "premium": 1.55,
+   "reason": null
+  },
+  {
+   "ts": 1790174818595,
+   "event": "STOP",
+   "ticker": "QQQ",
+   "signal_id": "dt:QQQ:2026-09-23:2026-09-24:P:736",
+   "contracts": 3,
+   "premium": 1.48,
+   "reason": "breakeven_stop"
+  },
+  {
+   "ts": 1790174833911,
+   "event": "BUY",
+   "ticker": "QQQ",
+   "signal_id": "dt:QQQ:2026-09-23:2026-09-24:P:737",
+   "contracts": 3,
+   "premium": 1.78,
+   "reason": null
+  },
+  {
+   "ts": 1790174835401,
+   "event": "EXIT",
+   "ticker": "IWM",
+   "signal_id": "dt:IWM:2026-09-23:2026-09-24:P:283",
+   "contracts": 1,
+   "premium": 1.33,
+   "reason": "tp2",
+   "bid": 1.32,
+   "ask": 1.33
+  },
+  {
+   "ts": 1790175242728,
+   "event": "STOP",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:766",
+   "contracts": 1,
+   "premium": 0.67,
+   "reason": "breakeven_stop",
+   "bid": 0.72,
+   "ask": 0.73
+  },
+  {
+   "ts": 1790175322428,
+   "event": "BUY",
+   "ticker": "IWM",
+   "signal_id": "dt:IWM:2026-09-23:2026-09-24:P:282",
+   "contracts": 3,
+   "premium": 0.67,
+   "reason": null
+  },
+  {
+   "ts": 1790176037737,
+   "event": "BUY",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:766",
+   "contracts": 3,
+   "premium": 0.8,
+   "reason": null,
+   "bid": 0.79,
+   "ask": 0.8
+  },
+  {
+   "ts": 1790180176416,
+   "event": "STOP",
+   "ticker": "IWM",
+   "signal_id": "dt:IWM:2026-09-23:2026-09-24:P:282",
+   "contracts": 3,
+   "premium": 0.66,
+   "reason": "breakeven_stop",
+   "bid": 0.65,
+   "ask": 0.66
+  },
+  {
+   "ts": 1790180473221,
+   "event": "TRIM",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:766",
+   "contracts": 1,
+   "premium": 1.21,
+   "reason": null
+  },
+  {
+   "ts": 1790182324996,
+   "event": "BUY",
+   "ticker": "IWM",
+   "signal_id": "dt:IWM:2026-09-23:2026-09-24:P:281",
+   "contracts": 3,
+   "premium": 0.61,
+   "reason": null,
+   "bid": 0.6,
+   "ask": 0.61
+  },
+  {
+   "ts": 1790182501412,
+   "event": "EXIT",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:766",
+   "contracts": 1,
+   "premium": 1.69,
+   "reason": "tp2"
+  },
+  {
+   "ts": 1790182620409,
+   "event": "BUY",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:763",
+   "contracts": 3,
+   "premium": 0.88,
+   "reason": null,
+   "bid": 0.87,
+   "ask": 0.88
+  },
+  {
+   "ts": 1790183288115,
+   "event": "TRIM",
+   "ticker": "DIA",
+   "signal_id": "dt:DIA:2026-09-23:2026-09-24:P:514",
+   "contracts": 1,
+   "premium": 1.94,
+   "reason": null
+  },
+  {
+   "ts": 1790183345379,
+   "event": "EXIT",
+   "ticker": "DIA",
+   "signal_id": "dt:DIA:2026-09-23:2026-09-24:P:514",
+   "contracts": 1,
+   "premium": 1.94,
+   "reason": "tp2"
+  },
+  {
+   "ts": 1790183409465,
+   "event": "BUY",
+   "ticker": "DIA",
+   "signal_id": "dt:DIA:2026-09-23:2026-09-24:P:512",
+   "contracts": 3,
+   "premium": 1.13,
+   "reason": null
+  },
+  {
+   "ts": 1790183818360,
+   "event": "STOP",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:763",
+   "contracts": 3,
+   "premium": 0.85,
+   "reason": "breakeven_stop",
+   "bid": 0.84,
+   "ask": 0.85
+  },
+  {
+   "ts": 1790184213579,
+   "event": "STOP",
+   "ticker": "IWM",
+   "signal_id": "dt:IWM:2026-09-23:2026-09-24:P:281",
+   "contracts": 3,
+   "premium": 0.59,
+   "reason": "breakeven_stop",
+   "bid": 0.59,
+   "ask": 0.61
+  },
+  {
+   "ts": 1790185383024,
+   "event": "STOP",
+   "ticker": "QQQ",
+   "signal_id": "dt:QQQ:2026-09-23:2026-09-24:P:737",
+   "contracts": 3,
+   "premium": 1.69,
+   "reason": "breakeven_stop",
+   "bid": 1.5,
+   "ask": 1.51
+  },
+  {
+   "ts": 1790185441968,
+   "event": "BUY",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:765",
+   "contracts": 3,
+   "premium": 0.9,
+   "reason": null,
+   "bid": 0.83,
+   "ask": 0.84
+  },
+  {
+   "ts": 1790185981631,
+   "event": "BUY",
+   "ticker": "IWM",
+   "signal_id": "dt:IWM:2026-09-23:2026-09-24:P:281",
+   "contracts": 3,
+   "premium": 0.53,
+   "reason": null,
+   "bid": 0.52,
+   "ask": 0.54
+  },
+  {
+   "ts": 1790186702967,
+   "event": "BUY",
+   "ticker": "QQQ",
+   "signal_id": "dt:QQQ:2026-09-23:2026-09-24:P:737",
+   "contracts": 3,
+   "premium": 1.55,
+   "reason": null,
+   "bid": 1.55,
+   "ask": 1.56
+  },
+  {
+   "ts": 1790190090787,
+   "event": "STOP",
+   "ticker": "IWM",
+   "signal_id": "dt:IWM:2026-09-23:2026-09-24:P:281",
+   "contracts": 3,
+   "premium": 0.51,
+   "reason": "breakeven_stop",
+   "bid": 0.5,
+   "ask": 0.51
+  },
+  {
+   "ts": 1790192701017,
+   "event": "EXIT",
+   "ticker": "SPY",
+   "signal_id": "dt:SPY:2026-09-23:2026-09-24:P:765",
+   "contracts": 3,
+   "premium": 0.96,
+   "reason": "session_close"
+  },
+  {
+   "ts": 1790192702937,
+   "event": "EXIT",
+   "ticker": "QQQ",
+   "signal_id": "dt:QQQ:2026-09-23:2026-09-24:P:737",
+   "contracts": 3,
+   "premium": 1.42,
+   "reason": "session_close",
+   "bid": 1.57,
+   "ask": 1.59
+  },
+  {
+   "ts": 1790192707412,
+   "event": "EXIT",
+   "ticker": "DIA",
+   "signal_id": "dt:DIA:2026-09-23:2026-09-24:P:512",
+   "contracts": 3,
+   "premium": 0.93,
+   "reason": "session_close"
+  }
+ ]
+}

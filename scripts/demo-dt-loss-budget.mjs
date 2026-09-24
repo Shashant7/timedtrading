@@ -1,20 +1,42 @@
 // scripts/demo-dt-loss-budget.mjs
 //
 // Drives the REAL index day-trade mirror (worker/options-auto-mirror.js)
-// against an in-memory KV and prints the decision for each entry, so the
-// difference between "2 trades a day" and "one loss limit" is legible.
+// against an in-memory KV, replaying a real session event by event, and
+// prints the budget ledger after each one.
 //
-//   node scripts/demo-dt-loss-budget.mjs
+//   npx vite-node scripts/demo-dt-loss-budget.mjs
 //
-// Replays 2026-09-23: eleven day-trade BUY signals, 0/1 DTE index puts, of
-// which the first two never filled.
+// (bare `node` cannot resolve the worker module graph)
+//
+// The tape is production's `timed:opt-dt-actions` ring for 2026-09-23 joined
+// to `option_marks` for the bid/ask at each event -- 38 events, 16 rounds,
+// four tickers including DIA, and three strikes that were stopped out and
+// re-entered later in the day.
+//
+// What this exercises end to end:
+//   - DIA reaching the broker at all
+//   - an entry priced where it can fill, not at the passive FMV ceiling
+//   - the day's budget charged the stop distance, not the whole ticket
+//   - a re-entry on the same strike charged again rather than swallowed
+//   - trims and exits handing budget back as realised P&L
 
-import { maybeAutoMirrorIndexDayTradeEvent, resolvePendingIndexDtEntry, indexDtMirrorKey } from "../worker/options-auto-mirror.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+import {
+  maybeAutoMirrorIndexDayTradeEvent,
+  indexDtMirrorKey,
+  marketableEntryLimit,
+} from "../worker/options-auto-mirror.js";
 import { RISK_STATE_KEY, riskBudgetSnapshot } from "../worker/options-risk-budget.js";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TAPE = JSON.parse(readFileSync(join(HERE, "fixtures", "dt-session-2026-09-23.json"), "utf8"));
 
 const OP = "op@example.com";
 const TODAY = new Date().toISOString().slice(0, 10);
-const LIMIT = 1000;
+const LIMIT = 500;
 
 function kvMock() {
   const store = new Map();
@@ -30,94 +52,128 @@ function kvMock() {
   };
 }
 
-function envFor(kv, fillStatus) {
+// Every entry fills at its limit, so the ledger shows the budget doing its
+// job rather than the pending-order path (which has its own coverage).
+let orderSeq = 0;
+function envFor(kv, qty) {
   return {
     ADMIN_EMAIL: OP,
     KV_TIMED: kv,
     BROKER_BRIDGE_HMAC_KEY: "secret",
     BROKER_BRIDGE_URL: "https://bridge.example.workers.dev",
     BROKER_BRIDGE: {
-      fetch: async () => new Response(JSON.stringify({
-        ok: true, order_id: "OID",
-        fill: fillStatus === "filled"
-          ? { status: "filled", filled_qty: 1, order_id: "OID" }
-          : { status: "working", filled_qty: 0, order_id: "OID" },
-      }), { status: 200 }),
+      fetch: async () => {
+        const oid = `OID${++orderSeq}`;
+        return new Response(JSON.stringify({
+          ok: true, order_id: oid,
+          fill: { status: "filled", filled_qty: qty, order_id: oid },
+        }), { status: 200 });
+      },
     },
   };
 }
 
-const buyCtx = (n, ceil) => ({
-  event: "BUY", ticker: "SPY", signal_id: `dt:SPY:trade-${n}`,
-  indicesFlagOn: true, tier: "gamma", strike: 768,
-  execution: { premium_band: { display_buy_ceil: ceil } },
-  play: {
-    archetype: "day_trade_put", _day_trade_flavor: "put",
-    strikes: { primary: 768 }, expiration: { iso: "2026-09-24" },
-    legs: [{ action: "BUY", optionType: "PUT", strike: 768, expiration: "2026-09-24", qty: 1 }],
-    premium: { mid: ceil - 0.09 }, contracts: 1, max_loss_usd: ceil * 100,
-  },
-});
+const et = (ts) => new Date(ts - 4 * 3600_000).toISOString().slice(11, 19);
 
 const snap = (kv) => {
   const raw = kv.store.get(RISK_STATE_KEY(OP, TODAY));
-  return riskBudgetSnapshot(raw ? JSON.parse(raw) : { open: {}, realized_pnl_usd: 0 }, LIMIT);
+  return riskBudgetSnapshot(raw ? JSON.parse(raw) : { open: {}, realized_pnl_usd: 0, placed: [] }, LIMIT);
 };
+
+function ctxFor(ev, book) {
+  const flavor = ev.signal_id.includes(":P:") ? "put" : "call";
+  const strike = Number(ev.signal_id.split(":").pop());
+  // The desk's FMV ceiling ran below the market on the open; reproduce that
+  // by pricing it one tick under the mid, which is what blocked the fills.
+  const ceil = Math.round((ev.premium - 0.01) * 100) / 100;
+  return {
+    event: ev.event,
+    reason: ev.reason || null,
+    ticker: ev.ticker,
+    signal_id: ev.signal_id,
+    indicesFlagOn: true,
+    tier: "gamma",
+    strike,
+    premium: ev.premium,
+    bid: ev.bid ?? null,
+    ask: ev.ask ?? null,
+    book,
+    size: { contracts: ev.contracts },
+    execution: { premium_band: { display_buy_ceil: ceil, premium: ev.premium, bid: ev.bid, ask: ev.ask } },
+    play: {
+      archetype: flavor === "put" ? "day_trade_put" : "day_trade_call",
+      _day_trade_flavor: flavor,
+      strikes: { primary: strike },
+      expiration: { iso: "2026-09-24" },
+      legs: [{ action: "BUY", optionType: flavor.toUpperCase(), strike, expiration: "2026-09-24", qty: ev.contracts }],
+      premium: { mid: ev.premium, bid: ev.bid, ask: ev.ask },
+      contracts: ev.contracts,
+      max_loss_usd: ev.premium * 100 * ev.contracts,
+    },
+  };
+}
 
 const kv = kvMock();
 kv.store.set(`timed:options:auto-mirror:${OP}`, JSON.stringify({
   enabled: true,
   daily_cap: 5,
   daily_loss_limit_usd: LIMIT,
-  vehicles: { long_put: { enabled: true, daily_cap: 2, max_per_order_usd: 300, max_loss_per_order_usd: 250 } },
+  index_dt_follow_paper_size: true,
+  vehicles: {
+    long_put: { enabled: true, daily_cap: 2, max_per_order_usd: 1200, max_loss_per_order_usd: 1200, follow_paper_size: true },
+    long_call: { enabled: true, daily_cap: 2, max_per_order_usd: 1200, max_loss_per_order_usd: 1200, follow_paper_size: true },
+  },
 }));
 
-console.log(`Daily loss limit: $${LIMIT}. Per-vehicle count cap still set to 2/day in prefs (now telemetry only).\n`);
-console.log("  #  ceiling   risk   result                                              open   lost   left");
-console.log("  ─  ───────  ─────   ──────────────────────────────────────────────────  ─────  ─────  ─────");
+console.log(`Session ${TAPE.session} -- ${TAPE.events.length} events, one $${LIMIT} daily loss limit, no count caps.`);
+console.log(`Source: ${TAPE.source}\n`);
+console.log("  time      event  contract      qty  paid/got   limit   result                                        open  loss   left");
+console.log("  --------  -----  ------------  ---  --------  ------  --------------------------------------------  ----  ----  -----");
 
-const ceilings = [0.68, 0.59, 1.24, 0.92, 2.10, 1.55, 0.74, 1.88, 2.40, 1.10, 0.85];
+const books = new Map();
 let placed = 0;
+let refused = 0;
 
-for (let i = 0; i < ceilings.length; i++) {
-  const ceil = ceilings[i];
-  // The first two are the 2026-09-23 orders that sat `working` all day.
-  const neverFills = i < 2;
-  const r = await maybeAutoMirrorIndexDayTradeEvent(envFor(kv, neverFills ? "working" : "filled"), buyCtx(i + 1, ceil));
+for (const ev of TAPE.events) {
+  const label = `${ev.ticker} ${ev.signal_id.split(":").slice(-2).join("")}`;
+  let book = books.get(ev.signal_id) || null;
+  if (ev.event === "BUY") {
+    book = { contracts: ev.contracts, contracts_remaining: ev.contracts, entry_premium: ev.premium };
+  } else if (book) {
+    book = { ...book, contracts_remaining: Math.max(0, book.contracts_remaining - ev.contracts) };
+  }
+  books.set(ev.signal_id, book);
+
+  const limit = ev.event === "BUY"
+    ? marketableEntryLimit({
+      mid: ev.premium, ask: ev.ask, ceil: Math.round((ev.premium - 0.01) * 100) / 100,
+    })
+    : null;
+
+  const r = await maybeAutoMirrorIndexDayTradeEvent(envFor(kv, ev.contracts), ctxFor(ev, book));
   let result;
   if (r.skipped) {
-    result = `BLOCKED  ${r.reason}`;
+    result = `refused  ${r.reason}`;
+    if (ev.event === "BUY") refused++;
   } else {
-    placed++;
-    result = neverFills ? "placed   (limit working, will not fill)" : "placed   FILLED";
+    result = r.mirrored || r.ok ? "mirrored" : JSON.stringify(r).slice(0, 40);
+    if (ev.event === "BUY") placed++;
   }
   const s = snap(kv);
   console.log(
-    `  ${String(i + 1).padStart(2)}  $${ceil.toFixed(2).padStart(6)}  $${String(Math.round(ceil * 100)).padStart(4)}   ${result.padEnd(50)}  $${String(s.open_usd).padStart(4)}  $${String(s.realized_loss_usd).padStart(4)}  $${String(s.remaining_usd).padStart(4)}`,
+    `  ${et(ev.ts)}  ${ev.event.padEnd(5)}  ${label.padEnd(12)}  ${String(ev.contracts).padStart(3)}  $${ev.premium.toFixed(2).padStart(7)}  ${limit != null ? `$${limit.toFixed(2).padStart(5)}` : "     -"}  ${result.slice(0, 44).padEnd(44)}  $${String(Math.round(s.open_usd)).padStart(3)}  $${String(Math.round(s.realized_loss_usd)).padStart(3)}  $${String(Math.round(s.remaining_usd)).padStart(4)}`,
   );
 }
 
-console.log(`\n${placed} of ${ceilings.length} entries reached the broker. The old 2/day count cap allowed 2.\n`);
-
-// Now resolve the two that never filled — the exact 2026-09-23 state.
-console.log("Reconciling the two orders that never filled:\n");
-for (const n of [1, 2]) {
-  const sig = `dt:SPY:trade-${n}`;
-  const mirror = JSON.parse(kv.store.get(indexDtMirrorKey(sig)));
-  const before = snap(kv).remaining_usd;
-  const r = await resolvePendingIndexDtEntry({ KV_TIMED: kv }, OP, sig, mirror, {
-    deps: { pollFill: async () => ({ status: "cancelled", filled_qty: 0 }) },
-  });
-  const after = snap(kv);
-  console.log(`  ${sig}  ->  ${r.outcome.padEnd(10)}  budget left $${before} -> $${after.remaining_usd}`);
-}
-
 const final = snap(kv);
-console.log(`\nEnd of day: $${final.open_usd} still at risk, $${final.realized_loss_usd} realised loss, $${final.remaining_usd} of $${LIMIT} left.`);
-console.log(`Day trades that reached the broker: ${final.placed_count}`);
+console.log(`\n${placed} entries reached the broker, ${refused} were refused by the budget.`);
+console.log(`The old 2/day long_put count cap allowed 2, and on the real session it allowed 2.`);
+console.log(`\nEnd of day: $${final.open_usd} still at risk, realised P&L $${final.realized_pnl_usd >= 0 ? "+" : ""}${final.realized_pnl_usd}, $${final.remaining_usd} of $${LIMIT} left.`);
+console.log(`Rounds placed: ${final.placed_count} (re-entries counted separately)`);
 
-// The Trader lane still gates on these. An uncapped day-trade lane that kept
-// bumping them would spend its allowance and lock it out for the rest of the day.
+const tickers = new Set(TAPE.events.filter((e) => e.event === "BUY").map((e) => e.ticker));
+console.log(`Tickers that made it through the index gate: ${[...tickers].sort().join(", ")}`);
+
 const shared = [...kv.store.keys()].filter((k) => k.startsWith("timed:options:auto-mirror:count:"));
-console.log(`Shared daily counters touched by this lane: ${shared.length === 0 ? "none" : shared.join(", ")}`);
-console.log(`KV key: ${RISK_STATE_KEY(OP, TODAY)}`);
+console.log(`Shared daily counters this lane touched: ${shared.length === 0 ? "none" : shared.join(", ")}`);
+console.log(`Mirror records written: ${[...kv.store.keys()].filter((k) => k.startsWith(indexDtMirrorKey(""))).length}`);
