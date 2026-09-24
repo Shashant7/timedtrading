@@ -5,6 +5,8 @@ import {
   formatDayTradeVehicleLabel,
   indexTrendLetfCandidates,
   applyLivePremiumToTrade,
+  normalizePaperLaneActions,
+  closedTradesFromPaperActions,
 } from "./paper-lane-positions.js";
 
 describe("paper-lane-positions", () => {
@@ -121,5 +123,49 @@ describe("paper-lane-positions", () => {
     const cands = indexTrendLetfCandidates("SPY");
     expect(cands).toContain("SPYU");
     expect(cands).toContain("SPXL");
+  });
+
+  it("normalizes DT + LETF actions into one activity feed", () => {
+    const actions = normalizePaperLaneActions({
+      dayTrade: [
+        { ts: 2000, event: "BUY", ticker: "QQQ", signal_id: "dt:1", contracts: 2, premium: 1.1 },
+        { ts: 3000, event: "EXIT", ticker: "QQQ", signal_id: "dt:1", contracts: 2, premium: 1.4 },
+      ],
+      indexTrend: [
+        { ts: 2500, event: "BUY", underlying: "SPY", letf_ticker: "SPYU", signal_id: "it:1", shares: 10, letf_price: 40 },
+      ],
+    });
+    expect(actions).toHaveLength(3);
+    expect(actions[0].event).toBe("EXIT");
+    expect(actions[0].lane).toBe("index_day_trade");
+    expect(actions[1].lane).toBe("index_swing");
+    expect(actions[1].vehicle).toBe("SPYU");
+  });
+
+  it("rebuilds closed paper trades from BUY→EXIT/STOP pairs", () => {
+    const actions = normalizePaperLaneActions({
+      dayTrade: [
+        { ts: 1000, event: "BUY", ticker: "SPY", signal_id: "dt:a", contracts: 3, premium: 1.0 },
+        { ts: 1500, event: "TRIM", ticker: "SPY", signal_id: "dt:a", contracts: 1, premium: 1.2 },
+        { ts: 2000, event: "EXIT", ticker: "SPY", signal_id: "dt:a", contracts: 2, premium: 1.5 },
+      ],
+      indexTrend: [
+        { ts: 1100, event: "BUY", underlying: "QQQ", letf_ticker: "TQQQ", signal_id: "it:b", shares: 20, letf_price: 50 },
+        { ts: 2100, event: "STOP", underlying: "QQQ", letf_ticker: "TQQQ", signal_id: "it:b", shares: 20, letf_price: 45 },
+      ],
+    });
+    const closed = closedTradesFromPaperActions(actions);
+    expect(closed).toHaveLength(2);
+    const dt = closed.find((t) => t.signal_id === "dt:a");
+    expect(dt.status).toBe("WIN");
+    expect(dt._paper_lane).toBe("index_day_trade");
+    // (1.5 - 1.0) * 2 contracts * 100 = $100
+    expect(dt.realized_pnl).toBe(100);
+    expect(dt.realized_pct).toBe(50);
+    const it = closed.find((t) => t.signal_id === "it:b");
+    expect(it.status).toBe("LOSS");
+    expect(it._paper_lane).toBe("index_swing");
+    // (45 - 50) * 20 = -$100
+    expect(it.realized_pnl).toBe(-100);
   });
 });

@@ -886,7 +886,7 @@ import {
   maybeReviveIndexTrendBook as _itReviveBook,
 } from "./index-trend-alerts.js";
 import { paperEventToNotifType } from "./paper-lane-notify.js";
-import { listOpenPaperLaneTrades, loadOpenIndexTrendBookForUnderlying } from "./paper-lane-positions.js";
+import { listOpenPaperLaneTrades, listPaperLaneHistory, loadOpenIndexTrendBookForUnderlying } from "./paper-lane-positions.js";
 import { buildIndexTrendSignalId as _itBuildSignalId, indexTrendBookIsLive as _itBookIsLive } from "./index-trend-paper.js";
 import { buildDayTradePositionMgmtLine as _optDtPositionMgmtLine, isOptionsSellWindowEt as _isOptionsSellWindowEt } from "./option-day-trade-plan.js";
 import {
@@ -89061,6 +89061,24 @@ export default {
             d1Trades = await d1GetAllPositionsAsTrades(env);
           } else if (source === "paper") {
             d1Trades = await listOpenPaperLaneTrades(env);
+          } else if (source === "paper_history") {
+            // Closed Day-Trade / Index-Swing rows + raw action tape for Portfolio.
+            const hist = await listPaperLaneHistory(env);
+            return sendJSON(
+              {
+                ok: true,
+                count: hist.trades.length,
+                totalCount: hist.trades.length,
+                trades: hist.trades,
+                actions: hist.actions,
+                source: "paper_history",
+                version: "all",
+                versions: [],
+                promoted_dataset: null,
+              },
+              200,
+              corsHeaders(env, req),
+            );
           } else if (source === "promoted") {
             const promoted = await d1GetPromotedTrades(env, promotedDatasetId);
             d1Trades = promoted.trades;
