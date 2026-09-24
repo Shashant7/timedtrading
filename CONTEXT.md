@@ -495,6 +495,12 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   then the row's own `max_per_order_usd` and `daily_loss_limit_usd`, then
   buying power. Reduces are NOT sized — they go at the model's qty and clamp
   to contracts held, so a partner who scaled down on entry still exits.
+- **Hand deploys must pass `--var ENGINE_GIT_SHA` (2026-09-24)**: only CI
+  stamps it. `npm run deploy:worker` / `deploy:crons` run bare `wrangler
+  deploy`, and a wrangler var with no new value keeps the OLD one — so
+  `/timed/health` reports a commit that is not what is running. Use the
+  `scripts/deploy-wrangler-retry.sh … --var ENGINE_GIT_SHA:$SHA` form in
+  `skills/deploy.md`.
 - **Partners get the operator's loss budget, not a copy of it (2026-09-24)**:
   `bridge-options-risk.js` runs `worker/options-risk-budget.js` against
   `BRIDGE_KV` keyed `…risk:{user_id}:{NY-date}`, so a partner's day stop has
