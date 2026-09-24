@@ -7,6 +7,8 @@ import {
   buildIndexDayTradeClosePlay,
   computeIndexDayTradeCloseQty,
   marketableCloseLimit,
+  marketableEntryLimit,
+  ENTRY_MAX_SLIP_PCT,
   optionTick,
   extractMirrorFill,
   reconcileIndexDtFill,
@@ -441,6 +443,45 @@ describe("marketableCloseLimit", () => {
 
   it("ignores a stale bid more than 60% below mid", () => {
     expect(marketableCloseLimit({ event: "EXIT", mid: 1.85, bid: 0.05 })).toBe(1.84);
+  });
+});
+
+describe("marketableEntryLimit — an entry has to be able to fill", () => {
+  it("crosses to the ask when the passive ceiling sits under the market", () => {
+    // 2026-09-23 QQQ 741P: ceiling below the market, order worked all day.
+    expect(marketableEntryLimit({ mid: 1.29, ask: 1.31, ceil: 1.20 })).toBe(1.31);
+  });
+
+  it("keeps a generous ceiling when the ceiling is the higher of the two", () => {
+    expect(marketableEntryLimit({ mid: 0.59, ask: 0.60, ceil: 0.68 })).toBe(0.68);
+  });
+
+  it("pays one tick through the mid when there is no ask", () => {
+    expect(marketableEntryLimit({ mid: 0.59, ceil: null })).toBe(0.6);
+    expect(marketableEntryLimit({ mid: 3.20, ceil: null })).toBe(3.25);
+  });
+
+  it("refuses to chase a blown-out ask, and stops at one tick through mid", () => {
+    // p99 of the session's spreads was 14.3% of mid; 25% over is not a quote.
+    expect(marketableEntryLimit({ mid: 1.00, ask: 1.80, ceil: null })).toBe(1.01);
+  });
+
+  it("caps the chase at the slip budget even on a wide but plausible ask", () => {
+    expect(ENTRY_MAX_SLIP_PCT).toBe(0.08);
+    expect(marketableEntryLimit({ mid: 1.00, ask: 1.20, ceil: null })).toBe(1.08);
+  });
+
+  it("never prices below the ceiling, so value is still respected", () => {
+    expect(marketableEntryLimit({ mid: 1.00, ask: 1.02, ceil: 1.50 })).toBe(1.5);
+  });
+
+  it("degrades to the ceiling when there is no mid to reason about", () => {
+    expect(marketableEntryLimit({ mid: null, ceil: 0.68 })).toBe(0.68);
+    expect(marketableEntryLimit({ mid: null, ceil: null })).toBe(null);
+  });
+
+  it("ignores an ask that is below the mid", () => {
+    expect(marketableEntryLimit({ mid: 1.00, ask: 0.80, ceil: null })).toBe(1.01);
   });
 });
 

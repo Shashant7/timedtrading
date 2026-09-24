@@ -95910,6 +95910,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 // day-trade build failed for SPY` on every pass.
                 let _clockPrem = null;
                 let _clockBid = null;
+                // The ask is what a BUY has to cross. Without it the mirror
+                // can only price passively, which is how 2026-09-23's two
+                // broker orders sat working all day below the market.
+                let _clockAsk = null;
                 try {
                   const _clockFlavor = _dtUseCarry && _dtOpenBook?.flavor
                     ? _dtOpenBook.flavor
@@ -95926,6 +95930,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   const _estimatePrem = _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid;
                   _clockPrem = _estimatePrem;
                   _clockBid = _dtPrimary?.premium?.bid ?? _dtPlay?.premium?.bid ?? null;
+                  _clockAsk = _dtPrimary?.premium?.ask ?? _dtPlay?.premium?.ask ?? null;
                   try {
                     const _livePrem = await _optionMarksResolveLivePremium(env, {
                       ticker: _dtSym,
@@ -95940,6 +95945,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     });
                     if (_livePrem?.mid > 0) _clockPrem = _livePrem.mid;
                     if (_livePrem?.bid > 0) _clockBid = _livePrem.bid;
+                    if (_livePrem?.ask > 0) _clockAsk = _livePrem.ask;
                   } catch (_) { /* clock degrades to estimate */ }
                   _dtExecution = _optClockBuild({
                     ticker: _dtSym,
@@ -95959,10 +95965,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     todStudy: _dtTodStudy,
                     openBook: _dtOpenBook,
                   });
-                  if (_dtExecution && _clockBid > 0 && _dtExecution.premium_band) {
+                  if (_dtExecution && _dtExecution.premium_band && (_clockBid > 0 || _clockAsk > 0)) {
                     _dtExecution = {
                       ..._dtExecution,
-                      premium_band: { ..._dtExecution.premium_band, bid: _clockBid },
+                      premium_band: {
+                        ..._dtExecution.premium_band,
+                        ...(_clockBid > 0 ? { bid: _clockBid } : {}),
+                        ...(_clockAsk > 0 ? { ask: _clockAsk } : {}),
+                      },
                     };
                   }
                 } catch (_clockErr) {
@@ -96027,6 +96037,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                             ?? _dtPlay?.premium?.bid
                             ?? _dtPrimary?.legs?.[0]?.premium_bid
                             ?? null;
+                          const _mirrorAsk = _dtExecution.premium_band?.ask
+                            ?? _clockAsk
+                            ?? _dtPrimary?.premium?.ask
+                            ?? _dtPlay?.premium?.ask
+                            ?? _dtPrimary?.legs?.[0]?.premium_ask
+                            ?? null;
                           queueBackground(import("./options-auto-mirror.js").then(({ maybeAutoMirrorIndexDayTradeEvent }) =>
                             maybeAutoMirrorIndexDayTradeEvent(env, {
                               event: ev.event,
@@ -96039,6 +96055,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                               size: _dtExecution.size || ev.book?.size || null,
                               premium: _mirrorPrem,
                               bid: _mirrorBid,
+                              ask: _mirrorAsk,
                               strike: _dtExecution.contract?.strike ?? _strike,
                               expiration: _dtExecution.contract?.expiration || _dtPrimary?.expiration || _dtPlay.expiration,
                               flavor: _dtExecution.contract?.flavor || _dtPlay._day_trade_flavor,
