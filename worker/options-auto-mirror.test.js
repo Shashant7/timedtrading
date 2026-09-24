@@ -19,11 +19,11 @@ import {
   scaleIndexDtEntryPlay,
 } from "./options-auto-mirror.js";
 import { trimSellQty } from "./option-day-trade-plan.js";
-import { RISK_STATE_KEY, riskBudgetSnapshot } from "./options-risk-budget.js";
+import { RISK_STATE_KEY, riskBudgetSnapshot, tradingDayOf } from "./options-risk-budget.js";
 
 /** The day-trade lane is governed by dollars now, not by the day counters. */
 const readBudget = (kv) => {
-  const raw = kv.store.get(RISK_STATE_KEY("op@x.com", new Date().toISOString().slice(0, 10)));
+  const raw = kv.store.get(RISK_STATE_KEY("op@x.com", tradingDayOf(Date.now())));
   return riskBudgetSnapshot(raw ? JSON.parse(raw) : { open: {}, placed: [], realized_pnl_usd: 0 }, 1000);
 };
 

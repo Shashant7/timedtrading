@@ -23,11 +23,19 @@ import {
   sweepPendingIndexDtEntries,
   PENDING_ENTRY_STALE_MS,
   runPendingIndexDtReconcileLoop,
+  acquireReconcileLease,
+  DT_RECONCILE_LEASE_KEY,
+  DT_RECONCILE_LEASE_MS,
   indexDtMirrorKey,
   vehicleCounterKeyFor,
   maybeAutoMirrorIndexDayTradeEvent,
 } from "./options-auto-mirror.js";
-import { RISK_STATE_KEY, riskBudgetSnapshot, commitRisk } from "./options-risk-budget.js";
+import {
+  RISK_STATE_KEY,
+  riskBudgetSnapshot,
+  commitRisk,
+  tradingDayOf,
+} from "./options-risk-budget.js";
 
 const OP = "op@x.com";
 const CAPS = { vehicleCap: 2, globalCap: 6 };
@@ -475,11 +483,116 @@ describe("runPendingIndexDtReconcileLoop — every second counts", () => {
     const r = await runPendingIndexDtReconcileLoop({ KV_TIMED: kvMock() }, "");
     expect(r.reason).toBe("not_configured");
   });
+
+  it("stands down when another isolate already holds the lease", async () => {
+    // The every-minute and every-five-minute crons are separate
+    // expressions, so at minute 0, 5, 10 ... Cloudflare fires two
+    // invocations that can land in different isolates — where the
+    // module-level busy flag protects neither from the other.
+    const kv = kvMock();
+    put(kv, "dt:SPY:p", pendingMirror({ entry_placed_at: NOW }), { pe: 1 });
+    const h = harness();
+    const r = await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, {
+      ...h, lease: async () => ({ ok: false, reason: "lease_held" }),
+    });
+    expect(r.reason).toBe("lease_held");
+    expect(r.passes).toBe(0);
+    expect(h.sleeps).toEqual([]);
+  });
+
+  it("releases the busy guard after standing down, so the next tick runs", async () => {
+    const kv = kvMock();
+    await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, {
+      ...harness(), lease: async () => ({ ok: false }),
+    });
+    const again = await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, harness());
+    expect(again.reason).toBe("settled");
+  });
+
+  it("repairs the budget on every tick, even with nothing pending", async () => {
+    // A release that never ran leaves the day paying for a position that
+    // does not exist. Nothing else would ever notice.
+    const kv = kvMock();
+    kv.store.set(`timed:options:auto-mirror:${OP}`, JSON.stringify({ enabled: true }));
+    await commitRisk({ KV_TIMED: kv }, OP, "dt:SPY:ghost", { usd: 170, now: NOW });
+    const r = await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, harness());
+    expect(r.passes).toBe(1);
+    expect(r.budget.freed).toBe(1);
+    expect(r.budget.freedUsd).toBe(170);
+    expect(r.budget.snapshot.remaining_usd).toBe(500);
+    expect(riskOpen(kv)).toBe(0);
+  });
+
+  it("leaves the charge alone while the entry is still working", async () => {
+    // A live order is real exposure. Only a charge with no order behind it
+    // at all is safe to free.
+    const kv = kvMock();
+    kv.store.set(`timed:options:auto-mirror:${OP}`, JSON.stringify({ enabled: true }));
+    put(kv, "dt:SPY:p", pendingMirror({ entry_placed_at: NOW }), { pe: 1 });
+    await commitRisk({ KV_TIMED: kv }, OP, "dt:SPY:p", { usd: 170, now: NOW });
+    const r = await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, harness());
+    expect(r.budget.freed).toBe(0);
+    expect(r.budget.drift).toBe(0);
+    expect(riskOpen(kv)).toBe(170);
+  });
+
+  it("does not lose the sweep's work when the budget repair throws", async () => {
+    const kv = kvMock();
+    put(kv, "dt:SPY:p", pendingMirror({ entry_placed_at: NOW - PENDING_ENTRY_STALE_MS - 1 }), { pe: 1 });
+    await commitRisk({ KV_TIMED: kv }, OP, "dt:SPY:ghost", { usd: 170, now: NOW });
+    const realPut = kv.put;
+    kv.put = async (k, v, o) => {
+      if (k.startsWith("timed:options:auto-mirror:risk:")) throw new Error("kv down");
+      return realPut(k, v, o);
+    };
+    const r = await runPendingIndexDtReconcileLoop({ KV_TIMED: kv }, OP, harness());
+    expect(r.reason).toBe("settled");
+    expect(r.budget).toBe(null);
+    expect(r.passes).toBe(1);
+  });
+});
+
+describe("acquireReconcileLease", () => {
+  it("takes a free lease and records when it expires", async () => {
+    const kv = kvMock();
+    const r = await acquireReconcileLease({ KV_TIMED: kv }, { now: NOW });
+    expect(r.ok).toBe(true);
+    expect(JSON.parse(kv.store.get(DT_RECONCILE_LEASE_KEY)).until).toBe(NOW + DT_RECONCILE_LEASE_MS);
+  });
+
+  it("refuses while someone else's lease is live", async () => {
+    const kv = kvMock();
+    await acquireReconcileLease({ KV_TIMED: kv }, { now: NOW });
+    const r = await acquireReconcileLease({ KV_TIMED: kv }, { now: NOW + 1000 });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("lease_held");
+  });
+
+  it("cannot wedge the lane — an expired lease is takeable", async () => {
+    const kv = kvMock();
+    await acquireReconcileLease({ KV_TIMED: kv }, { now: NOW });
+    const r = await acquireReconcileLease({ KV_TIMED: kv }, { now: NOW + DT_RECONCILE_LEASE_MS + 1 });
+    expect(r.ok).toBe(true);
+  });
+
+  it("reconciles anyway when the lease itself is unreadable", async () => {
+    // Failing closed here would stop reconciliation, which is the failure
+    // the lane exists to prevent. The lease is an optimisation.
+    const kv = kvMock();
+    kv.get = async () => { throw new Error("kv down"); };
+    expect((await acquireReconcileLease({ KV_TIMED: kv }, { now: NOW })).ok).toBe(true);
+    const corrupt = kvMock({ [DT_RECONCILE_LEASE_KEY]: "{not json" });
+    expect((await acquireReconcileLease({ KV_TIMED: corrupt }, { now: NOW })).ok).toBe(true);
+  });
+
+  it("does not gate when there is no KV at all", async () => {
+    expect((await acquireReconcileLease({}, { now: NOW })).ok).toBe(true);
+  });
 });
 
 describe("no count caps on the day-trade lane, one loss limit instead", () => {
   const SIG = "dt:SPY:2026-09-23:2026-09-24:P:768";
-  const today = new Date().toISOString().slice(0, 10);
+  const today = tradingDayOf(Date.now());
 
   const prefsWith = (over = {}) => JSON.stringify({
     enabled: true,

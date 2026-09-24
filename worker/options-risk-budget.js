@@ -82,7 +82,19 @@ export const DEFAULT_STOP_FRACTION = 0.5;
 export const RISK_STATE_KEY = (userEmail, date) =>
   `timed:options:auto-mirror:risk:${String(userEmail || "").toLowerCase()}:${date}`;
 
-const dayOf = (now) => new Date(Number(now) || Date.now()).toISOString().slice(0, 10);
+/**
+ * The budget's day is the NEW YORK trading date, not the UTC one.
+ *
+ * A UTC key rolls at 20:00 ET (19:00 in winter), which is inside the window
+ * where the evening reconcile is still settling the session: a loss realised
+ * at 20:05 ET would have landed on tomorrow's budget, and an overnight hold's
+ * open risk would have vanished from the ledger entirely. Signal ids, the
+ * paper books and mirror coverage are all keyed on the NY date already.
+ */
+export const tradingDayOf = (now) => new Date(Number(now) || Date.now())
+  .toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+
+const dayOf = tradingDayOf;
 
 const num = (v) => {
   const n = Number(v);
@@ -252,6 +264,103 @@ export async function settleRisk(env, userEmail, signalId, { realizedUsd = 0, re
   state.open = open;
   state.realized_pnl_usd = num(state.realized_pnl_usd) + num(realizedUsd);
   return saveRiskState(env, userEmail, state, now);
+}
+
+/**
+ * Rebuild open risk from the broker mirror records, which are the ground
+ * truth for what is actually held.
+ *
+ * WHY THIS EXISTS. Commit and release are each idempotent, but idempotency
+ * only protects an operation that RUNS. A release that never runs — the
+ * isolate died between clearing the mirror and refunding the budget, or KV
+ * threw and the call site swallowed it to fail restrictive — leaves the day
+ * paying for a position that does not exist, forever. That is the same shape
+ * as the counter this module replaced: a ledger with a one-way failure mode.
+ * A ledger that cannot be rebuilt from ground truth will eventually be wrong.
+ *
+ * WHAT IT WILL AND WILL NOT DO. It only ever acts where the answer is
+ * unambiguous in BOTH directions:
+ *
+ *   - no mirror at all, or a mirror that says the order never became a
+ *     position -> nothing was ever owned, so no P&L is possible and the
+ *     charge is pure waste. Dropped. This is the 2026-09-23 wedge.
+ *   - held, with a contract count -> re-price the charge off what is
+ *     actually held, so a trim the settle path missed stops overcharging.
+ *   - held once, now flat -> a close happened, and from here it cannot tell
+ *     whether `settleRisk` already booked the P&L. Dropping it would risk
+ *     erasing a realised loss and loosening the budget, so it is LEFT ALONE
+ *     and counted as drift. It clears at the day roll, and persistent drift
+ *     is worth a page rather than a silent guess.
+ *
+ * `loadMirror` is injected so this stays a leaf module. `limitUsd` is only
+ * used to report the post-repair snapshot, which is what the cron pages on.
+ */
+export async function reconcileRiskBudget(env, userEmail, {
+  loadMirror,
+  now = Date.now(),
+  limitUsd = 0,
+  stopFraction = DEFAULT_STOP_FRACTION,
+} = {}) {
+  const empty = {
+    checked: 0, freed: 0, repriced: 0, freedUsd: 0, drift: 0, driftSignals: [], snapshot: null,
+  };
+  if (!env?.KV_TIMED || !userEmail || typeof loadMirror !== "function") return empty;
+
+  const state = await loadRiskState(env, userEmail, now);
+  const openIds = Object.keys(state.open || {});
+  // Still report the snapshot with nothing open: a budget exhausted purely by
+  // realised losses is the case the desk most needs to hear about.
+  if (!openIds.length) return { ...empty, snapshot: riskBudgetSnapshot(state, limitUsd) };
+
+  const next = { ...state.open };
+  const out = { ...empty, checked: openIds.length, driftSignals: [] };
+
+  for (const signalId of openIds) {
+    let mirror = null;
+    try {
+      mirror = await loadMirror(env, signalId);
+    } catch (_) {
+      continue; // cannot read ground truth — leave the charge in place
+    }
+
+    const held = Math.max(0, Math.round(num(mirror?.contracts_remaining)));
+    const working = mirror?.entry_pending === true;
+    const everOwned = mirror?.entry_fired === true || mirror?.entry_placed === true;
+
+    if (working) continue; // a live order is real exposure
+
+    if (!mirror || !everOwned) {
+      out.freedUsd += Math.max(0, num(next[signalId]?.usd));
+      out.freed++;
+      delete next[signalId];
+      continue;
+    }
+
+    if (held > 0) {
+      const basis = num(mirror?.entry_premium);
+      const frac = Number(mirror?.entry_stop_fraction) || stopFraction;
+      const trueUsd = optionStopRiskUsd(basis, held, { stopFraction: frac });
+      const charged = num(next[signalId]?.usd);
+      if (trueUsd > 0 && Math.abs(trueUsd - charged) >= 0.5) {
+        out.freedUsd += charged - trueUsd;
+        out.repriced++;
+        next[signalId] = { ...next[signalId], usd: trueUsd, ts: now };
+      }
+      continue;
+    }
+
+    // Owned, now flat, and this function cannot prove the P&L was booked.
+    out.drift++;
+    if (out.driftSignals.length < 8) out.driftSignals.push(signalId);
+  }
+
+  if (out.freed || out.repriced) {
+    state.open = next;
+    await saveRiskState(env, userEmail, state, now);
+  }
+  out.freedUsd = Math.round(out.freedUsd * 100) / 100;
+  out.snapshot = riskBudgetSnapshot(state, limitUsd);
+  return out;
 }
 
 /**

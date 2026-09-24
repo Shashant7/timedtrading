@@ -43,6 +43,7 @@ import {
   optionDebitUsd,
   optionStopRiskUsd,
   stopFractionFromPct,
+  reconcileRiskBudget,
 } from "./options-risk-budget.js";
 
 const PREF_KEY = (userEmail) => `timed:options:auto-mirror:${String(userEmail || "").toLowerCase()}`;
@@ -1148,6 +1149,42 @@ export async function sweepPendingIndexDtEntries(env, operatorEmail, {
 /** Per-isolate guard so two cron ticks cannot run overlapping loops. */
 let _dtReconcileLoopBusy = false;
 
+export const DT_RECONCILE_LEASE_KEY = "timed:opt-dt-reconcile:lease";
+export const DT_RECONCILE_LEASE_MS = 55_000;
+
+/**
+ * Cross-isolate guard. The every-minute and every-five-minute crons are
+ * separate expressions, so at minute 0, 5, 10 ... Cloudflare fires TWO
+ * scheduled invocations that may land in different isolates, where the
+ * module-level flag above protects neither from the other. Two loops
+ * polling every five seconds doubles the load on a broker LIST endpoint,
+ * and getting rate-limited there stops reconciliation — the exact failure
+ * this lane exists to prevent.
+ *
+ * KV has no compare-and-set, so this is best-effort: two isolates reading
+ * the same empty lease in the same instant can both take it. It collapses
+ * the routine every-five-minutes overlap, which is the case that actually
+ * happens, and it cannot wedge — the lease expires on its own.
+ */
+export async function acquireReconcileLease(env, { now = Date.now(), ttlMs = DT_RECONCILE_LEASE_MS } = {}) {
+  if (!env?.KV_TIMED) return { ok: true, reason: "no_kv" };
+  try {
+    const raw = await env.KV_TIMED.get(DT_RECONCILE_LEASE_KEY);
+    if (raw) {
+      const until = Number(JSON.parse(raw)?.until) || 0;
+      if (until > now) return { ok: false, reason: "lease_held", until };
+    }
+  } catch (_) { /* unreadable lease is not a reason to stop reconciling */ }
+  try {
+    await env.KV_TIMED.put(
+      DT_RECONCILE_LEASE_KEY,
+      JSON.stringify({ until: now + ttlMs, ts: now }),
+      { expirationTtl: 60 },
+    );
+  } catch (_) { /* best-effort */ }
+  return { ok: true, reason: "acquired" };
+}
+
 // Two cadences, because the two situations are different. A marketable
 // limit either fills within seconds or it is not going to, so the first
 // minute of an order's life is worth asking about constantly. After that a
@@ -1185,15 +1222,22 @@ export async function runPendingIndexDtReconcileLoop(env, operatorEmail, {
   staleMs = PENDING_ENTRY_STALE_MS,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   clock = () => Date.now(),
+  lease = acquireReconcileLease,
 } = {}) {
-  if (!env?.KV_TIMED || !operatorEmail) return { passes: 0, watched: 0, resolved: [], reason: "not_configured" };
-  if (_dtReconcileLoopBusy) return { passes: 0, watched: 0, resolved: [], reason: "already_running" };
+  const idle = (reason) => ({ passes: 0, watched: 0, resolved: [], budget: null, reason });
+  if (!env?.KV_TIMED || !operatorEmail) return idle("not_configured");
+  if (_dtReconcileLoopBusy) return idle("already_running");
   _dtReconcileLoopBusy = true;
   const started = clock();
   const resolved = [];
   let passes = 0;
   let watched = 0;
+  let budget = null;
+  let reason = "settled";
   try {
+    const held = await lease(env, { now: started });
+    if (!held?.ok) return idle("lease_held");
+
     for (;;) {
       passes++;
       const r = await sweepPendingIndexDtEntries(env, operatorEmail, { now: clock(), staleMs });
@@ -1201,13 +1245,26 @@ export async function runPendingIndexDtReconcileLoop(env, operatorEmail, {
       watched = Math.max(watched, r.checked || 0);
       // Nothing pending, or nothing that could still fill in the next few
       // seconds. Either way another poll now buys nothing.
-      if (!r.checked || !r.fresh) return { passes, watched, resolved, reason: "settled" };
+      if (!r.checked || !r.fresh) break;
       const tickMs = r.youngestMs < fastWindowMs ? fastTickMs : slowTickMs;
-      if ((clock() - started) + tickMs >= budgetMs) {
-        return { passes, watched, resolved, reason: "budget_exhausted" };
-      }
+      if ((clock() - started) + tickMs >= budgetMs) { reason = "budget_exhausted"; break; }
       await sleep(tickMs);
     }
+
+    // Ground-truth pass. The sweep above fixes mirrors that disagree with the
+    // broker; this fixes the budget when it disagrees with the mirrors. Doing
+    // it last means it sees the refunds the sweep just made, and doing it
+    // every tick means no release can be lost for longer than a minute.
+    try {
+      const prefs = await loadAutoMirrorPrefs(env, operatorEmail);
+      budget = await reconcileRiskBudget(env, operatorEmail, {
+        loadMirror: loadIndexDtMirror,
+        now: clock(),
+        limitUsd: dailyLossLimitFor(prefs),
+      });
+    } catch (_) { /* a budget repair that throws must not lose the sweep's work */ }
+
+    return { passes, watched, resolved, budget, reason };
   } finally {
     _dtReconcileLoopBusy = false;
   }
