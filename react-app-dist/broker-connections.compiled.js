@@ -1759,18 +1759,37 @@ function AccountCard({
     }, next ? "Index Swings enabled" : "Index Swings paused");
   };
   return React.createElement("div", {
-    className: "bc-acct-row"
+    className: `bc-acct-card${enabled ? "" : " is-off"}`
+  }, React.createElement("div", {
+    className: "bc-acct-head"
   }, React.createElement("div", null, React.createElement("div", {
     className: "bc-acct-name"
   }, acct.webull_account_label || acct.webull_account_class || "Account"), React.createElement("div", {
-    className: "mono dim bc-acct-id"
+    className: "mono bc-acct-id"
   }, (acct.broker || "webull").toUpperCase(), acct.webull_account_id ? ` · ${acct.webull_account_id}` : "")), React.createElement("div", {
-    className: "bc-acct-switch"
+    className: "bc-acct-pills"
   }, React.createElement("span", {
     className: `bc-pill ${enabled ? "p-ok" : "p-off"}`
   }, React.createElement("span", {
     className: "dot"
-  }), enabled ? "MIRROR ON" : "MIRROR OFF"), React.createElement("button", {
+  }), enabled ? "MIRROR" : "PAUSED"), React.createElement("span", {
+    className: `bc-pill ${optionsOn ? "p-mint" : "p-off"}`
+  }, optionsOn ? "OPTIONS" : "OPTIONS OFF"), React.createElement("span", {
+    className: `bc-pill ${letfOn ? "p-mint" : "p-off"}`
+  }, letfOn ? "LETF" : "LETF OFF"), optionsOn && React.createElement("span", {
+    className: "bc-pill p-info",
+    title: "Options daily loss limit"
+  }, "$", dailyLoss.toLocaleString(), "/day"))), React.createElement("div", {
+    className: "bc-lane-grid"
+  }, React.createElement("div", {
+    className: "bc-lane"
+  }, React.createElement("div", {
+    className: "bc-lane-meta"
+  }, React.createElement("div", {
+    className: "bc-lane-label"
+  }, "Equity mirror"), React.createElement("div", {
+    className: `bc-lane-state${enabled ? "" : " off"}`
+  }, enabled ? "Placing model orders" : "Paused")), React.createElement("button", {
     className: "toggle",
     disabled: busy,
     title: enabled ? "Pause mirroring for this account" : "Enable mirroring for this account",
@@ -1791,12 +1810,14 @@ function AccountCard({
       left: enabled ? 22 : 3
     }
   }))), React.createElement("div", {
-    className: "bc-acct-switch"
-  }, React.createElement("span", {
-    className: `bc-pill ${optionsOn ? "p-mint" : "p-off"}`
-  }, React.createElement("span", {
-    className: "dot"
-  }), optionsOn ? "OPTIONS ON" : "OPTIONS OFF"), React.createElement("button", {
+    className: "bc-lane"
+  }, React.createElement("div", {
+    className: "bc-lane-meta"
+  }, React.createElement("div", {
+    className: "bc-lane-label"
+  }, "Options"), React.createElement("div", {
+    className: `bc-lane-state${optionsOn ? "" : " off"}`
+  }, optionsOn ? [callOn && "Call", putOn && "Put"].filter(Boolean).join(" · ") || "On" : enabled ? "Off" : "Needs mirror")), React.createElement("button", {
     className: "toggle",
     disabled: busy || !enabled,
     title: enabled ? optionsOn ? "Disable options strategies" : "Enable options strategies" : "Turn on equity mirroring first",
@@ -1810,12 +1831,16 @@ function AccountCard({
       left: optionsOn ? 22 : 3
     }
   }))), React.createElement("div", {
-    className: "bc-acct-switch"
-  }, React.createElement("span", {
-    className: `bc-pill ${letfOn ? "p-mint" : "p-off"}`
-  }, React.createElement("span", {
-    className: "dot"
-  }), letfOn ? "LETF ON" : "LETF OFF"), React.createElement("button", {
+    className: "bc-lane"
+  }, React.createElement("div", {
+    className: "bc-lane-meta"
+  }, React.createElement("div", {
+    className: "bc-lane-label"
+  }, "Index Swings"), React.createElement("div", {
+    className: `bc-lane-state${letfOn ? "" : " off"}`
+  }, letfOn ? "LETF shares" : enabled ? "Off" : "Needs mirror"), React.createElement("div", {
+    className: "bc-lane-hint"
+  }, "SPYU / SPXU \xB7 not 0/1 DTE")), React.createElement("button", {
     className: "toggle",
     disabled: busy || !enabled,
     title: enabled ? letfOn ? "Disable Index Swings (SPYU/SPXU)" : "Enable Index Swings (SPYU/SPXU)" : "Turn on equity mirroring first",
@@ -1828,7 +1853,11 @@ function AccountCard({
     style: {
       left: letfOn ? 22 : 3
     }
-  }))), optionsOn && React.createElement("div", {
+  })))), optionsOn && React.createElement("div", {
+    className: "bc-acct-detail"
+  }, React.createElement("div", {
+    className: "bc-acct-detail-label"
+  }, "Options detail"), React.createElement("div", {
     className: "bc-acct-vehicles"
   }, React.createElement("button", {
     className: `bc-btn bc-btn-sm ${callOn ? "bc-btn-primary" : ""}`,
@@ -1865,23 +1894,14 @@ function AccountCard({
       });
     }
   }, "Long put ", putOn ? "on" : "off"), React.createElement("button", {
-    className: "bc-btn bc-btn-sm",
+    className: "bc-btn bc-btn-sm bc-day-stop",
     disabled: busy,
     title: "Dollar day-stop for options on this account (default $500)",
     onClick: setDailyLossLimit
-  }, "Loss limit $", dailyLoss.toLocaleString(), "/day")), letfOn && React.createElement("div", {
-    className: "bc-acct-vehicles"
-  }, React.createElement("span", {
-    className: `bc-btn bc-btn-sm bc-btn-primary`,
-    style: {
-      cursor: "default",
-      opacity: 0.95
-    },
-    title: "Index Swings \u2014 SPYU/SPXU share expression on the trend book"
-  }, "Index swings on")), msg && React.createElement("div", {
+  }, "Day stop $", dailyLoss.toLocaleString()))), msg && React.createElement("div", {
     className: msg.ok ? "msg-ok" : "msg-err",
     style: {
-      gridColumn: "1 / -1"
+      marginTop: 8
     }
   }, msg.text));
 }
@@ -3217,11 +3237,7 @@ function BrokerConnectionsApp({
     className: "dot"
   }), marketOpen ? "MARKET OPEN" : "MARKET CLOSED"), hasAny && React.createElement("span", {
     className: `bc-pill ${anyEnabled ? "p-mint" : "p-off"}`
-  }, anyEnabled ? "MIRROR ACTIVE" : "MIRROR PAUSED"), hasAny && React.createElement("span", {
-    className: `bc-pill ${anyOptions ? "p-mint" : "p-off"}`
-  }, anyOptions ? "OPTIONS ON" : "OPTIONS OFF"), hasAny && React.createElement("span", {
-    className: `bc-pill ${anyLetf ? "p-mint" : "p-off"}`
-  }, anyLetf ? "LETF ON" : "LETF OFF"))), err && React.createElement("div", {
+  }, anyEnabled ? "MIRROR ACTIVE" : "MIRROR PAUSED"))), err && React.createElement("div", {
     className: "tt-card tt-card-pad",
     style: {
       borderColor: "rgba(245,158,11,0.35)",
@@ -3254,7 +3270,19 @@ function BrokerConnectionsApp({
       marginTop: 4,
       maxWidth: 720
     }
-  }, "Equity mirror, options strategies, and Index Swings (LETF shares) are separate toggles per account. Options use a dollar daily loss limit (default $500, configurable per account) \u2014 there is no daily order-count cap."), React.createElement(FractionalSharesTip, null)), anyEnabled && React.createElement("button", {
+  }, "Three lanes per account: ", React.createElement("b", {
+    style: {
+      color: "var(--tt-text-1)"
+    }
+  }, "Equity mirror"), ", ", React.createElement("b", {
+    style: {
+      color: "var(--tt-text-1)"
+    }
+  }, "Options"), " (day-trade calls/puts + dollar day stop), and ", React.createElement("b", {
+    style: {
+      color: "var(--tt-text-1)"
+    }
+  }, "Index Swings"), " (LETF shares)."), React.createElement(FractionalSharesTip, null)), anyEnabled && React.createElement("button", {
     className: "bc-btn bc-btn-sm bc-pause-all",
     disabled: busy,
     style: {
@@ -3272,7 +3300,9 @@ function BrokerConnectionsApp({
         setBusy(false);
       }
     }
-  }, "Pause all mirroring")), webullAccounts.map(acct => React.createElement(AccountCard, {
+  }, "Pause all mirroring")), React.createElement("div", {
+    className: "bc-acct-list"
+  }, webullAccounts.map(acct => React.createElement(AccountCard, {
     key: acct.user_id,
     acct: acct,
     onChanged: refresh
@@ -3280,7 +3310,7 @@ function BrokerConnectionsApp({
     key: acct.user_id,
     acct: acct,
     onChanged: refresh
-  }))), accounts !== null && hasAny && React.createElement("div", {
+  })))), accounts !== null && hasAny && React.createElement("div", {
     className: "kpi-strip fade-in"
   }, React.createElement("div", {
     className: "kpi"
@@ -3410,6 +3440,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1790219867358:639118181
+// cache-bust:1790220688092:59791722
 
-// cache-bust:1790219867358:639118181
+// cache-bust:1790220688092:59791722

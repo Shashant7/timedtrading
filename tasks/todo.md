@@ -21,6 +21,13 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+### Active
+## Active — Broker UI scan refine (2026-09-24)
+
+- [ ] Broker Connections: account cards with labeled lanes + nested options detail
+- [ ] Mission Control Bridge: face-level options summary; Global Auto-Mirror near KPIs; clearer collapse titles
+- [ ] Build frontend + visual QA artifacts
+
 ## Active — Options account prefs alignment (2026-09-24)
 
 - [x] Bridge `options_prefs.daily_loss_limit_usd` (default $500) on POST /bridge/user/options-prefs

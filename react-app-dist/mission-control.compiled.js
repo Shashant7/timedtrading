@@ -1511,7 +1511,7 @@ function VehicleTogglesCard({
   const isPartnerCash = /individual-cash/i.test(uid) && !/shashant@gmail\.com/i.test(uid);
   return React.createElement(McCollapse, {
     id: `bridge-vehicle-prefs-${user?.user_id || "unknown"}`,
-    title: "Options auto-mirror (per vehicle)",
+    title: "Options vehicles & day stop",
     sub: collapseSub,
     defaultOpen: false
   }, React.createElement("div", {
@@ -2007,12 +2007,255 @@ function BridgeSection({
   }, recent.length), React.createElement("div", {
     className: "mc-kpi-sub"
   }, "main \u2192 bridge"))), React.createElement("div", {
+    className: "mc-bridge-block-label",
+    style: {
+      marginTop: 4
+    }
+  }, "Options pipeline"), React.createElement("div", {
+    className: "mc-bridge-block-hint"
+  }, "Operator master switch \u2014 when OFF, no option orders place even if an account below has vehicles enabled."), autoMirror?.prefs && React.createElement(McCollapse, {
+    id: "bridge-options-global",
+    title: "Options pipeline (operator master)",
+    sub: autoMirror.prefs.enabled ? "ENABLED" : "OFF",
+    defaultOpen: false
+  }, (() => {
+    const prefs = autoMirror.prefs;
+    const todayCount = Number(autoMirror.today_count) || 0;
+    const remaining = Number(autoMirror.today_remaining) || 0;
+    const lossBudget = autoMirror.loss_budget || null;
+    const dailyLossLimit = Number(prefs.daily_loss_limit_usd);
+    const dailyLossDisplay = Number.isFinite(dailyLossLimit) ? dailyLossLimit : 500;
+    const equity = Number(portfolio?.users?.[0]?.equity_usd) || 0;
+    const suggestedNotional = equity > 0 ? Math.max(50, Math.round(equity * 0.15 / 50) * 50) : prefs.max_notional_per_order_usd;
+    const suggestedDailyLoss = 500;
+    const isSmallAccount = equity > 0 && equity < 5000;
+    const oversized = isSmallAccount && Number(prefs.max_notional_per_order_usd) > equity * 0.3;
+    const saveAutoMirror = async (patch, confirmMsg) => {
+      if (busy) return;
+      if (confirmMsg && !confirm(confirmMsg)) return;
+      setBusy(true);
+      try {
+        const r = await fetch(`${apiBase}/timed/options/auto-mirror`, {
+          method: "PUT",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            ...prefs,
+            ...patch
+          })
+        });
+        const j = await r.json().catch(() => null);
+        if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+        refresh();
+      } catch (e) {
+        alert(`Update threw: ${String(e?.message || e)}`);
+      } finally {
+        setBusy(false);
+      }
+    };
+    return React.createElement("div", {
+      className: "mb-4",
+      style: {
+        padding: 10,
+        background: "rgba(245,194,92,0.04)",
+        border: "1px solid rgba(245,194,92,0.18)",
+        borderRadius: 8
+      }
+    }, React.createElement("div", {
+      className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
+    }, "Options Auto-Mirror", React.createElement("span", {
+      className: `mc-pill ml-2 ${prefs.enabled ? "mc-pill-ok" : "mc-pill-warn"}`,
+      style: {
+        fontSize: 9
+      }
+    }, prefs.enabled ? "ENABLED" : "OFF"), oversized && React.createElement("span", {
+      className: "mc-pill mc-pill-warn ml-1",
+      style: {
+        fontSize: 9
+      }
+    }, "CAPS OVERSIZED")), React.createElement("div", {
+      className: "text-[12px] text-[#d1d5db] mb-3",
+      style: {
+        lineHeight: 1.5
+      }
+    }, "Master switch for the operator mirror pipeline (index day-trade, index trend LETF, swing options). When OFF, the worker records mirror decisions but does not place orders \u2014 even if per-account vehicles below are enabled. Turn ON here, then enable vehicles per connected account above. The day-trade lane is governed by the daily loss limit (dollars), not order-count caps."), React.createElement("div", {
+      className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"
+    }, React.createElement("div", {
+      className: "mc-kpi"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Daily loss limit"), React.createElement("div", {
+      className: "mc-kpi-value text-[15px]"
+    }, "$", dailyLossDisplay.toLocaleString()), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, dailyLossDisplay === 0 ? "off" : "NY session stop")), React.createElement("div", {
+      className: "mc-kpi"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Loss budget left"), React.createElement("div", {
+      className: "mc-kpi-value text-[15px]"
+    }, lossBudget ? `$${Math.round(Number(lossBudget.remaining_usd) || 0).toLocaleString()}` : "—"), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, "of today's limit")), React.createElement("div", {
+      className: "mc-kpi"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Max Notional"), React.createElement("div", {
+      className: "mc-kpi-value text-[15px]"
+    }, "$", Number(prefs.max_notional_per_order_usd || 0).toLocaleString()), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, "per order (sizing)")), React.createElement("div", {
+      className: "mc-kpi"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Modes / Archetypes"), React.createElement("div", {
+      className: "mc-kpi-value text-[12px] font-mono"
+    }, (prefs.modes_allowed || []).join(",") || "—"), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, (prefs.archetypes_allowed || []).length, " archetypes \xB7 trader count ", todayCount, "/", prefs.daily_cap || 0))), React.createElement("div", {
+      className: "flex items-center gap-2 mb-2 flex-wrap"
+    }, React.createElement("button", {
+      disabled: busy,
+      onClick: () => saveAutoMirror({
+        enabled: !prefs.enabled
+      }, prefs.enabled ? "Disable options auto-mirror? Already-open options trades are not affected; future model entries will only generate suggestions." : `Enable options auto-mirror?\n\nThe model's Trader entries will auto-place via the broker bridge.\nDay-trade lane: $${dailyLossDisplay}/day loss limit · max $${Number(prefs.max_notional_per_order_usd).toLocaleString()}/order notional`),
+      style: {
+        padding: "4px 12px",
+        fontSize: 11,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: prefs.enabled ? "rgba(248,113,113,0.12)" : "rgba(34,197,94,0.12)",
+        color: prefs.enabled ? "#f87171" : "#22c55e",
+        border: `1px solid ${prefs.enabled ? "rgba(248,113,113,0.34)" : "rgba(34,197,94,0.34)"}`
+      }
+    }, prefs.enabled ? "Disable auto-mirror" : "Enable auto-mirror"), React.createElement("button", {
+      disabled: busy,
+      onClick: () => {
+        const v = prompt(`Daily loss limit (USD)\n\nCurrent: $${dailyLossDisplay}\nDefault: $${suggestedDailyLoss}\n0 = disable the gate`, String(dailyLossDisplay));
+        if (v == null) return;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0 || n > 1_000_000) {
+          alert("Must be 0–1000000");
+          return;
+        }
+        saveAutoMirror({
+          daily_loss_limit_usd: Math.round(n)
+        });
+      },
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(34,197,94,0.12)",
+        color: "#22c55e",
+        border: "1px solid rgba(34,197,94,0.34)"
+      }
+    }, "Edit daily loss limit"), React.createElement("button", {
+      disabled: busy,
+      onClick: () => {
+        const v = prompt(`Max notional per order (USD)\n\nCurrent: $${prefs.max_notional_per_order_usd}\nSmall-account suggestion (15% of $${Math.round(equity).toLocaleString()}): $${suggestedNotional}`, String(prefs.max_notional_per_order_usd || 0));
+        if (v == null) return;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) {
+          alert("Must be a positive number");
+          return;
+        }
+        saveAutoMirror({
+          max_notional_per_order_usd: n
+        });
+      },
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(103,232,249,0.10)",
+        color: "#67e8f9",
+        border: "1px solid rgba(103,232,249,0.28)"
+      }
+    }, "Edit max notional"), React.createElement("button", {
+      disabled: busy,
+      onClick: () => {
+        const ALL_MODES = ["RIDE", "READY", "DRIFT", "FADE"];
+        const current = (prefs.modes_allowed || []).join(", ");
+        const v = prompt(`Modes allowed (comma-separated)\n\n` + `Available: ${ALL_MODES.join(", ")}\n` + `Current: ${current || "none"}\n\n` + `RIDE  — model has highest conviction (best signals aligned)\n` + `READY — leaning toward trigger but waiting for confirmation\n` + `DRIFT — chop, moderate confidence\n` + `FADE  — counter-trend (use with caution)\n\n` + `Default: RIDE only (most conservative)`, current || "RIDE");
+        if (v == null) return;
+        const parsed = String(v).split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+        const invalid = parsed.filter(m => !ALL_MODES.includes(m));
+        if (invalid.length > 0) {
+          alert(`Unknown mode(s): ${invalid.join(", ")}. Allowed: ${ALL_MODES.join(", ")}`);
+          return;
+        }
+        saveAutoMirror({
+          modes_allowed: parsed
+        });
+      },
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(167,139,250,0.10)",
+        color: "#a78bfa",
+        border: "1px solid rgba(167,139,250,0.30)"
+      }
+    }, "Edit modes"), React.createElement("button", {
+      disabled: busy,
+      onClick: () => {
+        const ALL_ARCHETYPES = ["long_call", "long_put", "vertical_spread", "leap_call", "leap_put", "cash_secured_put", "covered_call", "moonshot_call", "moonshot_put", "long_straddle", "long_strangle", "iron_condor"];
+        const current = (prefs.archetypes_allowed || []).join(", ");
+        const v = prompt(`Archetypes allowed (comma-separated)\n\n` + `Available:\n  ${ALL_ARCHETYPES.join("\n  ")}\n\n` + `Current: ${current || "none"}\n\n` + `Default: long_call, long_put, vertical_spread\n` + `(naked shorts are blocked at the engine level)`, current || "long_call, long_put, vertical_spread");
+        if (v == null) return;
+        const parsed = String(v).split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+        const invalid = parsed.filter(a => !ALL_ARCHETYPES.includes(a));
+        if (invalid.length > 0) {
+          alert(`Unknown archetype(s): ${invalid.join(", ")}.\n\nAllowed: ${ALL_ARCHETYPES.join(", ")}`);
+          return;
+        }
+        saveAutoMirror({
+          archetypes_allowed: parsed
+        });
+      },
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(167,139,250,0.10)",
+        color: "#a78bfa",
+        border: "1px solid rgba(167,139,250,0.30)"
+      }
+    }, "Edit archetypes"), isSmallAccount && oversized && React.createElement("button", {
+      disabled: busy,
+      onClick: () => saveAutoMirror({
+        max_notional_per_order_usd: suggestedNotional,
+        daily_loss_limit_usd: suggestedDailyLoss
+      }, `Apply small-account defaults for options?\n\nEquity: $${Math.round(equity).toLocaleString()}\n\nNew caps:\n  • Max notional: $${suggestedNotional}/order (~15% of equity)\n  • Daily loss limit: $${suggestedDailyLoss}`),
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(251,191,36,0.10)",
+        color: "#fbbf24",
+        border: "1px solid rgba(251,191,36,0.28)"
+      }
+    }, "Apply small-account defaults")), isSmallAccount && oversized && React.createElement("div", {
+      className: "text-[11px] text-amber-300 italic"
+    }, "Current options notional is oversized for a $", Math.round(equity).toLocaleString(), " account. Tap ", React.createElement("strong", null, "Apply small-account defaults"), " to bring max notional and the daily loss limit in line."));
+  })()), React.createElement("div", {
     className: "flex items-baseline justify-between gap-2 flex-wrap mb-3"
   }, React.createElement("div", null, React.createElement("div", {
-    className: "text-[11px] mc-mute uppercase tracking-wider font-semibold"
-  }, "Connected Broker Accounts"), React.createElement("div", {
-    className: "text-[10px] mc-mute mt-0.5"
-  }, "Account summary and positions shown first \u2014 expand a card for trading limits and options prefs.")), React.createElement("button", {
+    className: "mc-bridge-block-label",
+    style: {
+      marginTop: 0
+    }
+  }, "Connected accounts"), React.createElement("div", {
+    className: "mc-bridge-block-hint"
+  }, "Face shows equity / options / LETF at a glance. Expand for live-trading toggle, equity caps, and per-vehicle options prefs.")), React.createElement("button", {
     disabled: busy || loading,
     className: "mc-btn",
     style: {
@@ -2038,7 +2281,13 @@ function BridgeSection({
     const suggestedPerDay = 3;
     const acctTitle = u.webull_account_label || u.webull_account_type || brokerLabel(u);
     const acctIdShort = u.account_id ? String(u.account_id).slice(-8) : null;
-    const settingsSub = `${enabled ? "LIVE" : "OFF"} · $${Number(caps.max_per_order_usd || 5000).toLocaleString()}/order · ${Number(caps.max_orders_per_day || 3)}/day`;
+    const optionsOn = !!(userRow.options_enabled || userRow.options_prefs?.vehicles?.long_call?.enabled || userRow.options_prefs?.vehicles?.long_put?.enabled);
+    const letfOn = !!userRow.options_prefs?.vehicles?.index_trend_letf?.enabled;
+    const callOn = !!userRow.options_prefs?.vehicles?.long_call?.enabled;
+    const putOn = !!userRow.options_prefs?.vehicles?.long_put?.enabled;
+    const dailyLossRaw = userRow.options_prefs?.daily_loss_limit_usd;
+    const dailyLoss = dailyLossRaw === 0 ? 0 : Number.isFinite(Number(dailyLossRaw)) && Number(dailyLossRaw) >= 0 ? Math.round(Number(dailyLossRaw)) : 500;
+    const settingsSub = enabled ? `LIVE · equity mirror on` : `OFF · no new orders`;
     const positionsMktTotal = positions.reduce((sum, p) => {
       const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
       return sum + (Number.isFinite(mkt) ? mkt : 0);
@@ -2078,7 +2327,32 @@ function BridgeSection({
       style: {
         fontSize: 9
       }
-    }, "no balance"))), ok ? React.createElement("div", {
+    }, "no balance"))), React.createElement("div", {
+      className: "mc-bridge-lanes"
+    }, React.createElement("span", {
+      className: `mc-pill ${enabled ? "mc-pill-ok" : "mc-pill-warn"}`,
+      style: {
+        fontSize: 9
+      }
+    }, "Equity ", enabled ? "on" : "off"), React.createElement("span", {
+      className: `mc-pill ${optionsOn ? "mc-pill-ok" : "mc-pill-warn"}`,
+      style: {
+        fontSize: 9
+      }
+    }, "Options ", optionsOn ? "on" : "off", optionsOn ? ` · ${[callOn && "C", putOn && "P"].filter(Boolean).join("/") || "—"}` : ""), React.createElement("span", {
+      className: `mc-pill ${letfOn ? "mc-pill-ok" : "mc-pill-warn"}`,
+      style: {
+        fontSize: 9
+      }
+    }, "LETF ", letfOn ? "on" : "off"), optionsOn && React.createElement("span", {
+      className: "mc-pill",
+      style: {
+        fontSize: 9,
+        background: "rgba(103,232,249,0.10)",
+        color: "#67e8f9",
+        border: "1px solid rgba(103,232,249,0.28)"
+      }
+    }, "$", dailyLoss.toLocaleString(), "/day stop")), ok ? React.createElement("div", {
       className: "mc-bridge-summary"
     }, Number.isFinite(Number(u.equity_usd)) && React.createElement("div", {
       className: "mc-bridge-stat"
@@ -2185,7 +2459,7 @@ function BridgeSection({
       className: "text-[11px] mc-mute italic mb-2"
     }, "No open positions.") : null, React.createElement(McCollapse, {
       id: `bridge-acct-settings-${u.user_id}`,
-      title: "Trading limits & controls",
+      title: "Live trading & equity caps",
       sub: settingsSub,
       defaultOpen: false
     }, React.createElement("div", {
@@ -2459,8 +2733,12 @@ function BridgeSection({
       borderRadius: 8
     }
   }, React.createElement("div", {
-    className: "text-[11px] mc-mute uppercase tracking-wider font-semibold mb-2"
-  }, "Add Connection"), React.createElement("div", {
+    className: "mc-bridge-block-label",
+    style: {
+      marginTop: 0,
+      marginBottom: 8
+    }
+  }, "Add connection"), React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-3 gap-3"
   }, React.createElement("div", {
     style: {
@@ -2551,240 +2829,7 @@ function BridgeSection({
     style: {
       fontSize: 9
     }
-  }, "Coming soon")))), autoMirror?.prefs && React.createElement(McCollapse, {
-    id: "bridge-options-global",
-    title: "Global Options Auto-Mirror (operator)",
-    sub: autoMirror.prefs.enabled ? "ENABLED" : "OFF",
-    defaultOpen: false
-  }, (() => {
-    const prefs = autoMirror.prefs;
-    const todayCount = Number(autoMirror.today_count) || 0;
-    const remaining = Number(autoMirror.today_remaining) || 0;
-    const lossBudget = autoMirror.loss_budget || null;
-    const dailyLossLimit = Number(prefs.daily_loss_limit_usd);
-    const dailyLossDisplay = Number.isFinite(dailyLossLimit) ? dailyLossLimit : 500;
-    const equity = Number(portfolio?.users?.[0]?.equity_usd) || 0;
-    const suggestedNotional = equity > 0 ? Math.max(50, Math.round(equity * 0.15 / 50) * 50) : prefs.max_notional_per_order_usd;
-    const suggestedDailyLoss = 500;
-    const isSmallAccount = equity > 0 && equity < 5000;
-    const oversized = isSmallAccount && Number(prefs.max_notional_per_order_usd) > equity * 0.3;
-    const saveAutoMirror = async (patch, confirmMsg) => {
-      if (busy) return;
-      if (confirmMsg && !confirm(confirmMsg)) return;
-      setBusy(true);
-      try {
-        const r = await fetch(`${apiBase}/timed/options/auto-mirror`, {
-          method: "PUT",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            ...prefs,
-            ...patch
-          })
-        });
-        const j = await r.json().catch(() => null);
-        if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
-        refresh();
-      } catch (e) {
-        alert(`Update threw: ${String(e?.message || e)}`);
-      } finally {
-        setBusy(false);
-      }
-    };
-    return React.createElement("div", {
-      className: "mb-4",
-      style: {
-        padding: 10,
-        background: "rgba(245,194,92,0.04)",
-        border: "1px solid rgba(245,194,92,0.18)",
-        borderRadius: 8
-      }
-    }, React.createElement("div", {
-      className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
-    }, "Options Auto-Mirror", React.createElement("span", {
-      className: `mc-pill ml-2 ${prefs.enabled ? "mc-pill-ok" : "mc-pill-warn"}`,
-      style: {
-        fontSize: 9
-      }
-    }, prefs.enabled ? "ENABLED" : "OFF"), oversized && React.createElement("span", {
-      className: "mc-pill mc-pill-warn ml-1",
-      style: {
-        fontSize: 9
-      }
-    }, "CAPS OVERSIZED")), React.createElement("div", {
-      className: "text-[12px] text-[#d1d5db] mb-3",
-      style: {
-        lineHeight: 1.5
-      }
-    }, "Master switch for the operator mirror pipeline (index day-trade, index trend LETF, swing options). When OFF, the worker records mirror decisions but does not place orders \u2014 even if per-account vehicles below are enabled. Turn ON here, then enable vehicles per connected account above. The day-trade lane is governed by the daily loss limit (dollars), not order-count caps."), React.createElement("div", {
-      className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"
-    }, React.createElement("div", {
-      className: "mc-kpi"
-    }, React.createElement("div", {
-      className: "mc-kpi-label"
-    }, "Daily loss limit"), React.createElement("div", {
-      className: "mc-kpi-value text-[15px]"
-    }, "$", dailyLossDisplay.toLocaleString()), React.createElement("div", {
-      className: "mc-kpi-sub"
-    }, dailyLossDisplay === 0 ? "off" : "NY session stop")), React.createElement("div", {
-      className: "mc-kpi"
-    }, React.createElement("div", {
-      className: "mc-kpi-label"
-    }, "Loss budget left"), React.createElement("div", {
-      className: "mc-kpi-value text-[15px]"
-    }, lossBudget ? `$${Math.round(Number(lossBudget.remaining_usd) || 0).toLocaleString()}` : "—"), React.createElement("div", {
-      className: "mc-kpi-sub"
-    }, "of today's limit")), React.createElement("div", {
-      className: "mc-kpi"
-    }, React.createElement("div", {
-      className: "mc-kpi-label"
-    }, "Max Notional"), React.createElement("div", {
-      className: "mc-kpi-value text-[15px]"
-    }, "$", Number(prefs.max_notional_per_order_usd || 0).toLocaleString()), React.createElement("div", {
-      className: "mc-kpi-sub"
-    }, "per order (sizing)")), React.createElement("div", {
-      className: "mc-kpi"
-    }, React.createElement("div", {
-      className: "mc-kpi-label"
-    }, "Modes / Archetypes"), React.createElement("div", {
-      className: "mc-kpi-value text-[12px] font-mono"
-    }, (prefs.modes_allowed || []).join(",") || "—"), React.createElement("div", {
-      className: "mc-kpi-sub"
-    }, (prefs.archetypes_allowed || []).length, " archetypes \xB7 trader count ", todayCount, "/", prefs.daily_cap || 0))), React.createElement("div", {
-      className: "flex items-center gap-2 mb-2 flex-wrap"
-    }, React.createElement("button", {
-      disabled: busy,
-      onClick: () => saveAutoMirror({
-        enabled: !prefs.enabled
-      }, prefs.enabled ? "Disable options auto-mirror? Already-open options trades are not affected; future model entries will only generate suggestions." : `Enable options auto-mirror?\n\nThe model's Trader entries will auto-place via the broker bridge.\nDay-trade lane: $${dailyLossDisplay}/day loss limit · max $${Number(prefs.max_notional_per_order_usd).toLocaleString()}/order notional`),
-      style: {
-        padding: "4px 12px",
-        fontSize: 11,
-        borderRadius: 6,
-        cursor: busy ? "wait" : "pointer",
-        background: prefs.enabled ? "rgba(248,113,113,0.12)" : "rgba(34,197,94,0.12)",
-        color: prefs.enabled ? "#f87171" : "#22c55e",
-        border: `1px solid ${prefs.enabled ? "rgba(248,113,113,0.34)" : "rgba(34,197,94,0.34)"}`
-      }
-    }, prefs.enabled ? "Disable auto-mirror" : "Enable auto-mirror"), React.createElement("button", {
-      disabled: busy,
-      onClick: () => {
-        const v = prompt(`Daily loss limit (USD)\n\nCurrent: $${dailyLossDisplay}\nDefault: $${suggestedDailyLoss}\n0 = disable the gate`, String(dailyLossDisplay));
-        if (v == null) return;
-        const n = Number(v);
-        if (!Number.isFinite(n) || n < 0 || n > 1_000_000) {
-          alert("Must be 0–1000000");
-          return;
-        }
-        saveAutoMirror({
-          daily_loss_limit_usd: Math.round(n)
-        });
-      },
-      style: {
-        padding: "3px 10px",
-        fontSize: 10,
-        borderRadius: 6,
-        cursor: busy ? "wait" : "pointer",
-        background: "rgba(34,197,94,0.12)",
-        color: "#22c55e",
-        border: "1px solid rgba(34,197,94,0.34)"
-      }
-    }, "Edit daily loss limit"), React.createElement("button", {
-      disabled: busy,
-      onClick: () => {
-        const v = prompt(`Max notional per order (USD)\n\nCurrent: $${prefs.max_notional_per_order_usd}\nSmall-account suggestion (15% of $${Math.round(equity).toLocaleString()}): $${suggestedNotional}`, String(prefs.max_notional_per_order_usd || 0));
-        if (v == null) return;
-        const n = Number(v);
-        if (!Number.isFinite(n) || n <= 0) {
-          alert("Must be a positive number");
-          return;
-        }
-        saveAutoMirror({
-          max_notional_per_order_usd: n
-        });
-      },
-      style: {
-        padding: "3px 10px",
-        fontSize: 10,
-        borderRadius: 6,
-        cursor: busy ? "wait" : "pointer",
-        background: "rgba(103,232,249,0.10)",
-        color: "#67e8f9",
-        border: "1px solid rgba(103,232,249,0.28)"
-      }
-    }, "Edit max notional"), React.createElement("button", {
-      disabled: busy,
-      onClick: () => {
-        const ALL_MODES = ["RIDE", "READY", "DRIFT", "FADE"];
-        const current = (prefs.modes_allowed || []).join(", ");
-        const v = prompt(`Modes allowed (comma-separated)\n\n` + `Available: ${ALL_MODES.join(", ")}\n` + `Current: ${current || "none"}\n\n` + `RIDE  — model has highest conviction (best signals aligned)\n` + `READY — leaning toward trigger but waiting for confirmation\n` + `DRIFT — chop, moderate confidence\n` + `FADE  — counter-trend (use with caution)\n\n` + `Default: RIDE only (most conservative)`, current || "RIDE");
-        if (v == null) return;
-        const parsed = String(v).split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
-        const invalid = parsed.filter(m => !ALL_MODES.includes(m));
-        if (invalid.length > 0) {
-          alert(`Unknown mode(s): ${invalid.join(", ")}. Allowed: ${ALL_MODES.join(", ")}`);
-          return;
-        }
-        saveAutoMirror({
-          modes_allowed: parsed
-        });
-      },
-      style: {
-        padding: "3px 10px",
-        fontSize: 10,
-        borderRadius: 6,
-        cursor: busy ? "wait" : "pointer",
-        background: "rgba(167,139,250,0.10)",
-        color: "#a78bfa",
-        border: "1px solid rgba(167,139,250,0.30)"
-      }
-    }, "Edit modes"), React.createElement("button", {
-      disabled: busy,
-      onClick: () => {
-        const ALL_ARCHETYPES = ["long_call", "long_put", "vertical_spread", "leap_call", "leap_put", "cash_secured_put", "covered_call", "moonshot_call", "moonshot_put", "long_straddle", "long_strangle", "iron_condor"];
-        const current = (prefs.archetypes_allowed || []).join(", ");
-        const v = prompt(`Archetypes allowed (comma-separated)\n\n` + `Available:\n  ${ALL_ARCHETYPES.join("\n  ")}\n\n` + `Current: ${current || "none"}\n\n` + `Default: long_call, long_put, vertical_spread\n` + `(naked shorts are blocked at the engine level)`, current || "long_call, long_put, vertical_spread");
-        if (v == null) return;
-        const parsed = String(v).split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
-        const invalid = parsed.filter(a => !ALL_ARCHETYPES.includes(a));
-        if (invalid.length > 0) {
-          alert(`Unknown archetype(s): ${invalid.join(", ")}.\n\nAllowed: ${ALL_ARCHETYPES.join(", ")}`);
-          return;
-        }
-        saveAutoMirror({
-          archetypes_allowed: parsed
-        });
-      },
-      style: {
-        padding: "3px 10px",
-        fontSize: 10,
-        borderRadius: 6,
-        cursor: busy ? "wait" : "pointer",
-        background: "rgba(167,139,250,0.10)",
-        color: "#a78bfa",
-        border: "1px solid rgba(167,139,250,0.30)"
-      }
-    }, "Edit archetypes"), isSmallAccount && oversized && React.createElement("button", {
-      disabled: busy,
-      onClick: () => saveAutoMirror({
-        max_notional_per_order_usd: suggestedNotional,
-        daily_loss_limit_usd: suggestedDailyLoss
-      }, `Apply small-account defaults for options?\n\nEquity: $${Math.round(equity).toLocaleString()}\n\nNew caps:\n  • Max notional: $${suggestedNotional}/order (~15% of equity)\n  • Daily loss limit: $${suggestedDailyLoss}`),
-      style: {
-        padding: "3px 10px",
-        fontSize: 10,
-        borderRadius: 6,
-        cursor: busy ? "wait" : "pointer",
-        background: "rgba(251,191,36,0.10)",
-        color: "#fbbf24",
-        border: "1px solid rgba(251,191,36,0.28)"
-      }
-    }, "Apply small-account defaults")), isSmallAccount && oversized && React.createElement("div", {
-      className: "text-[11px] text-amber-300 italic"
-    }, "Current options notional is oversized for a $", Math.round(equity).toLocaleString(), " account. Tap ", React.createElement("strong", null, "Apply small-account defaults"), " to bring max notional and the daily loss limit in line."));
-  })()), users.length > 0 && React.createElement(McCollapse, {
+  }, "Coming soon")))), users.length > 0 && React.createElement(McCollapse, {
     id: "bridge-users",
     title: "Order Activity",
     sub: `${users.length} account(s)`,
@@ -4368,6 +4413,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1790219867358:639118181
+// cache-bust:1790220688092:59791722
 
-// cache-bust:1790219867358:639118181
+// cache-bust:1790220688092:59791722

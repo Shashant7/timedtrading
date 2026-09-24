@@ -16,18 +16,18 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1790219867358" />
-    <script defer src="/vendor/react.production.min.js?v=1790219867358"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1790219867358"></script>
-<script defer src="auth-gate.js?v=1790219867358"></script>
-    <script defer src="shared-price-utils.js?v=1790219867358"></script>
-    <script src="tt-bottom-nav.js?v=1790219867358" defer></script>
-    <script defer src="investor-nav-badge.js?v=1790219867358"></script>
-    <script src="tt-nav-extras.js?v=1790219867358" defer></script>
-    <script src="tt-rail-bridge.js?v=1790219867358" defer></script>
-    <script defer src="tt-rail-lazy-load.js?v=1790219867358"></script>
-    <script defer src="ds-components.js?v=1790219867358"></script>
-    <script defer src="shared-lane-card.js?v=1790219867358"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1790220688092" />
+    <script defer src="/vendor/react.production.min.js?v=1790220688092"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1790220688092"></script>
+<script defer src="auth-gate.js?v=1790220688092"></script>
+    <script defer src="shared-price-utils.js?v=1790220688092"></script>
+    <script src="tt-bottom-nav.js?v=1790220688092" defer></script>
+    <script defer src="investor-nav-badge.js?v=1790220688092"></script>
+    <script src="tt-nav-extras.js?v=1790220688092" defer></script>
+    <script src="tt-rail-bridge.js?v=1790220688092" defer></script>
+    <script defer src="tt-rail-lazy-load.js?v=1790220688092"></script>
+    <script defer src="ds-components.js?v=1790220688092"></script>
+    <script defer src="shared-lane-card.js?v=1790220688092"></script>
     <style>
       body { margin: 0; min-height: 100vh; }
       main { max-width: 1040px; margin: 0 auto; padding: 20px 20px 110px; }
@@ -99,29 +99,67 @@
       .msg-ok { color: var(--tt-success); font-size: 12px; }
       .msg-err { color: var(--tt-danger); font-size: 12px; }
 
-      /* ── compact mirror settings ───────────────────────────────── */
+      /* ── mirror settings — scannable account cards ─────────────── */
       .bc-settings { margin-bottom: 16px; }
-      .bc-acct-row {
+      .bc-acct-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+      .bc-acct-card {
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid var(--tt-border-weak);
+      }
+      .bc-acct-card.is-off { opacity: 0.72; }
+      .bc-acct-head {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
+      }
+      .bc-acct-name { font-weight: 800; font-size: 15px; font-family: Manrope, Inter, sans-serif; letter-spacing: -0.01em; }
+      .bc-acct-id { font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; word-break: break-word; color: var(--tt-text-dim); }
+      .bc-acct-pills { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+      .bc-lane-grid {
         display: grid;
-        grid-template-columns: minmax(140px, 1.5fr) auto auto auto;
-        gap: 10px 18px;
-        align-items: center;
-        padding: 10px 0;
-        border-top: 1px solid var(--tt-border-weak);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
       }
-      .bc-acct-row:first-of-type { border-top: none; padding-top: 2px; }
-      .bc-acct-name { font-weight: 800; font-size: 14px; font-family: Manrope, Inter, sans-serif; }
-      .bc-acct-id { font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; word-break: break-word; }
-      .bc-acct-switch { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+      @media (max-width: 720px) {
+        .bc-lane-grid { grid-template-columns: 1fr; }
+      }
+      .bc-lane {
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        padding: 9px 11px; border-radius: 11px;
+        background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05);
+      }
+      .bc-lane-meta { min-width: 0; }
+      .bc-lane-label {
+        font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+        color: var(--tt-text-dim); margin-bottom: 2px;
+      }
+      .bc-lane-state { font-size: 12px; font-weight: 700; color: var(--tt-text-1); }
+      .bc-lane-state.off { color: var(--tt-text-dim); font-weight: 600; }
+      .bc-lane-hint { font-size: 10px; color: var(--tt-text-dim); margin-top: 2px; line-height: 1.35; }
+      .bc-acct-detail {
+        margin-top: 8px; padding: 10px 11px; border-radius: 11px;
+        background: rgba(56,242,161,0.04); border: 1px solid rgba(56,242,161,0.14);
+      }
+      .bc-acct-detail-label {
+        font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+        color: var(--tt-text-dim); margin-bottom: 7px;
+      }
       .bc-acct-vehicles {
-        grid-column: 1 / -1;
         display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-        margin-top: -2px;
       }
-      @media (max-width: 900px) {
-        .bc-acct-row { grid-template-columns: 1fr auto auto; }
-        .bc-acct-switch:nth-child(4) { grid-column: 2 / -1; justify-self: end; }
+      .bc-acct-vehicles .bc-day-stop {
+        margin-left: auto;
+        background: rgba(0,0,0,0.25);
+        border-color: rgba(255,255,255,0.12);
+        color: var(--tt-text-1);
       }
+      @media (max-width: 560px) {
+        .bc-acct-vehicles .bc-day-stop { margin-left: 0; }
+      }
+      /* legacy row aliases kept for any leftover markup */
+      .bc-acct-row { display: contents; }
+      .bc-acct-switch { display: flex; align-items: center; gap: 8px; }
       .bc-acct-fold { margin: 8px 0 0; border-top: 1px solid var(--tt-border-weak); }
       .bc-acct-fold > summary {
         cursor: pointer; list-style: none;
@@ -369,10 +407,10 @@
          so the deferred consumers (tt-nav-extras, tt-bottom-nav, investor
          badge) find their mount target. -->
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1790219867358"></script>
+    <script defer src="shared-nav.js?v=1790220688092"></script>
     <div id="root"></div>
-    <script defer src="broker-connections.compiled.js?v=1790219867358"></script>
+    <script defer src="broker-connections.compiled.js?v=1790220688092"></script>
   </body>
 </html>
 
-<!-- cache-bust:1790219867358:639118181 -->
+<!-- cache-bust:1790220688092:59791722 -->
