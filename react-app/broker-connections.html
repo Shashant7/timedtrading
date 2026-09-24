@@ -93,29 +93,67 @@
       .msg-ok { color: var(--tt-success); font-size: 12px; }
       .msg-err { color: var(--tt-danger); font-size: 12px; }
 
-      /* ── compact mirror settings ───────────────────────────────── */
+      /* ── mirror settings — scannable account cards ─────────────── */
       .bc-settings { margin-bottom: 16px; }
-      .bc-acct-row {
+      .bc-acct-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+      .bc-acct-card {
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid var(--tt-border-weak);
+      }
+      .bc-acct-card.is-off { opacity: 0.72; }
+      .bc-acct-head {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
+      }
+      .bc-acct-name { font-weight: 800; font-size: 15px; font-family: Manrope, Inter, sans-serif; letter-spacing: -0.01em; }
+      .bc-acct-id { font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; word-break: break-word; color: var(--tt-text-dim); }
+      .bc-acct-pills { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+      .bc-lane-grid {
         display: grid;
-        grid-template-columns: minmax(140px, 1.5fr) auto auto auto;
-        gap: 10px 18px;
-        align-items: center;
-        padding: 10px 0;
-        border-top: 1px solid var(--tt-border-weak);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
       }
-      .bc-acct-row:first-of-type { border-top: none; padding-top: 2px; }
-      .bc-acct-name { font-weight: 800; font-size: 14px; font-family: Manrope, Inter, sans-serif; }
-      .bc-acct-id { font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; word-break: break-word; }
-      .bc-acct-switch { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+      @media (max-width: 720px) {
+        .bc-lane-grid { grid-template-columns: 1fr; }
+      }
+      .bc-lane {
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        padding: 9px 11px; border-radius: 11px;
+        background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05);
+      }
+      .bc-lane-meta { min-width: 0; }
+      .bc-lane-label {
+        font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+        color: var(--tt-text-dim); margin-bottom: 2px;
+      }
+      .bc-lane-state { font-size: 12px; font-weight: 700; color: var(--tt-text-1); }
+      .bc-lane-state.off { color: var(--tt-text-dim); font-weight: 600; }
+      .bc-lane-hint { font-size: 10px; color: var(--tt-text-dim); margin-top: 2px; line-height: 1.35; }
+      .bc-acct-detail {
+        margin-top: 8px; padding: 10px 11px; border-radius: 11px;
+        background: rgba(56,242,161,0.04); border: 1px solid rgba(56,242,161,0.14);
+      }
+      .bc-acct-detail-label {
+        font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+        color: var(--tt-text-dim); margin-bottom: 7px;
+      }
       .bc-acct-vehicles {
-        grid-column: 1 / -1;
         display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-        margin-top: -2px;
       }
-      @media (max-width: 900px) {
-        .bc-acct-row { grid-template-columns: 1fr auto auto; }
-        .bc-acct-switch:nth-child(4) { grid-column: 2 / -1; justify-self: end; }
+      .bc-acct-vehicles .bc-day-stop {
+        margin-left: auto;
+        background: rgba(0,0,0,0.25);
+        border-color: rgba(255,255,255,0.12);
+        color: var(--tt-text-1);
       }
+      @media (max-width: 560px) {
+        .bc-acct-vehicles .bc-day-stop { margin-left: 0; }
+      }
+      /* legacy row aliases kept for any leftover markup */
+      .bc-acct-row { display: contents; }
+      .bc-acct-switch { display: flex; align-items: center; gap: 8px; }
       .bc-acct-fold { margin: 8px 0 0; border-top: 1px solid var(--tt-border-weak); }
       .bc-acct-fold > summary {
         cursor: pointer; list-style: none;
@@ -1530,80 +1568,107 @@
         };
 
         return (
-          <div className="bc-acct-row">
-            <div>
-              <div className="bc-acct-name">{acct.webull_account_label || acct.webull_account_class || "Account"}</div>
-              <div className="mono dim bc-acct-id">
-                {(acct.broker || "webull").toUpperCase()}{acct.webull_account_id ? ` · ${acct.webull_account_id}` : ""}
+          <div className={`bc-acct-card${enabled ? "" : " is-off"}`}>
+            <div className="bc-acct-head">
+              <div>
+                <div className="bc-acct-name">{acct.webull_account_label || acct.webull_account_class || "Account"}</div>
+                <div className="mono bc-acct-id">
+                  {(acct.broker || "webull").toUpperCase()}{acct.webull_account_id ? ` · ${acct.webull_account_id}` : ""}
+                </div>
+              </div>
+              <div className="bc-acct-pills">
+                <span className={`bc-pill ${enabled ? "p-ok" : "p-off"}`}><span className="dot" />{enabled ? "MIRROR" : "PAUSED"}</span>
+                <span className={`bc-pill ${optionsOn ? "p-mint" : "p-off"}`}>{optionsOn ? "OPTIONS" : "OPTIONS OFF"}</span>
+                <span className={`bc-pill ${letfOn ? "p-mint" : "p-off"}`}>{letfOn ? "LETF" : "LETF OFF"}</span>
+                {optionsOn && (
+                  <span className="bc-pill p-info" title="Options daily loss limit">
+                    ${dailyLoss.toLocaleString()}/day
+                  </span>
+                )}
               </div>
             </div>
-            <div className="bc-acct-switch">
-              <span className={`bc-pill ${enabled ? "p-ok" : "p-off"}`}><span className="dot" />{enabled ? "MIRROR ON" : "MIRROR OFF"}</span>
-              <button className="toggle" disabled={busy}
-                title={enabled ? "Pause mirroring for this account" : "Enable mirroring for this account"}
-                style={{ background: enabled ? "rgba(56,242,161,0.55)" : "rgba(255,255,255,0.12)" }}
-                onClick={() => {
-                  const next = !enabled;
-                  const warn = next
-                    ? "Enable live mirroring for this account? Model BUY/TRIM/EXIT signals will place real orders, sized proportionally to this account's equity."
-                    : "Pause mirroring for this account? No further orders will be placed.";
-                  if (confirm(warn)) call("/timed/broker/account/enable", { account_id: acct.user_id, enable: next }, next ? "Mirroring enabled" : "Mirroring paused");
-                }}>
-                <span className="knob" style={{ left: enabled ? 22 : 3 }} />
-              </button>
+
+            <div className="bc-lane-grid">
+              <div className="bc-lane">
+                <div className="bc-lane-meta">
+                  <div className="bc-lane-label">Equity mirror</div>
+                  <div className={`bc-lane-state${enabled ? "" : " off"}`}>{enabled ? "Placing model orders" : "Paused"}</div>
+                </div>
+                <button className="toggle" disabled={busy}
+                  title={enabled ? "Pause mirroring for this account" : "Enable mirroring for this account"}
+                  style={{ background: enabled ? "rgba(56,242,161,0.55)" : "rgba(255,255,255,0.12)" }}
+                  onClick={() => {
+                    const next = !enabled;
+                    const warn = next
+                      ? "Enable live mirroring for this account? Model BUY/TRIM/EXIT signals will place real orders, sized proportionally to this account's equity."
+                      : "Pause mirroring for this account? No further orders will be placed.";
+                    if (confirm(warn)) call("/timed/broker/account/enable", { account_id: acct.user_id, enable: next }, next ? "Mirroring enabled" : "Mirroring paused");
+                  }}>
+                  <span className="knob" style={{ left: enabled ? 22 : 3 }} />
+                </button>
+              </div>
+
+              <div className="bc-lane">
+                <div className="bc-lane-meta">
+                  <div className="bc-lane-label">Options</div>
+                  <div className={`bc-lane-state${optionsOn ? "" : " off"}`}>
+                    {optionsOn
+                      ? [callOn && "Call", putOn && "Put"].filter(Boolean).join(" · ") || "On"
+                      : (enabled ? "Off" : "Needs mirror")}
+                  </div>
+                </div>
+                <button className="toggle" disabled={busy || !enabled}
+                  title={enabled ? (optionsOn ? "Disable options strategies" : "Enable options strategies") : "Turn on equity mirroring first"}
+                  style={{ background: optionsOn ? "rgba(56,242,161,0.55)" : "rgba(255,255,255,0.12)" }}
+                  onClick={() => setOptions(!optionsOn)}>
+                  <span className="knob" style={{ left: optionsOn ? 22 : 3 }} />
+                </button>
+              </div>
+
+              <div className="bc-lane">
+                <div className="bc-lane-meta">
+                  <div className="bc-lane-label">Index Swings</div>
+                  <div className={`bc-lane-state${letfOn ? "" : " off"}`}>{letfOn ? "LETF shares" : (enabled ? "Off" : "Needs mirror")}</div>
+                  <div className="bc-lane-hint">SPYU / SPXU · not 0/1 DTE</div>
+                </div>
+                <button className="toggle" disabled={busy || !enabled}
+                  title={enabled ? (letfOn ? "Disable Index Swings (SPYU/SPXU)" : "Enable Index Swings (SPYU/SPXU)") : "Turn on equity mirroring first"}
+                  style={{ background: letfOn ? "rgba(56,242,161,0.55)" : "rgba(255,255,255,0.12)" }}
+                  onClick={() => setLetf(!letfOn)}>
+                  <span className="knob" style={{ left: letfOn ? 22 : 3 }} />
+                </button>
+              </div>
             </div>
-            <div className="bc-acct-switch">
-              <span className={`bc-pill ${optionsOn ? "p-mint" : "p-off"}`}><span className="dot" />{optionsOn ? "OPTIONS ON" : "OPTIONS OFF"}</span>
-              <button className="toggle" disabled={busy || !enabled}
-                title={enabled ? (optionsOn ? "Disable options strategies" : "Enable options strategies") : "Turn on equity mirroring first"}
-                style={{ background: optionsOn ? "rgba(56,242,161,0.55)" : "rgba(255,255,255,0.12)" }}
-                onClick={() => setOptions(!optionsOn)}>
-                <span className="knob" style={{ left: optionsOn ? 22 : 3 }} />
-              </button>
-            </div>
-            <div className="bc-acct-switch">
-              <span className={`bc-pill ${letfOn ? "p-mint" : "p-off"}`}><span className="dot" />{letfOn ? "LETF ON" : "LETF OFF"}</span>
-              <button className="toggle" disabled={busy || !enabled}
-                title={enabled ? (letfOn ? "Disable Index Swings (SPYU/SPXU)" : "Enable Index Swings (SPYU/SPXU)") : "Turn on equity mirroring first"}
-                style={{ background: letfOn ? "rgba(56,242,161,0.55)" : "rgba(255,255,255,0.12)" }}
-                onClick={() => setLetf(!letfOn)}>
-                <span className="knob" style={{ left: letfOn ? 22 : 3 }} />
-              </button>
-            </div>
+
             {optionsOn && (
-              <div className="bc-acct-vehicles">
-                <button className={`bc-btn bc-btn-sm ${callOn ? "bc-btn-primary" : ""}`} disabled={busy}
-                  title="Long calls — including index day-trade calls"
-                  onClick={() => {
-                    const nextCall = !callOn;
-                    setOptions(nextCall || putOn, { long_call: { enabled: nextCall }, long_put: { enabled: putOn } }, { confirmMaster: false });
-                  }}>
-                  Long call {callOn ? "on" : "off"}
-                </button>
-                <button className={`bc-btn bc-btn-sm ${putOn ? "bc-btn-primary" : ""}`} disabled={busy}
-                  title="Long puts — including index day-trade puts"
-                  onClick={() => {
-                    const nextPut = !putOn;
-                    setOptions(callOn || nextPut, { long_call: { enabled: callOn }, long_put: { enabled: nextPut } }, { confirmMaster: false });
-                  }}>
-                  Long put {putOn ? "on" : "off"}
-                </button>
-                <button className="bc-btn bc-btn-sm" disabled={busy}
-                  title="Dollar day-stop for options on this account (default $500)"
-                  onClick={setDailyLossLimit}>
-                  Loss limit ${dailyLoss.toLocaleString()}/day
-                </button>
+              <div className="bc-acct-detail">
+                <div className="bc-acct-detail-label">Options detail</div>
+                <div className="bc-acct-vehicles">
+                  <button className={`bc-btn bc-btn-sm ${callOn ? "bc-btn-primary" : ""}`} disabled={busy}
+                    title="Long calls — including index day-trade calls"
+                    onClick={() => {
+                      const nextCall = !callOn;
+                      setOptions(nextCall || putOn, { long_call: { enabled: nextCall }, long_put: { enabled: putOn } }, { confirmMaster: false });
+                    }}>
+                    Long call {callOn ? "on" : "off"}
+                  </button>
+                  <button className={`bc-btn bc-btn-sm ${putOn ? "bc-btn-primary" : ""}`} disabled={busy}
+                    title="Long puts — including index day-trade puts"
+                    onClick={() => {
+                      const nextPut = !putOn;
+                      setOptions(callOn || nextPut, { long_call: { enabled: callOn }, long_put: { enabled: nextPut } }, { confirmMaster: false });
+                    }}>
+                    Long put {putOn ? "on" : "off"}
+                  </button>
+                  <button className="bc-btn bc-btn-sm bc-day-stop" disabled={busy}
+                    title="Dollar day-stop for options on this account (default $500)"
+                    onClick={setDailyLossLimit}>
+                    Day stop ${dailyLoss.toLocaleString()}
+                  </button>
+                </div>
               </div>
             )}
-            {letfOn && (
-              <div className="bc-acct-vehicles">
-                <span className={`bc-btn bc-btn-sm bc-btn-primary`} style={{ cursor: "default", opacity: 0.95 }}
-                  title="Index Swings — SPYU/SPXU share expression on the trend book">
-                  Index swings on
-                </span>
-              </div>
-            )}
-            {msg && <div className={msg.ok ? "msg-ok" : "msg-err"} style={{ gridColumn: "1 / -1" }}>{msg.text}</div>}
+            {msg && <div className={msg.ok ? "msg-ok" : "msg-err"} style={{ marginTop: 8 }}>{msg.text}</div>}
           </div>
         );
       }
@@ -2689,8 +2754,6 @@
                   <span className={`bc-pill ${marketOpen ? "p-ok" : "p-off"}`}><span className="dot" />{marketOpen ? "MARKET OPEN" : "MARKET CLOSED"}</span>
                 )}
                 {hasAny && <span className={`bc-pill ${anyEnabled ? "p-mint" : "p-off"}`}>{anyEnabled ? "MIRROR ACTIVE" : "MIRROR PAUSED"}</span>}
-                {hasAny && <span className={`bc-pill ${anyOptions ? "p-mint" : "p-off"}`}>{anyOptions ? "OPTIONS ON" : "OPTIONS OFF"}</span>}
-                {hasAny && <span className={`bc-pill ${anyLetf ? "p-mint" : "p-off"}`}>{anyLetf ? "LETF ON" : "LETF OFF"}</span>}
               </div>
             </div>
 
@@ -2709,8 +2772,7 @@
                     <div className="tt-sec-title">Accounts</div>
                     <div className="tt-sec-h" style={{ fontSize: 18 }}>Mirror settings</div>
                     <div className="dim" style={{ fontSize: 12, marginTop: 4, maxWidth: 720 }}>
-                      Equity mirror, options strategies, and Index Swings (LETF shares) are separate toggles per account.
-                      Options use a dollar daily loss limit (default $500, configurable per account) — there is no daily order-count cap.
+                      Three lanes per account: <b style={{ color: "var(--tt-text-1)" }}>Equity mirror</b>, <b style={{ color: "var(--tt-text-1)" }}>Options</b> (day-trade calls/puts + dollar day stop), and <b style={{ color: "var(--tt-text-1)" }}>Index Swings</b> (LETF shares).
                     </div>
                     <FractionalSharesTip />
                   </div>
@@ -2726,8 +2788,10 @@
                       }}>Pause all mirroring</button>
                   )}
                 </div>
-                {webullAccounts.map((acct) => <AccountCard key={acct.user_id} acct={acct} onChanged={refresh} />)}
-                {otherAccounts.map((acct) => <AccountCard key={acct.user_id} acct={acct} onChanged={refresh} />)}
+                <div className="bc-acct-list">
+                  {webullAccounts.map((acct) => <AccountCard key={acct.user_id} acct={acct} onChanged={refresh} />)}
+                  {otherAccounts.map((acct) => <AccountCard key={acct.user_id} acct={acct} onChanged={refresh} />)}
+                </div>
               </section>
             )}
 
