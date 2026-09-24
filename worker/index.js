@@ -94390,9 +94390,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const prefs = await _loadAutoMirrorPrefs(env, userEmail);
           const today = new Date().toISOString().slice(0, 10);
           const todayCount = Number(await env.KV_TIMED.get(`timed:options:auto-mirror:count:${userEmail.toLowerCase()}:${today}`)) || 0;
+          // The day-trade lane is governed by dollars now, not by
+          // `today_count`, so surface what is actually left to lose.
+          let lossBudget = null;
+          try {
+            const rb = await import("./options-risk-budget.js");
+            lossBudget = rb.riskBudgetSnapshot(
+              await rb.loadRiskState(env, userEmail),
+              rb.dailyLossLimitFor(prefs),
+            );
+          } catch (_) { /* telemetry only */ }
           return sendJSON({
             ok: true, user: userEmail, prefs,
             today_count: todayCount, today_remaining: Math.max(0, (prefs.daily_cap || 0) - todayCount),
+            loss_budget: lossBudget,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -95899,6 +95910,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 // day-trade build failed for SPY` on every pass.
                 let _clockPrem = null;
                 let _clockBid = null;
+                // The ask is what a BUY has to cross. Without it the mirror
+                // can only price passively, which is how 2026-09-23's two
+                // broker orders sat working all day below the market.
+                let _clockAsk = null;
                 try {
                   const _clockFlavor = _dtUseCarry && _dtOpenBook?.flavor
                     ? _dtOpenBook.flavor
@@ -95915,6 +95930,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   const _estimatePrem = _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid;
                   _clockPrem = _estimatePrem;
                   _clockBid = _dtPrimary?.premium?.bid ?? _dtPlay?.premium?.bid ?? null;
+                  _clockAsk = _dtPrimary?.premium?.ask ?? _dtPlay?.premium?.ask ?? null;
                   try {
                     const _livePrem = await _optionMarksResolveLivePremium(env, {
                       ticker: _dtSym,
@@ -95929,6 +95945,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     });
                     if (_livePrem?.mid > 0) _clockPrem = _livePrem.mid;
                     if (_livePrem?.bid > 0) _clockBid = _livePrem.bid;
+                    if (_livePrem?.ask > 0) _clockAsk = _livePrem.ask;
                   } catch (_) { /* clock degrades to estimate */ }
                   _dtExecution = _optClockBuild({
                     ticker: _dtSym,
@@ -95948,10 +95965,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     todStudy: _dtTodStudy,
                     openBook: _dtOpenBook,
                   });
-                  if (_dtExecution && _clockBid > 0 && _dtExecution.premium_band) {
+                  if (_dtExecution && _dtExecution.premium_band && (_clockBid > 0 || _clockAsk > 0)) {
                     _dtExecution = {
                       ..._dtExecution,
-                      premium_band: { ..._dtExecution.premium_band, bid: _clockBid },
+                      premium_band: {
+                        ..._dtExecution.premium_band,
+                        ...(_clockBid > 0 ? { bid: _clockBid } : {}),
+                        ...(_clockAsk > 0 ? { ask: _clockAsk } : {}),
+                      },
                     };
                   }
                 } catch (_clockErr) {
@@ -95998,6 +96019,50 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       honesty_gate_veto: _dtVetoReason,
                       now: Date.now(),
                       loadedBook: _dtLoaded,
+                      // The broker goes FIRST. This fires the moment the paper
+                      // book is persisted, ahead of the Discord round-trip —
+                      // previously the order hung off this call's `.then()`, so
+                      // it waited on the webhook and was skipped entirely if
+                      // anything after the book write rejected. On a 0/1 DTE
+                      // contract the alert is the cheap half.
+                      onEvent: (ev) => {
+                        try {
+                          const _mirrorSid = _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId;
+                          const _mirrorPrem = _dtExecution.premium_band?.premium
+                            ?? _dtPrimary?.premium?.mid
+                            ?? _dtPlay?.premium?.mid;
+                          const _mirrorBid = _dtExecution.premium_band?.bid
+                            ?? _clockBid
+                            ?? _dtPrimary?.premium?.bid
+                            ?? _dtPlay?.premium?.bid
+                            ?? _dtPrimary?.legs?.[0]?.premium_bid
+                            ?? null;
+                          const _mirrorAsk = _dtExecution.premium_band?.ask
+                            ?? _clockAsk
+                            ?? _dtPrimary?.premium?.ask
+                            ?? _dtPlay?.premium?.ask
+                            ?? _dtPrimary?.legs?.[0]?.premium_ask
+                            ?? null;
+                          queueBackground(import("./options-auto-mirror.js").then(({ maybeAutoMirrorIndexDayTradeEvent }) =>
+                            maybeAutoMirrorIndexDayTradeEvent(env, {
+                              event: ev.event,
+                              reason: ev.reason || null,
+                              ticker: _dtSym,
+                              play: _dtPrimary || _dtPlay,
+                              signal_id: _mirrorSid,
+                              execution: _dtExecution,
+                              book: ev.book || null,
+                              size: _dtExecution.size || ev.book?.size || null,
+                              premium: _mirrorPrem,
+                              bid: _mirrorBid,
+                              ask: _mirrorAsk,
+                              strike: _dtExecution.contract?.strike ?? _strike,
+                              expiration: _dtExecution.contract?.expiration || _dtPrimary?.expiration || _dtPlay.expiration,
+                              flavor: _dtExecution.contract?.flavor || _dtPlay._day_trade_flavor,
+                              indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
+                            })));
+                        } catch (_) { /* never block the alert on the mirror */ }
+                      },
                     }).then(async (ev) => {
                       if (!ev?.event) return;
                       d1InsertNotification(env, {
@@ -96011,42 +96076,6 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         engine: "options_day_trade",
                         exec_state: ev.event,
                       }).catch(() => {});
-                      {
-                        // Always invoke the mirror path (even when globally
-                        // paused or the account's option vehicles are off) so
-                        // the decision — and the reason it did NOT place an
-                        // order — is recorded for the Broker Connections
-                        // timeline instead of a mystery "NOT MIRRORED".
-                        try {
-                          const { maybeAutoMirrorIndexDayTradeEvent } = await import("./options-auto-mirror.js");
-                          const _mirrorSid = _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId;
-                          const _mirrorPrem = _dtExecution.premium_band?.premium
-                            ?? _dtPrimary?.premium?.mid
-                            ?? _dtPlay?.premium?.mid;
-                          const _mirrorBid = _dtExecution.premium_band?.bid
-                            ?? _clockBid
-                            ?? _dtPrimary?.premium?.bid
-                            ?? _dtPlay?.premium?.bid
-                            ?? _dtPrimary?.legs?.[0]?.premium_bid
-                            ?? null;
-                          queueBackground(maybeAutoMirrorIndexDayTradeEvent(env, {
-                            event: ev.event,
-                            reason: ev.reason || null,
-                            ticker: _dtSym,
-                            play: _dtPrimary || _dtPlay,
-                            signal_id: _mirrorSid,
-                            execution: _dtExecution,
-                            book: ev.book || null,
-                            size: _dtExecution.size || ev.book?.size || null,
-                            premium: _mirrorPrem,
-                            bid: _mirrorBid,
-                            strike: _dtExecution.contract?.strike ?? _strike,
-                            expiration: _dtExecution.contract?.expiration || _dtPrimary?.expiration || _dtPlay.expiration,
-                            flavor: _dtExecution.contract?.flavor || _dtPlay._day_trade_flavor,
-                            indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
-                          }));
-                        } catch (_) { /* never block on options mirror */ }
-                      }
                     }).catch((err) => {
                       console.warn(`[OPTIONS-DT-ALERT] ${_dtSym}:`, String(err?.message || err).slice(0, 120));
                     }));
@@ -96176,6 +96205,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 console.warn(`[OPTIONS-ALL] day-trade build failed for ${_dtSym}:`, String(_dtErr?.message || _dtErr).slice(0, 120));
               }
             }
+
             return {
               day_trade_plays: _dtPlays,
               day_trade_suppressed: _dtSuppressed,
@@ -104422,6 +104452,75 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     //      forever (the bridge worker has no SendGrid key).
     // The engine skips ALL of these (memory cap); the monolith runs them.
     const _skipHeavyFiveMinPrewarm = _isDedicatedEngine;
+
+    // 2026-09-23 — Index day-trade reconciliation runs FIRST and runs
+    // CONTINUOUSLY. It is the one lane where being a minute behind is
+    // already too late: a 0/1 DTE entry that filled without the model
+    // noticing has no TRIM, no EXIT and no stop, and the daily loss budget
+    // behind it stays spent.
+    //
+    // Deliberately ahead of every other block and not attached to the
+    // options build. On 2026-09-23 the only thing that re-read a pending
+    // entry ran at the END of an options pass that itself only fired inside
+    // the sell window — so two orders placed at the open were never looked
+    // at again. Reconciliation must not depend on the thing it is checking.
+    //
+    // Free when idle: with nothing pending this is one KV list and it
+    // returns. It only spins while an order is young enough to still fill.
+    if ((_isEveryMin || _isEvery5Min) && !_isDedicatedEngine && env.ADMIN_EMAIL) {
+      ctx.waitUntil((async () => {
+        try {
+          const { runPendingIndexDtReconcileLoop } = await import("./options-auto-mirror.js");
+          const r = await runPendingIndexDtReconcileLoop(env, env.ADMIN_EMAIL);
+          // Silent on the common path (nothing pending). Anything else is
+          // worth a line: without one there is no way to tell "no orders
+          // are working" from "nothing is watching them".
+          if (r?.resolved?.length) {
+            console.log(`[OPT-DT-RECONCILE] resolved ${JSON.stringify(r.resolved)} over ${r.passes} passes (${r.reason})`);
+          } else if (r?.watched > 0) {
+            console.log(`[OPT-DT-RECONCILE] watching ${r.watched} pending over ${r.passes} passes (${r.reason})`);
+          }
+          const _dtBudget = r?.budget;
+          if (_dtBudget?.freed || _dtBudget?.repriced || _dtBudget?.booked || _dtBudget?.drift) {
+            console.log(`[OPT-DT-RECONCILE] budget repair: freed=${_dtBudget.freed} ($${_dtBudget.freedUsd}) repriced=${_dtBudget.repriced} booked=${_dtBudget.booked} ($${_dtBudget.bookedUsd}) drift=${_dtBudget.drift} ${JSON.stringify(_dtBudget.driftSignals || [])}`);
+          }
+          // The budget hitting zero stops the lane trading for the rest of
+          // the day. That is the system working, but it is silent from the
+          // outside and looks exactly like "no setups today" — so say it
+          // once, on the day it happens.
+          const _dtSnap = _dtBudget?.snapshot;
+          if (_dtSnap?.enforced && _dtSnap.remaining_usd <= 0) {
+            const _dtDay = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+            const _dtPageKey = `timed:opt-dt:budget-exhausted:${_dtDay}`;
+            const _dtSeen = await env.KV_TIMED.get(_dtPageKey).catch(() => null);
+            if (!_dtSeen) {
+              await env.KV_TIMED.put(_dtPageKey, String(Date.now()), { expirationTtl: 86400 * 2 }).catch(() => {});
+              await notifyDiscord(env, {
+                title: "Day-trade loss budget exhausted",
+                description: [
+                  `The index day-trade lane has stopped taking new entries for ${_dtDay}.`,
+                  `Realised loss $${_dtSnap.realized_loss_usd} + open risk $${_dtSnap.open_usd} = $${_dtSnap.consumed_usd} of the $${_dtSnap.limit_usd} daily limit.`,
+                  `${_dtSnap.placed_count} entries placed today.`,
+                  _dtBudget?.drift ? `${_dtBudget.drift} signal(s) could not be reconciled against the mirror.` : "",
+                ].filter(Boolean).join("\n"),
+                color: 0xE0A82E,
+              }, "system").catch(() => {});
+            }
+          }
+          await recordCronSuccess(env, "index_dt_reconcile");
+        } catch (e) {
+          console.warn("[OPT-DT-RECONCILE] threw:", String(e?.message || e).slice(0, 160));
+          // Nothing else watches this lane. Without a tombstone a reconcile
+          // loop that dies leaves pending entries unwatched in total silence,
+          // which is the failure it exists to prevent.
+          await recordCronFailure(env, {
+            op: "index_dt_reconcile",
+            error: String(e?.message || e),
+            caller: "scheduled:index_dt_reconcile",
+          }).catch(() => {});
+        }
+      })());
+    }
 
     // 2026-06-02 — Cron-tick heartbeat. The sanity-sweep
     // `cron_tick_alive` check reads this to detect a stalled cron.

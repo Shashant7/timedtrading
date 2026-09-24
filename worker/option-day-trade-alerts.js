@@ -205,6 +205,28 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     return { ok: true, event: null, plan, size, book: decision.nextBook || book, fromCarry: !!loaded.fromCarry };
   }
 
+  // 2026-09-23 — the broker goes first, ahead of Discord.
+  //
+  // The mirror used to hang off this function's `.then()`, which meant a
+  // live order waited on a Discord webhook round-trip and, worse, was never
+  // dispatched at all if anything between here and the return rejected. On a
+  // 0/1 DTE contract the notification is the cheap half; the order is the
+  // half that expires.
+  //
+  // The book is already persisted above, so a crash here cannot leave a
+  // broker position with no paper state behind it. Order is: persist, place,
+  // then tell everyone.
+  if (typeof payload.onEvent === "function") {
+    try {
+      await payload.onEvent({
+        event: decision.event,
+        reason: decision.reason || null,
+        book: decision.nextBook || book,
+        signal_id: persistSignalId,
+      });
+    } catch (_) { /* a broken listener must not stop the notification */ }
+  }
+
   const embed = buildDayTradeSignalEmbed({
     event: decision.event,
     ticker: payload.ticker,

@@ -6,6 +6,106 @@
 
 ---
 
+## A lane that only wakes on an event cannot heal the event that stopped [2026-09-23]
+
+Eleven index day trades were alerted, zero reached the broker as
+positions. The first guess — "the options mirror must be disabled" — was
+wrong, and reading `timed:opt-dt-mirror-log` out of production instead of
+reasoning from the code is what found the real bug. The mirror was
+enabled and it fired twice.
+
+- **Read the decision log before theorising.** The log said 11x
+  `no_mirrored_entry`, 9x `vehicle_daily_cap_2_reached_for_long_put`, 4x
+  `entry_fill_pending`, 4x `ticker_not_index`, 2x `order_working`. Two
+  real Webull limit buys went out 74 seconds apart at the open (13:46:23
+  QQQ 741P, 13:47:00 SPY 768P) and consumed the whole 2/day `long_put`
+  budget. The nine cap rejections are the *symptom*; the two working
+  orders are the *cause*. A subagent asked to reason from the source
+  concluded the mirror was gated off and returning `{skipped:true,
+  reason:"disabled"}`. Production said the opposite.
+- **The only thing that re-read a pending entry was a close event for
+  the SAME signal id.** That is circular: the signal whose entry never
+  filled is precisely the one that stops producing events. Both mirrors
+  sat frozen on `entry_fill_status:"working"` for seven hours while the
+  paper book exited at 14:08 and 14:09. Any self-healing step hung off
+  an event stream can only heal things the stream still mentions — it
+  needs a sweep that runs on a SCHEDULE, over state, not over events.
+- **A counter that only bumps is a countdown to a wedged lane.**
+  `commitEntryCounters` fired on `rec.pending` (correct — a live limit
+  does occupy the broker) but nothing anywhere released. Two unfilled
+  orders permanently spent the day's budget.
+- **Releasing is safe when it is not the deleted reserve-then-release.**
+  That pattern (removed in June after wedging `index_trend_letf` at 2/2)
+  bumped on INTENT and released on a GUESS, so a lost release wedged the
+  lane. The new one bumps only on a confirmed broker place and releases
+  only on a second confirmed broker fact, and a lost release leaves the
+  slot consumed — the restrictive direction. When adding a release, ask
+  which way it fails, not whether it can fail.
+- **A cancel that comes back not-ok may have lost a race with a fill.**
+  Treat it as "still live" and re-poll. Releasing there would hand out a
+  cap slot against a real position.
+- **Mirrors written before a new field exists still have to work.** The
+  resolver falls back to live prefs when `entry_caps` is absent and to
+  `ts` when `entry_placed_at` is. Without that, the two orders this was
+  written to unwedge would have resolved and still never returned their
+  slots. Verified in production: `long_put` 2 → 0.
+- **`timed:opt-dt-mirror-log` shares a stem with `timed:opt-dt-mirror:`
+  but not the colon.** A sweep prefixed on the stem would eat the
+  decision log. There is a test pinning the colon.
+
+### The operator's follow-up: "first priority, every second counts, no limits — just a loss limit"
+
+The fix above made the lane correct. It did not make it fast, and it
+left the wrong kind of limit in place.
+
+- **A count cap is not a risk control, it is an activity control.** "2
+  per day" says nothing about money: two $500 tickets and two $60
+  tickets are identical to it. What replaced it is one number in
+  dollars, because for a LONG option the debit IS the max loss — no gap
+  risk, no margin call, so the worst case is exactly computable at
+  entry. `consumed = open risk + realised losses today`. A win gives its
+  risk back so a good day does not throttle itself; a loss keeps
+  consuming so a bad day tightens until it stops. That is what a daily
+  stop-loss means, and it needs no count cap to work.
+- **Prefer a keyed map over a counter whenever you can.** The previous
+  round spent its effort making an increment/decrement pair safe: a
+  release that could be lost, then a re-read guard so two resolvers
+  could not double-decrement. The budget stores commitments in a MAP
+  keyed by signal id, so committing is an assignment and refunding is a
+  delete. Both are idempotent by construction. The guard was deleted
+  because there is no longer an operation that can be applied twice.
+  Reach for this shape first — it removes the bug class instead of
+  defending against it.
+- **Removing a gate is not the same as removing its side effect.**
+  Dropping the count cap while still BUMPING the counters would have
+  swapped one starvation for another: the vehicle and global tallies are
+  shared, the Trader lane still gates on both, and an uncapped day-trade
+  lane bumping them eight times would have locked Trader option entries
+  out with `daily_cap_5_reached`. Caught before deploy by asking who
+  else reads the thing being written. Always ask.
+- **Reconciliation must not live inside the thing it reconciles.** The
+  sweep was hung off the end of the options pass, which only runs inside
+  the sell window — so the pass that stops is also the check that stops.
+  It now runs FIRST in the cron tick, attached to nothing.
+- **Cloudflare's cron floor is 60 seconds; a 0/1 DTE position does not
+  care.** A tick can keep working for the rest of its minute, so the
+  reconcile polls every ~5s rather than waiting for the next tick.
+  Verified live: 9 passes in one minute, every minute.
+- **"First priority" is an ordering question, not just a cadence one.** The
+  mirror hung off the paper-alert promise's `.then()`, so the order
+  waited on a Discord webhook and was skipped outright if that chain
+  rejected. The Trader ENTRY lane had the identical shape fixed on
+  2026-09-22; nobody checked whether the day-trade lane shared it. When
+  a fix is "do the money thing before the telling-people thing", grep
+  for the other lanes with the same shape before closing it out.
+- **Make an aggressive loop pay for itself.** It only spins while an
+  order is young enough to still fill (idle = one KV list and return),
+  and it backs off to 15s after the first minute so a broker LIST
+  endpoint is not hit 12x/min for the life of every order. Being
+  rate-limited would stop reconciliation entirely — the exact failure
+  the lane exists to prevent. Live trace showed the whole arc: 9 passes
+  → 4 → 2 → 1 as the order aged past 60s and then past the stale window.
+
 ## A cache keyed to skip a write was holding the whole universe [2026-09-23]
 
 The `*/5` kept dying after the `*/1` was fixed, and the ticks that died
@@ -9238,3 +9338,116 @@ Takeaways:
 Still open: the OOM itself. Shedding per-tick work in the `*/5` engine lane
 needs live heap instrumentation, not a guess — 34 scored tickers should not
 approach 128 MB.
+
+## 2026-09-24 — Sizing the day-trade loss limit, and four things the tape found
+
+The operator set the daily loss limit to $500 and asked for DIA to be
+included, entry pricing to be refined, and the 2026-09-23 session to be
+graded. Grading the session first turned out to be the right order: the tape
+answered three of the four questions and found a bug nobody had asked about.
+
+- **A limit is only as good as what it charges.** The budget shipped charging
+  an open ticket its full debit, on the reasoning that a long option's max
+  loss IS the debit. True, but only if the position is carried to zero — these
+  are managed to a -50% hard premium stop, so the loss the desk actually
+  accepts is the stop distance. Charging the debit double-counts by 2x, and at
+  $500 that is not a rounding error: replayed on the real tape it takes 9 of
+  16 rounds and blocks DIA 514P (+$194) and IWM 283P (+$101), two of the four
+  best trades of the day, for $566 against the desk's $702. Charging the stop
+  takes 12 of 16 for $801. Do not accept a risk model because its premise is
+  technically true; check what it costs on a real session.
+
+- **Re-entry is not a duplicate.** The signal id is the contract, so when the
+  desk stops out of SPY 766P and takes it again an hour later, the second
+  round lands on the first round's mirror record. The BUY guard read
+  `entry_fired || entry_placed` and dropped it. All three 2026-09-23
+  re-entries died that way — SPY 766P, QQQ 737P, IWM 281P — and SPY 766P's
+  second round was the +$219 trade of the session. The guard now blocks a
+  duplicate of a LIVE position only, and the new round must CLEAR `trim_*` /
+  `exit_*` or its own close is refused `trim_already_mirrored`. Nobody
+  reported this bug; it fell out of replaying the tape through the real code.
+
+- **Alertable and unmirrorable is never a valid combination.** DIA was in
+  `DAY_TRADE_TICKERS`, built plays all session, and was then dropped at the
+  broker with `ticker_not_index` because `shouldIndexAutoMirror` carried a
+  hand-written SPY/QQQ/IWM list. Allow-lists that restate a constant drift
+  away from it. It now reads `DAY_TRADE_TICKERS` directly.
+
+- **If the exit is marketable, the entry has to be too.** `marketableCloseLimit`
+  has hit the live bid since day one so a flatten flattens. The entry side had
+  only a passive FMV ceiling, and that ceiling priced the only two orders that
+  ever reached the broker on 2026-09-23: QQQ 741P at 09:46:23 and SPY 768P at
+  09:47:00 both sat `working` below the market until they were cancelled at
+  the close, while the contracts ran +110% and +102%. An entry now prices at
+  `max(ceiling, ask)` with the chase bounded at 8% of mid — measured, not
+  guessed: 3,099 marks that session ran 2.06% of mid at the median, 3.75% at
+  p90, 14.3% at p99, so 8% clears the book and refuses the tail. A limit above
+  the ask fills AT the offer, so raising it buys execution, not a worse price.
+
+- **Grade entry and management separately.** A good read managed badly and a
+  bad read managed well are different mistakes with different fixes, and a
+  single win/loss column hides both. `scripts/replay-day-trades.mjs` splits a
+  signal's tape into rounds, measures what was reachable while the position
+  was on, and scores the two independently. On 2026-09-23 it showed the desk
+  taking 73-100% of the reachable move on its four winners and leaving $117 on
+  IWM 283P, while the losers were nearly all entry-grade F — read wrong, cut
+  fast, -$20 average. That is a healthy shape, and the count cap is what stood
+  between it and the broker.
+
+## 2026-09-24 — Making the day-trade lane resilient, not just correct
+
+Follow-up to the above: the operator asked what else would make this lane
+reliable. Four holes, all of the same shape — a failure that leaves no trace
+and never heals.
+
+- **Idempotency only protects an operation that RUNS.** The dollar budget
+  replaced a counter that could only go up, on the reasoning that commit is an
+  assignment and release is a delete, so neither can be lost by replaying.
+  That is true and it is not enough: a release the isolate never REACHED is
+  not a replay problem, and nothing retries it. The day then pays for a
+  position that does not exist until midnight — the same one-way failure in a
+  new shape. A ledger that cannot be rebuilt from ground truth will eventually
+  be wrong. `reconcileRiskBudget` rebuilds it from the broker mirrors on every
+  tick. When adding a ledger, the reconciler against ground truth is part of
+  the feature, not a follow-up.
+
+- **A reconciler has to be honest about what it cannot prove.** The first cut
+  freed any charge whose mirror said flat. That is wrong: the close path
+  writes the mirror BEFORE it settles the budget, so "flat mirror, charged
+  budget" is exactly the state a lost settle leaves behind, and freeing it
+  erases a realised loss and LOOSENS the day's limit. The fix was to make the
+  question answerable rather than guess at it — `settleIndexDtRisk` now stamps
+  `risk_settled_qty`, so the reconciler can tell "already booked" from
+  "booking lost" and BOOK the lost one at the mirror's recorded close price.
+  Anything it still cannot price is left alone and counted as drift. When a
+  repair is ambiguous, add the fact that would disambiguate it; do not pick
+  the convenient branch.
+
+- **Write the record of a repair before making it.** A booking made without a
+  stamp is remade every minute until the budget is spent on one trade. Stamp
+  first: a failed stamp costs one tick's delay, a failed booking after a good
+  stamp costs one trade's P&L. The cheap failure has to be the likely one.
+
+- **`*/1` and `*/5` are two crons, not one.** At minute 0, 5, 10 ... Cloudflare
+  fires both, and they can land in different isolates, where a module-level
+  `let` busy-guard protects neither from the other. Two reconcile loops
+  polling a broker LIST endpoint every five seconds is how a rate-limit stops
+  reconciliation altogether — the exact failure the loop exists to prevent. A
+  KV lease is best-effort (no compare-and-set) but it collapses the routine
+  overlap, and it must fail OPEN: an unreadable lease reconciles anyway.
+
+- **A UTC day key rolls at 20:00 ET, in the middle of the evening reconcile.**
+  The budget was keyed on `toISOString().slice(0,10)`, so a loss booked at
+  20:05 ET landed on tomorrow's ledger and an overnight hold's open risk
+  vanished from today's. Signal ids, the paper books and mirror coverage were
+  all already on the NY date. Anything that means "trading day" gets
+  `toLocaleDateString("en-CA", { timeZone: "America/New_York" })`.
+
+- **Silence is not health, and nothing else was watching.** A reconcile loop
+  that throws every tick looks exactly like a quiet session: no pending
+  entries, no log line, no alert. That is how two orders placed at the open on
+  2026-09-23 went unlooked-at all day. It now records a cron tombstone under
+  `index_dt_reconcile`, which surfaces on `/timed/health` and in the GitHub
+  watchdog, and heals on success. The budget hitting zero is the system
+  working, but it is equally silent and indistinguishable from "no setups
+  today" — so it says so once per NY day, with the arithmetic.

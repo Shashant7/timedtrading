@@ -7,6 +7,8 @@ import {
   buildIndexDayTradeClosePlay,
   computeIndexDayTradeCloseQty,
   marketableCloseLimit,
+  marketableEntryLimit,
+  ENTRY_MAX_SLIP_PCT,
   optionTick,
   extractMirrorFill,
   reconcileIndexDtFill,
@@ -17,6 +19,13 @@ import {
   scaleIndexDtEntryPlay,
 } from "./options-auto-mirror.js";
 import { trimSellQty } from "./option-day-trade-plan.js";
+import { RISK_STATE_KEY, riskBudgetSnapshot, tradingDayOf } from "./options-risk-budget.js";
+
+/** The day-trade lane is governed by dollars now, not by the day counters. */
+const readBudget = (kv) => {
+  const raw = kv.store.get(RISK_STATE_KEY("op@x.com", tradingDayOf(Date.now())));
+  return riskBudgetSnapshot(raw ? JSON.parse(raw) : { open: {}, placed: [], realized_pnl_usd: 0 }, 1000);
+};
 
 const PAYLOAD = { ticker: "NEU", side: "buy", contracts: 1, occ_symbol: "NEU260821C00790000", limit_price: 24.2 };
 
@@ -286,6 +295,47 @@ describe("Stage 5b mirror safety invariants", () => {
     expect(r.reason).toBe("entry_already_mirrored");
   });
 
+  it("still blocks BUY while the first order is only working", async () => {
+    const kv = kvMock({
+      "timed:options:auto-mirror:op@x.com": PREFS,
+      [`timed:opt-dt-mirror:${SID}`]: JSON.stringify({
+        entry_placed: true, entry_pending: true, contracts: 1, contracts_remaining: 0,
+      }),
+    });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, []), {
+      event: "BUY", ticker: "QQQ", signal_id: SID, play: CALL_PLAY, indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(true);
+    expect(r.reason).toBe("entry_already_mirrored");
+  });
+
+  it("takes the same contract again once the position is flat", async () => {
+    // Day trading re-enters a plan that re-presents itself. SPY 766P, QQQ
+    // 737P and IWM 281P were each stopped out and taken again on 2026-09-23,
+    // and the old guard dropped every one of those second rounds.
+    const calls = [];
+    const kv = kvMock({
+      "timed:options:auto-mirror:op@x.com": PREFS,
+      [`timed:opt-dt-mirror:${SID}`]: JSON.stringify({
+        entry_fired: true, entry_placed: true, contracts: 1, contracts_remaining: 0,
+        trim_fired: true, exit_fired: true, exit_event: "STOP",
+      }),
+    });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, calls), {
+      event: "BUY", ticker: "QQQ", signal_id: SID, play: CALL_PLAY, indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(false);
+    expect(calls.length).toBe(1);
+
+    // The new round must not inherit the old round's close flags, or its own
+    // trim and exit are refused as already mirrored.
+    const mirror = JSON.parse(kv.store.get(`timed:opt-dt-mirror:${SID}`));
+    expect(mirror.entry_fired).toBe(true);
+    expect(mirror.trim_fired).toBe(false);
+    expect(mirror.exit_fired).toBe(false);
+    expect(mirror.exit_event).toBe(null);
+  });
+
   it("mirrors one lot for an index put whose single contract exceeds the max-loss throttle (bounded by notional)", async () => {
     const captured = [];
     const prefs = JSON.stringify({
@@ -339,7 +389,7 @@ describe("Stage 5b mirror safety invariants", () => {
     expect(kv.store.has(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBe(false);
   });
 
-  it("releases daily-cap slots when the broker rejects an entry", async () => {
+  it("charges the loss budget only for a confirmed place, never a reject", async () => {
     const prefs = JSON.stringify({
       enabled: true,
       daily_cap: 1,
@@ -371,9 +421,9 @@ describe("Stage 5b mirror safety invariants", () => {
     });
     expect(first.reconcile.persist).toBe(false);
     expect(first.fill.reason).toBe("broker_preview_rejected");
-    // Caps count confirmed places only, so a reject never touches them.
-    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:${today}`)).toBeUndefined();
-    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBeUndefined();
+    // The budget charges a confirmed place, so a reject costs nothing.
+    expect(readBudget(kv).open_usd).toBe(0);
+    expect(readBudget(kv).placed_count).toBe(0);
 
     const second = await maybeAutoMirrorIndexDayTradeEvent(env, {
       event: "BUY",
@@ -384,8 +434,11 @@ describe("Stage 5b mirror safety invariants", () => {
     });
     expect(second.skipped).toBe(false);
     expect(second.reconcile.persist).toBe(true);
-    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:${today}`)).toBe("1");
-    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBe("1");
+    expect(readBudget(kv).placed_count).toBe(1);
+    expect(readBudget(kv).open_usd).toBeGreaterThan(0);
+    // And the shared counters the Trader lane gates on stay untouched.
+    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:${today}`)).toBeUndefined();
+    expect(kv.store.get(`timed:options:auto-mirror:count:op@x.com:long_call:${today}`)).toBeUndefined();
   });
 
   it("EXIT after a mirrored TRIM sells only the mirrored remainder", async () => {
@@ -431,6 +484,45 @@ describe("marketableCloseLimit", () => {
 
   it("ignores a stale bid more than 60% below mid", () => {
     expect(marketableCloseLimit({ event: "EXIT", mid: 1.85, bid: 0.05 })).toBe(1.84);
+  });
+});
+
+describe("marketableEntryLimit — an entry has to be able to fill", () => {
+  it("crosses to the ask when the passive ceiling sits under the market", () => {
+    // 2026-09-23 QQQ 741P: ceiling below the market, order worked all day.
+    expect(marketableEntryLimit({ mid: 1.29, ask: 1.31, ceil: 1.20 })).toBe(1.31);
+  });
+
+  it("keeps a generous ceiling when the ceiling is the higher of the two", () => {
+    expect(marketableEntryLimit({ mid: 0.59, ask: 0.60, ceil: 0.68 })).toBe(0.68);
+  });
+
+  it("pays one tick through the mid when there is no ask", () => {
+    expect(marketableEntryLimit({ mid: 0.59, ceil: null })).toBe(0.6);
+    expect(marketableEntryLimit({ mid: 3.20, ceil: null })).toBe(3.25);
+  });
+
+  it("refuses to chase a blown-out ask, and stops at one tick through mid", () => {
+    // p99 of the session's spreads was 14.3% of mid; 25% over is not a quote.
+    expect(marketableEntryLimit({ mid: 1.00, ask: 1.80, ceil: null })).toBe(1.01);
+  });
+
+  it("caps the chase at the slip budget even on a wide but plausible ask", () => {
+    expect(ENTRY_MAX_SLIP_PCT).toBe(0.08);
+    expect(marketableEntryLimit({ mid: 1.00, ask: 1.20, ceil: null })).toBe(1.08);
+  });
+
+  it("never prices below the ceiling, so value is still respected", () => {
+    expect(marketableEntryLimit({ mid: 1.00, ask: 1.02, ceil: 1.50 })).toBe(1.5);
+  });
+
+  it("degrades to the ceiling when there is no mid to reason about", () => {
+    expect(marketableEntryLimit({ mid: null, ceil: 0.68 })).toBe(0.68);
+    expect(marketableEntryLimit({ mid: null, ceil: null })).toBe(null);
+  });
+
+  it("ignores an ask that is below the mid", () => {
+    expect(marketableEntryLimit({ mid: 1.00, ask: 0.80, ceil: null })).toBe(1.01);
   });
 });
 

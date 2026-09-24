@@ -21,6 +21,106 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Eleven day trades, zero broker positions (2026-09-23).** Not
+      "disabled" — the mirror fired twice. Two Webull limit buys went out 74 s
+      apart at the open (13:46:23 QQQ 741P, 13:47:00 SPY 768P), both came back
+      `working`, and both counted against the 2/day `long_put` cap, which is
+      right. Neither filled, neither was re-read, neither was cancelled: the
+      only thing that ever re-read a pending entry was a close event for the
+      SAME signal id, and that signal stops producing events. Nine later
+      entries died on `vehicle_daily_cap_2_reached_for_long_put`, and both
+      buys were still live hours after the paper book exited at 14:08/14:09.
+      Shipped: `resolvePendingIndexDtEntry` +
+      `sweepPendingIndexDtEntries` (runs per PASS, not per event),
+      `releaseEntryCounters`, EXIT/STOP cancel a working buy, and a new
+      `POST /bridge/options/order/cancel`. Verified in production — the
+      sweep resolved both stuck mirrors (`gone`, i.e. Webull had already
+      terminated them, so neither filled) and `long_put` went 2 → 0.
+      33 tests; 32 of them fail without the fix. PR #1488.
+- [x] **Day trades first, reconciled continuously, one loss limit
+      (2026-09-23, same PR).** Operator: "I really want the day trades to be
+      first priority, and always be reconciled, every second counts. Also
+      there really should not be any limits, just a loss limit as a whole."
+      Shipped two things. (1) `runPendingIndexDtReconcileLoop` runs FIRST in
+      the cron tick on every `*/1` and `*/5`, attached to nothing — the sweep
+      used to sit at the END of an options pass that only fires inside the
+      sell window, so the pass that stops is also the check that stops. Cron's
+      floor is 60 s, so the tick keeps polling for the rest of its minute:
+      ~5 s while an order is in its first minute, 15 s after (a broker LIST
+      endpoint should not be hit 12x/min for the life of every order). Free
+      when idle — one KV list and return. Verified live: 9 passes/min for a
+      planted pending order, then 4 → 2 → 1 as it aged past 60 s and then past
+      the stale window, then silence once resolved. (2) `options-risk-budget.js`
+      replaces the count caps on this lane with ONE dollar limit
+      (`prefs.daily_loss_limit_usd`, default $1000, `0` = off). For a long
+      option the debit IS the max loss, so `consumed = open risk + realised
+      losses today`; a win gives its risk back, a loss keeps consuming.
+      Commitments are a map keyed by signal id, so commit is an assignment and
+      refund is a delete — the re-read idempotency guard and
+      `releaseEntryCounters` are deleted because there is no longer an
+      operation that can apply twice. The lane no longer bumps the SHARED day
+      counters (the Trader lane still gates on them; an uncapped lane bumping
+      them would have swapped one starvation for another). 64 tests.
+      All three follow-ups below are now closed.
+- [x] **$500 limit, DIA, marketable entries, re-entry, and a graded replay of
+      2026-09-23 (2026-09-24, same PR).** Operator: "Let's make the daily loss
+      limit be $500… Regarding DIA, we should include it. Let's enhance and
+      refine the entries price. I want you to review today's day trades."
+      Graded the session FIRST, and the tape answered three of the four asks
+      and found a fourth bug.
+      (1) **$500, charged on the stop not the debit.** These are managed to a
+      -50% hard premium stop, so `optionStopRiskUsd` charges `debit x 0.5`
+      (`DEFAULT_STOP_FRACTION`, pinned to `HARD_STOP_PCT` by test). Replayed at
+      $500: charging the debit takes 9/16 rounds and blocks DIA 514P (+$194)
+      and IWM 283P (+$101) for $566 vs the desk's $702; charging the stop takes
+      12/16 for $801.
+      (2) **DIA mirrors.** `shouldIndexAutoMirror` now allow-lists
+      `DAY_TRADE_TICKERS` instead of restating it.
+      (3) **Entries price marketable.** `marketableEntryLimit` =
+      `max(display_buy_ceil, ask)`, chase capped at 8% of mid (session spreads:
+      2.06% median / 3.75% p90 / 14.3% p99 over 3,099 marks). `premium_band.ask`
+      plumbed from `resolveLiveOptionPremium` through the clock to the mirror.
+      (4) **Re-entry, found by the replay.** The BUY guard read `entry_fired ||
+      entry_placed`, so all three of the session's re-entries were dropped
+      (SPY 766P, QQQ 737P, IWM 281P — 766P's second round was +$219). It now
+      blocks a duplicate of a LIVE position only and clears the prior round's
+      `trim_*`/`exit_*`. Mutation-checked.
+      `scripts/replay-day-trades.mjs` + `scripts/fixtures/dt-session-2026-09-23.json`
+      grade entry and management separately. 4466 tests.
+      **Still open:** SPY 766P's 11:07 re-entry is correctly refused because
+      the paper STOP left 1 of 3 contracts on — the mirror declines to stack
+      into a position it still holds. Defensible, but worth a look at why a
+      STOP sold 1 of 2 remaining rather than flattening.
+- [x] **Reliability and resilience pass on the day-trade lane (2026-09-24,
+      same PR).** Operator: "Are there any other improvements we can make to
+      get this to be reliable and resilient?" Four holes, all the same shape —
+      a failure that leaves no trace and never heals.
+      (1) **The ledger is rebuilt from the mirrors every tick.** Commit and
+      release are idempotent, but idempotency only protects an operation that
+      RUNS: a release the isolate never reached leaves the day paying for a
+      position that does not exist until midnight, which is the counter's
+      one-way failure in a new shape. `reconcileRiskBudget` frees a charge
+      with no position behind it, re-prices a held one off
+      `contracts_remaining`, and BOOKS a close the ledger never heard about.
+      (2) **A lost settle is now detectable.** The close path writes the
+      mirror BEFORE it settles, so "flat mirror, charged budget" is exactly
+      the state a thrown `settleRisk` leaves — and freeing it would erase a
+      realised loss and LOOSEN the limit. `settleIndexDtRisk` stamps
+      `risk_settled_qty`, so the reconciler can tell "already booked" from
+      "booking lost" and book the lost one at the mirror's close price. It
+      stamps BEFORE booking, so a failed stamp retries next tick instead of
+      re-booking every minute. Anything it cannot price is left alone as
+      `drift`.
+      (3) **A KV lease across isolates.** `*/1` and `*/5` are separate cron
+      expressions, so at minute 0/5/10 two invocations fire and a module-level
+      busy flag protects neither. Fails open — an unreadable lease reconciles
+      anyway.
+      (4) **NY trading date + paging.** A UTC budget key rolled at 20:00 ET,
+      inside the evening reconcile window. And nothing watched this lane at
+      all: `recordCronFailure`/`recordCronSuccess` under `index_dt_reconcile`
+      now put it on `/timed/health` and the GitHub watchdog, and an exhausted
+      budget posts once per NY day to the Discord system lane.
+      4498 tests; each of the five guarantees mutation-checked.
 - [x] **The engine never finished a market-hours tick (2026-09-22).** DDOG's
       0.1× Cloud Pivot entry scored, wrote D1 and sent its Discord card, then
       the `tt-engine` `*/5` isolate was killed with `outcome:
