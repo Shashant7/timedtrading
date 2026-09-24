@@ -578,6 +578,13 @@ export default {
           const _snapCash = _snap != null ? Number(_snap.cash_usd) : NaN;
           const entry = {
             account_id: acct.user_id,
+            // The manifest keys the owner's fan-out sleeves by the BARE
+            // email and a partner's by the suffixed id, so `account_id`
+            // alone cannot tie a sleeve to the account that holds it.
+            // `broker_account_id` is distinct for every tenant and is what
+            // the manifest rows carry, so reduce budgeting can be scoped
+            // per account instead of per ticker.
+            broker_account_id: resolveBrokerAccountId(acct),
             broker: resolveBrokerId(acct) || acct.broker || null,
             label: acct.webull_account_label || acct.webull_account_class || null,
             mirror_enabled: acct.broker_integration_enabled === true,

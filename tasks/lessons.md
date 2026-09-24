@@ -6,6 +6,243 @@
 
 ---
 
+## The snapshot outgrew its key, and the tick died rebuilding it [2026-09-23]
+
+`tt-engine` and the monolith both ended every `*/5` scoring tick in
+`outcome: exceededMemory` — 41 failures in six hours on
+`timed-trading-ingest`, 14 on `tt-engine`, at cpu=15.5s / wall=21.9s. The
+cause was one key.
+
+`timed:all:snapshot` held the FULL scoring payload for every ticker. Two
+hard platform limits sat behind that, and the universe grew into both:
+
+1. **A KV value cannot exceed 26,214,400 bytes (25 MiB).** On 2026-08-14 the
+   blob reached 26,195,645 — 18,755 bytes of headroom — and every write
+   after that was silently rejected. The snapshot then sat frozen for FORTY
+   DAYS while the cron logged success: `built_at` stayed
+   2026-08-14T08:03:11.385Z with NVDA at $225.30.
+2. **A Worker isolate cannot exceed 128 MB.** Measured on the live blob, ONE
+   build cost 182.1 MB: 37.7 MB for the assembled object graph, 36.7 MB for
+   the payloads read to fill it, 57.7 MB to `JSON.stringify` it for the put.
+
+Replayed against today's live 333-ticker universe, a full snapshot would be
+**52,687,072 bytes — 201% of the ceiling**, because a `timed:latest:` payload
+now averages 158 KB (CDNS is 213 KB; `tf_tech` alone is 27 KB). It does not
+fit and never will again.
+
+**Lessons:**
+
+- **A cron that "succeeds" while its write is rejected is invisible.** KV does
+  not fail a too-large put loudly enough for a `try`/`catch` around
+  `kvPutJSON` to notice. Anything that writes a growing value needs a byte
+  budget checked BEFORE the put, well under the platform limit, that degrades
+  (drop rows) instead of failing the write.
+- **A reader with no freshness gate will serve a frozen blob forever.** Four
+  lanes had none and served 2026-08-14 scores for 40 days:
+  `loadLatestPredictionTicker` (the right rail), the convexity scanner, the
+  options plays lane, and the index-trend / day-trade dispatch. That is the
+  likely answer to "the model has not taken an options day trade in a week or
+  two". `readAllSnapshot` deliberately has NO default max age — a caller must
+  state how stale it can accept.
+- **"Read 25 MB because it is what `/timed/all` serves" was the whole
+  anti-pattern.** Every such caller already narrowed to a handful: the options
+  and index-trend lanes to the 4 index tickers
+  (`INDEX_TREND_TICKERS === DAY_TRADE_TICKERS === {SPY,QQQ,IWM,DIA}`), the
+  convexity scanner to its top 20. Reading those per ticker is 74x cheaper
+  than the blob it replaced. `hydrateSnapshotRows` chunks and caps at 60 so a
+  careless caller still cannot hold the universe.
+- **Module-level caches outlive the invocation.** `cro/fsd-rewriter.js` cached
+  the whole blob in a module-scope variable for 60s, so a 25 MB retention
+  survived in whatever isolate ran a rewrite. Isolates are reused; module
+  state is not per-request.
+- **Accumulating "just the rows" still accumulates the payloads.**
+  `pendingTrailPoints` collected a row per ticker but held a reference to each
+  full scored payload, carrying all 329 into the tail of the tick, where a
+  second pass then rewrote all 329 to KV again. Build the finished bind row at
+  collection time.
+- **Rank where the data already is.** `/timed/plays/today` read the whole blob
+  because ranking a Cloud Pivot desk row needs the deep 10m/1h ripster clouds.
+  The scoring tick already holds each payload for a moment — rank there and
+  retain only the ranked row (69 KB for the whole desk, against 52 MB of
+  payloads). The desk is now fresh every five minutes instead of only when
+  someone loads the page.
+- **A `{data, count, built_at}` envelope is not a map.** `/timed/futures-pairs`
+  (both copies) read `all[sym]` instead of `all.data[sym]`, so every field
+  silently came from `timed:prices` alone. Found while migrating; unrelated to
+  the OOM.
+
+The snapshot is a slim index now (`worker/all-snapshot.js`): 1,745,792 bytes
+at 333 tickers (6.7% of the ceiling), one build costs 7.9 MB instead of
+182.1 MB, and peak retention is the index plus a SINGLE payload. Verified on
+the live universe: the Today queue, the desk and `extractSliceFields` are
+byte-identical to the full-payload path for all 333 tickers.
+
+### It took three passes, because there were three writers
+
+The first deploy did not stop the kills, and each round of production logs
+named a writer the previous round had hidden:
+
+1. **`timed:all:snapshot`** on `tt-engine`, 52,585,887 bytes — 200.6% of the
+   ceiling. Logged as `[SCORING] KV hot cache build failed: 413`.
+2. **The `/timed/all` full micro-cache** on the monolith, 30,790,510 bytes,
+   every five minutes. It rides `ctx.waitUntil`, so the value stayed alive
+   until the 413 settled, on top of the copy `sendJSON` was stringifying.
+3. **The `*/5` pre-warm itself**, which dispatched the FULL `/timed/all`
+   TWICE per tick (admin bucket and anonymous bucket) — ~30 MB of JSON over a
+   ~38 MB object graph each, and for the anonymous bucket
+   `redactTickerMapForTier` copies the whole graph again.
+
+**Lessons:**
+
+- **Measuring by serializing IS the allocation.** `kvPutJSONIfFits` first
+  measured with `JSON.stringify`, which on the value that mattered built the
+  same 30 MB it then refused to store. `estimateMapBytes` samples three rows
+  out of 330 instead. An estimate may only short-circuit a REFUSAL, never
+  approve a write.
+- **A pre-warm that warms a key it cannot write is pure cost.** The full
+  micro-cache slot has not existed since the universe outgrew the ceiling, so
+  dropping the full dispatch changed nothing for users and removed the two
+  largest allocations in the tick. Pre-warm the slim slot, which is 244 KB.
+- **`nocache=1` must bypass the READ, not the WRITE.** The snapshot path
+  gated the micro-cache write on it, so the one caller whose entire job is to
+  refresh that key was the only caller that never did. The D1 path next to it
+  had it right; which branch ran depended on whether a snapshot existed, so
+  the pre-warm worked or did not depending on unrelated state. Its TTL was
+  wrong in the same direction: 60s against a 300s read window and a 300s
+  pre-warm cadence, so even a successful write left the key absent four
+  minutes out of five.
+- **An empty array is truthy.** `/timed/plays/today` treated any stored
+  `timed:cloud-pivot:desk` as authoritative by testing `desk?.watching`, and
+  ALSO wrote its own fallback back with a 6h TTL. One request before the
+  first scoring run of the day persisted an empty desk that then shadowed the
+  real one for six hours. Decide on `scanned`, which only a tick that looked
+  at the universe sets, and let the tick own the key.
+- **D1 caps a statement at 100 bound parameters.** The sparkline query bound
+  every ticker in the universe — 329 — so every scoring tick logged
+  `too many SQL variables at offset 451` and no ticker got a fresh sparkline.
+  Chunk (`worker/sparkline-d1.js`) and drop a failing chunk, not the universe.
+
+### Then two more, and neither was a single allocation
+
+After all of the above the tick STILL died on every consecutive pass —
+08:40, 08:45 and 08:50, wall 149-156s, cpu ~48s against a far larger CPU
+budget. The remaining two causes were both about what is alive at the same
+time, not about what is big.
+
+4. **Two heavy phases in one isolate.** The scoring tail — slim index build,
+   Cloud Pivot desk scan, D1 batch sync — went into `ctx.waitUntil` the
+   instant scoring finished, so it ran alongside the execution pass. The logs
+   interleave them. `ctx.waitUntil` in a cron buys nothing: there is no
+   response to return early. All it bought was the overlap.
+5. **The kanban pass materialised the batch to rank it.** Fixing (4) let the
+   pass finish and its summary printed for the first time in 24 hours:
+   `Processed 268 actionable, skipped 60 non-actionable, of 329 total`. 268,
+   not the ~45 it had been built for.
+
+**Lessons:**
+
+- **Two phases alive at once is a sum, not a max.** The memory cap is per
+  ISOLATE, so concurrency is the enemy, not latency. The scoring tail is
+  stashed and awaited after the execution phases instead of dispatched, and
+  execution now starts *sooner* because it no longer contends.
+- **Count the sets you hold, not the bytes you read.** A `timed:latest`
+  payload is ~165 KB of JSON and several times that once parsed. The D1 sync
+  held three payload-sized graphs per ticker at chunk 40 (hydrated, enriched,
+  and the previous payload parsed back out of D1); `_thinKvPatches` pushed a
+  full payload as a third tuple element the write-back never read.
+- **Ranking needs scores, not payloads.** A score is a number. The scan keeps
+  the numbers and drops each payload, then the entry pass re-reads one at a
+  time. Ordering, management priority and the capacity-observing sequential
+  walk are all preserved.
+- **Two ticks can share one isolate.** The 09:00 pass ran 579s, so 09:05
+  started on top of it and BOTH were killed at `09:09:40.969`, a millisecond
+  apart. A module-level lease is exactly the right scope for this: two passes
+  only contend when they share an isolate, and when they do they share the
+  variable. Engine only — the monolith's `*/5` carries the price feed.
+- **You cannot attribute a log line to a tick when two are running.** Reading
+  the kanban pass as "24s" came from splicing one tick's scoring timestamp to
+  another tick's summary. It has always been ~200s. Check `scheduledTime` on
+  the invocation before believing a duration inferred from log order.
+- **Dead code that looks live is worse than none.** The batched
+  `processRankedCandidates` had no caller left after the streaming rewrite.
+  Leaving it beside the new one would have left an OOM-shaped footgun that
+  still type-checks; it was removed and its tests moved over.
+
+### And the same disease on the other worker
+
+With `tt-engine` green, `timed-trading-ingest` was still dying on its own
+`*/5`: 10 of 10 consecutive ticks overnight, wall 12-26s, cpu 6-16s. The
+overnight window is what named it. There is no user traffic on that isolate
+at 02:00 UTC and no `/timed/all` in the logs, so serve-time load could not be
+the cause — and each tick died 9-14 seconds after it fired, right where the
+pre-warms peak.
+
+The monolith's `*/5` dispatched five `ctx.waitUntil` chains at once:
+`/timed/options/all` three times, `/timed/all?slim=1` twice, the FRED macro
+refresh, the X wire poll, and the bridge notify drain. Every one of them is
+`_selfDispatch`, which is `this.fetch` — the SAME isolate, the same
+invocation. Five request graphs resident simultaneously.
+
+- **`ctx.waitUntil` is a scheduling primitive, not a memory one.** In a cron
+  handler it buys nothing at all: there is no response to return early. All
+  it does is let the work overlap, which is the one thing the isolate cap
+  punishes. The pre-warms are a list of named steps run in one sequential
+  chain now, each `try`/`catch`ed so a failure does not take the rest with
+  it, with the same per-isolate lease the engine got.
+- **An in-process self-dispatch is not free.** `this.fetch()` avoids the
+  subrequest, the loopback detector and the auth ambiguity — all real wins —
+  but it costs the full request graph inside the caller's memory budget.
+  Treat a `_selfDispatch` like an inline call to the handler, because that is
+  what it is.
+- **Prepare the SQL once.** `_batchUpsertBars` built one bound statement per
+  bar for the entire universe before the first `db.batch`, each re-preparing
+  the same ~450-char SQL from a fresh template literal — ~10k of them on a
+  top-of-hour pass. It flushes every 500 now and releases each symbol from
+  the caller's map as it goes.
+- **Where a worker has no traffic is where you can read its crons.** Every
+  attempt to attribute the monolith's kills during RTH was ambiguous because
+  the isolate was also serving pages. The 02:00 UTC window had exactly one
+  thing happening, and that made the answer obvious in one query.
+
+Serialising the pre-warms was necessary and not sufficient — the kills
+resumed within fifteen minutes. The invocation pairs are what finally read
+correctly: 11:10:33.641 and 11:10:33.700, 59 ms apart, which is an isolate
+dying rather than an invocation. Two more lanes were overlapping themselves.
+
+- **A paced job is not a short job.** `DataProvider.cronFetchLatest` sleeps
+  2.5s between TwelveData batches across four tiers and runs 300-620s — on a
+  five-minute cron. Two and sometimes three passes were always in flight
+  together, each holding its own universe-wide bar map, and the wall time
+  said so all along (`wall=899s` on a `*/5`). It has a `_barCronSince` lease
+  now. The cost is real and worth naming: a bar pass every ~10 min instead of
+  every 5. A skipped slot costs one rotation of the half-slice; the kill cost
+  the whole pass's upserts.
+- **Fixing the memory turns the failure into a wall-clock one.** With the
+  engine no longer dying at 128 MB it started dying at 900s instead
+  (`exceededWallTime`, cpu 91-96s). At market ramp the kanban pass went from
+  ~200s to ~480s — D1 slows under load and `processTradeSimulation` is
+  ~1.75s a candidate — on top of ~220s of scoring. A killed invocation takes
+  the deferred tail and position reconcile with it, so overrunning is worse
+  than doing less. The entry pass is deadlined against the TICK now
+  (`KANBAN_ENTRY_BUDGET_MS`, measured from the lease claim, not from the
+  pass's own start, or a slow scoring phase ahead of it buys the pass
+  nothing). The whole point of ranking is that the order is meaningful, so
+  the candidates to drop are the ones at the bottom of it; management is
+  never deferred, because that is open risk rather than a new position.
+  Live: `Processed 216 actionable, DEFERRED 52 lowest-ranked, in 368s` and
+  the tail then ran in 94s inside a 699s tick.
+- **Two schedules doing the same work need one lane, not two leases.** The
+  hourly `runChartCandleCalendar` backfill is the same universe-wide REST
+  fetch plus D1 upsert as the `*/5` bar pass, and both fire at :05 past the
+  hour — the only ticks that still died after the bar lease landed. They
+  share `_barCronSince` now, and the calendar claims it: it runs earlier in
+  the tick and only once an hour, so the frequent lane is the one that
+  yields. The claim happens before the function's first `await`, which is
+  why an un-awaited call still holds the lane by the time the bar block is
+  reached further down the same tick.
+
+---
+
 ## Four sweep incidents, three of them the sweep's own fault [2026-09-22]
 
 The 09:04 Sanity Sweep read "1 fails · 3 warns · 4 open". Taken at face
@@ -8740,3 +8977,97 @@ Still open: `tt-engine` returns `exceededMemory` on roughly 60–80% of its
 ticks (29 of 36 in a three-hour sample, all on minutes divisible by 5). That is
 why `timed:options:plays-of-day:moderate:10` and `:aggressive:10` do not exist
 in KV at all despite a 600 s TTL and an every-5-minute prewarm.
+
+### The engine never finished a market-hours tick, and a broker order went with it
+
+2026-09-22 17:56 ET the desk saw a Discord card for a DDOG Cloud Pivot paper
+entry and, an hour later, a `BROKER COVERAGE · 4 unmatched` page whose DDOG row
+read `never_attempted`. Both were true. The log for that one tick:
+
+```
+17:55:47  [PAPER_FAMILY_ENTRY] DDOG tt_cloud_pivot LONG 0.1x conviction=2
+17:56:04  [ENTRY_CREATED] DDOG dir=LONG vehicle=shares shares=6.28 notional=$1562
+17:56:16  [DISCORD lane=trade] Notification sent: Enter: DDOG LONG @ $248.65
+17:56:17  error | */5 * * * *   outcome=exceededMemory  wall=322748ms cpu=51377ms
+```
+
+Grouping every scheduled `tt-engine` invocation between 14:00 and 18:00Z by
+`$workers.outcome` (`sampleInterval: 1`, so counts not estimates):
+
+| date | outcomes |
+|---|---|
+| 2026-09-16 | exceededMemory 49 |
+| 2026-09-17 | exceededMemory 48 |
+| 2026-09-18 | exceededMemory 48, canceled 1 |
+| 2026-09-19 (Sat) | **ok 47** |
+| 2026-09-21 | exceededMemory 46, canceled 1 |
+| 2026-09-22 | exceededMemory 46, canceled 1 |
+
+Not 60–80% as previously recorded — **zero** clean completions on any trading
+day in the 7-day retention window, and clean on the weekend. CPU spent 51 s of
+its 300 s budget, so this is the 128 MB memory ceiling, which is not
+configurable. The tick gets far enough to score, write D1 and fire Discord, and
+then dies with everything still queued behind it.
+
+Takeaways:
+
+- **Order the side effects by consequence.** The trader ENTRY bridge forward
+  sat ~360 lines below the Discord card, the in-app notification, the alert
+  emails and the activity append, inside the same `if (!dedupe.deduped)` block.
+  The 2026-07-21 NEU hardening guarded each of those builders against
+  *throwing*; an isolate that is killed outright runs no `catch`, so ordering is
+  the only protection left. The forward now runs first. Worst case
+  `forwardOrderToBridge` still reaches its pre-fetch `pushRing`, which is the
+  difference between a `WORKING` breadcrumb and `never_attempted`.
+- **A heartbeat stamped at the top of a handler cannot report completion.**
+  `cron:last_5min_tick` was 45 s old while `timed:scoring:last_run` was 177 min
+  old with `elapsedMs: 257692, scored: 34, total: 329`. `cron_tick_alive` now
+  compares the two: fresh heartbeat + stale completion is its own anomaly, and
+  a cron that is not firing at all still reports only that. Two questions, two
+  stamps, two answers.
+- **Paper-family tickets are real broker orders.** `tt_cloud_pivot`,
+  `confirm_stack_ema21` and `momentum_continuation` route the same qty to the
+  broker; the "Paper 0.1× — experiment, not capital scale" card describes the
+  size multiplier, not the venue. DDOG's siblings NBIS and P (2026-09-21) placed
+  real Webull share orders. So `mode='trader'` ledger rows from a paper-family
+  entry belong in broker coverage, and `paperLaneId` is right not to exclude
+  them — only `it:` / `dt:` / `cx:` prefixes are simulated.
+- **Every mirror-enabled account is in sync with the model; only the qty is
+  relational (2026-09-22, corrected 2026-09-23).** The NBIS drift page was
+  first read as a false alarm — "`clampExitOpsToHoldings` budgets against
+  `loadBrokerHeldEquity`, which covers only the OWNER's accounts, so the
+  partner's share was never the model's to sell" — and `computeTradeRelativeQty`
+  was taught to forgive the shortfall. That was backwards, and the operator
+  said so: every account activated for mirroring tracks the model on every
+  position it held at activation, with quantity scaled to account size. A
+  reduce that cannot reach a tenant is a defect in the reduce path, not a
+  reporting artefact.
+
+  The real bug: the clamp budgeted per TICKER against a pot filled from ONE
+  account's `/bridge/positions`, so three broker accounts shared one number.
+  Replayed against the live book (66 manifest rows, 32 sleeves claiming a
+  reduce) the old clamp planned 3 sells and dropped 29; the fixed clamp plans
+  12. It had stranded 10 real reduces worth ~$2,656 — and sold one phantom,
+  because UNP appears in BOTH lists: it cancelled the owner's real 1.90357
+  UNP and sold the partner's 1.90357 against an account holding zero. It had
+  the accounts exactly backwards.
+
+  Fix: budget per (account, ticker); `loadBrokerHeldEquityForOwners` asks every
+  tenant's broker and fails closed per owner; `resolveHeldAccount` returns null
+  for "unknown", never "flat". Two identity traps to know about — the owner's
+  fan-out sleeves carry the BARE `user_id` while a partner's carry the
+  `#`-suffixed form, so `broker_account_id` is the only id the manifest and the
+  broker agree on (`/bridge/positions` did not expose it until this change);
+  and `heldEquityByAccount` must alias every key onto ONE object per account,
+  or the budgets split and the clamp under-sells.
+- **Webull's `place_order_repeat` throttle needs a retry vehicle, not just a
+  reclassification.** MU's investor TRIM hit "Please do not place an order
+  repeatedly" at 15:04; `32aec4ba5` taught `classifyBridgeOutcome` to call that
+  transient at 16:26, 82 minutes later. Because the old code called it terminal,
+  `recordBrokerIntent` returned early and wrote no row, so there is nothing for
+  the drain to retry — that trim is unrecoverable and the next one is fine.
+  A reclassification only helps signals that arrive after it deploys.
+
+Still open: the OOM itself. Shedding per-tick work in the `*/5` engine lane
+needs live heap instrumentation, not a guess — 34 scored tickers should not
+approach 128 MB.

@@ -132,6 +132,44 @@ describe("plays-today", () => {
     expect(q.slices.momentum_continuation.count).toBe(0);
     expect(q.slice.plays.some((p) => p.slice_family === "tt_cloud_pivot")).toBe(true);
   });
+
+  // The scoring tick ranks the desk while it still holds each full payload and
+  // leaves it in KV. The handler cannot re-rank from the slim index, so how it
+  // decides whether a stored desk counts matters.
+  const deskRow = {
+    ticker: "AMD",
+    direction: "LONG",
+    tt_cloud_pivot: true,
+    _sequence_queue_proposal: { family: "tt_cloud_pivot", paper: true, state: "queued" },
+    _model_lifecycle: { state: "queued", label: "Queued", why: "tt_cloud_pivot" },
+    rank: 88,
+  };
+
+  it("prefers a desk the scoring tick already ranked", () => {
+    const prebuilt = {
+      watching: [{ ticker: "NVDA", score: 71 }], fires: [], leaders: [], stalks: [],
+      count: 1, scanned: 329,
+    };
+    const q = buildTodayPlaysQueue({ cloudPivotTickers: [deskRow], desk: prebuilt, limit: 10 });
+    expect(q.desk.scanned).toBe(329);
+    expect(q.desk.watching.map((w) => w.ticker)).toEqual(["NVDA"]);
+  });
+
+  it("does not let an empty stored desk shadow the one it can build", () => {
+    // `watching: []` is truthy. Keying off it meant a desk written before the
+    // first scoring run of the day sat there for its whole 6h TTL, and the
+    // Today page showed nothing on the tape.
+    const empty = { watching: [], fires: [], leaders: [], stalks: [], count: 0, scanned: 0 };
+    const q = buildTodayPlaysQueue({ cloudPivotTickers: [deskRow], desk: empty, limit: 10 });
+    expect(q.desk.watching.some((w) => w.ticker === "AMD")).toBe(true);
+  });
+
+  it("keeps a scanned-but-quiet desk, which is a real answer", () => {
+    const quiet = { watching: [], fires: [], leaders: [], stalks: [], count: 0, scanned: 329 };
+    const q = buildTodayPlaysQueue({ cloudPivotTickers: [deskRow], desk: quiet, limit: 10 });
+    expect(q.desk.scanned).toBe(329);
+    expect(q.desk.watching).toEqual([]);
+  });
 });
 
 describe("scorecard", () => {

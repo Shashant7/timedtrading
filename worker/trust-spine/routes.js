@@ -5,6 +5,7 @@ import { resolveAutonomyConfig, evaluateRungGates } from "./autonomy-ladder.js";
 import { attachCalibratedEdge } from "./calibrated-edge.js";
 import { buildTodayPlaysQueue } from "./plays-today.js";
 import { annotateCloudPivotLeaderFollows } from "../foundation/tt-cloud-pivot.js";
+import { readAllSnapshot } from "../all-snapshot.js";
 import { mergeWhyFeed, formatDecisionWhyRow } from "./why-feed.js";
 import { scoreEpochMetrics } from "./scorecard.js";
 import { loadFamilyAttribution } from "./family-attribution.js";
@@ -32,16 +33,33 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
     let cloudPivotTickers = [];
     let continuationTickers = [];
     let cloudDeskRows = [];
+    // The desk needs the deep 10m/1h clouds to rank a row, which this handler
+    // cannot afford to read for the whole universe. The scoring tick ranks it
+    // while it already holds each payload; read what it left.
+    let prebuiltDesk = null;
+    try { prebuiltDesk = await kvGetJSON(KV, "timed:cloud-pivot:desk"); } catch { /* */ }
+    // An empty `watching` array is truthy. Ask whether the tick actually
+    // scanned anything, or an empty desk written before the first scoring run
+    // sits there for its whole 6h TTL shadowing the real one.
+    const deskIsPrebuilt = Number(prebuiltDesk?.scanned) > 0
+      || (Array.isArray(prebuiltDesk?.watching) && prebuiltDesk.watching.length > 0);
     try {
-      const all = await kvGetJSON(KV, "timed:all:snapshot")
+      // `timed:all:snapshot` is a slim index, and it carries every field
+      // `extractSliceFields` reads — the thin-slice detection stamps, the
+      // lifecycle, the shadow posture and character — so this scan is
+      // satisfied without any payload hydration. See worker/all-snapshot.js.
+      const all = await readAllSnapshot(KV, { maxAgeMs: 6 * 3600 * 1000 })
         || await kvGetJSON(KV, "timed:all:micro")
-        || await kvGetJSON(KV, "timed:all:slim")
-        || await kvGetJSON(KV, "timed:all");
+        || await kvGetJSON(KV, "timed:all:slim");
       const map = all?.data || all?.map || all?.tickers || all || {};
       const entries = Array.isArray(map)
         ? map.map((t) => ({ sym: String(t?.ticker || "").toUpperCase(), t }))
         : Object.entries(map).map(([sym, t]) => ({ sym: String(sym).toUpperCase(), t }));
-      try { annotateCloudPivotLeaderFollows(entries); } catch { /* */ }
+      // Only worth doing as a fallback: the cron already stamped these onto
+      // the index, and a slim row has no clouds for the curl to read.
+      if (!deskIsPrebuilt) {
+        try { annotateCloudPivotLeaderFollows(entries); } catch { /* */ }
+      }
       cloudDeskRows = entries;
       for (const { sym, t } of entries) {
         if (!sym || !t || typeof t !== "object") continue;
@@ -90,13 +108,12 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
       cloudPivotTickers,
       continuationTickers,
       cloudDeskRows,
+      desk: deskIsPrebuilt ? prebuiltDesk : null,
       limit,
     });
-    try {
-      if (KV && queue?.desk) {
-        await KV.put("timed:cloud-pivot:desk", JSON.stringify(queue.desk), { expirationTtl: 6 * 3600 });
-      }
-    } catch { /* */ }
+    // The scoring tick owns `timed:cloud-pivot:desk`. This handler cannot rank
+    // from slim rows, so writing its fallback back would persist an empty desk
+    // for a 6h TTL and starve the real one.
     return sendJSON({ ok: true, ...queue }, 200, corsHeaders(env, req));
   }
 

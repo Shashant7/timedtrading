@@ -47,6 +47,84 @@ export function heldEquityFromAccounts(accounts = []) {
   return byTicker;
 }
 
+/**
+ * The app user behind a manifest `user_id` / positions `account_id`.
+ *
+ * A partner's sleeves are keyed by the SUFFIXED id
+ * (`partner@example.com#webull#individual-cash`) while the owner's fan-out
+ * sleeves are keyed by the bare email, so the suffix is the only thing
+ * standing between "two accounts" and "two people". `/bridge/positions` is
+ * scoped by owner, so the base email is what decides whose broker to ask.
+ */
+export function heldOwnerEmailFor(userId) {
+  return String(userId || "").trim().toLowerCase().split("#")[0] || "";
+}
+
+/** Every id a positions account answers to, lowercased. */
+export function heldAccountKeys(acct) {
+  const keys = new Set();
+  for (const k of ["broker_account_id", "webull_account_id", "ibkr_account_id", "rh_account_number", "account_id"]) {
+    const v = acct?.[k];
+    if (v != null && String(v).trim()) keys.add(String(v).trim().toLowerCase());
+  }
+  return keys;
+}
+
+/**
+ * Held equity per ticker, kept SEPARATE per broker account.
+ *
+ * `heldEquityFromAccounts` sums across accounts, which is the right answer
+ * for "does anyone hold this" and the wrong one for "how much may this
+ * sleeve sell". The broker holds one position per (account, ticker); a
+ * budget spent from a cross-account total lets whichever sleeve is
+ * processed first consume shares that live in somebody else's account.
+ * 2026-09-22 that dropped the partner's 1-share NBIS exit as
+ * `broker_position_already_flat` because the owner's 2-share exit had
+ * already emptied the shared budget, and left 8 positions worth $2,656
+ * stranded in the partner's cash account.
+ */
+export function heldEquityByAccount(accounts = []) {
+  const out = {};
+  for (const acct of accounts || []) {
+    if (acct?.mirror_enabled !== true) continue;
+    const keys = [...heldAccountKeys(acct)];
+    if (!keys.length) continue;
+    const held = {};
+    for (const item of acct?.items || []) {
+      const instrument = String(item?.instrument || "equity").toLowerCase();
+      if (instrument && instrument !== "equity" && instrument !== "stock") continue;
+      const ticker = String(item?.ticker || "").toUpperCase().trim();
+      const qty = Number(item?.broker_qty ?? item?.qty);
+      if (!ticker || !Number.isFinite(qty) || qty <= 0) continue;
+      const prev = held[ticker] || { qty: 0, avg_cost: null };
+      prev.qty += qty;
+      const avg = Number(item?.avg_cost);
+      if (prev.avg_cost == null && Number.isFinite(avg) && avg > 0) prev.avg_cost = avg;
+      held[ticker] = prev;
+    }
+    // One canonical entry per account, reachable under every alias, so a
+    // sleeve keyed by broker_account_id and one keyed by the suffixed
+    // user_id resolve to the SAME budget rather than to two.
+    out[keys[0]] = { id: keys[0], keys, held };
+    for (const k of keys.slice(1)) out[k] = out[keys[0]];
+  }
+  return out;
+}
+
+/**
+ * Which per-account holdings entry a manifest sleeve belongs to, or null
+ * when the broker never reported an account we can tie it to. Null means
+ * UNKNOWN — callers must not read it as "holds nothing".
+ */
+export function resolveHeldAccount(byAccount, { userId, brokerAccountId } = {}) {
+  if (!byAccount || typeof byAccount !== "object") return null;
+  for (const candidate of [brokerAccountId, userId]) {
+    const key = String(candidate || "").trim().toLowerCase();
+    if (key && byAccount[key]) return byAccount[key];
+  }
+  return null;
+}
+
 async function getBridgeJson(env, path) {
   const bridgeUrl = env?.BROKER_BRIDGE_URL || "https://bridge.internal";
   const svc = env?.BROKER_BRIDGE;
@@ -141,6 +219,66 @@ export async function loadBrokerHeldEquity(env, { owner, nowMs = Date.now(), ref
     } catch (_) { /* best-effort */ }
   }
   return held;
+}
+
+/**
+ * Held equity for EVERY mirroring tenant, not just the owner.
+ *
+ * `loadBrokerHeldEquity` asks `/bridge/positions?owner=<admin>`, so the only
+ * holdings it can ever see are the owner's. Every mirror-enabled account is
+ * supposed to track the model with quantities relational to account size, so
+ * a heal lane that budgets reduces against owner-only holdings is blind to
+ * two thirds of the book — and being blind reads as "flat", which silently
+ * cancels the partner's sell.
+ *
+ * Each owner is resolved independently and fails closed on its own: an owner
+ * whose broker could not be asked gets `held: null` rather than `{}`, so one
+ * rate-limited account cannot make another owner's sleeves look sold.
+ */
+export async function loadBrokerHeldEquityForOwners(env, { owners = [], nowMs = Date.now(), refresh = false } = {}) {
+  const emails = [...new Set(
+    (owners || []).map((o) => heldOwnerEmailFor(o)).filter(Boolean),
+  )];
+  if (!emails.length) {
+    const fallback = heldOwnerEmailFor(env?.ADMIN_EMAIL);
+    if (fallback) emails.push(fallback);
+  }
+  const out = { owners: {}, byAccount: {}, unknown: [] };
+  for (const email of emails) {
+    let body = null;
+    try {
+      body = await getBridgeJson(env, `/bridge/positions?owner=${encodeURIComponent(email)}`);
+    } catch (_) { body = null; }
+    if (!body?.ok || !Array.isArray(body.accounts)) {
+      out.owners[email] = { held: null, byAccount: {} };
+      out.unknown.push(email);
+      continue;
+    }
+    const answered = heldAccountsAnswered(body.accounts);
+    if (!answered.ok) {
+      console.warn(`[HELD-EQUITY] positions unavailable for ${email}: `
+        + answered.blind.map((b) => `${b.account}=${b.reason}`).join(", ").slice(0, 300));
+      out.owners[email] = { held: null, byAccount: {} };
+      out.unknown.push(email);
+      continue;
+    }
+    const byAccount = heldEquityByAccount(body.accounts);
+    out.owners[email] = { held: heldEquityFromAccounts(body.accounts), byAccount };
+    for (const [key, entry] of Object.entries(byAccount)) {
+      if (!out.byAccount[key]) out.byAccount[key] = entry;
+    }
+  }
+  out.nowMs = nowMs;
+  out.refresh = refresh;
+  return out;
+}
+
+/** Per-ticker holdings for one owner, or null when that owner is unknown. */
+export function heldForOwner(holdings, owner) {
+  const email = heldOwnerEmailFor(owner);
+  if (!holdings || typeof holdings !== "object") return null;
+  if (!holdings.owners) return holdings; // legacy per-ticker map
+  return holdings.owners[email]?.held ?? null;
 }
 
 /**

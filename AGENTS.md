@@ -53,6 +53,7 @@ should read. It tells you what to look at, in what order, and why.
 | Debug a 401 / 403 / 404 / 503 | [skills/debug-http-codes.md](skills/debug-http-codes.md) |
 | Query D1 directly | [skills/d1-debugging.md](skills/d1-debugging.md) |
 | Inspect a KV value | [skills/kv-inspection.md](skills/kv-inspection.md) |
+| Scan the universe / add a snapshot field / stale scores | [skills/all-snapshot.md](skills/all-snapshot.md) |
 | Test or debug a Discord alert | [skills/discord-alerts.md](skills/discord-alerts.md) |
 | IBKR / Broker Bridge work | [skills/broker-bridge.md](skills/broker-bridge.md) |
 | Onboard a partner / check broker tenant isolation | [skills/partner-onboarding.md](skills/partner-onboarding.md) |

@@ -453,39 +453,109 @@ const checkLoop2BreakerStale = timed(async function checkLoop2BreakerStale(env, 
 
 // ── Check 9: cron_tick_alive ────────────────────────────────────────────
 
+/** A tick that fires every 5 min gets three misses before anyone is woken. */
+const CRON_TICK_STALE_MIN = 15;
+const CRON_TICK_STALE_FAIL_MIN = 30;
+/** The scoring pass itself takes ~4 min, so give the finish line real room. */
+export const CRON_COMPLETION_WARN_MIN = 20;
+export const CRON_COMPLETION_FAIL_MIN = 45;
+/** Outside 09:00-18:00 ET the five-minute lane goes quiet for hours. */
+export const CRON_OFFHOURS_WARN_MIN = 240;
+
+// Split the two questions the heartbeat alone cannot answer apart: is the
+// */5 tick still FIRING, and is it still FINISHING?
+//
+// 2026-09-22 — `cron:last_5min_tick` is stamped at the top of
+// `scheduled()`, before any work. `timed:scoring:last_run` is written at
+// the end of the scoring tail, ~4 min later. When the tt-engine isolate is
+// killed mid-tick the first stamp stays perpetually fresh and the second
+// one ages, so a cron that boots 47 times an hour and completes zero of
+// them reads as a perfectly healthy heartbeat. That is exactly what
+// happened: every scheduled tt-engine invocation between 14:00 and 18:00Z
+// on 2026-09-16/17/18/21/22 ended in `outcome: exceededMemory` (46-49 per
+// day, zero clean), the DDOG entry's broker mirror died with the isolate,
+// and coverage could only report `never_attempted`. This check reported
+// `ok` throughout.
+//
+// Pure so the thresholds can be pinned in tests; the caller only reads KV.
+export function diagnoseCronTick({ lastTickMs, lastScoringMs, scoringMeta, nowMs } = {}) {
+  const now = Number(nowMs) || Date.now();
+  const dt = new Date(now);
+  const dow = dt.getUTCDay();
+  const hourUtc = dt.getUTCHours();
+  const isMarketHours = dow !== 0 && dow !== 6 && hourUtc >= 13 && hourUtc <= 22;
+  const when = isMarketHours ? " (MARKET HOURS)" : " (off-hours)";
+
+  const lastTick = Number(lastTickMs) || 0;
+  if (lastTick === 0) {
+    return [{
+      detail: "cron:last_5min_tick KV key missing — heartbeat may not be implemented yet",
+      severity: "warn",
+    }];
+  }
+
+  const tickAgeMin = (now - lastTick) / 60000;
+  if (tickAgeMin > CRON_TICK_STALE_MIN) {
+    // Not firing at all. Say so and stop — a silent cron has no completions
+    // to judge, and reporting both would page twice for one outage.
+    const severity = isMarketHours
+      ? (tickAgeMin > CRON_TICK_STALE_FAIL_MIN ? "fail" : "warn")
+      : (tickAgeMin > CRON_OFFHOURS_WARN_MIN ? "warn" : "ok");
+    if (severity === "ok") return [];
+    return [{ detail: `last */5 cron tick ${Math.round(tickAgeMin)}min ago${when}`, severity }];
+  }
+
+  // Heartbeat is fresh, so the tick is firing. Does it reach the end?
+  const lastScoring = Number(lastScoringMs) || 0;
+  if (lastScoring === 0) {
+    return isMarketHours
+      ? [{
+          detail: `*/5 tick firing (${Math.round(tickAgeMin)}min ago) but timed:scoring:last_run has never been written${when}`,
+          severity: "warn",
+        }]
+      : [];
+  }
+
+  const lagMin = (now - lastScoring) / 60000;
+  const severity = isMarketHours
+    ? (lagMin > CRON_COMPLETION_FAIL_MIN ? "fail" : lagMin > CRON_COMPLETION_WARN_MIN ? "warn" : "ok")
+    : (lagMin > CRON_OFFHOURS_WARN_MIN ? "warn" : "ok");
+  if (severity === "ok") return [];
+
+  const scored = Number(scoringMeta?.scored);
+  const total = Number(scoringMeta?.total);
+  const elapsedMs = Number(scoringMeta?.elapsedMs);
+  const tail = [
+    Number.isFinite(scored) && Number.isFinite(total) ? `last completed pass scored ${scored}/${total}` : null,
+    Number.isFinite(elapsedMs) && elapsedMs > 0 ? `took ${Math.round(elapsedMs / 1000)}s` : null,
+  ].filter(Boolean).join(", ");
+  return [{
+    detail: `*/5 tick fired ${Math.round(tickAgeMin)}min ago but last completed scoring pass was ${Math.round(lagMin)}min ago${when}`
+      + (tail ? ` — ${tail}` : ""),
+    severity,
+  }];
+}
+
 const checkCronTickAlive = timed(async function checkCronTickAlive(env, ctx) {
   const anomalies = [];
   try {
     // Every cron tick (*/1, */5, hourly) stamps a heartbeat in KV. If
     // the */5 tick hasn't fired in >15min during market hours, the
-    // entire cron pipeline (scoring, alerts, trims) is stalled.
-    const lastTickRaw = await env.KV_TIMED.get("cron:last_5min_tick");
-    const lastTick = Number(lastTickRaw) || 0;
-    if (lastTick === 0) {
-      anomalies.push({
-        detail: "cron:last_5min_tick KV key missing — heartbeat may not be implemented yet",
-        severity: "warn",
-      });
-    } else {
-      const ageMin = (Date.now() - lastTick) / 60000;
-      if (ageMin > 15) {
-        const dt = new Date();
-        const hourUtc = dt.getUTCHours();
-        const dow = dt.getUTCDay();
-        const isWeekend = dow === 0 || dow === 6;
-        const isMarketHours = !isWeekend && hourUtc >= 13 && hourUtc <= 22;
-        // Off-hours: only escalate to fail at extreme staleness.
-        const severity = isMarketHours
-          ? (ageMin > 30 ? "fail" : "warn")
-          : (ageMin > 240 ? "warn" : "ok");
-        if (severity !== "ok") {
-          anomalies.push({
-            detail: `last */5 cron tick ${Math.round(ageMin)}min ago${isMarketHours ? " (MARKET HOURS)" : " (off-hours)"}`,
-            severity,
-          });
-        }
-      }
-    }
+    // entire cron pipeline (scoring, alerts, trims) is stalled. A tick
+    // that fires and then dies before the scoring tail is just as much an
+    // outage, so read the completion stamp too — see diagnoseCronTick.
+    const [lastTickRaw, scoringRaw] = await Promise.all([
+      env.KV_TIMED.get("cron:last_5min_tick"),
+      env.KV_TIMED.get("timed:scoring:last_run"),
+    ]);
+    let scoringMeta = null;
+    try { scoringMeta = scoringRaw ? JSON.parse(scoringRaw) : null; } catch (_) { scoringMeta = null; }
+    anomalies.push(...diagnoseCronTick({
+      lastTickMs: Number(lastTickRaw) || 0,
+      lastScoringMs: Number(scoringMeta?.ts) || 0,
+      scoringMeta,
+      nowMs: Date.now(),
+    }));
   } catch (e) {
     anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
   }
@@ -493,8 +563,8 @@ const checkCronTickAlive = timed(async function checkCronTickAlive(env, ctx) {
     "cron_tick_alive",
     "Cron tick heartbeat",
     anomalies,
-    "Check the worker's scheduled() handler for errors. Cron is suspended? Check the wrangler.toml triggers list and the Cloudflare dashboard cron status.",
-    "would have caught: cron silently muted by integrity-wipe guard with no operator notification"
+    "Firing but not finishing means the isolate is dying mid-tick: check `outcome` on the tt-engine scheduled invocations (exceededMemory is the usual answer) and shed per-tick work. Not firing at all means the trigger is gone: check the wrangler.toml triggers list and the Cloudflare dashboard cron status.",
+    "would have caught: cron silently muted by integrity-wipe guard with no operator notification; tt-engine */5 OOM-killed on every market-hours tick 2026-09-16..22 while the heartbeat read healthy"
   );
 });
 

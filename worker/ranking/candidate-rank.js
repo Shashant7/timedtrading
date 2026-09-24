@@ -247,27 +247,140 @@ export function stampCandidatePositions(data, scoreCandidate) {
 // order, and the existing admission/capacity checks still decide each entry.
 // Management has priority and retains its original order. Processing stays
 // sequential so a later entry observes the earlier entry's capacity usage.
-export async function processRankedCandidates(candidates, { scoreCandidate, processCandidate, onError }) {
-  const management = [], entries = [];
-  for (const candidate of candidates) {
-    (MANAGEMENT_STAGES.has(String(candidate.payload?.kanban_stage || "").toLowerCase())
-      ? management : entries).push(candidate);
-  }
-  const ranked = rankCandidateBatch(entries, scoreCandidate);
-  ranked.forEach(({ payload, score }, i) => {
-    payload.__candidate_order = {
-      version: CANDIDATE_RANK_VERSION, score, position: i + 1, total: ranked.length,
-    };
-  });
+//
+// Never holds more than one payload.
+//
+// 2026-09-23: the live batch is 268 tickers, not the ~45 this pass was long
+// assumed to handle — most of the universe classifies as `hold`, which is a
+// management stage. A `timed:latest` payload is ~165 KB of JSON and several
+// times that parsed, so materialising the batch to rank it is by itself
+// more than the 128 MB isolate, and the `*/5` engine tick died on every
+// pass for six days.
+//
+// Ranking needs every score before it can order anything, but it does not
+// need every payload: a score is a number. The scan keeps the numbers and
+// drops each payload, then the entry pass re-reads them one at a time.
+//
+// Management is not ranked, so it is processed on the scan itself and never
+// read twice. Priority and original order are unchanged either way — every
+// management candidate is still processed before any entry.
+//
+// `deadlineAt` (ms, optional) bounds the ENTRY pass only. The whole point of
+// ranking is that the order is meaningful, so when the tick runs out of time
+// the candidates to drop are the ones at the bottom of it. Without this the
+// engine tick simply overran: at market ramp the pass went from ~200s to
+// ~480s (`processTradeSimulation` is ~1.75s a candidate and D1 slows down
+// under load), scoring ahead of it takes ~220s, and the whole invocation hit
+// Cloudflare's 900s wall — which kills the deferred tail and position
+// reconcile too, so nothing downstream of the pass ran at all. Management is
+// never deferred: it is open risk, not a new position. `now` is injectable
+// so the deadline can be tested without touching the clock.
+//
+// `loadPayload(ticker, phase)` is called with `"scan"` and, for entry
+// candidates only, again with `"entry"`. A caller that counts rejections
+// counts them on the scan. Returning a falsy payload drops the ticker.
+//
+// The reads are overlapped, the work is not. The scan reads in windows of
+// `scanConcurrency` and then walks the window in order; the entry pass
+// reads one candidate ahead of the one it is processing. Peak retention is
+// therefore `scanConcurrency` payloads, not the batch. This matters because
+// the second read is a cold one: the tail that used to warm every
+// `timed:latest` key alongside this pass now runs after it, and 536
+// sequential cold reads cost the engine tick ~190s.
+//
+// Returns `{ processed, management, entries, deferred }` — the log line that
+// reports this pass is the only view anyone has of it, and `deferred` is the
+// one number that says the tick is over budget.
+export async function processRankedCandidates(tickers, {
+  loadPayload, scoreCandidate, processCandidate, onError, scanConcurrency = 6,
+  deadlineAt = 0, now = Date.now,
+}) {
+  const entries = [];
   let processed = 0;
-  for (const candidate of [...management, ...ranked]) {
+  let managed = 0;
+
+  const read = async (ticker, phase) => {
     try {
-      await processCandidate(candidate);
-      processed++;
+      const payload = await loadPayload(ticker, phase);
+      return payload && typeof payload === "object" ? payload : null;
     } catch (error) {
-      if (onError) onError(error, candidate);
+      if (onError) onError(error, { ticker, payload: null });
       else throw error;
+      return null;
+    }
+  };
+
+  const window = Math.max(1, Math.floor(scanConcurrency) || 1);
+  for (let w = 0; w < tickers.length; w += window) {
+    const batch = tickers.slice(w, w + window);
+    const loaded = await Promise.all(batch.map((t) => read(t, "scan")));
+    for (let b = 0; b < batch.length; b++) {
+      const ticker = batch[b];
+      let payload = loaded[b];
+      loaded[b] = null;
+      if (!payload) continue;
+
+      if (!MANAGEMENT_STAGES.has(String(payload.kanban_stage || "").toLowerCase())) {
+        entries.push({
+          ticker,
+          score: capRankByFreshness(payload, scoreCandidate(payload)),
+          quarantined: isQuarantinedByFreshness(payload),
+        });
+        payload = null;
+        continue;
+      }
+
+      managed++;
+      try {
+        await processCandidate({ ticker, payload });
+        processed++;
+      } catch (error) {
+        if (onError) onError(error, { ticker, payload });
+        else throw error;
+      } finally {
+        payload = null;
+      }
     }
   }
-  return processed;
+  entries.sort(compareCandidateRanks);
+
+  // One read in flight ahead of the candidate being processed. Processing
+  // stays strictly sequential -- a later entry must still observe the
+  // earlier entry's capacity usage -- but it no longer waits on KV.
+  let ahead = entries.length ? read(entries[0].ticker, "entry") : null;
+  let deferred = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const item = entries[i];
+    let payload = await ahead;
+    ahead = i + 1 < entries.length ? read(entries[i + 1].ticker, "entry") : null;
+    if (deadlineAt && now() >= deadlineAt) {
+      // Everything from here down is lower-ranked than everything already
+      // attempted, and the next tick is five minutes away.
+      deferred = entries.length - i;
+      break;
+    }
+    if (!payload) continue;
+    try {
+      // The scan stamped `_ranking` / `_technical_rank` / the tilts onto a
+      // payload that has since been dropped, so stamp this copy too. The
+      // recorded score stays the scan's — that is the one that decided the
+      // order.
+      scoreCandidate(payload);
+      capRankByFreshness(payload, item.score);
+      payload.__candidate_order = {
+        version: CANDIDATE_RANK_VERSION,
+        score: item.score,
+        position: i + 1,
+        total: entries.length,
+      };
+      await processCandidate({ ticker: item.ticker, payload });
+      processed++;
+    } catch (error) {
+      if (onError) onError(error, { ticker: item.ticker, payload });
+      else throw error;
+    } finally {
+      payload = null;
+    }
+  }
+  return { processed, management: managed, entries: entries.length, deferred };
 }
