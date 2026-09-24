@@ -15,9 +15,12 @@ import {
   buildDayTradePositionMgmtLine,
   shouldArmProfitLock,
   profitLockThreshold,
+  profitLockFloor,
+  HARD_STOP_PCT,
 } from "./option-day-trade-plan.js";
 
 const ET = "-04:00";
+const hardStopOf = (entry) => Math.round(entry * (1 + HARD_STOP_PCT / 100) * 100) / 100;
 const ts = (iso) => Date.parse(iso);
 const RTH_NOW = ts(`2026-08-20T10:12:00${ET}`);
 const PREMARKET_NOW = ts(`2026-08-21T06:30:00${ET}`);
@@ -501,7 +504,9 @@ describe("classifyPaperEvent", () => {
     expect(out.nextBook.status).toBe("closed");
   });
 
-  it("stops a never-trimmed +12% peak at breakeven, not the -50% hard stop", () => {
+  // A +12% peak is ~0.06% of the underlying on a 0.4-delta 1DTE contract.
+  // It arms the safety net, but it has not earned a zero-tolerance stop.
+  it("does not scratch a never-trimmed +12% peak the moment it touches entry", () => {
     const out = classifyPaperEvent({
       clock: clockBuy,
       book: {
@@ -516,8 +521,7 @@ describe("classifyPaperEvent", () => {
       size: { label: "light", contracts: 1 },
       now: RTH_NOW,
     });
-    expect(out.event).toBe("STOP");
-    expect(out.reason).toBe("breakeven_stop");
+    expect(out.event).toBeNull();
   });
 
   it("does not ride a modest winner down to the -50% hard stop", () => {
@@ -533,6 +537,29 @@ describe("classifyPaperEvent", () => {
       },
       premium: 0.56,
       size: { label: "light", contracts: 1 },
+      now: RTH_NOW,
+    });
+    expect(out.event).toBe("STOP");
+    expect(out.reason).toBe("profit_lock_stop");
+    // Floor is 0.80, comfortably above the 0.60 hard stop.
+    expect(profitLockFloor(1.19, 1.33)).toBeGreaterThan(hardStopOf(1.19));
+  });
+
+  // A 1R trim banks half the position, so the runner may risk nothing. That
+  // breakeven is earned; the peak lock's is not. Keep them distinguishable.
+  it("keeps the earned breakeven pinned at entry after a trim", () => {
+    const out = classifyPaperEvent({
+      clock: clockBuy,
+      book: {
+        status: "trimmed",
+        entry_premium: 1.19,
+        trim_premium: 1.79,
+        exit_premium: 2.38,
+        contracts: 2,
+        profit_armed: true,
+        peak_premium: 1.33,
+      },
+      premium: 1.18,
       now: RTH_NOW,
     });
     expect(out.event).toBe("STOP");
@@ -697,6 +724,85 @@ describe("buildDayTradeSignalEmbed", () => {
     });
     expect(text).toMatch(/breakeven/i);
     expect(text).not.toMatch(/hard stop/i);
+  });
+
+  it("profit_lock_stop says it was a giveback floor, not a breakeven", () => {
+    const text = describePaperExitReason("profit_lock_stop", {
+      entry: 0.64,
+      mid: 0.44,
+      peak: 0.74,
+      flavor: "put",
+      sym: "IWM",
+    });
+    expect(text).toMatch(/profit-lock giveback/i);
+    expect(text).toMatch(/\$0\.44/);
+    // The floor, not the entry, is the level that fired.
+    expect(text).toMatch(/\$0\.44/);
+    expect(text).not.toMatch(/^Breakeven stop/);
+  });
+});
+
+// The floor has to be monotone in the peak and bracketed by the two levels
+// it interpolates between, or it is not a ratchet.
+describe("profitLockFloor", () => {
+  it("is the hard stop until the book has been green", () => {
+    expect(profitLockFloor(1.00, null)).toBe(0.50);
+    expect(profitLockFloor(1.00, 0.90)).toBe(0.54);
+  });
+
+  it("never sits below the hard stop or above breakeven", () => {
+    for (let peak = 0.5; peak <= 4; peak += 0.05) {
+      const floor = profitLockFloor(1.00, peak);
+      expect(floor).toBeGreaterThanOrEqual(0.50);
+      expect(floor).toBeLessThanOrEqual(1.00);
+    }
+  });
+
+  it("rises monotonically with the peak", () => {
+    let prev = -Infinity;
+    for (let peak = 0.5; peak <= 4; peak += 0.05) {
+      const floor = profitLockFloor(1.00, peak);
+      expect(floor).toBeGreaterThanOrEqual(prev);
+      prev = floor;
+    }
+  });
+
+  it("reaches breakeven once the giveback floor gets there on its own", () => {
+    expect(profitLockFloor(1.00, 1.60)).toBe(0.96);
+    expect(profitLockFloor(1.00, 1.67)).toBe(1.00);
+    expect(profitLockFloor(1.00, 3.00)).toBe(1.00);
+  });
+
+  it("returns null when there is no entry to measure from", () => {
+    expect(profitLockFloor(null, 1.5)).toBeNull();
+    expect(profitLockFloor(0, 1.5)).toBeNull();
+  });
+
+  // Production books, 2026-09-23/24. Every one of these was stopped at its
+  // own entry price by the old rule; none was anywhere near its 1R trim.
+  it("holds the seven books the old zero-tolerance breakeven scratched", () => {
+    const scratched = [
+      // entry, peak, the mid the old rule exited at
+      [2.15, 2.76, 2.11], // QQQ 738P
+      [1.55, 1.80, 1.48], // QQQ 736P
+      [0.67, 0.78, 0.66], // IWM 282P
+      [0.61, 0.66, 0.51], // IWM 281P
+      [0.88, 0.98, 0.85], // SPY 763P
+      [0.64, 0.74, 0.63], // IWM 279P
+      [0.88, 1.02, 0.80], // IWM 280P
+    ];
+    for (const [entry, peak, exitMid] of scratched) {
+      expect(exitMid).toBeLessThanOrEqual(entry); // the old rule fired
+      expect(profitLockFloor(entry, peak)).toBeLessThan(exitMid);
+    }
+  });
+
+  // 2026-08-24 QQQ 711C: peaked +207%, rode the giveback to a -53% stop.
+  // That is the case the profit lock exists for and it must still be caught.
+  it("still protects the round-trip the profit lock was added for", () => {
+    const entry = 1.19;
+    const floor = profitLockFloor(entry, 3.65); // +207%
+    expect(floor).toBe(entry); // pinned at breakeven, nothing given back
   });
 });
 

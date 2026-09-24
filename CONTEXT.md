@@ -637,6 +637,29 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   `mirrored` decision. Economics stay honest either way: `settleIndexDtRisk`
   and the budget reconcile both book at the real close price, never the paper
   stop.
+- **The profit lock and the earned breakeven are DIFFERENT floors (2026-09-24)**:
+  both used to fire on `mid <= entry`. A 1R trim banks half the position, so
+  that runner may honestly risk nothing — the breakeven is paid for. The peak
+  lock (`+10%` / `+$0.08`) is only a safety net for a book that went green
+  without tagging 1R, and +10% of premium on a 0.4-delta 1DTE contract is a
+  ~0.06% move in the index, i.e. inside one bar's noise. Armed at +10% with
+  the first target at +50%, every book in the band carried a zero-tolerance
+  stop and no target: scratch or hero. It scratched 9 of 18 rounds over
+  2026-09-23/24 at a median peak of +15.9%. The peak lock now rides
+  `profitLockFloor` = `max(hard stop, min(entry, 0.6 × peak))` — monotone,
+  always tighter than the -50% hard stop, reaching breakeven on its own past
+  +67% peak, reusing `HARD_STOP_PCT`/`TRAIL_GIVEBACK_PCT`. Fires as
+  `profit_lock_stop` so it is distinguishable from an earned `breakeven_stop`.
+- **"We are a step behind" is an entry complaint that is usually an exit bug
+  (2026-09-24)**: separate them with MFE after the fill — a late entry never
+  goes green (MAE leads), while 7 of 14 scored fills here reached their own
+  +50% 1R trim before being scratched at ~0%. `scripts/replay-dt-profit-lock.mjs`
+  joins `timed:opt-dt-actions` to `option_marks` and replays both stop rules
+  over the same path. `option_marks` is SAMPLED — it refuses to score a round
+  whose hold window held 1-3 prints. Open signal, not yet acted on: first
+  position of the day per underlying+side reached +50% in 5/5, re-entries in
+  2/9 — but a re-entry only exists because the prior position came off, so
+  re-measure after the floor fix before adding a re-entry gate.
 - **A rejected reduce pages; it is never just a log line (2026-09-24)**: every
   mirror decision funnels through `recordIndexDtMirrorDecision`, so a `sell`
   that comes back `rejected`/`error` posts to the Discord system lane, deduped
