@@ -3250,14 +3250,21 @@ export function attachManagementToTiers(tiersResult, ctx = {}) {
  * per-vehicle cap (already in options-auto-mirror.js). This helper only
  * answers: "is this a candidate at all?"
  *
- * Requires: SPY/QQQ/IWM (not DIA), long_call or long_put, day-trade
+ * Requires: one of DAY_TRADE_TICKERS, long_call or long_put, day-trade
  * archetype, options_auto_mirror_indices flag on, and — if the
  * scorecard has data — the ticker's current tier winrate must be ≥60%.
+ *
+ * 2026-09-24 — DIA was excluded here while still being alerted, so every DIA
+ * day trade was published and then dropped at the broker with
+ * `ticker_not_index`. On 2026-09-23 that silently skipped DIA 514P, a
+ * +$194 round that took 100% of its reachable move. The allow-list is now
+ * DAY_TRADE_TICKERS itself, so a ticker cannot be alertable and unmirrorable
+ * at the same time.
  */
 export function shouldIndexAutoMirror({ ticker, archetype, tier, scorecardTierWinRate, flagOn } = {}) {
   const t = String(ticker || "").toUpperCase();
   if (!flagOn) return { should_mirror: false, reason: "flag_off" };
-  if (!["SPY", "QQQ", "IWM"].includes(t)) return { should_mirror: false, reason: "ticker_not_index" };
+  if (!isDayTradeTicker(t)) return { should_mirror: false, reason: "ticker_not_index" };
   const a = String(archetype || "").toLowerCase();
   if (!["day_trade_call", "day_trade_put"].includes(a)) return { should_mirror: false, reason: "archetype_not_directional_day_trade" };
   // No scorecard data yet → paper is fine (Alpaca paper only); block on

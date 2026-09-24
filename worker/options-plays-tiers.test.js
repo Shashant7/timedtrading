@@ -8,6 +8,7 @@ import {
   attachOptionManagement,
   attachManagementToTiers,
   shouldIndexAutoMirror,
+  DAY_TRADE_TICKERS,
   buildIndexSwingPlay,
   pickIndexSwingExpiration,
   buildScorecardHeadline,
@@ -269,7 +270,16 @@ describe("shouldIndexAutoMirror (Stage 5)", () => {
   });
   it("blocks non-index tickers", () => {
     expect(shouldIndexAutoMirror({ ticker: "AAPL", archetype: "day_trade_call", flagOn: true }).should_mirror).toBe(false);
-    expect(shouldIndexAutoMirror({ ticker: "DIA", archetype: "day_trade_call", flagOn: true }).should_mirror).toBe(false);
+    expect(shouldIndexAutoMirror({ ticker: "TSLA", archetype: "day_trade_call", flagOn: true }).should_mirror).toBe(false);
+  });
+  it("mirrors every ticker the desk is allowed to day trade, DIA included", () => {
+    // DIA used to be alertable but unmirrorable, so its plays were published
+    // and then dropped with `ticker_not_index` — three times on 2026-09-23,
+    // including a +$194 round.
+    for (const t of DAY_TRADE_TICKERS) {
+      const r = shouldIndexAutoMirror({ ticker: t, archetype: "day_trade_put", flagOn: true });
+      expect(r.should_mirror, `${t} should mirror`).toBe(true);
+    }
   });
   it("blocks non-directional archetypes", () => {
     expect(shouldIndexAutoMirror({ ticker: "SPY", archetype: "day_trade_straddle", flagOn: true }).should_mirror).toBe(false);
