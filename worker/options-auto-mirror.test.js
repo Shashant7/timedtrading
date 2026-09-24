@@ -8,6 +8,9 @@ import {
   computeIndexDayTradeCloseQty,
   marketableCloseLimit,
   marketableEntryLimit,
+  marketableCloseReference,
+  marketableEntryReference,
+  bookedFillPrice,
   ENTRY_MAX_SLIP_PCT,
   optionTick,
   extractMirrorFill,
@@ -467,49 +470,79 @@ describe("Stage 5b mirror safety invariants", () => {
 });
 
 describe("marketableCloseLimit", () => {
-  it("TRIM stays at mid", () => {
-    expect(marketableCloseLimit({ event: "TRIM", mid: 1.85, bid: 1.70 })).toBe(1.85);
+  // Webull refuses MARKET on options, so a close is a limit through the bid
+  // by max(2 ticks, 3% of mid). A sell limit under the bid fills AT the bid.
+  it("prices TRIM through the bid like EXIT — a trim has to fill too", () => {
+    expect(marketableCloseLimit({ event: "TRIM", mid: 1.85, bid: 1.70 })).toBe(1.64);
   });
 
-  it("EXIT / STOP hit a usable bid", () => {
-    expect(marketableCloseLimit({ event: "EXIT", mid: 1.85, bid: 1.70 })).toBe(1.70);
-    expect(marketableCloseLimit({ event: "STOP", mid: 1.85, bid: 1.80 })).toBe(1.80);
+  it("EXIT / STOP go through a usable bid", () => {
+    expect(marketableCloseLimit({ event: "EXIT", mid: 1.85, bid: 1.70 })).toBe(1.64);
+    expect(marketableCloseLimit({ event: "STOP", mid: 1.85, bid: 1.80 })).toBe(1.74);
   });
 
-  it("falls back to mid minus one tick when bid is missing", () => {
+  it("references one tick under mid when bid is missing", () => {
     expect(optionTick(1.85)).toBe(0.01);
-    expect(marketableCloseLimit({ event: "EXIT", mid: 1.85 })).toBe(1.84);
-    expect(marketableCloseLimit({ event: "STOP", mid: 3.20 })).toBe(3.15);
+    expect(marketableCloseLimit({ event: "EXIT", mid: 1.85 })).toBe(1.78);
+    expect(marketableCloseLimit({ event: "STOP", mid: 3.20 })).toBe(3.05);
   });
 
   it("ignores a stale bid more than 60% below mid", () => {
-    expect(marketableCloseLimit({ event: "EXIT", mid: 1.85, bid: 0.05 })).toBe(1.84);
+    expect(marketableCloseLimit({ event: "EXIT", mid: 1.85, bid: 0.05 })).toBe(1.78);
+  });
+
+  it("never prices below one tick", () => {
+    expect(marketableCloseLimit({ event: "STOP", mid: 0.03, bid: 0.02 })).toBe(0.01);
+  });
+});
+
+describe("booking a fill at the fill, not the limit", () => {
+  it("references the bid for a close and the ask for an entry", () => {
+    expect(marketableCloseReference({ mid: 1.85, bid: 1.70 })).toBe(1.7);
+    expect(marketableCloseReference({ mid: 1.85 })).toBe(1.84);
+    expect(marketableEntryReference({ mid: 1.29, ask: 1.31 })).toBe(1.31);
+    expect(marketableEntryReference({ mid: 0.59 })).toBe(0.6);
+  });
+
+  it("prefers the broker's average fill over the reference", () => {
+    expect(bookedFillPrice({ avg_price: 1.72 }, 1.70)).toBe(1.72);
+    expect(bookedFillPrice({ avg_price: 0 }, 1.70)).toBe(1.7);
+    expect(bookedFillPrice(null, 1.70)).toBe(1.7);
+    expect(bookedFillPrice(null, null)).toBeNull();
+  });
+
+  it("carries the broker's average fill through extractMirrorFill", () => {
+    const fill = extractMirrorFill({
+      ok: true,
+      response: { ok: true, fill: { status: "filled", filled_qty: 2, order_id: "o1", avg_price: 1.71 } },
+    }, 2);
+    expect(fill.avg_price).toBe(1.71);
   });
 });
 
 describe("marketableEntryLimit — an entry has to be able to fill", () => {
   it("crosses to the ask when the passive ceiling sits under the market", () => {
     // 2026-09-23 QQQ 741P: ceiling below the market, order worked all day.
-    expect(marketableEntryLimit({ mid: 1.29, ask: 1.31, ceil: 1.20 })).toBe(1.31);
+    expect(marketableEntryLimit({ mid: 1.29, ask: 1.31, ceil: 1.20 })).toBe(1.35);
   });
 
   it("keeps a generous ceiling when the ceiling is the higher of the two", () => {
     expect(marketableEntryLimit({ mid: 0.59, ask: 0.60, ceil: 0.68 })).toBe(0.68);
   });
 
-  it("pays one tick through the mid when there is no ask", () => {
-    expect(marketableEntryLimit({ mid: 0.59, ceil: null })).toBe(0.6);
-    expect(marketableEntryLimit({ mid: 3.20, ceil: null })).toBe(3.25);
+  it("goes one tick through the mid, plus the cushion, when there is no ask", () => {
+    expect(marketableEntryLimit({ mid: 0.59, ceil: null })).toBe(0.62);
+    expect(marketableEntryLimit({ mid: 3.20, ceil: null })).toBe(3.35);
   });
 
-  it("refuses to chase a blown-out ask, and stops at one tick through mid", () => {
+  it("refuses to chase a blown-out ask, and references one tick through mid", () => {
     // p99 of the session's spreads was 14.3% of mid; 25% over is not a quote.
-    expect(marketableEntryLimit({ mid: 1.00, ask: 1.80, ceil: null })).toBe(1.01);
+    expect(marketableEntryLimit({ mid: 1.00, ask: 1.80, ceil: null })).toBe(1.04);
   });
 
   it("caps the chase at the slip budget even on a wide but plausible ask", () => {
-    expect(ENTRY_MAX_SLIP_PCT).toBe(0.08);
-    expect(marketableEntryLimit({ mid: 1.00, ask: 1.20, ceil: null })).toBe(1.08);
+    expect(ENTRY_MAX_SLIP_PCT).toBe(0.2);
+    expect(marketableEntryLimit({ mid: 1.00, ask: 1.20, ceil: null })).toBe(1.2);
   });
 
   it("never prices below the ceiling, so value is still respected", () => {
@@ -522,7 +555,7 @@ describe("marketableEntryLimit — an entry has to be able to fill", () => {
   });
 
   it("ignores an ask that is below the mid", () => {
-    expect(marketableEntryLimit({ mid: 1.00, ask: 0.80, ceil: null })).toBe(1.01);
+    expect(marketableEntryLimit({ mid: 1.00, ask: 0.80, ceil: null })).toBe(1.04);
   });
 });
 
@@ -739,7 +772,7 @@ describe("Stage 5b fill + paper-size wiring", () => {
     expect(kv.store.has(`timed:opt-dt-mirror:${SID}`)).toBe(false);
   });
 
-  it("EXIT prices the close at the bid, not mid", async () => {
+  it("EXIT prices the close through the bid, not at mid, and books the bid", async () => {
     const captured = [];
     const kv = kvMock({
       "timed:options:auto-mirror:op@x.com": PREFS,
@@ -756,9 +789,13 @@ describe("Stage 5b fill + paper-size wiring", () => {
       indicesFlagOn: true,
     });
     expect(r.skipped).toBe(false);
-    expect(r.limit_price).toBe(1.70);
-    expect(captured[0].play.premium.mid).toBe(1.70);
+    expect(r.limit_price).toBe(1.64);
+    expect(captured[0].play.premium.mid).toBe(1.64);
     expect(captured[0].play.legs[0].action).toBe("SELL");
+    // The order was allowed down to 1.64; it is booked at the 1.70 bid it
+    // fills at, or the broker's own average when one is reported.
+    const saved = JSON.parse(await kv.get(`timed:opt-dt-mirror:${SID}`));
+    expect(saved.exit_premium).toBe(1.7);
   });
 
   it("BUY follows paper size when the pref is on", async () => {

@@ -630,33 +630,91 @@ export function optionTick(premium) {
 }
 
 /**
- * Close limit for a day-trade SELL.
- * TRIM stays at mid (passive). EXIT / STOP hit the live bid so the
- * flatten is marketable; if bid is missing or >60% below mid (stale),
- * price one tick under mid.
+ * How far past the touch a day-trade order is priced: the larger of two
+ * ticks or this fraction of mid. Webull's OpenAPI refuses MARKET orders on
+ * options (LIMIT / STOP_LOSS / STOP_LOSS_LIMIT only), so "market" is a
+ * limit through the touch — a buy limit above the ask fills at the ask and
+ * a sell limit below the bid fills at the bid. The cushion buys certainty
+ * of the fill, not a worse price.
+ */
+export const MARKETABLE_CUSHION_PCT = 0.03;
+
+function marketableCushion(mid, tick) {
+  return Math.max(2 * tick, mid * MARKETABLE_CUSHION_PCT);
+}
+
+/**
+ * Close limit for a day-trade SELL — TRIM, EXIT and STOP alike.
+ *
+ * Priced through the live bid so the reduce fills now. TRIM used to rest at
+ * mid, which is a passive order: on a day trade that can sit unfilled while
+ * the model has already moved on, and a trim that does not fill is a
+ * mirror that is no longer the model's size. If the bid is missing or more
+ * than 60% below mid (stale), the reference is one tick under mid.
  */
 export function marketableCloseLimit({ event, mid, bid, tick } = {}) {
-  const ev = String(event || "").toUpperCase();
   const m = Number(mid);
   if (!(m > 0)) return null;
   const t = Number(tick) > 0 ? Number(tick) : optionTick(m);
-  if (ev === "TRIM") return Math.round(m * 100) / 100;
-  const b = Number(bid);
-  const bidUsable = b > 0 && b >= m * 0.40;
-  const raw = bidUsable ? b : Math.max(t, m - t);
-  const px = Math.min(m, raw);
+  const ref = marketableCloseReference({ mid: m, bid, tick: t });
+  const px = ref - marketableCushion(m, t);
   return Math.round(Math.max(t, px) * 100) / 100;
 }
 
 /**
- * Maximum a day-trade entry may pay over the mid it was decided on, as a
- * fraction of that mid.
+ * The price a marketable SELL is expected to fill at: the usable bid, else
+ * one tick under mid. This — or the broker's own average fill — is what a
+ * close is booked at. Never the cushioned limit: that is where the order
+ * was allowed to go, not where it went, and booking it would overstate
+ * every realised loss by the cushion.
+ */
+export function marketableCloseReference({ mid, bid, tick } = {}) {
+  const m = Number(mid);
+  if (!(m > 0)) return null;
+  const t = Number(tick) > 0 ? Number(tick) : optionTick(m);
+  const b = Number(bid);
+  const bidUsable = b > 0 && b >= m * 0.40;
+  const ref = Math.min(m, bidUsable ? b : Math.max(t, m - t));
+  return Math.round(Math.max(t, ref) * 100) / 100;
+}
+
+/**
+ * The price a marketable BUY is expected to fill at: the usable ask, else
+ * one tick through mid, within the slip cap. Same role as
+ * `marketableCloseReference` on the other side.
+ */
+export function marketableEntryReference({ mid, ask, tick, maxSlipPct = ENTRY_MAX_SLIP_PCT } = {}) {
+  const m = Number(mid);
+  if (!(m > 0)) return null;
+  const t = Number(tick) > 0 ? Number(tick) : optionTick(m);
+  const a = Number(ask);
+  const askUsable = a > 0 && a >= m && a <= m * 1.25;
+  const slipCap = Math.max(m * (1 + maxSlipPct), m + t);
+  return Math.round(Math.min(askUsable ? a : m + t, slipCap) * 100) / 100;
+}
+
+/**
+ * What a filled order is booked at: the broker's average fill when it
+ * reported one, else the touch the order was priced against.
+ */
+export function bookedFillPrice(fill, referencePrice) {
+  const avg = Number(fill?.avg_price);
+  if (avg > 0) return Math.round(avg * 100) / 100;
+  const ref = Number(referencePrice);
+  return ref > 0 ? ref : null;
+}
+
+/**
+ * Maximum a day-trade entry limit may sit over the mid it was decided on,
+ * as a fraction of that mid.
  *
  * Index front-month spreads measured over 3,099 marks on 2026-09-23: median
- * 2.06% of mid, p90 3.75%, p99 14.3%. 8% clears the p90 book with room and
- * refuses the p99 tail, which is the blown-out quote nobody should chase.
+ * 2.06% of mid, p90 3.75%, p99 14.3%. Entries are market orders in intent
+ * (the index chains are liquid; Webull only refuses the MARKET type on
+ * options), so the cap clears the p99 spread and exists only to refuse a
+ * quote that is garbage rather than wide.
  */
-export const ENTRY_MAX_SLIP_PCT = 0.08;
+export const ENTRY_MAX_SLIP_PCT = 0.2;
 
 /**
  * Limit price for a day-trade BUY.
@@ -690,7 +748,7 @@ export function marketableEntryLimit({ mid, ask, ceil, tick, maxSlipPct = ENTRY_
   const t = Number(tick) > 0 ? Number(tick) : optionTick(m);
   const a = Number(ask);
   const askUsable = a > 0 && a >= m && a <= m * 1.25;
-  const cross = askUsable ? a : m + t;
+  const cross = (askUsable ? a : m + t) + marketableCushion(m, t);
   const slip = Number.isFinite(Number(maxSlipPct)) && Number(maxSlipPct) >= 0
     ? Number(maxSlipPct)
     : ENTRY_MAX_SLIP_PCT;
@@ -718,10 +776,12 @@ export function extractMirrorFill(fired, requestedQty = 1) {
   }
   if (fill) {
     const qty = Number(fill.filled_qty);
+    const avg = Number(fill.avg_price ?? fill.avg_fill_price);
     return {
       status: String(fill.status || (qty > 0 ? "filled" : "working")).toLowerCase(),
       filled_qty: Number.isFinite(qty) ? qty : null,
       order_id: fill.order_id || fill.broker_order_id || null,
+      ...(avg > 0 ? { avg_price: avg } : {}),
     };
   }
   if (!optionsMirrorDispatchAccepted(fired)) {
@@ -1161,12 +1221,13 @@ export async function resolvePendingIndexDtReduce(env, operatorEmail, signalId, 
       ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, contracts_remaining: remainingAfter }
       : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, contracts_remaining: remainingAfter };
     await saveIndexDtMirror(env, signalId, patch);
-    // The fill price is the limit the reduce was placed at, stamped on the
-    // mirror when it went out — settling off a price fetched now would book
-    // the day's realised P&L at whatever the contract is worth at poll time.
+    // Booked at the broker's average fill when the poll reports one, else
+    // at the touch stamped on the mirror when the order went out. Settling
+    // off a price fetched now would book the day's realised P&L at whatever
+    // the contract is worth at poll time.
     await settleIndexDtRisk(env, operatorEmail, signalId, mirror, {
       closedQty: rec.filledQty,
-      closePremium: Number(mirror[`${pendingKey}_premium`]) || 0,
+      closePremium: bookedFillPrice(polled, Number(mirror[`${pendingKey}_premium`])) || 0,
       remainingQty: remainingAfter,
     });
     return { outcome: "filled", reconcile: rec, mirror: { ...mirror, ...patch } };
@@ -2182,7 +2243,12 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
 
     // Per-contract debit, so a later close can work out what was actually
     // lost or made instead of assuming the whole ticket went to zero.
-    const entryPremium = Number(buyLimit ?? entryPlay.premium?.mid) || 0;
+    // Booked at the fill, not the limit: the limit is priced through the ask
+    // so the order fills, and booking it would understate every gain.
+    const entryPremium = bookedFillPrice(
+      fill,
+      marketableEntryReference({ mid: entryMid, ask: entryAsk }),
+    ) ?? (Number(buyLimit ?? entryPlay.premium?.mid) || 0);
 
     // A second round inherits the first round's record, so its trim and exit
     // flags have to be cleared or the close path refuses the new position
@@ -2323,6 +2389,8 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
   const bid = Number(ctx.bid ?? ctx.execution?.premium_band?.bid ?? play?.premium?.bid ?? play?.legs?.[0]?.premium_bid);
   const limitPrice = marketableCloseLimit({ event, mid, bid });
   if (!(limitPrice > 0)) return { skipped: true, reason: "no_close_limit" };
+  // What the close is booked at if the broker does not report an average.
+  const closeRef = marketableCloseReference({ mid, bid });
 
   // A 1-lot mirror cannot partial-trim — skip the broker trim and let the
   // model's EXIT/STOP flatten it (paper PROTECT already moved the stop).
@@ -2363,9 +2431,10 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
 
   if (rec.persist) {
     const remainingAfter = Math.max(0, mirroredRemaining - rec.filledQty);
+    const booked = bookedFillPrice(fill, closeRef) ?? limitPrice;
     const patch = event === "TRIM"
-      ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, trim_premium: limitPrice, contracts_remaining: remainingAfter }
-      : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, exit_premium: limitPrice, exit_event: event, contracts_remaining: remainingAfter };
+      ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, trim_premium: booked, contracts_remaining: remainingAfter }
+      : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, exit_premium: booked, exit_event: event, contracts_remaining: remainingAfter };
     // A repair fills at today's price. Record that, and the price the model
     // actually left at, so the gap between them is attributable to the repair
     // instead of being read as execution quality.
@@ -2384,12 +2453,14 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     // the day its allowance back, a loss keeps consuming it — which is what
     // makes this a stop-loss rather than a trade counter.
     await settleIndexDtRisk(env, operatorEmail, signalId, mirror, {
-      closedQty: rec.filledQty, closePremium: limitPrice, remainingQty: remainingAfter,
+      closedQty: rec.filledQty, closePremium: booked, remainingQty: remainingAfter,
     });
   } else if (rec.pending) {
+    // Stamped with the reference, not the limit, so whoever settles the
+    // order later books the expected fill if the broker reports none.
     const patch = event === "TRIM"
-      ? { trim_pending: true, trim_qty: qty, trim_order_id: fill.order_id || rec.order_id || null, trim_premium: limitPrice }
-      : { exit_pending: true, exit_qty: qty, exit_order_id: fill.order_id || rec.order_id || null, exit_premium: limitPrice, exit_event: event };
+      ? { trim_pending: true, trim_qty: qty, trim_order_id: fill.order_id || rec.order_id || null, trim_premium: closeRef ?? limitPrice }
+      : { exit_pending: true, exit_qty: qty, exit_order_id: fill.order_id || rec.order_id || null, exit_premium: closeRef ?? limitPrice, exit_event: event };
     await saveIndexDtMirror(env, signalId, patch);
   } else if (isBrokerFlatReject(rec)) {
     // The one rejection that re-offering cannot fix. `no_held_position` is
