@@ -37,6 +37,32 @@
       sweep resolved both stuck mirrors (`gone`, i.e. Webull had already
       terminated them, so neither filled) and `long_put` went 2 → 0.
       33 tests; 32 of them fail without the fix. PR #1488.
+- [x] **Day trades first, reconciled continuously, one loss limit
+      (2026-09-23, same PR).** Operator: "I really want the day trades to be
+      first priority, and always be reconciled, every second counts. Also
+      there really should not be any limits, just a loss limit as a whole."
+      Shipped two things. (1) `runPendingIndexDtReconcileLoop` runs FIRST in
+      the cron tick on every `*/1` and `*/5`, attached to nothing — the sweep
+      used to sit at the END of an options pass that only fires inside the
+      sell window, so the pass that stops is also the check that stops. Cron's
+      floor is 60 s, so the tick keeps polling for the rest of its minute:
+      ~5 s while an order is in its first minute, 15 s after (a broker LIST
+      endpoint should not be hit 12x/min for the life of every order). Free
+      when idle — one KV list and return. Verified live: 9 passes/min for a
+      planted pending order, then 4 → 2 → 1 as it aged past 60 s and then past
+      the stale window, then silence once resolved. (2) `options-risk-budget.js`
+      replaces the count caps on this lane with ONE dollar limit
+      (`prefs.daily_loss_limit_usd`, default $1000, `0` = off). For a long
+      option the debit IS the max loss, so `consumed = open risk + realised
+      losses today`; a win gives its risk back, a loss keeps consuming.
+      Commitments are a map keyed by signal id, so commit is an assignment and
+      refund is a delete — the re-read idempotency guard and
+      `releaseEntryCounters` are deleted because there is no longer an
+      operation that can apply twice. The lane no longer bumps the SHARED day
+      counters (the Trader lane still gates on them; an uncapped lane bumping
+      them would have swapped one starvation for another). 64 tests.
+      **Operator decision needed:** the $1000 default is the agent's pick, not
+      the operator's — set `daily_loss_limit_usd` deliberately.
       **Open follow-ups from this:** (a) DIA is in `DAY_TRADE_TICKERS` but
       `shouldIndexAutoMirror` allows SPY/QQQ/IWM only, so DIA day trades are
       alerted and can never mirror (4x `ticker_not_index` today) — widen the

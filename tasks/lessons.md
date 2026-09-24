@@ -53,6 +53,52 @@ enabled and it fired twice.
   but not the colon.** A sweep prefixed on the stem would eat the
   decision log. There is a test pinning the colon.
 
+### The operator's follow-up: "first priority, every second counts, no limits — just a loss limit"
+
+The fix above made the lane correct. It did not make it fast, and it
+left the wrong kind of limit in place.
+
+- **A count cap is not a risk control, it is an activity control.** "2
+  per day" says nothing about money: two $500 tickets and two $60
+  tickets are identical to it. What replaced it is one number in
+  dollars, because for a LONG option the debit IS the max loss — no gap
+  risk, no margin call, so the worst case is exactly computable at
+  entry. `consumed = open risk + realised losses today`. A win gives its
+  risk back so a good day does not throttle itself; a loss keeps
+  consuming so a bad day tightens until it stops. That is what a daily
+  stop-loss means, and it needs no count cap to work.
+- **Prefer a keyed map over a counter whenever you can.** The previous
+  round spent its effort making an increment/decrement pair safe: a
+  release that could be lost, then a re-read guard so two resolvers
+  could not double-decrement. The budget stores commitments in a MAP
+  keyed by signal id, so committing is an assignment and refunding is a
+  delete. Both are idempotent by construction. The guard was deleted
+  because there is no longer an operation that can be applied twice.
+  Reach for this shape first — it removes the bug class instead of
+  defending against it.
+- **Removing a gate is not the same as removing its side effect.**
+  Dropping the count cap while still BUMPING the counters would have
+  swapped one starvation for another: the vehicle and global tallies are
+  shared, the Trader lane still gates on both, and an uncapped day-trade
+  lane bumping them eight times would have locked Trader option entries
+  out with `daily_cap_5_reached`. Caught before deploy by asking who
+  else reads the thing being written. Always ask.
+- **Reconciliation must not live inside the thing it reconciles.** The
+  sweep was hung off the end of the options pass, which only runs inside
+  the sell window — so the pass that stops is also the check that stops.
+  It now runs FIRST in the cron tick, attached to nothing.
+- **Cloudflare's cron floor is 60 seconds; a 0/1 DTE position does not
+  care.** A tick can keep working for the rest of its minute, so the
+  reconcile polls every ~5s rather than waiting for the next tick.
+  Verified live: 9 passes in one minute, every minute.
+- **Make an aggressive loop pay for itself.** It only spins while an
+  order is young enough to still fill (idle = one KV list and return),
+  and it backs off to 15s after the first minute so a broker LIST
+  endpoint is not hit 12x/min for the life of every order. Being
+  rate-limited would stop reconciliation entirely — the exact failure
+  the lane exists to prevent. Live trace showed the whole arc: 9 passes
+  → 4 → 2 → 1 as the order aged past 60s and then past the stale window.
+
 ## A cache keyed to skip a write was holding the whole universe [2026-09-23]
 
 The `*/5` kept dying after the `*/1` was fixed, and the ticks that died

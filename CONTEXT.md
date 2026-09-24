@@ -456,6 +456,39 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   TRIM/EXIT will skip `no_mirrored_entry`. Never replay the historical miss.
 
 **Index day-trade broker mirror — closes never cap-gated, qty = mirrored fill (2026-08-24)**
+- **ONE daily loss limit in dollars; NO count caps on this lane (2026-09-23)**:
+  `worker/options-risk-budget.js`. `daily_cap` capped ACTIVITY, not loss —
+  two $500 tickets and two $60 tickets look identical to it — and on
+  2026-09-23 it capped activity at zero. For a long option the debit IS the
+  max loss, so `consumed = open risk + realised losses today`, `remaining =
+  limit - consumed`. A win gives its risk back (a good day does not throttle
+  itself); a loss keeps consuming (a bad day tightens until it stops).
+  `prefs.daily_loss_limit_usd` (default $1000, `0` = off). Risk is priced at
+  the buy CEILING, never the mid. Commitments are a MAP keyed by signal id,
+  so commit is an assignment and release is a delete — both idempotent by
+  construction, unlike the counter they replace. Counters still move as
+  dashboard telemetry; nothing reads them as a gate. Scope is the day-trade
+  lane only: the Trader lane keeps count caps because it has no per-signal
+  lifecycle to release against, and a commit that cannot be released is how
+  this lane wedged. Remaining budget is on `GET /timed/options/auto-mirror`.
+  **The lane must never bump the shared day counters again**: they are the
+  Trader lane's live gate, and an uncapped lane bumping them would swap one
+  starvation for another (`daily_cap_5_reached` for the rest of the day).
+  Its tally is `placed_count` on the budget. `releaseEntryCounters` /
+  `entryCapsForMirror` are deleted — no callers, and the re-read idempotency
+  guard went with them because a delete keyed by signal id cannot
+  double-apply the way a decrement can.
+- **Reconciliation runs FIRST in the cron tick and does not stop at the
+  minute boundary (2026-09-23)**: `runPendingIndexDtReconcileLoop` on every
+  `*/1` and `*/5`, attached to nothing. Cron's floor is 60s and for a 0/1 DTE
+  contract that is already too late. Polls every 5s for an order's first
+  minute, then 15s (a marketable limit fills in seconds or not at all;
+  beyond that, 5s would triple load on a broker LIST endpoint and a
+  rate-limit would stop reconciliation entirely). Free when idle — one KV
+  list and it returns. Self-terminating: it only spins while an order is
+  young enough to still fill, and a stale order is cancelled and gone. Never
+  put this back inside the options pass — reconciliation must not depend on
+  the thing it is checking.
 - Daily counters gate BUY only. A TRIM/EXIT/STOP must never be blocked by a
   cap or the broker is left holding a position the model already exited.
 - Close qty is the mirrored remainder (`timed:opt-dt-mirror`), not the paper
@@ -464,20 +497,19 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 - Persist `entry_fired` / `exit_fired` only after fill reconcile. Working
   limits stay pending and are polled via `/bridge/options/order/status`.
 - **A pending entry is resolved on a SCHEDULE, not on an event (2026-09-23)**:
-  `sweepPendingIndexDtEntries` runs every day-trade pass and calls
-  `resolvePendingIndexDtEntry` (→ `filled | gone | cancelled | working`).
-  Before it, the only re-read was a close event for the SAME signal id — and
-  the signal whose entry never filled is the one that stops producing events.
-  Two working orders 74s apart at the open ate the whole 2/day `long_put` cap
-  and blocked the next nine entries; both sat frozen on `working` for seven
-  hours. `commitEntryCounters` bumps on `rec.pending` (a live limit does
-  occupy the broker) and `releaseEntryCounters` gives the slot back only on a
+  `sweepPendingIndexDtEntries` calls `resolvePendingIndexDtEntry`
+  (→ `filled | gone | cancelled | working`). Before it, the only re-read was a
+  close event for the SAME signal id — and the signal whose entry never filled
+  is the one that stops producing events. Two working orders 74s apart at the
+  open ate the whole 2/day `long_put` cap and blocked the next nine entries;
+  both sat frozen on `working` for seven hours. The budget is charged on
+  `rec.pending` (a live limit does occupy the broker) and refunded only on a
   second CONFIRMED broker fact — not the deleted reserve-then-release, which
-  released on a guess. A lost release leaves the slot consumed (restrictive).
+  released on a guess. A lost refund leaves the money consumed (restrictive).
   EXIT/STOP cancel a still-working buy via `/bridge/options/order/cancel`; a
   cancel that comes back not-ok may have lost a race with a fill, so re-poll
-  and never release. Pre-field mirrors fall back to live prefs for caps and
-  `ts` for the staleness clock. Sweep prefix is `timed:opt-dt-mirror:` — the
+  and never refund. Pre-field mirrors use `ts` for the staleness clock.
+  Sweep prefix is `timed:opt-dt-mirror:` — the
   colon is what keeps it off `timed:opt-dt-mirror-log`.
 - EXIT/STOP price the bid (or mid − 1 tick). Paper sizing is opt-in
   (`index_dt_follow_paper_size`, default OFF = 1 lot).
