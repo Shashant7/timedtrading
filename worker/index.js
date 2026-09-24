@@ -95874,6 +95874,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   ? _optionsPlaysMod.summarizeDayTradeGamePlan(_dtGp)
                   : null;
                 let _dtExecution = null;
+                // Declared out here because the play object and the plan block
+                // below both read them, and both sit outside the try that used
+                // to declare them. Live since 2026-08-27: every ticker with an
+                // open day-trade book threw `_clockPrem is not defined` while
+                // building its card, so the play was never pushed and its tier
+                // was never recorded to the scorecard — `[OPTIONS-ALL]
+                // day-trade build failed for SPY` on every pass.
+                let _clockPrem = null;
+                let _clockBid = null;
                 try {
                   const _clockFlavor = _dtUseCarry && _dtOpenBook?.flavor
                     ? _dtOpenBook.flavor
@@ -95888,8 +95897,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   const _occ = _optionMarksBuildOcc(_dtSym, _clockExp?.iso, _occRight, _clockStrike);
                   const _occMarks = _occ ? (_dtMarksByOcc[_occ] || []) : [];
                   const _estimatePrem = _dtPrimary?.premium?.mid ?? _dtPlay?.premium?.mid;
-                  let _clockPrem = _estimatePrem;
-                  let _clockBid = _dtPrimary?.premium?.bid ?? _dtPlay?.premium?.bid ?? null;
+                  _clockPrem = _estimatePrem;
+                  _clockBid = _dtPrimary?.premium?.bid ?? _dtPlay?.premium?.bid ?? null;
                   try {
                     const _livePrem = await _optionMarksResolveLivePremium(env, {
                       ticker: _dtSym,
