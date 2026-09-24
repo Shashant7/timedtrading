@@ -6,6 +6,66 @@
 
 ---
 
+## The entry was fine; the stop was sitting on the entry price [2026-09-24]
+
+"The other issue is our timing of entries. We are a step behind usually
+and end up stopping out even though we were eventually right." Reported
+as an entry-trigger problem. It was not one.
+
+`timed:opt-dt-actions` joined to `option_marks` for 2026-09-23/24
+(`scripts/replay-dt-profit-lock.mjs`): 9 of 18 rounds died with
+`reason=breakeven_stop` at a median peak of **+15.9%**, none within reach
+of the 1R trim at +50%. The two the user noticed — IWM 279P and 280P —
+were stopped at -1.6% and -9.1% and both marked **above the model's exit
+inside 70 minutes**.
+
+- **"We are a step behind" is an entry complaint that is usually an exit
+  bug. One number separates them: maximum favourable excursion after the
+  fill.** A late entry does not go green — MAE leads and MFE stays near
+  zero. 7 of 14 scored fills reached +50%, their own 1R trim; IWM 282P
+  reached +80.6% and was scratched at -1.5%. An entry that hands you
+  +80% is not the thing to fix.
+- **A profit lock and an earned breakeven are different levels, and
+  collapsing them costs the whole book.** A 1R trim banks half the
+  position, so the runner may honestly risk nothing — that breakeven is
+  paid for. The peak lock (`+10%` / `+$0.08`) is only a safety net for a
+  book that went green without tagging 1R, and it had been placing the
+  same zero-tolerance stop at the same price. Both fired on
+  `mid <= entry`.
+- **Check what an option threshold means in the underlying before
+  calling it a real print.** The comment defending +10% said "a real
+  print, not a one-tick flicker". On a 0.4-delta 1DTE contract +10% of
+  premium is roughly a **0.06%** move in the index — inside one bar's
+  noise. The arm was firing on nothing.
+- **A stop that arms far below the first profit target creates a dead
+  band where the only outcomes are scratch and hero.** Armed at +10%,
+  first target at +50%: every book in between carried a stop at exactly
+  its entry and no target to reach. Half the book landed there.
+- **Fix it with a ratchet, not a tighter or looser constant.** The floor
+  is now `max(hard stop, min(entry, 0.6 × peak))` — monotone in the peak,
+  always tighter than the -50% hard stop, and it arrives at breakeven on
+  its own once the peak clears +67%. No new constant: it reuses
+  `HARD_STOP_PCT` and `TRAIL_GIVEBACK_PCT`. The 2026-08-24 QQQ 711C
+  round-trip the lock was added for is still caught at breakeven.
+- **Reported as `profit_lock_stop`, not `breakeven_stop`.** The two were
+  indistinguishable in the action ring, which is why this took a
+  `option_marks` join to see. A repair that is not labelled is a repair
+  nobody can audit.
+- **Replay both arms over the same path or the number means nothing.**
+  The counterfactual runs the identical ladder and the identical marks,
+  changing only the floor, so the delta is attributable. `option_marks`
+  is sampled, not a tick tape — rounds whose hold window held 1-3 prints
+  are reported and excluded rather than scored. 4 of the 5 rounds the
+  floor moved improved; 1 gave back 19.7 points. Net +155.5 premium
+  points per contract across 14 scored rounds.
+- **Still open, deliberately not fixed:** the day's FIRST position per
+  underlying and side reached +50% in **5/5**; re-entries behind it in
+  **2/9** (median MFE +139.5% vs +21.3%). That is a real entry-quality
+  signal, but a re-entry only exists because the previous position came
+  off, and most of these came off at the breakeven snap. Fix the cause,
+  re-measure, then decide on a re-entry gate — two sessions is not
+  enough to hard-code one.
+
 ## The broker had the position; we had parsed it into nothing [2026-09-24]
 
 "IWM day trade entered and mirrored but the stop out is not mirroring."
