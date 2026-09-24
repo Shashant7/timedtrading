@@ -25,7 +25,18 @@ describe("index day-trade dispatch scope", () => {
     const block = handlerBlock("routeKey === \"GET /timed/options/all\"");
     expect(block).toMatch(/const queueBackground = \(promise\) =>/);
     expect(block).toMatch(/_dtDispatchAllowed\) queueBackground\(_optDtNotifyPaper/);
-    expect(block).toMatch(/queueBackground\(maybeAutoMirrorIndexDayTradeEvent/);
+    // The broker dispatch must live in `onEvent`, which the alerts module
+    // calls right after the paper book is persisted and BEFORE the Discord
+    // round-trip. It used to sit in the `.then()` below, so a live 0/1 DTE
+    // order waited on a webhook and was skipped outright if that chain
+    // rejected. Behaviour is pinned in option-day-trade-alerts.test.js; this
+    // pins the wiring, which only exists in this file.
+    const onEventAt = block.indexOf("onEvent: (ev) =>");
+    const thenAt = block.indexOf("}).then(async (ev) =>");
+    expect(onEventAt).toBeGreaterThan(-1);
+    expect(thenAt).toBeGreaterThan(onEventAt);
+    expect(block.slice(onEventAt, thenAt)).toMatch(/maybeAutoMirrorIndexDayTradeEvent/);
+    expect(block.slice(thenAt)).not.toMatch(/maybeAutoMirrorIndexDayTradeEvent/);
     expect(block).toMatch(/await _itAutoMirror\(/);
     expect(block).toMatch(/indexTrendShouldCatchUpOpenEntry/);
     expect(block).toMatch(/indexTrendCatchUpPlaced/);

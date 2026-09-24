@@ -40,6 +40,74 @@ const payload = {
   gamePlan: { lean: "SHORT", lean_conviction: "high", bear_target: 762.5, bull_trigger: 766, bear_trigger: 764 },
 };
 
+describe("the broker goes before Discord", () => {
+  // 2026-09-23 — the mirror used to hang off this function's `.then()`, so a
+  // live 0/1 DTE order waited on a webhook round-trip and was skipped
+  // entirely if anything after the book write rejected.
+  beforeEach(() => notifyDiscord.mockClear());
+
+  it("fires onEvent before the Discord webhook", async () => {
+    const order = [];
+    notifyDiscord.mockImplementationOnce(async () => { order.push("discord"); return { ok: true }; });
+    await maybeNotifyDayTradePaperEvent(mockEnv(), {
+      ...payload,
+      onEvent: () => { order.push("broker"); },
+    });
+    expect(order).toEqual(["broker", "discord"]);
+  });
+
+  it("fires onEvent only after the paper book is durable", async () => {
+    // A broker position with no paper state behind it is worse than a slow
+    // one. Persist, then place, then tell everyone.
+    const store = {};
+    const env = mockEnv(store);
+    let bookAtDispatch = null;
+    await maybeNotifyDayTradePaperEvent(env, {
+      ...payload,
+      onEvent: () => { bookAtDispatch = Object.keys(store).filter((k) => k.startsWith("timed:opt-dt-book:")); },
+    });
+    expect(bookAtDispatch).toHaveLength(1);
+  });
+
+  it("hands the event, reason and freshly advanced book to onEvent", async () => {
+    let seen = null;
+    await maybeNotifyDayTradePaperEvent(mockEnv(), { ...payload, onEvent: (ev) => { seen = ev; } });
+    expect(seen.event).toBe("BUY");
+    expect(seen.signal_id).toBe(payload.signal_id);
+    expect(seen.book?.contracts).toBeGreaterThan(0);
+  });
+
+  it("still notifies when the broker dispatch throws", async () => {
+    await maybeNotifyDayTradePaperEvent(mockEnv(), {
+      ...payload,
+      onEvent: () => { throw new Error("bridge down"); },
+    });
+    expect(notifyDiscord).toHaveBeenCalledTimes(1);
+  });
+
+  it("still places when Discord is the thing that fails", async () => {
+    // The order must not be collateral damage from a webhook outage.
+    let placed = false;
+    notifyDiscord.mockImplementationOnce(async () => { throw new Error("discord 500"); });
+    const r = await maybeNotifyDayTradePaperEvent(mockEnv(), {
+      ...payload,
+      onEvent: () => { placed = true; },
+    });
+    expect(placed).toBe(true);
+    expect(r.event).toBe("BUY");
+  });
+
+  it("does not fire onEvent when there is no event to mirror", async () => {
+    let calls = 0;
+    await maybeNotifyDayTradePaperEvent(mockEnv(), {
+      ...payload,
+      execution: { ...payload.execution, action: "WAIT" },
+      onEvent: () => { calls++; },
+    });
+    expect(calls).toBe(0);
+  });
+});
+
 describe("maybeNotifyDayTradePaperEvent", () => {
   beforeEach(() => notifyDiscord.mockClear());
 

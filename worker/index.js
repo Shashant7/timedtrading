@@ -96009,6 +96009,43 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       honesty_gate_veto: _dtVetoReason,
                       now: Date.now(),
                       loadedBook: _dtLoaded,
+                      // The broker goes FIRST. This fires the moment the paper
+                      // book is persisted, ahead of the Discord round-trip —
+                      // previously the order hung off this call's `.then()`, so
+                      // it waited on the webhook and was skipped entirely if
+                      // anything after the book write rejected. On a 0/1 DTE
+                      // contract the alert is the cheap half.
+                      onEvent: (ev) => {
+                        try {
+                          const _mirrorSid = _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId;
+                          const _mirrorPrem = _dtExecution.premium_band?.premium
+                            ?? _dtPrimary?.premium?.mid
+                            ?? _dtPlay?.premium?.mid;
+                          const _mirrorBid = _dtExecution.premium_band?.bid
+                            ?? _clockBid
+                            ?? _dtPrimary?.premium?.bid
+                            ?? _dtPlay?.premium?.bid
+                            ?? _dtPrimary?.legs?.[0]?.premium_bid
+                            ?? null;
+                          queueBackground(import("./options-auto-mirror.js").then(({ maybeAutoMirrorIndexDayTradeEvent }) =>
+                            maybeAutoMirrorIndexDayTradeEvent(env, {
+                              event: ev.event,
+                              reason: ev.reason || null,
+                              ticker: _dtSym,
+                              play: _dtPrimary || _dtPlay,
+                              signal_id: _mirrorSid,
+                              execution: _dtExecution,
+                              book: ev.book || null,
+                              size: _dtExecution.size || ev.book?.size || null,
+                              premium: _mirrorPrem,
+                              bid: _mirrorBid,
+                              strike: _dtExecution.contract?.strike ?? _strike,
+                              expiration: _dtExecution.contract?.expiration || _dtPrimary?.expiration || _dtPlay.expiration,
+                              flavor: _dtExecution.contract?.flavor || _dtPlay._day_trade_flavor,
+                              indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
+                            })));
+                        } catch (_) { /* never block the alert on the mirror */ }
+                      },
                     }).then(async (ev) => {
                       if (!ev?.event) return;
                       d1InsertNotification(env, {
@@ -96022,42 +96059,6 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         engine: "options_day_trade",
                         exec_state: ev.event,
                       }).catch(() => {});
-                      {
-                        // Always invoke the mirror path (even when globally
-                        // paused or the account's option vehicles are off) so
-                        // the decision — and the reason it did NOT place an
-                        // order — is recorded for the Broker Connections
-                        // timeline instead of a mystery "NOT MIRRORED".
-                        try {
-                          const { maybeAutoMirrorIndexDayTradeEvent } = await import("./options-auto-mirror.js");
-                          const _mirrorSid = _dtUseCarry && _dtLoaded.signal_id ? _dtLoaded.signal_id : _dtSignalId;
-                          const _mirrorPrem = _dtExecution.premium_band?.premium
-                            ?? _dtPrimary?.premium?.mid
-                            ?? _dtPlay?.premium?.mid;
-                          const _mirrorBid = _dtExecution.premium_band?.bid
-                            ?? _clockBid
-                            ?? _dtPrimary?.premium?.bid
-                            ?? _dtPlay?.premium?.bid
-                            ?? _dtPrimary?.legs?.[0]?.premium_bid
-                            ?? null;
-                          queueBackground(maybeAutoMirrorIndexDayTradeEvent(env, {
-                            event: ev.event,
-                            reason: ev.reason || null,
-                            ticker: _dtSym,
-                            play: _dtPrimary || _dtPlay,
-                            signal_id: _mirrorSid,
-                            execution: _dtExecution,
-                            book: ev.book || null,
-                            size: _dtExecution.size || ev.book?.size || null,
-                            premium: _mirrorPrem,
-                            bid: _mirrorBid,
-                            strike: _dtExecution.contract?.strike ?? _strike,
-                            expiration: _dtExecution.contract?.expiration || _dtPrimary?.expiration || _dtPlay.expiration,
-                            flavor: _dtExecution.contract?.flavor || _dtPlay._day_trade_flavor,
-                            indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
-                          }));
-                        } catch (_) { /* never block on options mirror */ }
-                      }
                     }).catch((err) => {
                       console.warn(`[OPTIONS-DT-ALERT] ${_dtSym}:`, String(err?.message || err).slice(0, 120));
                     }));
