@@ -104622,6 +104622,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (_dtQty?.skipped?.length) {
               console.log(`[OPT-DT-RECONCILE] reduces still unmirrored: ${JSON.stringify(_dtQty.skipped)}`);
             }
+            // Follow every reduce through to each account's own holdings —
+            // the operator's and every partner's — until the broker shows it.
+            // Isolated: a kernel failure must not cost the lane its reconcile.
+            try {
+              const { convergeIndexDtPositions } = await import("./mirror-kernel-converge.js");
+              const _conv = await convergeIndexDtPositions(env);
+              if (_conv.sold.length || _conv.behind.length || _conv.errors.length) {
+                console.log(`[MIRROR KERNEL] converge ${JSON.stringify({
+                  due: _conv.due, verified: _conv.verified.length, sold: _conv.sold, behind: _conv.behind, errors: _conv.errors,
+                }).slice(0, 1500)}`);
+              }
+            } catch (e) {
+              console.warn("[MIRROR KERNEL] converge threw:", String(e?.message || e).slice(0, 160));
+            }
           }
           await recordCronSuccess(env, "index_dt_reconcile");
         } catch (e) {

@@ -545,6 +545,35 @@ export async function queryAutoMirrorOrderStatus(env, userEmail, { order_id, req
   });
 }
 
+/**
+ * Fold a kernel converge sell in the OWNER's account back into this lane's
+ * own books: the KV mirror's remaining contracts and the day-loss ledger.
+ * Without it the old reconciler would still see the contracts as held and
+ * re-offer the reduce, and the day's realised loss would never be booked.
+ */
+export async function applyKernelOwnerFill(env, signalId, { filledQty, price, event = "EXIT" } = {}) {
+  const operatorEmail = env?.ADMIN_EMAIL;
+  const qty = Math.round(Number(filledQty) || 0);
+  if (!operatorEmail || !signalId || !(qty > 0)) return { applied: false };
+  const mirror = await loadIndexDtMirror(env, signalId);
+  if (!mirror?.entry_fired) return { applied: false, reason: "no_mirror" };
+  const before = Math.max(0, Math.round(Number(mirror.contracts_remaining) || 0));
+  const remainingAfter = Math.max(0, before - qty);
+  const closing = event !== "TRIM" || remainingAfter === 0;
+  await saveIndexDtMirror(env, signalId, closing
+    ? { exit_fired: true, exit_pending: false, exit_qty: qty, exit_premium: price, exit_event: event, exit_via: "kernel_converge", contracts_remaining: remainingAfter }
+    : { trim_fired: true, trim_pending: false, trim_qty: qty, trim_premium: price, trim_via: "kernel_converge", contracts_remaining: remainingAfter });
+  await settleIndexDtRisk(env, operatorEmail, signalId, mirror, {
+    closedQty: Math.min(qty, before), closePremium: Number(price) || 0, remainingQty: remainingAfter,
+  });
+  return { applied: true, remaining: remainingAfter };
+}
+
+/** Bring every account's sleeve of one kernel position to its target. */
+export async function convergeKernelPosition(env, userEmail, payload) {
+  return signedBridgePost(env, userEmail, "/bridge/options/converge", payload);
+}
+
 export async function cancelAutoMirrorOrder(env, userEmail, { order_id } = {}) {
   return signedBridgePost(env, userEmail, "/bridge/options/order/cancel", { order_id });
 }
