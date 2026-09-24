@@ -34,6 +34,17 @@ function makeDb({ rows = [] } = {}) {
         },
         async first() { return null; },
         async all() {
+          // The observe-only read of suppressed rows filters the way D1 would.
+          if (/mirror_suppressed, 0\) = 1/.test(s)) {
+            const [uid, , acct] = stmt.args;
+            return {
+              results: rows.filter(r =>
+                (r.user_id === uid || (acct != null && r.broker_account_id === acct))
+                && (Number(r.mirror_suppressed) === 1 || r.sync_state === "mirror_suppressed")
+                && String(r.instrument_type || "equity") !== "options"
+                && Number(r.broker_remaining_qty) > 0),
+            };
+          }
           if (/^\s*SELECT \* FROM mirror_trade_manifest/i.test(s)) {
             // Simulate D1: honor the (user_id OR broker_account_id) match.
             const [uid, , acct] = stmt.args;
