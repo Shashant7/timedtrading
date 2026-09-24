@@ -21,6 +21,16 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+## Active — Options account prefs alignment (2026-09-24)
+
+- [ ] Bridge `options_prefs.daily_loss_limit_usd` (default $500) on POST /bridge/user/options-prefs
+- [ ] Mission Control VehicleTogglesCard: account daily loss + vehicle enables; stop leading with daily_cap / max_loss_per_order
+- [ ] Broker Connections: user-editable daily loss limit per account
+- [ ] Roth: all option vehicles ON + $500/day; Partner Cash: long_call/long_put/LETF + $500/day
+- [ ] Options order fanout to opted-in accounts (owner + mirror participants)
+- [ ] Sync operator auto-mirror KV daily_loss_limit_usd + vehicles from Roth save
+
+
 - [x] **Eleven day trades, zero broker positions (2026-09-23).** Not
       "disabled" — the mirror fired twice. Two Webull limit buys went out 74 s
       apart at the open (13:46:23 QQQ 741P, 13:47:00 SPY 768P), both came back

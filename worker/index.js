@@ -84140,6 +84140,7 @@ export default {
           const payload = { user_id: accountId };
           if (typeof body?.options_enabled === "boolean") payload.options_enabled = body.options_enabled;
           if (body?.vehicles && typeof body.vehicles === "object") payload.vehicles = body.vehicles;
+          if (body?.daily_loss_limit_usd !== undefined) payload.daily_loss_limit_usd = body.daily_loss_limit_usd;
           const result = await _postBridge("/bridge/user/options-enable", payload);
           // Operator KV auto-mirror must stay in sync — index day-trade
           // gates read timed:options:auto-mirror:{ADMIN_EMAIL}, not the
@@ -84165,11 +84166,16 @@ export default {
               if (letfOn !== undefined) {
                 vehicles.index_trend_letf = { ...vehicles.index_trend_letf, enabled: !!letfOn };
               }
-              await _saveAutoMirrorPrefs(env, email, {
+              const patch = {
                 ...prefs,
                 enabled: off ? prefs.enabled : (prefs.enabled || on),
                 vehicles,
-              });
+              };
+              if (payload.daily_loss_limit_usd !== undefined) {
+                const n = Number(payload.daily_loss_limit_usd);
+                if (Number.isFinite(n) && n >= 0) patch.daily_loss_limit_usd = Math.round(n);
+              }
+              await _saveAutoMirrorPrefs(env, email, patch);
             }
           } catch (_) { /* never block the account toggle on KV sync */ }
           return _bridgeJson(result);
@@ -84211,11 +84217,40 @@ export default {
       // prefs on the bridge. Mission Control renders the editable
       // 7-row toggle table from /bridge/status (which now includes
       // each user's options_prefs map).
+      // 2026-09-24 — When the operator saves prefs on their own Roth
+      // (or any of their accounts), also sync daily_loss_limit_usd +
+      // vehicle enables into timed:options:auto-mirror:{ADMIN_EMAIL}
+      // so the day-trade lane and Mission Control agree.
       if (routeKey === "POST /timed/admin/broker-bridge/options-prefs") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         const body = await req.json().catch(() => ({}));
         const result = await _postBridge("/bridge/user/options-prefs", body);
+        try {
+          const admin = String(env.ADMIN_EMAIL || "").toLowerCase();
+          const target = String(body?.user_id || "").toLowerCase();
+          if (admin && target && (target === admin || target.startsWith(`${admin}#`))) {
+            let parsed = null;
+            try { parsed = JSON.parse(result.body || "null"); } catch (_) { parsed = null; }
+            if (parsed?.ok && parsed?.options_prefs) {
+              const prefs = await _loadAutoMirrorPrefs(env, admin);
+              const vehicles = { ...(prefs.vehicles || {}) };
+              for (const [k, row] of Object.entries(parsed.options_prefs.vehicles || {})) {
+                if (!row || typeof row !== "object") continue;
+                vehicles[k] = { ...(vehicles[k] || {}), enabled: !!row.enabled };
+                if (row.max_per_order_usd !== undefined) {
+                  vehicles[k].max_per_order_usd = Number(row.max_per_order_usd) || vehicles[k].max_per_order_usd;
+                }
+              }
+              const patch = { ...prefs, vehicles, enabled: prefs.enabled || !!parsed.options_enabled };
+              if (parsed.options_prefs.daily_loss_limit_usd !== undefined) {
+                const n = Number(parsed.options_prefs.daily_loss_limit_usd);
+                if (Number.isFinite(n) && n >= 0) patch.daily_loss_limit_usd = Math.round(n);
+              }
+              await _saveAutoMirrorPrefs(env, admin, patch);
+            }
+          }
+        } catch (_) { /* never block the bridge write on KV sync */ }
         return new Response(result.body || JSON.stringify({ ok: false, error: result.kind }),
           { status: 200,
             headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } });

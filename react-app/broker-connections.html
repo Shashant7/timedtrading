@@ -1469,6 +1469,12 @@
         const letfOn = accountLetfOn(acct);
         const callOn = acct?.options_prefs?.vehicles?.long_call?.enabled === true;
         const putOn = acct?.options_prefs?.vehicles?.long_put?.enabled === true;
+        const dailyLossRaw = acct?.options_prefs?.daily_loss_limit_usd;
+        const dailyLoss = dailyLossRaw === 0
+          ? 0
+          : (Number.isFinite(Number(dailyLossRaw)) && Number(dailyLossRaw) >= 0
+            ? Math.round(Number(dailyLossRaw))
+            : 500);
 
         const call = async (path, body, okText) => {
           setBusy(true); setMsg(null);
@@ -1480,7 +1486,7 @@
           finally { setBusy(false); }
         };
 
-        const setOptions = (next, vehicles, { confirmMaster = true } = {}) => {
+        const setOptions = (next, vehicles, { confirmMaster = true, daily_loss_limit_usd } = {}) => {
           if (confirmMaster) {
             const warn = next
               ? "Enable options strategies on this account? Long calls and puts from the model (including index day-trades) will place real option orders here."
@@ -1491,7 +1497,25 @@
             account_id: acct.user_id,
             options_enabled: next,
             ...(vehicles ? { vehicles } : {}),
+            ...(daily_loss_limit_usd !== undefined ? { daily_loss_limit_usd } : {}),
           }, next ? "Options strategies enabled" : "Options strategies paused");
+        };
+
+        const setDailyLossLimit = () => {
+          const v = prompt(
+            `Daily loss limit for this account (USD)\n\nCurrent: $${dailyLoss}\nDefault: $500\n0 = disable the day-stop gate\n\nOpen risk is charged at the hard-stop distance, not the full debit.`,
+            String(dailyLoss),
+          );
+          if (v == null) return;
+          const n = Number(v);
+          if (!Number.isFinite(n) || n < 0 || n > 1_000_000) {
+            alert("Must be 0–1000000");
+            return;
+          }
+          call("/timed/broker/account/options", {
+            account_id: acct.user_id,
+            daily_loss_limit_usd: Math.round(n),
+          }, `Daily loss limit set to $${Math.round(n).toLocaleString()}`);
         };
 
         const setLetf = (next) => {
@@ -1563,6 +1587,11 @@
                     setOptions(callOn || nextPut, { long_call: { enabled: callOn }, long_put: { enabled: nextPut } }, { confirmMaster: false });
                   }}>
                   Long put {putOn ? "on" : "off"}
+                </button>
+                <button className="bc-btn bc-btn-sm" disabled={busy}
+                  title="Dollar day-stop for options on this account (default $500)"
+                  onClick={setDailyLossLimit}>
+                  Loss limit ${dailyLoss.toLocaleString()}/day
                 </button>
               </div>
             )}
@@ -2680,7 +2709,8 @@
                     <div className="tt-sec-title">Accounts</div>
                     <div className="tt-sec-h" style={{ fontSize: 18 }}>Mirror settings</div>
                     <div className="dim" style={{ fontSize: 12, marginTop: 4, maxWidth: 720 }}>
-                      Equity mirror, options strategies, and Index Swings (LETF shares) are separate toggles per account. Size follows each account's equity — there is no daily order cap.
+                      Equity mirror, options strategies, and Index Swings (LETF shares) are separate toggles per account.
+                      Options use a dollar daily loss limit (default $500, configurable per account) — there is no daily order-count cap.
                     </div>
                     <FractionalSharesTip />
                   </div>

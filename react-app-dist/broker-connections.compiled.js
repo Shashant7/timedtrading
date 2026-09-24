@@ -1688,6 +1688,8 @@ function AccountCard({
   const letfOn = accountLetfOn(acct);
   const callOn = acct?.options_prefs?.vehicles?.long_call?.enabled === true;
   const putOn = acct?.options_prefs?.vehicles?.long_put?.enabled === true;
+  const dailyLossRaw = acct?.options_prefs?.daily_loss_limit_usd;
+  const dailyLoss = dailyLossRaw === 0 ? 0 : Number.isFinite(Number(dailyLossRaw)) && Number(dailyLossRaw) >= 0 ? Math.round(Number(dailyLossRaw)) : 500;
   const call = async (path, body, okText) => {
     setBusy(true);
     setMsg(null);
@@ -1713,7 +1715,8 @@ function AccountCard({
     }
   };
   const setOptions = (next, vehicles, {
-    confirmMaster = true
+    confirmMaster = true,
+    daily_loss_limit_usd
   } = {}) => {
     if (confirmMaster) {
       const warn = next ? "Enable options strategies on this account? Long calls and puts from the model (including index day-trades) will place real option orders here." : "Disable options strategies on this account? Equity mirroring stays as it is; no further option orders will be placed.";
@@ -1724,8 +1727,24 @@ function AccountCard({
       options_enabled: next,
       ...(vehicles ? {
         vehicles
+      } : {}),
+      ...(daily_loss_limit_usd !== undefined ? {
+        daily_loss_limit_usd
       } : {})
     }, next ? "Options strategies enabled" : "Options strategies paused");
+  };
+  const setDailyLossLimit = () => {
+    const v = prompt(`Daily loss limit for this account (USD)\n\nCurrent: $${dailyLoss}\nDefault: $500\n0 = disable the day-stop gate\n\nOpen risk is charged at the hard-stop distance, not the full debit.`, String(dailyLoss));
+    if (v == null) return;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0 || n > 1_000_000) {
+      alert("Must be 0–1000000");
+      return;
+    }
+    call("/timed/broker/account/options", {
+      account_id: acct.user_id,
+      daily_loss_limit_usd: Math.round(n)
+    }, `Daily loss limit set to $${Math.round(n).toLocaleString()}`);
   };
   const setLetf = next => {
     const warn = next ? "Enable Index Swings on this account? SPYU/SPXU share orders from the trend book will place here (days-to-weeks swing lane — not 0/1 DTE options)." : "Disable Index Swings on this account? No further SPYU/SPXU orders will be placed.";
@@ -1845,7 +1864,12 @@ function AccountCard({
         confirmMaster: false
       });
     }
-  }, "Long put ", putOn ? "on" : "off")), letfOn && React.createElement("div", {
+  }, "Long put ", putOn ? "on" : "off"), React.createElement("button", {
+    className: "bc-btn bc-btn-sm",
+    disabled: busy,
+    title: "Dollar day-stop for options on this account (default $500)",
+    onClick: setDailyLossLimit
+  }, "Loss limit $", dailyLoss.toLocaleString(), "/day")), letfOn && React.createElement("div", {
     className: "bc-acct-vehicles"
   }, React.createElement("span", {
     className: `bc-btn bc-btn-sm bc-btn-primary`,
@@ -3230,7 +3254,7 @@ function BrokerConnectionsApp({
       marginTop: 4,
       maxWidth: 720
     }
-  }, "Equity mirror, options strategies, and Index Swings (LETF shares) are separate toggles per account. Size follows each account's equity \u2014 there is no daily order cap."), React.createElement(FractionalSharesTip, null)), anyEnabled && React.createElement("button", {
+  }, "Equity mirror, options strategies, and Index Swings (LETF shares) are separate toggles per account. Options use a dollar daily loss limit (default $500, configurable per account) \u2014 there is no daily order-count cap."), React.createElement(FractionalSharesTip, null)), anyEnabled && React.createElement("button", {
     className: "bc-btn bc-btn-sm bc-pause-all",
     disabled: busy,
     style: {
@@ -3386,6 +3410,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1789936652903:875261041
+// cache-bust:1790219867358:639118181
 
-// cache-bust:1789936652903:875261041
+// cache-bust:1790219867358:639118181
