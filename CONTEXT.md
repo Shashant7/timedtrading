@@ -489,6 +489,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   young enough to still fill, and a stale order is cancelled and gone. Never
   put this back inside the options pass — reconciliation must not depend on
   the thing it is checking.
+- **The broker goes BEFORE Discord (2026-09-23)**: the mirror used to hang off
+  `maybeNotifyDayTradePaperEvent().then()`, so a live 0/1 DTE order waited on a
+  webhook round-trip and was never dispatched at all if that chain rejected.
+  It is now an `onEvent` hook called the moment the paper book is persisted,
+  ahead of the embed. Order is persist → place → notify; placing before the
+  persist could leave a broker position with no paper state. Same shape as the
+  Trader ENTRY fix on 2026-09-22.
 - Daily counters gate BUY only. A TRIM/EXIT/STOP must never be blocked by a
   cap or the broker is left holding a position the model already exited.
 - Close qty is the mirrored remainder (`timed:opt-dt-mirror`), not the paper

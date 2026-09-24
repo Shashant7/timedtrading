@@ -91,6 +91,13 @@ left the wrong kind of limit in place.
   care.** A tick can keep working for the rest of its minute, so the
   reconcile polls every ~5s rather than waiting for the next tick.
   Verified live: 9 passes in one minute, every minute.
+- **"First priority" is an ordering question, not just a cadence one.** The
+  mirror hung off the paper-alert promise's `.then()`, so the order
+  waited on a Discord webhook and was skipped outright if that chain
+  rejected. The Trader ENTRY lane had the identical shape fixed on
+  2026-09-22; nobody checked whether the day-trade lane shared it. When
+  a fix is "do the money thing before the telling-people thing", grep
+  for the other lanes with the same shape before closing it out.
 - **Make an aggressive loop pay for itself.** It only spins while an
   order is young enough to still fill (idle = one KV list and return),
   and it backs off to 15s after the first minute so a broker LIST
