@@ -851,6 +851,86 @@ async function _readOpenRowsForUser(env, userId, limit, brokerAccountId = null) 
 }
 
 /**
+ * Suppressed equity rows that still claim shares at the broker.
+ *
+ * Suppression was meant to stop a row PAGING. Because the scan above also
+ * skips it, it stopped the row being READ: `broker_remaining_qty` froze at
+ * whatever the broker held on the day it was suppressed. On 2026-09-24 all
+ * 27 model-closed Short Term rows still recording shares were suppressed
+ * after four drifts, last read 1 to 55 days earlier, and 25 of them were in
+ * tickers neither account held any more. Coverage, catch-up and the sleeve
+ * view all read that column as truth.
+ */
+async function _readSuppressedRowsForUser(env, userId, limit, brokerAccountId = null) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return [];
+  try {
+    const r = await db.prepare(`
+      SELECT * FROM mirror_trade_manifest
+       WHERE (user_id = ?1 OR (?3 IS NOT NULL AND broker_account_id = ?3))
+         AND (COALESCE(mirror_suppressed, 0) = 1 OR sync_state = 'mirror_suppressed')
+         AND COALESCE(instrument_type, 'equity') != 'options'
+         AND COALESCE(broker_remaining_qty, 0) > 0
+       ORDER BY COALESCE(sync_last_checked_at, 0) ASC
+       LIMIT ?2
+    `).bind(
+      String(userId).toLowerCase(),
+      Math.max(1, Math.min(500, Number(limit) || 100)),
+      brokerAccountId ? String(brokerAccountId) : null,
+    ).all();
+    return r?.results || [];
+  } catch (e) {
+    console.warn(`[RECONCILER] read suppressed rows failed for ${userId}:`,
+      String(e?.message || e).slice(0, 200));
+    return [];
+  }
+}
+
+/**
+ * Re-read a suppressed row without re-arming it. Refreshes what the mirror
+ * holds, and releases the suppression when the row has resolved (a closed
+ * trade the broker is now flat on, an open one back in line). Never
+ * notifies, never counts drift, never touches the model's status.
+ */
+async function _observeSuppressedRow(env, row, classification, now = Date.now()) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return null;
+  const bs = classification?.broker_state || {};
+  const qty = Number(bs.qty);
+  if (!Number.isFinite(qty)) return null;
+  const held = Math.max(0, qty - (Number(bs.user_added) || 0));
+  const resolved = !classification.drift_detected && classification.sync_state === "in_sync";
+  const prevReason = String(row.mirror_suppressed_reason || "suppressed").slice(0, 120);
+  try {
+    await db.prepare(`
+      UPDATE mirror_trade_manifest
+         SET broker_remaining_qty = ?4,
+             broker_last_seen_at = ?5,
+             sync_last_checked_at = ?5,
+             sync_note = ?6,
+             mirror_suppressed = CASE WHEN ?7 = 1 THEN 0 ELSE mirror_suppressed END,
+             mirror_suppressed_reason = CASE WHEN ?7 = 1 THEN ?8 ELSE mirror_suppressed_reason END,
+             sync_state = CASE WHEN ?7 = 1 THEN 'in_sync' ELSE sync_state END,
+             sync_drift_count = CASE WHEN ?7 = 1 THEN 0 ELSE sync_drift_count END,
+             updated_at = ?5
+       WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
+    `).bind(
+      row.user_id, row.trade_id, row.broker_account_id,
+      held, now,
+      String(resolved
+        ? `released: ${classification.note || "in sync"}`
+        : `observed while suppressed: ${classification.note || `broker holds ${held}`}`).slice(0, 200),
+      resolved ? 1 : 0,
+      `auto_released_resolved:${prevReason}`,
+    ).run();
+    return resolved ? "released" : "observed";
+  } catch (e) {
+    console.warn("[RECONCILER] observe suppressed failed:", String(e?.message || e).slice(0, 200));
+    return null;
+  }
+}
+
+/**
  * OPEN model equity rows for claim math — includes rejected / suppressed
  * re-entries. The reconcile scan skips those terminal states, but a CLOSED
  * sibling must still treat the open model book as owning the broker qty
@@ -1245,7 +1325,11 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
     env, userId, opts.limit || MAX_ROWS_PER_USER_PER_CYCLE,
     resolveBrokerAccountId(user),
   );
-  if (rows.length === 0) {
+  const suppressedRows = await _readSuppressedRowsForUser(
+    env, userId, opts.limit || MAX_ROWS_PER_USER_PER_CYCLE,
+    resolveBrokerAccountId(user),
+  );
+  if (rows.length === 0 && suppressedRows.length === 0) {
     return {
       user_id: userId, rows_scanned: 0, rows_in_sync: 0,
       rows_drifting: 0, rows_auto_suppressed: 0, by_state: {},
@@ -1256,7 +1340,7 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
   // so we skip cheap reads on rows that aren't due. Empty result = no
   // broker fetch needed.
   const eligible = rows.filter(_cadenceEligible);
-  if (eligible.length === 0) {
+  if (eligible.length === 0 && suppressedRows.length === 0) {
     return {
       user_id: userId, rows_scanned: rows.length, rows_eligible: 0,
       rows_in_sync: 0, rows_drifting: 0, rows_auto_suppressed: 0,
@@ -1264,7 +1348,8 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
     };
   }
   // Determine which broker fetches we need based on instrument mix.
-  const hasEquity = eligible.some(r => String(r.instrument_type || "equity").toLowerCase() === "equity");
+  const hasEquity = suppressedRows.length > 0
+    || eligible.some(r => String(r.instrument_type || "equity").toLowerCase() === "equity");
   const hasOptions = eligible.some(r => String(r.instrument_type || "").toLowerCase() === "options");
 
   // Fetch broker positions ONCE per user (not per row).
@@ -1556,6 +1641,31 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
       stats.rows_in_sync++;
     }
     stats.by_state[classification.sync_state] = (stats.by_state[classification.sync_state] || 0) + 1;
+  }
+
+  // Suppressed rows are read, not re-armed. Blind to them when the equity
+  // read failed, or when a closed row needs the claim map we could not get.
+  if (!opts.dryRun && suppressedRows.length && !equityFailed) {
+    let observed = 0;
+    let released = 0;
+    for (const row of suppressedRows) {
+      if (claimsUnknown && needsClaims(row)) continue;
+      const tickerKey = String(row.ticker || "").toUpperCase();
+      const status = String(row.model_status || "OPEN").toUpperCase();
+      const classification = classifyDrift(row, positionsByTicker.get(tickerKey) || null, {
+        tolerance: _tolerance(row),
+        claimed_elsewhere_qty: (status === "CLOSED" || status === "EXPIRED")
+          ? (openClaimsByTicker.get(tickerKey) || 0)
+          : 0,
+        pending_reducer: pendingReducerAudit(row),
+        sibling_reducer_qty: siblingReducerInFlightQty(row, reducerAuditRows),
+      });
+      const outcome = await _observeSuppressedRow(env, row, classification);
+      if (outcome === "released") released++;
+      else if (outcome === "observed") observed++;
+    }
+    stats.suppressed_observed = observed;
+    stats.suppressed_released = released;
   }
 
   // ── Per-account sync snapshot ──
