@@ -17,6 +17,7 @@ import {
   parseIndexDtSignalId,
   targetMirrorRemaining,
   reconcileIndexDtMirrorPositions,
+  resolvePendingIndexDtReduce,
   indexDtMirrorKey,
   OPT_DT_REDUCE_RECON_KEY,
   MIRROR_REDUCE_LOOKBACK_MS,
@@ -77,9 +78,14 @@ const trimmedBook = (patch = {}) => ({
   ...patch,
 });
 
-function harness({ mirror = mirroredHolding(), book = closedBook(), quote = { mid: 0.52, bid: 0.5 } } = {}) {
+function harness({
+  mirror = mirroredHolding(),
+  book = closedBook(),
+  quote = { mid: 0.52, bid: 0.5 },
+  adminEmail = "desk@example.com",
+} = {}) {
   const fired = [];
-  const env = { KV_TIMED: kvMock({ [indexDtMirrorKey(SIG)]: mirror }) };
+  const env = { KV_TIMED: kvMock({ [indexDtMirrorKey(SIG)]: mirror }), ADMIN_EMAIL: adminEmail };
   const run = (opts = {}) => reconcileIndexDtMirrorPositions(env, {
     now: NOW,
     loadBook: async () => book,
@@ -234,7 +240,53 @@ describe("reconcileIndexDtMirrorPositions — closes", () => {
     const { fired, run } = harness({
       mirror: mirroredHolding({ exit_pending: true, exit_order_id: "WB1" }),
     });
-    const out = await run();
+    const out = await run({ resolveWorking: async () => ({ outcome: "working" }) });
+    expect(fired).toHaveLength(0);
+    expect(out.skipped).toContainEqual({ signal_id: SIG, event: "STOP", reason: "reduce_order_working" });
+  });
+
+  // 2026-09-24 — DIA 509P and QQQ 731P. Both stops reached the broker, both
+  // FILLED at 16:17, and both mirrors still read exit_pending an hour later:
+  // the only thing that polls a working reduce was Stage 5b, which runs on a
+  // paper event, and the stop was the last event either would ever raise.
+  // $139.50 of a $500 daily budget was held against closed positions.
+  it("polls a working reduce instead of waiting for an event that will not come", async () => {
+    const { fired, run } = harness({
+      mirror: mirroredHolding({ exit_pending: true, exit_order_id: "WB1", exit_qty: 1 }),
+    });
+    const asked = [];
+    const out = await run({
+      resolveWorking: async (_e, email, signalId, _m, opts) => {
+        asked.push({ email, signalId, event: opts.event });
+        return { outcome: "filled", reconcile: { filledQty: 1 } };
+      },
+    });
+
+    expect(asked).toEqual([{ email: "desk@example.com", signalId: SIG, event: "STOP" }]);
+    expect(out.settled).toEqual([{ signal_id: SIG, event: "STOP", qty: 1 }]);
+    expect(fired).toHaveLength(0);
+  });
+
+  it("re-places a working reduce the broker had already rejected", async () => {
+    const { fired, run } = harness({
+      mirror: mirroredHolding({ exit_pending: true, exit_order_id: "WB1", exit_qty: 1 }),
+    });
+    const out = await run({ resolveWorking: async () => ({ outcome: "rejected" }) });
+
+    expect(fired).toHaveLength(1);
+    expect(out.settled).toHaveLength(0);
+    expect(out.skipped).toHaveLength(0);
+  });
+
+  it("will not poll the broker without an operator to poll it as", async () => {
+    const { fired, run } = harness({
+      mirror: mirroredHolding({ exit_pending: true, exit_order_id: "WB1" }),
+      adminEmail: null,
+    });
+    let asked = false;
+    const out = await run({ resolveWorking: async () => { asked = true; return { outcome: "filled" }; } });
+
+    expect(asked).toBe(false);
     expect(fired).toHaveLength(0);
     expect(out.skipped).toContainEqual({ signal_id: SIG, event: "STOP", reason: "reduce_order_working" });
   });
@@ -382,6 +434,90 @@ describe("a repair is labelled as a repair", () => {
     );
     const [row] = JSON.parse(env.KV_TIMED.store.get("timed:opt-dt-mirror-log"));
     expect(row.via).toBeNull();
+  });
+});
+
+describe("resolvePendingIndexDtReduce", () => {
+  const pending = (patch = {}) => ({
+    entry_fired: true,
+    contracts: 2,
+    contracts_remaining: 2,
+    exit_pending: true,
+    exit_order_id: "WB1",
+    exit_qty: 2,
+    exit_premium: 0.44,
+    ...patch,
+  });
+
+  const call = (mirror, fill, opts = {}) => {
+    const env = { KV_TIMED: kvMock() };
+    return resolvePendingIndexDtReduce(env, "desk@example.com", SIG, mirror, {
+      deps: { pollFill: async () => fill },
+      ...opts,
+    }).then((r) => ({ ...r, env }));
+  };
+
+  it("does nothing for a reduce that is not working", async () => {
+    const r = await call(pending({ exit_pending: false }), null);
+    expect(r.outcome).toBe("not_pending");
+  });
+
+  it("books a working reduce that has since filled", async () => {
+    const r = await call(pending(), { status: "filled", filled_qty: 2 });
+    expect(r.outcome).toBe("filled");
+    expect(r.mirror).toMatchObject({ exit_fired: true, exit_pending: false, exit_qty: 2, contracts_remaining: 0 });
+
+    const saved = JSON.parse(r.env.KV_TIMED.store.get(indexDtMirrorKey(SIG)));
+    expect(saved).toMatchObject({ exit_fired: true, exit_pending: false, contracts_remaining: 0 });
+  });
+
+  // Waiting is the safe half of a partial. Clearing the pending flags mid-fill
+  // would offer the unfilled remainder to the next pass as if no order covered
+  // it, and polls report the order's cumulative fill, so nothing is lost.
+  it("waits out a partial rather than stacking a SELL on its remainder", async () => {
+    const r = await call(pending(), { status: "partial", filled_qty: 1 });
+    expect(r.outcome).toBe("working");
+    expect(r.env.KV_TIMED.store.size).toBe(0);
+  });
+
+  it("books a partial the moment the order completes", async () => {
+    const r = await call(pending(), { status: "partial", filled_qty: 2 });
+    expect(r.outcome).toBe("filled");
+    expect(r.mirror).toMatchObject({ exit_qty: 2, contracts_remaining: 0 });
+  });
+
+  it("reports a reduce that is genuinely still working", async () => {
+    const r = await call(pending(), { status: "working", order_id: "WB1" });
+    expect(r.outcome).toBe("working");
+    expect(r.env.KV_TIMED.store.size).toBe(0);
+  });
+
+  it("reports a reduce the broker rejected so the caller can replace it", async () => {
+    const r = await call(pending(), { status: "rejected", reason: "no_held_position" });
+    expect(r.outcome).toBe("rejected");
+    // The pending flags are the caller's to clear — it is the one that knows
+    // whether a replacement went out.
+    expect(r.env.KV_TIMED.store.size).toBe(0);
+  });
+
+  it("polls the trim order for a TRIM, not the exit order", async () => {
+    const mirror = pending({
+      exit_pending: false, exit_order_id: null,
+      trim_pending: true, trim_order_id: "WB2", trim_qty: 1, trim_premium: 0.95,
+    });
+    const asked = [];
+    const env = { KV_TIMED: kvMock() };
+    const r = await resolvePendingIndexDtReduce(env, "desk@example.com", SIG, mirror, {
+      event: "TRIM",
+      deps: {
+        pollFill: async (_e, _email, order, qty) => {
+          asked.push({ order_id: order.order_id, qty });
+          return { status: "filled", filled_qty: 1 };
+        },
+      },
+    });
+    expect(asked).toEqual([{ order_id: "WB2", qty: 1 }]);
+    expect(r.mirror).toMatchObject({ trim_fired: true, trim_pending: false, trim_qty: 1, contracts_remaining: 1 });
   });
 });
 

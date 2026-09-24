@@ -1112,6 +1112,56 @@ export async function resolvePendingIndexDtEntry(env, operatorEmail, signalId, m
 }
 
 /**
+ * Settle a reduce that is already working at the broker.
+ *
+ * Same shape as the entry resolver above and for the same reason: a working
+ * order is resolved by ASKING, and whoever asks must be able to run without
+ * a paper event. Stage 5b calls this on its way in; the quantity reconciler
+ * calls it on a schedule.
+ *
+ * Returns { outcome, reconcile, mirror } with outcome one of:
+ *   not_pending | filled | working | rejected
+ */
+export async function resolvePendingIndexDtReduce(env, operatorEmail, signalId, mirror, {
+  event = "EXIT",
+  deps = {},
+} = {}) {
+  const poll = deps.pollFill || pollFillIfNeeded;
+  const pendingKey = event === "TRIM" ? "trim" : "exit";
+  const orderId = mirror?.[`${pendingKey}_order_id`];
+  if (!mirror?.[`${pendingKey}_pending`] || !orderId) return { outcome: "not_pending", mirror };
+
+  const qty = Number(mirror[`${pendingKey}_qty`]) || 1;
+  const polled = await poll(env, operatorEmail, { status: "working", order_id: orderId }, qty);
+  const rec = reconcileIndexDtFill({ event, requestedQty: qty, fill: polled });
+  // A `partial` comes back persist AND pending: some contracts filled, the
+  // rest of that SAME order is still live. Booking it now would clear the
+  // pending flags and hand the remainder to the next pass as if no order
+  // existed for it — a second SELL stacked on a working one. Polls report the
+  // order's CUMULATIVE fill, so waiting costs nothing and settling twice off
+  // a decrement would double-subtract. Let the order finish.
+  if (rec.persist && rec.pending) return { outcome: "working", reconcile: rec, mirror };
+  if (rec.persist) {
+    const remainingAfter = Math.max(0, (Number(mirror.contracts_remaining) || 0) - rec.filledQty);
+    const patch = event === "TRIM"
+      ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, contracts_remaining: remainingAfter }
+      : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, contracts_remaining: remainingAfter };
+    await saveIndexDtMirror(env, signalId, patch);
+    // The fill price is the limit the reduce was placed at, stamped on the
+    // mirror when it went out — settling off a price fetched now would book
+    // the day's realised P&L at whatever the contract is worth at poll time.
+    await settleIndexDtRisk(env, operatorEmail, signalId, mirror, {
+      closedQty: rec.filledQty,
+      closePremium: Number(mirror[`${pendingKey}_premium`]) || 0,
+      remainingQty: remainingAfter,
+    });
+    return { outcome: "filled", reconcile: rec, mirror: { ...mirror, ...patch } };
+  }
+  if (rec.pending) return { outcome: "working", reconcile: rec, mirror };
+  return { outcome: "rejected", reconcile: rec, mirror };
+}
+
+/**
  * Resolve every pending entry, independent of whether the paper book still
  * has anything to say about it. This is the half that makes the lane
  * self-healing: the per-signal path below only runs when a close event
@@ -1662,9 +1712,11 @@ export async function reconcileIndexDtMirrorPositions(env, {
   loadBook,
   resolvePremium,
   fireReduce = maybeAutoMirrorIndexDayTradeEvent,
+  resolveWorking = resolvePendingIndexDtReduce,
 } = {}) {
-  const out = { scanned: 0, drifted: 0, fired: [], skipped: [], no_target: [] };
+  const out = { scanned: 0, drifted: 0, fired: [], skipped: [], settled: [], no_target: [] };
   if (!env?.KV_TIMED) return out;
+  const operatorEmail = env.ADMIN_EMAIL || null;
 
   const prefix = indexDtMirrorKey("");
   const signalIds = [];
@@ -1739,13 +1791,34 @@ export async function reconcileIndexDtMirrorPositions(env, {
       ? (bookEvent === "STOP" || bookEvent === "EXIT" ? bookEvent : "EXIT")
       : "TRIM";
 
-    // A still-working SELL is not drift — Stage 5b polls it on the way in.
+    // A working SELL was skipped here on the grounds that "Stage 5b polls it
+    // on the way in" — but Stage 5b only runs on a paper event, and after the
+    // STOP there are no more events. So nobody ever asked: on 2026-09-24 the
+    // DIA 509P and QQQ 731P stops both FILLED at 16:17 and their mirrors still
+    // read exit_pending an hour later, holding $139.50 of the $500 daily
+    // budget against positions the broker no longer had. Same shape as the
+    // bug this reconciler was built for, one field over.
     const working = closing
       ? (mirror.exit_pending && mirror.exit_order_id)
       : (mirror.trim_pending && mirror.trim_order_id);
     if (working) {
-      out.skipped.push({ signal_id: signalId, event, reason: "reduce_order_working" });
-      continue;
+      const r = operatorEmail
+        ? await resolveWorking(env, operatorEmail, signalId, mirror, { event })
+        : { outcome: "working" };
+      if (r.outcome === "filled") {
+        // The fill is booked and the risk released. Any residual drift is a
+        // partial fill, which the next pass re-reads and re-fires — one
+        // reduce per position per pass keeps the broker from being asked
+        // twice for the same contracts.
+        out.settled.push({ signal_id: signalId, event, qty: r.reconcile?.filledQty ?? null });
+        continue;
+      }
+      if (r.outcome !== "rejected") {
+        out.skipped.push({ signal_id: signalId, event, reason: "reduce_order_working" });
+        continue;
+      }
+      // Rejected. The pending flags are the last word on an order that no
+      // longer exists, so re-place it in this same pass.
     }
     const reducedAt = (closing
       ? Number(book?.exit_ts)
@@ -2094,26 +2167,11 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
   // A still-working close must not stack a second SELL. Poll; retry only if rejected.
   const pendingKey = event === "TRIM" ? "trim" : "exit";
   if (mirror[`${pendingKey}_pending`] && mirror[`${pendingKey}_order_id`]) {
-    const polled = await pollFillIfNeeded(env, operatorEmail, {
-      status: "working", order_id: mirror[`${pendingKey}_order_id`],
-    }, Number(mirror[`${pendingKey}_qty`]) || 1);
-    const rec = reconcileIndexDtFill({
-      event, requestedQty: Number(mirror[`${pendingKey}_qty`]) || 1, fill: polled,
-    });
-    if (rec.persist) {
-      const remainingAfter = Math.max(0, (Number(mirror.contracts_remaining) || 0) - rec.filledQty);
-      const patch = event === "TRIM"
-        ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, contracts_remaining: remainingAfter }
-        : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, contracts_remaining: remainingAfter };
-      await saveIndexDtMirror(env, signalId, patch);
-      await settleIndexDtRisk(env, operatorEmail, signalId, mirror, {
-        closedQty: rec.filledQty,
-        closePremium: Number(mirror[`${pendingKey}_premium`]) || 0,
-        remainingQty: remainingAfter,
-      });
-      return { skipped: true, reason: `${pendingKey}_fill_confirmed`, reconcile: rec };
+    const r = await resolvePendingIndexDtReduce(env, operatorEmail, signalId, mirror, { event });
+    if (r.outcome === "filled") {
+      return { skipped: true, reason: `${pendingKey}_fill_confirmed`, reconcile: r.reconcile };
     }
-    if (rec.pending) return { skipped: true, reason: `${pendingKey}_still_working` };
+    if (r.outcome === "working") return { skipped: true, reason: `${pendingKey}_still_working` };
     // rejected — fall through and replace the working order
   }
 
