@@ -463,8 +463,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   max loss, so `consumed = open risk + realised losses today`, `remaining =
   limit - consumed`. A win gives its risk back (a good day does not throttle
   itself); a loss keeps consuming (a bad day tightens until it stops).
-  `prefs.daily_loss_limit_usd` (default $1000, `0` = off). Risk is priced at
-  the buy CEILING, never the mid. Commitments are a MAP keyed by signal id,
+  `prefs.daily_loss_limit_usd` (default **$500**, `0` = off; operator's number,
+  2026-09-24). **An open ticket is charged its STOP DISTANCE, not its debit**
+  (`optionStopRiskUsd`, `DEFAULT_STOP_FRACTION = 0.5`, mirrors `HARD_STOP_PCT`
+  -50) — these are managed to a hard stop, so charging the whole debit prices
+  a loss the doctrine never takes. Replayed at $500 on the 2026-09-23 tape,
+  charging the debit takes 9/16 rounds and blocks DIA 514P (+$194) and IWM
+  283P (+$101) for $566 vs the desk's $702; charging the stop takes 12/16 for
+  $801. Risk is priced at the buy LIMIT, never the mid. Commitments are a MAP keyed by signal id,
   so commit is an assignment and release is a delete — both idempotent by
   construction, unlike the counter they replace. Counters still move as
   dashboard telemetry; nothing reads them as a gate. Scope is the day-trade
@@ -474,6 +480,30 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   **The lane must never bump the shared day counters again**: they are the
   Trader lane's live gate, and an uncapped lane bumping them would swap one
   starvation for another (`daily_cap_5_reached` for the rest of the day).
+- **Re-entry on the same contract is a first-class case (2026-09-24)**: a day
+  trade re-enters a plan that re-presents itself, and the signal id IS the
+  contract, so the second round lands on the first round's record. The BUY
+  guard blocks a duplicate of a LIVE position only — `contracts_remaining > 0`
+  or `entry_pending` — and the new round CLEARS `trim_*`/`exit_*` or its own
+  close is refused `trim_already_mirrored`. The old `entry_fired ||
+  entry_placed` guard dropped all three 2026-09-23 re-entries (SPY 766P, QQQ
+  737P, IWM 281P). On the budget side, commit is an assignment into a slot the
+  close deleted, so round two is charged afresh; `placed_count` counts rounds
+  by broker order id.
+- **DIA mirrors (2026-09-24)**: `shouldIndexAutoMirror` allow-lists
+  `DAY_TRADE_TICKERS`, not a hand-written SPY/QQQ/IWM list. DIA was alertable
+  but unmirrorable and every DIA play died `ticker_not_index` — three times on
+  2026-09-23 including a +$194 round. A ticker must never be alertable and
+  unmirrorable at the same time.
+- **Entries price marketable, like exits (2026-09-24)**: `marketableEntryLimit`
+  = `max(display_buy_ceil, ask)`, chase bounded at `ENTRY_MAX_SLIP_PCT` (8% of
+  mid; session spreads were 2.06% median / 3.75% p90 / 14.3% p99 across 3,099
+  marks), ask ignored if >25% over mid. The passive ceiling alone priced the
+  only two orders that ever reached the broker on 2026-09-23 — QQQ 741P and
+  SPY 768P both worked all day below the market while the contracts ran +110%
+  and +102%. A limit above the ask fills AT the offer, so raising it buys
+  execution, not a worse price. `premium_band.ask` is plumbed from
+  `resolveLiveOptionPremium` through the clock to the mirror.
   Its tally is `placed_count` on the budget. `releaseEntryCounters` /
   `entryCapsForMirror` are deleted — no callers, and the re-read idempotency
   guard went with them because a delete keyed by signal id cannot

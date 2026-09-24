@@ -675,6 +675,10 @@ export const ENTRY_MAX_SLIP_PCT = 0.08;
  * by ENTRY_MAX_SLIP_PCT over the mid, and a stale or blown-out ask (more than
  * a quarter over mid) is ignored in favour of one tick through the mid.
  *
+ * A limit above the ask does not overpay — it fills at the offer. Raising the
+ * limit buys certainty of execution, not a worse price, which is why the only
+ * cap that matters here is on how far the limit may be raised.
+ *
  * Pure. Returns null when there is no usable mid.
  */
 export function marketableEntryLimit({ mid, ask, ceil, tick, maxSlipPct = ENTRY_MAX_SLIP_PCT } = {}) {

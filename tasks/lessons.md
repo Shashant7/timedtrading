@@ -9338,3 +9338,58 @@ Takeaways:
 Still open: the OOM itself. Shedding per-tick work in the `*/5` engine lane
 needs live heap instrumentation, not a guess — 34 scored tickers should not
 approach 128 MB.
+
+## 2026-09-24 — Sizing the day-trade loss limit, and four things the tape found
+
+The operator set the daily loss limit to $500 and asked for DIA to be
+included, entry pricing to be refined, and the 2026-09-23 session to be
+graded. Grading the session first turned out to be the right order: the tape
+answered three of the four questions and found a bug nobody had asked about.
+
+- **A limit is only as good as what it charges.** The budget shipped charging
+  an open ticket its full debit, on the reasoning that a long option's max
+  loss IS the debit. True, but only if the position is carried to zero — these
+  are managed to a -50% hard premium stop, so the loss the desk actually
+  accepts is the stop distance. Charging the debit double-counts by 2x, and at
+  $500 that is not a rounding error: replayed on the real tape it takes 9 of
+  16 rounds and blocks DIA 514P (+$194) and IWM 283P (+$101), two of the four
+  best trades of the day, for $566 against the desk's $702. Charging the stop
+  takes 12 of 16 for $801. Do not accept a risk model because its premise is
+  technically true; check what it costs on a real session.
+
+- **Re-entry is not a duplicate.** The signal id is the contract, so when the
+  desk stops out of SPY 766P and takes it again an hour later, the second
+  round lands on the first round's mirror record. The BUY guard read
+  `entry_fired || entry_placed` and dropped it. All three 2026-09-23
+  re-entries died that way — SPY 766P, QQQ 737P, IWM 281P — and SPY 766P's
+  second round was the +$219 trade of the session. The guard now blocks a
+  duplicate of a LIVE position only, and the new round must CLEAR `trim_*` /
+  `exit_*` or its own close is refused `trim_already_mirrored`. Nobody
+  reported this bug; it fell out of replaying the tape through the real code.
+
+- **Alertable and unmirrorable is never a valid combination.** DIA was in
+  `DAY_TRADE_TICKERS`, built plays all session, and was then dropped at the
+  broker with `ticker_not_index` because `shouldIndexAutoMirror` carried a
+  hand-written SPY/QQQ/IWM list. Allow-lists that restate a constant drift
+  away from it. It now reads `DAY_TRADE_TICKERS` directly.
+
+- **If the exit is marketable, the entry has to be too.** `marketableCloseLimit`
+  has hit the live bid since day one so a flatten flattens. The entry side had
+  only a passive FMV ceiling, and that ceiling priced the only two orders that
+  ever reached the broker on 2026-09-23: QQQ 741P at 09:46:23 and SPY 768P at
+  09:47:00 both sat `working` below the market until they were cancelled at
+  the close, while the contracts ran +110% and +102%. An entry now prices at
+  `max(ceiling, ask)` with the chase bounded at 8% of mid — measured, not
+  guessed: 3,099 marks that session ran 2.06% of mid at the median, 3.75% at
+  p90, 14.3% at p99, so 8% clears the book and refuses the tail. A limit above
+  the ask fills AT the offer, so raising it buys execution, not a worse price.
+
+- **Grade entry and management separately.** A good read managed badly and a
+  bad read managed well are different mistakes with different fixes, and a
+  single win/loss column hides both. `scripts/replay-day-trades.mjs` splits a
+  signal's tape into rounds, measures what was reachable while the position
+  was on, and scores the two independently. On 2026-09-23 it showed the desk
+  taking 73-100% of the reachable move on its four winners and leaving $117 on
+  IWM 283P, while the losers were nearly all entry-grade F — read wrong, cut
+  fast, -$20 average. That is a healthy shape, and the count cap is what stood
+  between it and the broker.
