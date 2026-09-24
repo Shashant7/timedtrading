@@ -21,6 +21,22 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+## Active — Index DT stop-out not mirroring / IWM 279P (2026-09-24)
+
+- [x] Root cause: bridge SELL guard rejected `no_held_position` — Webull
+      option positions are combo rows, contract is on `legs[]`
+      (`option_exercise_price`, not `strike_price`), so every position
+      normalized to `strike:null, expiration:null, option_type:"CALL"`
+- [x] `normalizeWebullOptionsPositions` flat-maps legs + synthesizes OCC symbol
+- [x] Fail closed: unreadable right → `null` (never CALL); unlabelled combo
+      leg → `direction_unknown`, skipped by `heldQtyForOption`
+- [x] `sweepStrandedIndexDtCloses` — a rejected close cannot retry itself
+      (RTH cron + `POST /timed/admin/index-dt/heal-closes` + COO lane)
+- [x] Regression tests from the captured live Webull payload; `npm test` green
+- [ ] Live IWM 279P is still long in the Roth — flattens when this deploys
+      (or on a manual `heal-closes` call once merged)
+
+### Active
 ## Active — Daily Brief miss / OOM catch-up (2026-09-24)
 
 - [x] Root cause: tt-research `exceededMemory` at 13:01 UTC on morning slot

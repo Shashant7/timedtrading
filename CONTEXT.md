@@ -579,6 +579,30 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   and never refund. Pre-field mirrors use `ts` for the staleness clock.
   Sweep prefix is `timed:opt-dt-mirror:` — the
   colon is what keeps it off `timed:opt-dt-mirror-log`.
+- **A REJECTED close is stranded the same way a pending entry was
+  (2026-09-24)**: Stage 5b only runs on a paper event, and a book that has
+  already closed emits nothing more — so a close the bridge refused was the
+  last word, with the mirror saying 1 held and the model saying flat. IWM
+  `dt:IWM:2026-09-24:2026-09-25:P:279` stopped out at 10:05:48 ET,
+  `decision=rejected reason=no_held_position`, and stayed long.
+  `sweepStrandedIndexDtCloses` (RTH, on `index_dt_reconcile`;
+  `POST /timed/admin/index-dt/heal-closes`; COO `index_dt_closes` lane) finds
+  mirrors with `contracts_remaining > 0` whose book is `closed` on STOP/EXIT,
+  rebuilds the contract from the signal id (the id IS the contract), and
+  re-fires through Stage 5b. `healForCoverageRow` routes a closed `index_dt`
+  row here; a missed day-trade ENTRY still routes nowhere (the setup is gone).
+- **Webull option positions are COMBO rows — the contract is on `legs[]`
+  (2026-09-24)**: `option_type` / `option_expire_date` /
+  `option_exercise_price` (NOT `strike_price`) live on the leg; the top level
+  carries only the underlying `symbol` and the combo `quantity`. Reading the
+  top level gave every position `strike:null, expiration:null` and a defaulted
+  CALL right, so `heldQtyForOption` matched nothing and EVERY options SELL
+  mirror was rejected `no_held_position` — and two IWM options collided on one
+  holding key in Broker Connections ("IWM 0C"). `normalizeWebullOptionsPositions`
+  flat-maps legs and synthesizes the OCC symbol from the parts. An unreadable
+  right is now `null`, never CALL, and an unlabelled combo leg is
+  `direction_unknown` and skipped by the guard — selling a leg already short
+  is the naked position the guard exists to prevent.
 - EXIT/STOP price the bid (or mid − 1 tick). Paper sizing is opt-in
   (`index_dt_follow_paper_size`, default OFF = 1 lot).
 - Trader `closeTradeAtPrice` must vehicle-gate like ENTRY/TRIM

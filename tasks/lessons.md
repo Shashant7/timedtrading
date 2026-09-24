@@ -6,6 +6,62 @@
 
 ---
 
+## The broker had the position; we had parsed it into nothing [2026-09-24]
+
+"IWM day trade entered and mirrored but the stop out is not mirroring."
+The stop DID go out. `timed:opt-dt-mirror-log` had it at
+`09-24 10:05:48 STOP side=sell decision=rejected reason=no_held_position
+contracts=1 sig=dt:IWM:2026-09-24:2026-09-25:P:279`. Our own bridge
+refused our own SELL because it could not see a position the account
+demonstrably held.
+
+- **"Not mirroring" and "rejected" look identical from the UI, and only
+  one of them is a mirror bug.** The decision log distinguishes them in
+  one line. Reading it first is what turned a search through the mirror
+  gates into a bridge-side parsing bug. Same lesson as 2026-09-23: read
+  the log out of production before theorising from the source.
+- **Webull returns an option holding as a COMBO row.** The contract lives
+  on `legs[]` — `option_type`, `option_expire_date`,
+  `option_exercise_price` (NOT `strike_price`, which is what the code
+  looked for). The top level carries only the underlying `symbol` and the
+  combo `quantity`. `normalizeWebullOptionsPositions` read the top level,
+  so the live payload for a Roth IRA visibly holding
+  `IWM 2026-09-25 PUT 279` normalized to
+  `{symbol:"IWM", strike:null, expiration:null, option_type:"CALL"}`.
+  Fetch the raw payload (`POST /timed/admin/broker-bridge/webull/test`,
+  `action: get_positions`) and diff it against what the normalizer
+  produced; do not trust a field name that "looks right".
+- **A defaulted field is worse than a missing one.** `normalizeOptionRight`
+  ended in `return "CALL"`, and `positionContractKey`'s `rightFlag`
+  answered CALL for anything not starting with P. So an unreadable right
+  did not raise, it asserted — a held PUT keyed as a call matched nothing,
+  and a stray call key could have matched something the account does not
+  hold. Both now return `null`, and a combo leg the broker did not label
+  long or short is `direction_unknown` and skipped outright: selling a leg
+  already short is the naked position this guard exists to prevent.
+- **This was never an IWM bug.** It rejected EVERY options SELL mirror,
+  and it had been doing so for as long as the normalizer existed. A guard
+  that always says no is indistinguishable from a guard that works until
+  something needs to get through. The regression tests are built from the
+  captured live payload shape, not from a hand-written row that agrees
+  with the parser.
+- **The blast radius reached the UI.** `optionHoldingKey` keyed on the
+  (top-level, underlying) `symbol`, so the Roth's two IWM options
+  collided on one key and only one rendered — as "IWM 0C". The normalizer
+  now synthesizes the OCC symbol from the parts, and the holdings label
+  shows `?` for a right it cannot read rather than quietly calling
+  everything a call.
+- **A rejected close cannot retry itself — same shape as yesterday's
+  pending entry.** Stage 5b only ever runs on a paper event, and the book
+  was already `closed`, so nothing would ever raise STOP for that signal
+  again: the mirror said 1 contract held, the model said flat, and there
+  was no third party to notice they disagreed. The 279P sat long through
+  a stop it had already taken. `sweepStrandedIndexDtCloses` runs on a
+  SCHEDULE over STATE — mirrors with `contracts_remaining > 0` whose book
+  is closed on STOP/EXIT — and rebuilds the contract from the signal id,
+  which is why the id being the contract matters. Fixing the parser alone
+  would have left the live position stranded.
+
 ## A lane that only wakes on an event cannot heal the event that stopped [2026-09-23]
 
 Eleven index day trades were alerted, zero reached the broker as
