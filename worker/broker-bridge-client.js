@@ -133,6 +133,31 @@ export function bridgeResponseIsOk(parsed, httpOk) {
   return true;
 }
 
+/**
+ * The `reduce_pct` to send for a trim from `fromTrim` to `toTrim`, both
+ * fractions of the ORIGINAL position.
+ *
+ * The bridge applies `reduce_pct` to the account's CURRENT sleeve
+ * (`reconcileReducerQty`: `intended = broker_remaining × pct`). Sending the
+ * raw delta `toTrim - fromTrim` mixed the two units: trim 50% then 75%
+ * sent 0.25 and sold 12.5% of the original, and trim 50% then 100% sent
+ * 0.50 as side `exit` and sold half of what was left — 25% of the position
+ * stayed at the broker after the model was flat, for a catch-up to sell
+ * later at another price. The fraction of what REMAINS is the only number
+ * that means the same thing to both sides.
+ *
+ * Returns null for a full close: an exit sells the sleeve, it is not a
+ * percentage of it.
+ */
+export function reducePctOfRemaining(fromTrim, toTrim) {
+  const from = Math.max(0, Math.min(1, Number(fromTrim) || 0));
+  const to = Math.max(0, Math.min(1, Number(toTrim) || 0));
+  if (to >= 0.9999) return null;
+  const remaining = 1 - from;
+  if (!(remaining > 1e-9) || !(to > from)) return null;
+  return Math.min(1, (to - from) / remaining);
+}
+
 export function parseBridgeOrderIds(parsed) {
   const nested = parsed?.response && typeof parsed.response === "object"
     ? parsed.response

@@ -21767,6 +21767,7 @@ async function processTradeSimulation(
             forwardOrderToBridge,
             shouldForwardTraderMirrorAsEquity,
             recordBridgeMirrorSkip,
+            reducePctOfRemaining,
           } = await import("./broker-bridge-client.js");
           const _trimVeh = trade.executed_vehicle || trade.vehicle || "shares";
           if (!shouldForwardTraderMirrorAsEquity(trade)) {
@@ -21804,7 +21805,7 @@ async function processTradeSimulation(
               rank: Number(trade.rank) || null,
               mode: "trader",
               vehicle: "equity_long",
-              reduce_pct: delta,
+              ...(isFullClose ? {} : { reduce_pct: reducePctOfRemaining(oldTrim, tgt) }),
             }));
           }
         } catch (_) { /* never block trade flow on bridge issues */ }
