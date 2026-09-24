@@ -45,6 +45,22 @@ export function optionsMirrorTargets(participants) {
 }
 
 /**
+ * The account's own per-order dollar cap for this play's vehicle.
+ *
+ * Partners set this per vehicle in Broker Connections (the live partner
+ * row caps long_call and long_put at $500 each). It is the most explicit
+ * instruction an account holder gives about options size, so it outranks
+ * anything derived from equity.
+ */
+export function vehicleMaxPerOrderUsd(user, { archetype = null, vehicle = null } = {}) {
+  const key = String(vehicle || archetype || "").toLowerCase();
+  if (!key) return null;
+  const row = user?.options_prefs?.vehicles?.[key];
+  const cap = num(row?.max_per_order_usd);
+  return cap != null && cap > 0 ? cap : null;
+}
+
+/**
  * Contracts a partner account should take for a model order of
  * `modelContracts`.
  *
@@ -65,6 +81,7 @@ export function scaleContractsForAccount({
   accountEquity,
   modelBookUsd = 100000,
   dailyLossLimitUsd = null,
+  maxPerOrderUsd = null,
   stopFraction = DEFAULT_STOP_FRACTION,
 } = {}) {
   const model = Math.round(num(modelContracts) || 0);
@@ -75,37 +92,45 @@ export function scaleContractsForAccount({
 
   const book = num(modelBookUsd) > 0 ? num(modelBookUsd) : 100000;
   const ratio = Math.min(1, equity / book);
-  let contracts = Math.floor(model * ratio);
+  const contracts = Math.floor(model * ratio);
 
   const px = num(premium);
   // Per-contract debit. A quoted option premium is per share.
   const unitUsd = px != null && px > 0 ? px * 100 : null;
 
-  // The account's own day-stop, converted to the debit that would risk it.
-  // A -50% stop means a $1,000 debit puts $500 at risk, so a $500 limit
-  // tolerates a $1,000 ticket. 0 disables the gate, same as the main
-  // worker's budget contract.
+  // Tightest dollar ceiling this account allows for one ticket.
+  //
+  // The day-stop is a risk number, not a notional one: a -50% stop means a
+  // $1,000 debit puts $500 at risk, so a $500 limit tolerates a $1,000
+  // ticket. The per-order cap is already notional and applies as-is. 0 or
+  // missing disables either gate, same as the main worker's contract.
   const limit = num(dailyLossLimitUsd);
   const frac = num(stopFraction) > 0 ? num(stopFraction) : DEFAULT_STOP_FRACTION;
-  const maxDebit = limit != null && limit > 0 ? limit / frac : null;
+  const fromLossLimit = limit != null && limit > 0 ? limit / frac : null;
+  const fromOrderCap = num(maxPerOrderUsd) > 0 ? num(maxPerOrderUsd) : null;
+  const ceilings = [fromLossLimit, fromOrderCap].filter((v) => v != null);
+  const maxDebit = ceilings.length ? Math.min(...ceilings) : null;
+  const capReason = fromOrderCap != null && maxDebit === fromOrderCap
+    ? "max_per_order_usd"
+    : "daily_loss_limit";
+
+  const capped = (reason) => ({
+    contracts: 0, reason, ratio, unit_usd: unitUsd, max_debit_usd: maxDebit,
+  });
 
   if (contracts < 1) {
     if (unitUsd == null) return { contracts: 0, reason: "no_premium_for_one_lot", ratio };
-    if (maxDebit != null && unitUsd > maxDebit) {
-      return { contracts: 0, reason: "one_lot_over_daily_loss_limit", ratio, unit_usd: unitUsd, max_debit_usd: maxDebit };
-    }
+    if (maxDebit != null && unitUsd > maxDebit) return capped(`one_lot_over_${capReason}`);
     return { contracts: 1, reason: "one_lot_floor", ratio, unit_usd: unitUsd };
   }
 
   if (maxDebit != null && unitUsd != null && unitUsd > 0) {
     const affordable = Math.floor(maxDebit / unitUsd);
-    if (affordable < 1) {
-      return { contracts: 0, reason: "one_lot_over_daily_loss_limit", ratio, unit_usd: unitUsd, max_debit_usd: maxDebit };
-    }
+    if (affordable < 1) return capped(`one_lot_over_${capReason}`);
     if (affordable < contracts) {
       return {
         contracts: affordable,
-        reason: "capped_by_daily_loss_limit",
+        reason: `capped_by_${capReason}`,
         ratio,
         unit_usd: unitUsd,
         max_debit_usd: maxDebit,

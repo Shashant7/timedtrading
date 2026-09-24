@@ -6,6 +6,7 @@ import {
   optionsMirrorPayload,
   modelPremiumMid,
   modelContractsOf,
+  vehicleMaxPerOrderUsd,
   DEFAULT_STOP_FRACTION,
 } from "./bridge-options-fanout.js";
 import { playToWebullOptionOrder } from "./bridge-webull-options.js";
@@ -123,6 +124,86 @@ describe("scaleContractsForAccount", () => {
     expect(out.contracts).toBe(3);
     expect(out.reason).toBe("capped_by_daily_loss_limit");
   });
+
+  // The per-order cap is the most explicit instruction an account holder
+  // gives about options size, so it has to outrank anything derived from
+  // equity. The live partner row caps long_put at $500.
+  it("honours the account's per-order cap over the equity ratio", () => {
+    // $2.00 premium = $200 a contract; a $500 ticket cap allows 2.
+    const out = scaleContractsForAccount({
+      modelContracts: 5, premium: 2.0, accountEquity: 100000,
+      modelBookUsd: 100000, dailyLossLimitUsd: 0, maxPerOrderUsd: 500,
+    });
+    expect(out.contracts).toBe(2);
+    expect(out.reason).toBe("capped_by_max_per_order_usd");
+  });
+
+  it("applies whichever ceiling is tighter", () => {
+    const args = {
+      modelContracts: 5, premium: 1.0, accountEquity: 100000, modelBookUsd: 100000,
+    };
+    // Order cap $200 beats a day-stop worth $1,000 of debit.
+    expect(scaleContractsForAccount({ ...args, dailyLossLimitUsd: 500, maxPerOrderUsd: 200 }))
+      .toMatchObject({ contracts: 2, reason: "capped_by_max_per_order_usd" });
+    // Day-stop worth $200 of debit beats an order cap of $1,000.
+    expect(scaleContractsForAccount({ ...args, dailyLossLimitUsd: 100, maxPerOrderUsd: 1000 }))
+      .toMatchObject({ contracts: 2, reason: "capped_by_daily_loss_limit" });
+  });
+
+  it("refuses a one-lot floor that breaks the per-order cap", () => {
+    const out = scaleContractsForAccount({
+      ...base, premium: 8.0, accountEquity: 12000,
+      dailyLossLimitUsd: 0, maxPerOrderUsd: 500,
+    });
+    expect(out).toMatchObject({ contracts: 0, reason: "one_lot_over_max_per_order_usd" });
+  });
+
+  // The exact trade that went missing, against the live partner row.
+  it("sizes the live partner's IWM 279P the way the account is configured", () => {
+    const out = scaleContractsForAccount({
+      modelContracts: 2,
+      premium: 0.64,
+      accountEquity: 9826.12,
+      modelBookUsd: 100000,
+      dailyLossLimitUsd: 500,
+      maxPerOrderUsd: 500,
+    });
+    expect(out.contracts).toBe(1);
+    expect(out.unit_usd).toBeCloseTo(64, 5);
+  });
+});
+
+describe("vehicleMaxPerOrderUsd", () => {
+  // Shape copied from the live partner row.
+  const user = {
+    options_prefs: {
+      vehicles: {
+        long_call: { enabled: true, max_per_order_usd: 500 },
+        long_put: { enabled: true, max_per_order_usd: 500 },
+        index_trend_letf: { enabled: true, max_per_order_usd: 2000 },
+      },
+    },
+  };
+
+  it("reads the cap for the play's archetype", () => {
+    expect(vehicleMaxPerOrderUsd(user, { archetype: "long_put" })).toBe(500);
+    expect(vehicleMaxPerOrderUsd(user, { archetype: "long_call" })).toBe(500);
+  });
+
+  it("prefers an explicit vehicle over the archetype", () => {
+    expect(vehicleMaxPerOrderUsd(user, { archetype: "long_call", vehicle: "index_trend_letf" }))
+      .toBe(2000);
+  });
+
+  it("returns null when the account set no cap", () => {
+    expect(vehicleMaxPerOrderUsd(user, { archetype: "straddle" })).toBeNull();
+    expect(vehicleMaxPerOrderUsd({ options_prefs: null }, { archetype: "long_put" })).toBeNull();
+    expect(vehicleMaxPerOrderUsd(user, {})).toBeNull();
+  });
+});
+
+describe("scaleContractsForAccount — sitting out", () => {
+  const base = { modelContracts: 2, premium: 0.64, modelBookUsd: 100000, dailyLossLimitUsd: 500 };
 
   it("treats a zero limit as the gate being off, not as zero tolerance", () => {
     const out = scaleContractsForAccount({

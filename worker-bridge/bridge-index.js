@@ -3292,6 +3292,7 @@ async function fanOutOptionsMirrors(env, ctx, sanitized, payload, { t0 = Date.no
   const {
     optionsMirrorTargets, scaleContractsForAccount, optionsMirrorPayload,
     accountEquityUsd, dailyLossLimitFromUser, modelPremiumMid, modelContractsOf,
+    vehicleMaxPerOrderUsd,
   } = await import("./bridge-options-fanout.js");
 
   const ownerEmail = String(sanitized.user_id || "").split("#")[0].toLowerCase();
@@ -3325,6 +3326,10 @@ async function fanOutOptionsMirrors(env, ctx, sanitized, payload, { t0 = Date.no
           accountEquity: accountEquityUsd(target),
           modelBookUsd,
           dailyLossLimitUsd: dailyLossLimitFromUser(target),
+          maxPerOrderUsd: vehicleMaxPerOrderUsd(target, {
+            archetype: sanitized.play?.archetype,
+            vehicle: payload?.vehicle,
+          }),
         });
         if (!(sized.contracts > 0)) {
           return { ...row, ok: false, skipped: true, reason: sized.reason, sizing: sized };
