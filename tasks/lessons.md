@@ -6,6 +6,203 @@
 
 ---
 
+## An id truncated from the wrong end stops being an id [2026-09-24]
+
+"I had to flatten IWM as the stop out never took effect." The model's
+IWM 278P stop fired at 16:17Z and the reduce went to the broker every
+minute for eighteen minutes. All twenty attempts came back from Webull
+with `Please do not place an order repeatedly`. At 16:35:44Z the
+contract was sold by hand at 0.37 against the model's 0.44 stop.
+
+The cause was one `.slice()` on the wrong end of a string:
+
+```js
+`tt-opt-${order.trade_id || "na"}-${crypto.randomUUID().slice(0, 8)}`.slice(0, 32)
+```
+
+`dt:IWM:2026-09-24:2026-09-25:P:278` is 34 characters. `tt-opt-` plus
+that already overruns 32, so the trailing slice ate the uuid **and** the
+strike, and every close for a ticker that day produced the identical id
+`tt-opt-dt:IWM:2026-09-24:2026-09`. Webull treats a reused
+client_order_id as a repeat. The first close per ticker per day was
+accepted; every later one was refused forever. IWM 279P spent the IWM id
+at 15:10:17Z — 67 minutes before the 278P stop even existed.
+
+- **Entropy added before a truncation is not entropy.** The uuid was
+  there precisely to make each submission unique and it was the first
+  thing discarded. Reserve the suffix, then spend what is left on the
+  human-readable part — never the reverse.
+- **The one accepted order per ticker is what made this invisible.** DIA
+  and QQQ each closed cleanly that morning, so the lane looked alive.
+  Only the second close of a ticker ever failed, which reads as a flaky
+  broker rather than a deterministic collision.
+- **`Please do not place an order repeatedly` is overloaded.** The
+  2026-09-18 incident proved it can mean "submitting too fast"
+  (CONTEXT.md's throttle entry, retry heals it). It ALSO means "this
+  client_order_id is already used", which no retry will ever heal.
+  Same string, opposite remedy. Tell them apart by cadence: a throttle
+  clears within seconds, a duplicate id never does.
+- **Read the broker's own order list, not just our ledger.** Our mirror
+  row said `entry_fill_status: filled, contracts_remaining: 1` and the
+  decision log said `rejected / no_held_position` — neither named the
+  cause. `list_orders` showed it in one screen: three SELLs that day,
+  client_order_ids `tt-opt-dt:{IWM,DIA,QQQ}:2026-09-24:2026-09`, one per
+  ticker. It also showed the operator's seven manual closes, which is
+  what made the `no_held_position` rejects correct rather than a
+  second bug — the positions guard was right every time.
+- **A reduce that fires and is rejected is not "fired".**
+  `timed:opt-dt:reduce-unreconciled` only recorded reduces Stage 5b
+  refused to send (`skipped: true`). A reduce the BROKER rejected
+  recorded `skipped: false` and vanished from the telemetry, so
+  `/timed/health.indexDtReduceUnmirrored` listed the two closes that had
+  actually placed and not the one that could not. The watchdog watched
+  the healthy trades. Now it reads the fill reconciler's verdict:
+  neither persisted nor working means unmirrored.
+
+---
+
+## Three ways to hold a position the broker already closed [2026-09-24]
+
+Chasing the IWM 278P stop surfaced three further paths by which a mirror
+keeps saying "one contract held" after the broker is flat. All three
+charge the day's loss budget: `consumed = open risk + realised losses`,
+open risk booked at the stop distance. By early afternoon eight entries
+held $496.50 of a $500 limit, roughly $448 of it phantom, and new
+entries were being refused `daily_loss_budget_52_left_of_500`. The
+model was not out of risk appetite — it was out of bookkeeping.
+
+- **A rejection that re-offering cannot fix needs a terminal branch.**
+  The quantity reconciler re-offered every refused reduce forever. IWM
+  280P took the identical `no_held_position` once a minute for hours.
+  `no_held_position` is the SELL guard's verdict for "holdings read fine
+  and this contract is not among them" — it deliberately says
+  `positions_unavailable` / `positions_unresolved` /
+  `position_direction_unknown` when it could not read the account, which
+  is what makes the first one safe to treat as final. The mirror now
+  stands down (`exit_via: broker_flat`, no exit price — nothing was
+  sold) and releases the risk.
+- **A status that lasts one tick is not the status to key off.**
+  `targetMirrorRemaining` mapped `closed` but not `flat`, and
+  `armIndexDayTradePlan` flips `closed` → `flat` on the very next
+  WAIT/SELL so a re-entry is allowed. So the reconciler had about a
+  minute to notice a drift and was blind afterwards — and blind
+  *silently*, because an unmapped status returned null and the caller
+  skipped with no telemetry line at all. Map the long-lived terminal
+  state, and record what you could not judge.
+- **"The first 50 orders" assumes an ordering the broker never
+  promised.** The single-order fill lookup read `page_size: 50` and gave
+  up. Webull's `/openapi/trade/order/history` is not newest-first — a
+  10-row page came back spanning six days, oldest row first — so as the
+  week's order count grows, today's orders fall out of the window. DIA
+  509P and QQQ 731P both FILLED at 16:17; every poll afterwards could
+  not see either order and answered "still working", so both sat
+  `exit_pending` for hours holding $139.50. `start_time` and
+  `last_create_time` had no observable effect when probed against the
+  live account; the 100-row maximum covers the whole current 7-day
+  history.
+- **"I could not find it" and "it is still working" are different
+  sentences.** The lookup returned `{ok: true, fill: null}` for both,
+  and the caller folded them into `working`. An unindexed order is still
+  an order, so standing pat is right — but the telemetry must say which
+  one it is (`reduce_order_unknown_to_broker` vs
+  `reduce_order_working`), or a lookup that silently fails looks exactly
+  like a limit patiently sitting there.
+- **Anything resolved only by an event will not be resolved.** This is
+  the same root as the reconciler's own reason for existing, hit twice
+  more. Stage 5b polls a working reduce properly — it just runs only
+  when the paper book raises an event, and a stop is the last event a
+  position ever raises. Every "poll it on the way in" comment is a bug
+  waiting for the tape to go quiet. The poll is now
+  `resolvePendingIndexDtReduce`, sibling to the entry resolver, and the
+  reconciler drives it on a schedule instead of hoping for an event.
+- **Do not book a partial.** It comes back persist AND pending: some
+  contracts filled, the rest of that same order still live. Clearing the
+  pending flags hands the remainder to the next pass as if nothing
+  covered it, which with a per-minute reconciler means a second SELL
+  stacked on a working one. Polls report the order's cumulative fill, so
+  waiting costs nothing and settling twice off a decrement
+  double-subtracts.
+
+---
+
+## A monitor that cries wolf is how a real one gets missed [2026-09-24]
+
+Auditing the three books after the stop-out fix, `model_broker_coverage`
+reported 29 anomalies with 18 of severity `fail`. Seventeen of the
+eighteen were the monitor being wrong. Worse, the incident record showed
+five investor cash *warnings* under a `fail` headline, so the first read
+(mine, reported to the operator) was "5 warnings, zero failures" — an
+answer that was both wrong and reassuring.
+
+- **Sample worst-first, or the sample is a coin flip.** An incident
+  stores five anomalies out of however many the check found, in the
+  check's own emission order. Coverage happened to emit its eleven
+  investor DCA warnings before its eighteen failures, so the record held
+  no failure at all. Anything that truncates evidence has to rank it
+  first, and say what it is not showing (`anomaly_count`,
+  `anomaly_fail_count`).
+- **"Never attempted" and "declined on purpose" are opposite
+  findings.** Fifteen `index_dt ENTRY unmatched — never_attempted`
+  failures were sitting in the sweep. Fourteen were prior-session
+  signals the vehicle daily cap had refused and one was QQQ 744C,
+  declined by the loss budget. Every reason was already in
+  `timed:opt-dt-mirror-log`; coverage read the log, found no terminal
+  match (the terminal test only ever fires for a reduce) and threw the
+  reason on the floor. A gate saying no with its reason written down is
+  terminal on an entry — the setup is gone, there is nothing to heal. A
+  skip with *no* recorded reason must stay `unmatched`: that one really
+  is a signal going missing.
+- **A ratio from one sample is not a ratio.** The relative-qty basis was
+  the FIRST mirrored open. An investor position is built by DCA and every
+  add is sized against the cash the account has that day, so the true
+  ratio walks away from the opening buy's. GS, DINO and EMR each paged
+  `TRIM qty drift` on a leg that reached the broker and filled. Basis is
+  now the sum of every mirrored open.
+- **A fraction needs a remainder to be a fraction of.** All three of
+  those trims were the model closing out — `/timed/investor/positions`
+  no longer listed any of them and neither Webull account held a share.
+  A reduce that leaves the account flat is judged on that, not on size.
+- **Say which order fell short.** `mirror_suppressed:<reason>` is the
+  bridge reporting that the *sleeve's entry* was rejected at preflight,
+  so a later reduce has no fully-mirrored position behind it. Rendered
+  as `EMR TRIM mirrored only in part
+  (mirror_suppressed:insufficient_cash_for_one_unit_0_lt_154.73)` it
+  reads as a sell the broker refused for lack of cash — impossible, and
+  it sent triage after a broken sell path. The sell worked and moved
+  4.61 shares; the DCA buy months earlier was the thing the cash ceiling
+  cut down.
+
+---
+
+## Isolating a partner's bookkeeping is not the same as ignoring it [2026-09-24]
+
+`/bridge/options/order` places the signal owner's order and every partner
+mirror in one call, returning the operator's result at the top level with
+`fanout: { accounts, results }` beside it. The isolation is deliberate and
+documented — a partner must never move the operator's day-loss ledger.
+The main worker then never read `fanout` at all, so a partner leg that
+failed while the operator's filled was neither recorded nor said out loud.
+
+- **A near-miss guard can be scoped to the wrong shape.**
+  `bridgeResponseIsOk` *has* a fan-out clause, written for exactly this
+  hazard ("fan-out wrappers always used to return `{ok:true}` even when
+  every account rejected"). It tests `parsed.fanout === true`, which
+  matches the equity route's flat `{fanout:true, results:[…]}` and not
+  the options route's nested object under the same key. The guard looked
+  present in review and was dead in production.
+- **Grade a partner leg with the operator's own function.** Partner legs
+  now go through `deriveMirrorDecision`. A second grader is a second
+  definition of "mirrored" that can disagree with the first.
+- **Check whether the heal already generalises before building a second
+  one.** There is still no per-partner reconciler and none was added: a
+  reconciler-driven close goes back through the options webhook, which
+  fans out again, and `clampReduceToHeld` clamps each account to the
+  contracts it actually holds — so an account already flat no-ops while
+  one still holding gets reduced. The gap was never the healing. It was
+  knowing it had happened.
+
+---
+
 ## The deploy scripts do not stamp the sha the health check reports [2026-09-24]
 
 Deployed the partner options fan-out by hand with `npm run deploy:worker`
@@ -31,6 +228,8 @@ uploaded.
   either "it's fine" or "prod is stale".
 - Fixed by putting the `--var` form in `skills/deploy.md` as the default
   copy-paste. The npm scripts should probably stamp it too.
+
+---
 
 ## A limitation nobody re-read is indistinguishable from a bug [2026-09-24]
 

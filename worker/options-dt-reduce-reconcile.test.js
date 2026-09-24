@@ -17,6 +17,7 @@ import {
   parseIndexDtSignalId,
   targetMirrorRemaining,
   reconcileIndexDtMirrorPositions,
+  resolvePendingIndexDtReduce,
   indexDtMirrorKey,
   OPT_DT_REDUCE_RECON_KEY,
   MIRROR_REDUCE_LOOKBACK_MS,
@@ -77,16 +78,29 @@ const trimmedBook = (patch = {}) => ({
   ...patch,
 });
 
-function harness({ mirror = mirroredHolding(), book = closedBook(), quote = { mid: 0.52, bid: 0.5 } } = {}) {
+function harness({
+  mirror = mirroredHolding(),
+  book = closedBook(),
+  quote = { mid: 0.52, bid: 0.5 },
+  adminEmail = "desk@example.com",
+} = {}) {
   const fired = [];
-  const env = { KV_TIMED: kvMock({ [indexDtMirrorKey(SIG)]: mirror }) };
+  const env = { KV_TIMED: kvMock({ [indexDtMirrorKey(SIG)]: mirror }), ADMIN_EMAIL: adminEmail };
   const run = (opts = {}) => reconcileIndexDtMirrorPositions(env, {
     now: NOW,
     loadBook: async () => book,
     resolvePremium: async () => quote,
     fireReduce: async (_env, ctx) => {
       fired.push(ctx);
-      return { skipped: false, close_qty: 1, limit_price: 0.5 };
+      // `reconcile` is what says the order actually took. Stage 5b always
+      // returns it when it fires, and the telemetry below now reads it, so a
+      // stub that omits it would be modelling a reduce that never placed.
+      return {
+        skipped: false,
+        close_qty: 1,
+        limit_price: 0.5,
+        reconcile: { persist: true, pending: false, filledQty: 1, status: "filled" },
+      };
     },
     ...opts,
   });
@@ -114,6 +128,16 @@ describe("parseIndexDtSignalId", () => {
 describe("targetMirrorRemaining", () => {
   it("a closed book means the broker should hold nothing", () => {
     expect(targetMirrorRemaining({ status: "closed" }, { contracts: 3 })).toBe(0);
+  });
+
+  // `closed` survives a single tick: armIndexDayTradePlan flips it to `flat`
+  // on the next WAIT/SELL so a re-entry is allowed. So `flat` is the state a
+  // finished day trade actually sits in, and mapping only `closed` gave the
+  // reconciler about a minute to notice a drift before going blind — which is
+  // why IWM 280P, one of the two trades this reconciler was written for, was
+  // still unhealed four hours later.
+  it("a flat book means the broker should hold nothing, same as closed", () => {
+    expect(targetMirrorRemaining({ status: "flat" }, { contracts: 3 })).toBe(0);
   });
 
   it("an open book means the broker should hold everything", () => {
@@ -173,6 +197,18 @@ describe("reconcileIndexDtMirrorPositions — closes", () => {
     expect(fired[0].expiration).toEqual({ iso: "2026-09-25" });
   });
 
+  // The IWM 280P shape, read back off production four hours after the stop:
+  // status `flat`, event `STOP`, its own exit_premium and exit_ts, and a
+  // mirror still claiming a contract held.
+  it("re-fires the close for a book that has already gone flat", async () => {
+    const { fired, run } = harness({ book: closedBook({ status: "flat" }) });
+    const out = await run();
+
+    expect(out.no_target).toHaveLength(0);
+    expect(out.drifted).toBe(1);
+    expect(fired[0]).toMatchObject({ event: "STOP", signal_id: SIG, strike: 279 });
+  });
+
   it("closes on EXIT when the book closed without naming a sell event", async () => {
     const { fired, run } = harness({ book: closedBook({ event: "PROTECT" }) });
     await run();
@@ -204,7 +240,69 @@ describe("reconcileIndexDtMirrorPositions — closes", () => {
     const { fired, run } = harness({
       mirror: mirroredHolding({ exit_pending: true, exit_order_id: "WB1" }),
     });
-    const out = await run();
+    const out = await run({ resolveWorking: async () => ({ outcome: "working" }) });
+    expect(fired).toHaveLength(0);
+    expect(out.skipped).toContainEqual({ signal_id: SIG, event: "STOP", reason: "reduce_order_working" });
+  });
+
+  // 2026-09-24 — DIA 509P and QQQ 731P. Both stops reached the broker, both
+  // FILLED at 16:17, and both mirrors still read exit_pending an hour later:
+  // the only thing that polls a working reduce was Stage 5b, which runs on a
+  // paper event, and the stop was the last event either would ever raise.
+  // $139.50 of a $500 daily budget was held against closed positions.
+  it("polls a working reduce instead of waiting for an event that will not come", async () => {
+    const { fired, run } = harness({
+      mirror: mirroredHolding({ exit_pending: true, exit_order_id: "WB1", exit_qty: 1 }),
+    });
+    const asked = [];
+    const out = await run({
+      resolveWorking: async (_e, email, signalId, _m, opts) => {
+        asked.push({ email, signalId, event: opts.event });
+        return { outcome: "filled", reconcile: { filledQty: 1 } };
+      },
+    });
+
+    expect(asked).toEqual([{ email: "desk@example.com", signalId: SIG, event: "STOP" }]);
+    expect(out.settled).toEqual([{ signal_id: SIG, event: "STOP", qty: 1 }]);
+    expect(fired).toHaveLength(0);
+  });
+
+  it("re-places a working reduce the broker had already rejected", async () => {
+    const { fired, run } = harness({
+      mirror: mirroredHolding({ exit_pending: true, exit_order_id: "WB1", exit_qty: 1 }),
+    });
+    const out = await run({ resolveWorking: async () => ({ outcome: "rejected" }) });
+
+    expect(fired).toHaveLength(1);
+    expect(out.settled).toHaveLength(0);
+    expect(out.skipped).toHaveLength(0);
+  });
+
+  // An order the broker cannot find must not be read as an order it is
+  // holding. Nothing auto-sells on it — the mirror still stands pat — but the
+  // breadcrumb has to say which of the two it is, or a lookup that silently
+  // fails looks exactly like a limit patiently sitting there.
+  it("names a reduce the broker has no record of", async () => {
+    const { fired, run } = harness({
+      mirror: mirroredHolding({ exit_pending: true, exit_order_id: "WB1" }),
+    });
+    const out = await run({ resolveWorking: async () => ({ outcome: "working", missing: true }) });
+
+    expect(fired).toHaveLength(0);
+    expect(out.skipped).toContainEqual({
+      signal_id: SIG, event: "STOP", reason: "reduce_order_unknown_to_broker",
+    });
+  });
+
+  it("will not poll the broker without an operator to poll it as", async () => {
+    const { fired, run } = harness({
+      mirror: mirroredHolding({ exit_pending: true, exit_order_id: "WB1" }),
+      adminEmail: null,
+    });
+    let asked = false;
+    const out = await run({ resolveWorking: async () => { asked = true; return { outcome: "filled" }; } });
+
+    expect(asked).toBe(false);
     expect(fired).toHaveLength(0);
     expect(out.skipped).toContainEqual({ signal_id: SIG, event: "STOP", reason: "reduce_order_working" });
   });
@@ -355,6 +453,100 @@ describe("a repair is labelled as a repair", () => {
   });
 });
 
+describe("resolvePendingIndexDtReduce", () => {
+  const pending = (patch = {}) => ({
+    entry_fired: true,
+    contracts: 2,
+    contracts_remaining: 2,
+    exit_pending: true,
+    exit_order_id: "WB1",
+    exit_qty: 2,
+    exit_premium: 0.44,
+    ...patch,
+  });
+
+  const call = (mirror, fill, opts = {}) => {
+    const env = { KV_TIMED: kvMock() };
+    return resolvePendingIndexDtReduce(env, "desk@example.com", SIG, mirror, {
+      deps: { pollFill: async () => fill },
+      ...opts,
+    }).then((r) => ({ ...r, env }));
+  };
+
+  it("does nothing for a reduce that is not working", async () => {
+    const r = await call(pending({ exit_pending: false }), null);
+    expect(r.outcome).toBe("not_pending");
+  });
+
+  it("books a working reduce that has since filled", async () => {
+    const r = await call(pending(), { status: "filled", filled_qty: 2 });
+    expect(r.outcome).toBe("filled");
+    expect(r.mirror).toMatchObject({ exit_fired: true, exit_pending: false, exit_qty: 2, contracts_remaining: 0 });
+
+    const saved = JSON.parse(r.env.KV_TIMED.store.get(indexDtMirrorKey(SIG)));
+    expect(saved).toMatchObject({ exit_fired: true, exit_pending: false, contracts_remaining: 0 });
+  });
+
+  // Waiting is the safe half of a partial. Clearing the pending flags mid-fill
+  // would offer the unfilled remainder to the next pass as if no order covered
+  // it, and polls report the order's cumulative fill, so nothing is lost.
+  it("waits out a partial rather than stacking a SELL on its remainder", async () => {
+    const r = await call(pending(), { status: "partial", filled_qty: 1 });
+    expect(r.outcome).toBe("working");
+    expect(r.env.KV_TIMED.store.size).toBe(0);
+  });
+
+  it("books a partial the moment the order completes", async () => {
+    const r = await call(pending(), { status: "partial", filled_qty: 2 });
+    expect(r.outcome).toBe("filled");
+    expect(r.mirror).toMatchObject({ exit_qty: 2, contracts_remaining: 0 });
+  });
+
+  it("reports a reduce that is genuinely still working", async () => {
+    const r = await call(pending(), { status: "working", order_id: "WB1" });
+    expect(r.outcome).toBe("working");
+    expect(r.missing).toBeFalsy();
+    expect(r.env.KV_TIMED.store.size).toBe(0);
+  });
+
+  it("flags a reduce the broker's order history does not contain", async () => {
+    const r = await call(pending(), { status: "working", order_id: "WB1", lookup_missing: true });
+    expect(r.outcome).toBe("working");
+    expect(r.missing).toBe(true);
+    // Standing pat is the only safe move: an unindexed order is still an
+    // order, and nothing here may decide a position is gone.
+    expect(r.env.KV_TIMED.store.size).toBe(0);
+  });
+
+  it("reports a reduce the broker rejected so the caller can replace it", async () => {
+    const r = await call(pending(), { status: "rejected", reason: "no_held_position" });
+    expect(r.outcome).toBe("rejected");
+    // The pending flags are the caller's to clear — it is the one that knows
+    // whether a replacement went out.
+    expect(r.env.KV_TIMED.store.size).toBe(0);
+  });
+
+  it("polls the trim order for a TRIM, not the exit order", async () => {
+    const mirror = pending({
+      exit_pending: false, exit_order_id: null,
+      trim_pending: true, trim_order_id: "WB2", trim_qty: 1, trim_premium: 0.95,
+    });
+    const asked = [];
+    const env = { KV_TIMED: kvMock() };
+    const r = await resolvePendingIndexDtReduce(env, "desk@example.com", SIG, mirror, {
+      event: "TRIM",
+      deps: {
+        pollFill: async (_e, _email, order, qty) => {
+          asked.push({ order_id: order.order_id, qty });
+          return { status: "filled", filled_qty: 1 };
+        },
+      },
+    });
+    expect(asked).toEqual([{ order_id: "WB2", qty: 1 }]);
+    expect(r.mirror).toMatchObject({ trim_fired: true, trim_pending: false, trim_qty: 1, contracts_remaining: 1 });
+  });
+});
+
 describe("reconcileIndexDtMirrorPositions — telemetry", () => {
   it("leaves a breadcrumb for /timed/health while a reduce is unmirrored", async () => {
     const { env, run } = harness({ quote: null });
@@ -368,6 +560,60 @@ describe("reconcileIndexDtMirrorPositions — telemetry", () => {
     await run({ fireReduce: async () => ({ skipped: true, reason: "vehicle_long_put_disabled" }) });
     const rec = JSON.parse(env.KV_TIMED.store.get(OPT_DT_REDUCE_RECON_KEY));
     expect(rec.unmirrored[0]).toMatchObject({ reason: "vehicle_long_put_disabled", event: "STOP" });
+  });
+
+  // 2026-09-24 — the IWM 278P stop-out. The reduce fired every minute for 18
+  // minutes and the broker rejected all 20 attempts (a reused
+  // client_order_id). `skipped` was false each time, so the breadcrumb listed
+  // only the two reduces that HAD placed and nothing paged; the contract was
+  // flattened by hand. A reduce that fires and is refused is still unmirrored.
+  it("records a reduce the broker rejected, not just one Stage 5b refused", async () => {
+    const { env, run } = harness();
+    await run({
+      fireReduce: async () => ({
+        skipped: false,
+        close_qty: 1,
+        limit_price: 0.44,
+        reconcile: { persist: false, pending: false, filledQty: 0, status: "rejected", reason: "order_rejected" },
+      }),
+    });
+    const rec = JSON.parse(env.KV_TIMED.store.get(OPT_DT_REDUCE_RECON_KEY));
+    expect(rec.unmirrored[0]).toMatchObject({
+      signal_id: SIG, event: "STOP", placed: false, reason: "order_rejected",
+    });
+  });
+
+  it("does not flag a reduce that left a working order at the broker", async () => {
+    const { env, run } = harness();
+    await run({
+      fireReduce: async () => ({
+        skipped: false,
+        close_qty: 1,
+        limit_price: 0.44,
+        reconcile: { persist: false, pending: true, filledQty: 0, status: "working", order_id: "X1" },
+      }),
+    });
+    expect(env.KV_TIMED.store.has(OPT_DT_REDUCE_RECON_KEY)).toBe(false);
+  });
+
+  // A status the reconciler cannot map is not drift it can act on, but it is
+  // also not nothing. The `continue` that used to stand there recorded no
+  // trace at all, so a mirror holding a contract against an unmappable book
+  // was indistinguishable from one that agreed.
+  it("records a mirror it could not judge instead of skipping it silently", async () => {
+    const { fired, run } = harness();
+    const out = await run({ loadBook: async () => null });
+
+    expect(fired).toHaveLength(0);
+    expect(out.no_target).toEqual([{ signal_id: SIG, held: 1, book_status: null }]);
+  });
+
+  it("does not page on a mirror it could not judge", async () => {
+    // Book TTL is 3 days and the pending sweep re-stamps mirrors, so a mirror
+    // can outlive its book. That must not become a standing page.
+    const { env, run } = harness();
+    await run({ loadBook: async () => ({ status: "pending_entry" }) });
+    expect(env.KV_TIMED.store.has(OPT_DT_REDUCE_RECON_KEY)).toBe(false);
   });
 
   it("clears the breadcrumb once the books agree", async () => {

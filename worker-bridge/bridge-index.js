@@ -3100,6 +3100,12 @@ async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Dat
 
   if (!brokerOrder) return reply({ ok: false, rejected: true, reason: "play_translation_failed" });
 
+  // Only the CLOSE plays carry a trade_id on the play itself, so entries went
+  // to the broker as `tt-opt-na-<uuid>` and could not be tied back to their
+  // signal from the broker's own order list — the one record that survives
+  // when the mirror ledger and the broker disagree.
+  if (!brokerOrder.trade_id && sanitized.trade_id) brokerOrder.trade_id = sanitized.trade_id;
+
   // Dry-run path — return what WOULD be sent without hitting the broker.
   if (sanitized.dry_run || user.mock_mode) {
     return reply({
@@ -3450,30 +3456,71 @@ async function resolveOptionsPlaceFill(env, user, placed, brokerOrder) {
   return fill;
 }
 
-async function lookupOptionsOrderFill(env, user, orderId) {
+// How many pages of order history a single-order lookup will walk, and how
+// wide each one is. 100 is the documented page_size ceiling on
+// /openapi/trade/order/history.
+const OPTIONS_FILL_LOOKUP_PAGE = 100;
+const OPTIONS_FILL_LOOKUP_MAX_PAGES = 3;
+
+// 2026-09-24 — this asked for 50 orders and gave up. Webull's history is NOT
+// returned newest-first (a 10-row page came back spanning six days, oldest
+// row first), so "the most recent 50" is not what a 50-row page contains: as
+// the week's order count grows, today's orders fall out of the window. The DIA
+// 509P and QQQ 731P stops both FILLED at 16:17 and the lookup could not see
+// either, so every poll answered "still working" and both mirrors sat pending
+// for hours, holding $139.50 of a $500 daily budget against closed positions.
+//
+// `fill: null` now means "searched `searched` orders and this is not one of
+// them", which is not the same statement as "working" and must not be
+// collapsed into it by the caller.
+export async function lookupOptionsOrderFill(env, user, orderId, { adapter: injected = null } = {}) {
   try {
-    const adapter = brokerAdapterFor(user);
+    const adapter = injected || brokerAdapterFor(user);
     if (typeof adapter.listOrders !== "function") return { ok: false, error: "no_list_orders" };
     const { normalizeBrokerOrder, extractOrders } = await import("./bridge-fills.js");
-    const listRes = await adapter.listOrders(env, user, { limit: 50 });
-    if (listRes && listRes.ok === false) return { ok: false, error: listRes.error || "list_orders_failed" };
     const want = String(orderId || "");
-    const match = extractOrders(listRes).find((raw) => {
-      const id = String(raw?.order_id ?? raw?.orderId ?? raw?.id ?? "");
-      const cid = String(raw?.client_order_id ?? raw?.clientOrderId ?? "");
-      return (want && (id === want || cid === want));
-    });
-    if (!match) return { ok: true, fill: null };
-    const n = normalizeBrokerOrder(user?.broker, match);
-    return {
-      ok: true,
-      fill: {
-        status: n?.status || "unknown",
-        filled_qty: n?.filled_qty ?? null,
-        order_id: n?.broker_order_id || want,
-        avg_price: n?.avg_price ?? null,
-      },
-    };
+
+    let searched = 0;
+    let cursor = null;
+    for (let page = 0; page < OPTIONS_FILL_LOOKUP_MAX_PAGES; page++) {
+      const listRes = await adapter.listOrders(env, user, {
+        limit: OPTIONS_FILL_LOOKUP_PAGE,
+        last_create_time: cursor,
+      });
+      if (listRes && listRes.ok === false) return { ok: false, error: listRes.error || "list_orders_failed" };
+
+      const rows = extractOrders(listRes);
+      searched += rows.length;
+      const match = rows.find((raw) => {
+        const id = String(raw?.order_id ?? raw?.orderId ?? raw?.id ?? "");
+        const cid = String(raw?.client_order_id ?? raw?.clientOrderId ?? "");
+        return (want && (id === want || cid === want));
+      });
+      if (match) {
+        const n = normalizeBrokerOrder(user?.broker, match);
+        return {
+          ok: true,
+          searched,
+          fill: {
+            status: n?.status || "unknown",
+            filled_qty: n?.filled_qty ?? null,
+            order_id: n?.broker_order_id || want,
+            avg_price: n?.avg_price ?? null,
+          },
+        };
+      }
+      // Only a full page implies there is more to read. The cursor is the
+      // oldest create time on it; a page that yields none cannot advance, so
+      // stop rather than re-read the same page.
+      if (rows.length < OPTIONS_FILL_LOOKUP_PAGE) break;
+      const next = rows.reduce((oldest, raw) => {
+        const t = Number(raw?.create_time ?? raw?.place_time ?? raw?.createTime ?? 0);
+        return t > 0 && (oldest === null || t < oldest) ? t : oldest;
+      }, null);
+      if (next == null || String(next) === String(cursor)) break;
+      cursor = String(next);
+    }
+    return { ok: true, fill: null, searched };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 160) };
   }
@@ -3499,7 +3546,15 @@ async function handleOptionsOrderStatus(env, payload) {
     });
   }
   const looked = await lookupOptionsOrderFill(env, user, orderId);
-  return json({ ok: !!looked.ok, fill: looked.fill || null, error: looked.error || null });
+  return json({
+    ok: !!looked.ok,
+    fill: looked.fill || null,
+    // Present only when the search ran and came up empty. Lets the caller say
+    // "the broker does not know this order" instead of assuming it is working.
+    not_found: !!(looked.ok && !looked.fill),
+    searched: looked.searched ?? null,
+    error: looked.error || null,
+  });
 }
 
 // 2026-09-23 — pull a still-working option order. The day-trade mirror needs

@@ -54,6 +54,39 @@ export function playToWebullOptionOrder(play, symbol) {
   };
 }
 
+/** Webull accepts a client_order_id of 10-40 characters. */
+export const OPTION_CLIENT_ORDER_ID_MAX = 40;
+
+/**
+ * Build a client_order_id that is unique for every submission.
+ *
+ * Webull refuses a REUSED client_order_id with "Please do not place an order
+ * repeatedly", so the random suffix is the only part that matters for
+ * correctness — and a trailing slice of the whole string is exactly what
+ * cannot guarantee it survives. Day-trade signal ids are long enough to spend
+ * the entire budget on their own: `tt-opt-<trade>-<uuid>`.slice(0, 32) cut the
+ * uuid off and collapsed every close for a ticker onto one id
+ * (`tt-opt-dt:IWM:2026-09-24:2026-09`). The first close per ticker per day was
+ * accepted and every later one was rejected as a repeat — on 2026-09-24 the
+ * IWM 278P stop-out was refused on all 20 retries across 18 minutes because
+ * IWM 279P had spent the id 67 minutes earlier, and the contract had to be
+ * flattened by hand at 0.37 against the model's 0.44 stop.
+ *
+ * So budget the suffix FIRST and let the trade id take only what is left.
+ * Both ends of the trade id are kept because the head carries the ticker and
+ * the tail the right and strike, which is what tells two same-day closes apart
+ * when reading the broker's order list by eye.
+ */
+export function optionOrderClientId(tradeId, { uuid = null } = {}) {
+  const rand = String(uuid || crypto.randomUUID()).replace(/[^a-zA-Z0-9]/g, "").slice(0, 8);
+  const prefix = "tt-opt-";
+  const room = OPTION_CLIENT_ORDER_ID_MAX - prefix.length - rand.length - 1;
+  const id = String(tradeId || "na").replace(/[^a-zA-Z0-9_-]/g, "") || "na";
+  const tail = Math.floor(room / 2);
+  const trade = id.length <= room ? id : id.slice(0, room - tail) + id.slice(-tail);
+  return `${prefix}${trade}-${rand}`;
+}
+
 export function buildWebullOptionOrderPayload(user, order, { preview = false } = {}) {
   const accountId = user?.webull_account_id;
   if (!accountId) throw new Error("webull_account_id_missing");
@@ -71,8 +104,8 @@ export function buildWebullOptionOrderPayload(user, order, { preview = false } =
   }
 
   const clientOrderId = preview
-    ? `tt-opt-prev-${crypto.randomUUID().slice(0, 10)}`
-    : `tt-opt-${order.trade_id || "na"}-${crypto.randomUUID().slice(0, 8)}`.slice(0, 32);
+    ? `tt-opt-prev-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`
+    : optionOrderClientId(order.trade_id);
 
   const newOrder = {
     client_order_id: clientOrderId,

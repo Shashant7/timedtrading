@@ -741,7 +741,17 @@ export function reconcileIndexDtFill({ event, requestedQty, fill } = {}) {
   const requested = Math.max(1, Math.round(Number(requestedQty) || 1));
   const qty = Number(fill?.filled_qty);
   if (status === "rejected" || status === "cancelled") {
-    return { persist: false, pending: false, filledQty: 0, status, reason: `order_${status}` };
+    // Keep the broker's own words alongside our label. `order_rejected` says
+    // the reduce did not happen; only the broker's reason says whether
+    // re-offering it could ever work.
+    return {
+      persist: false,
+      pending: false,
+      filledQty: 0,
+      status,
+      reason: `order_${status}`,
+      broker_reason: fill?.reason ? String(fill.reason) : null,
+    };
   }
   if (fill?.mock || fill?.assumed) {
     return { persist: true, pending: false, filledQty: requested, status: "filled" };
@@ -762,6 +772,23 @@ export function reconcileIndexDtFill({ event, requestedQty, fill } = {}) {
     return { persist: true, pending: false, filledQty: qty > 0 ? Math.round(qty) : requested, status: "filled" };
   }
   return { persist: false, pending: true, filledQty: 0, status };
+}
+
+/**
+ * Does a rejection mean the position is GONE, or only that the order was
+ * refused? Re-offering fixes the second and can never fix the first.
+ *
+ * Only `no_held_position` qualifies. The SELL guard reserves that name for
+ * "the holdings read fine and this contract is not among them", and reports
+ * `positions_unavailable`, `positions_unresolved` or
+ * `position_direction_unknown` when it could not read the account — the
+ * three cases where standing the mirror down would abandon a live option.
+ * That separation is the whole reason the guard names them apart.
+ */
+export function isBrokerFlatReject(rec) {
+  if (!rec || rec.persist || rec.pending) return false;
+  return /(^|[^a-z_])no_held_position([^a-z_]|$)/
+    .test(String(rec.broker_reason || "").toLowerCase());
 }
 
 export function resolveIndexDtEntryContracts({ prefs, play, book, size, vehicleRow } = {}) {
@@ -896,7 +923,15 @@ async function pollFillIfNeeded(env, operatorEmail, fill, requestedQty) {
       requested_qty: requestedQty,
     });
     const next = polled?.response?.fill;
-    if (!next) return fill;
+    // The status stays `working`: an order the broker cannot find might be one
+    // it has not indexed yet, and nothing here may assume a position is gone.
+    // But the two must not read the same, or a lookup that silently fails
+    // looks exactly like a limit that is patiently sitting there.
+    if (!next) {
+      return polled?.response?.not_found
+        ? { ...fill, polled: true, lookup_missing: true, searched: polled.response.searched ?? null }
+        : fill;
+    }
     return {
       ...fill,
       status: String(next.status || fill.status).toLowerCase(),
@@ -1082,6 +1117,63 @@ export async function resolvePendingIndexDtEntry(env, operatorEmail, signalId, m
   if (recAfter.persist) return markFilled(recAfter);
   if (recAfter.status === "rejected" || recAfter.status === "cancelled") return markGone("gone", recAfter.status);
   return { outcome: "working", mirror };
+}
+
+/**
+ * Settle a reduce that is already working at the broker.
+ *
+ * Same shape as the entry resolver above and for the same reason: a working
+ * order is resolved by ASKING, and whoever asks must be able to run without
+ * a paper event. Stage 5b calls this on its way in; the quantity reconciler
+ * calls it on a schedule.
+ *
+ * Returns { outcome, missing, reconcile, mirror } with outcome one of:
+ *   not_pending | filled | working | rejected
+ *
+ * `missing` marks a `working` the broker has no record of — still not a
+ * position anyone may write off, but not the same statement as "it is
+ * sitting there", and the caller reports the two apart.
+ */
+export async function resolvePendingIndexDtReduce(env, operatorEmail, signalId, mirror, {
+  event = "EXIT",
+  deps = {},
+} = {}) {
+  const poll = deps.pollFill || pollFillIfNeeded;
+  const pendingKey = event === "TRIM" ? "trim" : "exit";
+  const orderId = mirror?.[`${pendingKey}_order_id`];
+  if (!mirror?.[`${pendingKey}_pending`] || !orderId) return { outcome: "not_pending", mirror };
+
+  const qty = Number(mirror[`${pendingKey}_qty`]) || 1;
+  const polled = await poll(env, operatorEmail, { status: "working", order_id: orderId }, qty);
+  const rec = reconcileIndexDtFill({ event, requestedQty: qty, fill: polled });
+  // A `partial` comes back persist AND pending: some contracts filled, the
+  // rest of that SAME order is still live. Booking it now would clear the
+  // pending flags and hand the remainder to the next pass as if no order
+  // existed for it — a second SELL stacked on a working one. Polls report the
+  // order's CUMULATIVE fill, so waiting costs nothing and settling twice off
+  // a decrement would double-subtract. Let the order finish.
+  if (rec.persist && rec.pending) return { outcome: "working", reconcile: rec, mirror };
+  if (!rec.persist && polled?.lookup_missing) {
+    return { outcome: "working", missing: true, reconcile: rec, mirror };
+  }
+  if (rec.persist) {
+    const remainingAfter = Math.max(0, (Number(mirror.contracts_remaining) || 0) - rec.filledQty);
+    const patch = event === "TRIM"
+      ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, contracts_remaining: remainingAfter }
+      : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, contracts_remaining: remainingAfter };
+    await saveIndexDtMirror(env, signalId, patch);
+    // The fill price is the limit the reduce was placed at, stamped on the
+    // mirror when it went out — settling off a price fetched now would book
+    // the day's realised P&L at whatever the contract is worth at poll time.
+    await settleIndexDtRisk(env, operatorEmail, signalId, mirror, {
+      closedQty: rec.filledQty,
+      closePremium: Number(mirror[`${pendingKey}_premium`]) || 0,
+      remainingQty: remainingAfter,
+    });
+    return { outcome: "filled", reconcile: rec, mirror: { ...mirror, ...patch } };
+  }
+  if (rec.pending) return { outcome: "working", reconcile: rec, mirror };
+  return { outcome: "rejected", reconcile: rec, mirror };
 }
 
 /**
@@ -1460,6 +1552,98 @@ export function deriveMirrorDecision(result = {}) {
 }
 
 /**
+ * Grade every partner leg of a fan-out by the operator's own rules.
+ *
+ * The bridge places the signal owner's order and every partner mirror in
+ * one call and answers with the operator's result at the top level plus
+ * `fanout: { accounts, results }` alongside. That isolation is deliberate
+ * — a partner must never move the operator's bookkeeping — but the main
+ * worker then never read `fanout` at all, so a partner leg that failed
+ * while the operator's succeeded was neither recorded nor said out loud.
+ * `bridgeResponseIsOk` has a fan-out clause, and it does not fire here:
+ * it tests `parsed.fanout === true` against the equity route's flat
+ * `{fanout:true, results:[…]}`, while the options route nests an object.
+ *
+ * Grading goes through `deriveMirrorDecision` on purpose. A partner leg
+ * judged by different rules than the operator's is a second definition of
+ * "mirrored" that can disagree with the first.
+ *
+ * Returns [] when there are no partners, which is the common case.
+ */
+export function summarizePartnerFanout(fired, { event = "BUY" } = {}) {
+  const rows = fired?.response?.fanout?.results;
+  if (!Array.isArray(rows) || !rows.length) return [];
+  const ev = String(event || "BUY").toUpperCase();
+  return rows.map((row) => {
+    const account = String(row?.user_id || row?.owner_email || "").toLowerCase() || null;
+    const why = row?.reason || row?.detail || null;
+    // A sizing or budget gate declining an account is a decision, not a
+    // failure: the leg was considered and correctly refused.
+    if (row?.skipped === true) {
+      return { account, decision: "skipped", reason: why || "skipped", contracts: 0 };
+    }
+    if (!row?.result || typeof row.result !== "object") {
+      return { account, decision: "error", reason: why || "no_bridge_response", contracts: 0 };
+    }
+    const requested = Math.max(1, Math.round(Number(row.contracts) || 1));
+    const fill = extractMirrorFill({ response: row.result, ok: row.ok === true }, requested);
+    const graded = deriveMirrorDecision({
+      skipped: false,
+      fill,
+      contracts: requested,
+      reconcile: reconcileIndexDtFill({ event: ev, requestedQty: requested, fill }),
+    });
+    return {
+      account,
+      decision: graded.decision,
+      reason: graded.decision === "mirrored" ? null : (graded.reason || why || null),
+      contracts: requested,
+    };
+  });
+}
+
+/** Partner legs that did not reach the broker. */
+export function unmirroredPartnerLegs(partners = []) {
+  return (partners || []).filter((p) => p?.decision === "rejected" || p?.decision === "error");
+}
+
+/**
+ * Page when a partner's reduce does not reach the broker.
+ *
+ * Same stakes as the operator's, and less visible: nobody is watching the
+ * partner's account, and the operator's own leg succeeding is exactly the
+ * condition under which this goes unnoticed. Deduped per signal, event and
+ * account so a reconciler retry says it once.
+ *
+ * There is no separate partner re-fire path and this does not add one. A
+ * reconciler-driven close goes back through the options webhook, which
+ * fans out again, and `clampReduceToHeld` clamps each partner to the
+ * contracts that account actually holds — so an account already flat
+ * no-ops while one still holding gets reduced. The gap this closes is
+ * knowing it happened.
+ */
+async function alertUnmirroredPartnerReduce(env, entry, partner) {
+  if (!env?.KV_TIMED || !partner?.account) return;
+  const key = `timed:opt-dt:partner-reduce-unmirrored:${entry.signal_id}:${entry.event}:${partner.account}`;
+  try {
+    if (await env.KV_TIMED.get(key)) return;
+    await env.KV_TIMED.put(key, String(entry.ts), { expirationTtl: 86400 });
+    const { notifyDiscord } = await import("./alerts.js");
+    await notifyDiscord(env, {
+      title: `Partner ${entry.event} not mirrored — ${entry.ticker}`,
+      description: [
+        `The model ${entry.event === "TRIM" ? "trimmed" : "closed"} ${entry.signal_id}.`,
+        `The operator's leg was ${entry.decision}; ${partner.account} was ${partner.decision}`
+        + `${partner.reason ? ` (${partner.reason})` : ""}.`,
+        "That account may still hold the contracts. The reconciler's next close"
+        + " fans out again and clamps to what each account holds.",
+      ].join("\n"),
+      color: 0xD64545,
+    }, "system");
+  } catch (_) { /* alerting is best-effort — never block a mirror on it */ }
+}
+
+/**
  * Page when a reduce does not reach the broker.
  *
  * A rejected BUY costs an opportunity. A rejected TRIM or STOP leaves REAL
@@ -1494,6 +1678,7 @@ export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
   const event = String(ctx?.event || "BUY").toUpperCase();
   if (!signalId || event === "PROTECT") return;
   const { decision, reason, note, contracts } = deriveMirrorDecision(result);
+  const partners = summarizePartnerFanout(result?.fired, { event });
   const entry = {
     signal_id: signalId,
     ticker: String(ctx?.ticker || "").toUpperCase(),
@@ -1506,6 +1691,9 @@ export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
     via: ctx?.reason === MIRROR_RECONCILE_REASON ? "reconcile" : null,
     note: note || null,
     contracts: contracts != null ? contracts : null,
+    // Omitted rather than stored empty: the log is a capped KV ring and
+    // most desks have no partners.
+    ...(partners.length ? { partners } : {}),
     ts: Date.now(),
   };
   try {
@@ -1522,6 +1710,11 @@ export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
 
   if (entry.side === "sell" && (decision === "rejected" || decision === "error")) {
     await alertUnmirroredReduce(env, entry);
+  }
+  if (entry.side === "sell") {
+    for (const partner of unmirroredPartnerLegs(partners)) {
+      await alertUnmirroredPartnerReduce(env, entry, partner);
+    }
   }
 }
 
@@ -1579,7 +1772,20 @@ export function targetMirrorRemaining(book, mirror) {
     Math.round(Number(mirror?.contracts_remaining) || 0),
   );
   if (!(total > 0)) return null;
-  if (status === "closed") return 0;
+  // `closed` lasts a single tick. `armIndexDayTradePlan` flips it to `flat`
+  // on the next WAIT/SELL so a re-entry is allowed, which makes `flat` the
+  // state a finished day trade actually sits in — carrying its own
+  // exit_premium and exit_ts. Mapping only `closed` meant the reconciler
+  // could heal a drifted mirror for about a minute and was blind to it
+  // afterwards, silently: an unmapped status returned null and the caller
+  // skipped without even a telemetry line. IWM 280P on 2026-09-24 is one of
+  // the two incidents this reconciler was written for and it still sat
+  // unhealed four hours later for exactly this reason.
+  //
+  // `flat` is also the default for a book that never opened, which cannot
+  // reach here: `total` comes from the MIRROR, and a mirror with a filled
+  // entry against a book holding nothing is drift either way.
+  if (status === "closed" || status === "flat") return 0;
   if (status === "open") return total;
   if (status === "trimmed") {
     // A 1-lot mirror cannot partial-trim, so `trimmed` is not drift for it —
@@ -1622,9 +1828,11 @@ export async function reconcileIndexDtMirrorPositions(env, {
   loadBook,
   resolvePremium,
   fireReduce = maybeAutoMirrorIndexDayTradeEvent,
+  resolveWorking = resolvePendingIndexDtReduce,
 } = {}) {
-  const out = { scanned: 0, drifted: 0, fired: [], skipped: [] };
+  const out = { scanned: 0, drifted: 0, fired: [], skipped: [], settled: [], no_target: [] };
   if (!env?.KV_TIMED) return out;
+  const operatorEmail = env.ADMIN_EMAIL || null;
 
   const prefix = indexDtMirrorKey("");
   const signalIds = [];
@@ -1675,7 +1883,19 @@ export async function reconcileIndexDtMirrorPositions(env, {
 
     const book = await readBook(signalId);
     const target = targetMirrorRemaining(book, mirror);
-    if (target == null) continue;
+    if (target == null) {
+      // Recorded, not paged. Every status the plan engine writes is mapped, so
+      // this is either a book whose 3-day TTL expired under a mirror the
+      // pending sweep kept re-stamping, or a status nothing writes. Both mean
+      // "cannot tell", which must not move money — but a bare `continue` is
+      // how the unmapped `flat` status hid IWM 280P for four hours.
+      out.no_target.push({
+        signal_id: signalId,
+        held: remaining,
+        book_status: String(book?.status || "") || null,
+      });
+      continue;
+    }
     if (remaining <= target) continue;
 
     // Flattening and trimming are the same arithmetic; only the event the
@@ -1687,13 +1907,38 @@ export async function reconcileIndexDtMirrorPositions(env, {
       ? (bookEvent === "STOP" || bookEvent === "EXIT" ? bookEvent : "EXIT")
       : "TRIM";
 
-    // A still-working SELL is not drift — Stage 5b polls it on the way in.
+    // A working SELL was skipped here on the grounds that "Stage 5b polls it
+    // on the way in" — but Stage 5b only runs on a paper event, and after the
+    // STOP there are no more events. So nobody ever asked: on 2026-09-24 the
+    // DIA 509P and QQQ 731P stops both FILLED at 16:17 and their mirrors still
+    // read exit_pending an hour later, holding $139.50 of the $500 daily
+    // budget against positions the broker no longer had. Same shape as the
+    // bug this reconciler was built for, one field over.
     const working = closing
       ? (mirror.exit_pending && mirror.exit_order_id)
       : (mirror.trim_pending && mirror.trim_order_id);
     if (working) {
-      out.skipped.push({ signal_id: signalId, event, reason: "reduce_order_working" });
-      continue;
+      const r = operatorEmail
+        ? await resolveWorking(env, operatorEmail, signalId, mirror, { event })
+        : { outcome: "working" };
+      if (r.outcome === "filled") {
+        // The fill is booked and the risk released. Any residual drift is a
+        // partial fill, which the next pass re-reads and re-fires — one
+        // reduce per position per pass keeps the broker from being asked
+        // twice for the same contracts.
+        out.settled.push({ signal_id: signalId, event, qty: r.reconcile?.filledQty ?? null });
+        continue;
+      }
+      if (r.outcome !== "rejected") {
+        out.skipped.push({
+          signal_id: signalId,
+          event,
+          reason: r.missing ? "reduce_order_unknown_to_broker" : "reduce_order_working",
+        });
+        continue;
+      }
+      // Rejected. The pending flags are the last word on an order that no
+      // longer exists, so re-place it in this same pass.
     }
     const reducedAt = (closing
       ? Number(book?.exit_ts)
@@ -1753,6 +1998,14 @@ export async function reconcileIndexDtMirrorPositions(env, {
       flavor,
       indicesFlagOn,
     });
+    // A reduce that reached the broker and came back rejected left the books
+    // exactly as drifted as one that never fired. Recording only `skipped`
+    // hid the worst case there is: on 2026-09-24 the IWM 278P stop was
+    // rejected on all 20 retries (a reused client_order_id — Webull's "do not
+    // place an order repeatedly") while this field listed only the two
+    // reduces that HAD placed, so nothing paged and the contract was
+    // flattened by hand 18 minutes later.
+    const rec = result?.reconcile;
     out.fired.push({
       signal_id: signalId,
       ticker: contract.ticker,
@@ -1762,7 +2015,8 @@ export async function reconcileIndexDtMirrorPositions(env, {
       qty: result?.close_qty ?? null,
       limit_price: result?.limit_price ?? null,
       skipped: !!result?.skipped,
-      reason: result?.reason || null,
+      placed: !result?.skipped && !!(rec?.persist || rec?.pending),
+      reason: result?.reason || rec?.reason || null,
     });
   }
 
@@ -1770,7 +2024,7 @@ export async function reconcileIndexDtMirrorPositions(env, {
   // moment the books agree. A watchdog reading a field that lingers after the
   // drift clears learns nothing; one that disappears is a signal either way.
   try {
-    const stuck = out.skipped.concat(out.fired.filter((f) => f.skipped));
+    const stuck = out.skipped.concat(out.fired.filter((f) => f.skipped || !f.placed));
     if (stuck.length) {
       await env.KV_TIMED.put(OPT_DT_REDUCE_RECON_KEY, JSON.stringify({
         ts: now, scanned: out.scanned, drifted: out.drifted, unmirrored: stuck,
@@ -2033,26 +2287,11 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
   // A still-working close must not stack a second SELL. Poll; retry only if rejected.
   const pendingKey = event === "TRIM" ? "trim" : "exit";
   if (mirror[`${pendingKey}_pending`] && mirror[`${pendingKey}_order_id`]) {
-    const polled = await pollFillIfNeeded(env, operatorEmail, {
-      status: "working", order_id: mirror[`${pendingKey}_order_id`],
-    }, Number(mirror[`${pendingKey}_qty`]) || 1);
-    const rec = reconcileIndexDtFill({
-      event, requestedQty: Number(mirror[`${pendingKey}_qty`]) || 1, fill: polled,
-    });
-    if (rec.persist) {
-      const remainingAfter = Math.max(0, (Number(mirror.contracts_remaining) || 0) - rec.filledQty);
-      const patch = event === "TRIM"
-        ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, contracts_remaining: remainingAfter }
-        : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, contracts_remaining: remainingAfter };
-      await saveIndexDtMirror(env, signalId, patch);
-      await settleIndexDtRisk(env, operatorEmail, signalId, mirror, {
-        closedQty: rec.filledQty,
-        closePremium: Number(mirror[`${pendingKey}_premium`]) || 0,
-        remainingQty: remainingAfter,
-      });
-      return { skipped: true, reason: `${pendingKey}_fill_confirmed`, reconcile: rec };
+    const r = await resolvePendingIndexDtReduce(env, operatorEmail, signalId, mirror, { event });
+    if (r.outcome === "filled") {
+      return { skipped: true, reason: `${pendingKey}_fill_confirmed`, reconcile: r.reconcile };
     }
-    if (rec.pending) return { skipped: true, reason: `${pendingKey}_still_working` };
+    if (r.outcome === "working") return { skipped: true, reason: `${pendingKey}_still_working` };
     // rejected — fall through and replace the working order
   }
 
@@ -2153,6 +2392,29 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
       ? { trim_pending: true, trim_qty: qty, trim_order_id: fill.order_id || rec.order_id || null, trim_premium: limitPrice }
       : { exit_pending: true, exit_qty: qty, exit_order_id: fill.order_id || rec.order_id || null, exit_premium: limitPrice, exit_event: event };
     await saveIndexDtMirror(env, signalId, patch);
+  } else if (isBrokerFlatReject(rec)) {
+    // The one rejection that re-offering cannot fix. `no_held_position` is
+    // the SELL guard's verdict for "holdings read fine and this contract is
+    // not among them" — it refuses to use that name when the rows came back
+    // unreadable (`positions_unresolved`), ambiguous
+    // (`position_direction_unknown`) or not at all (`positions_unavailable`),
+    // which is what makes it safe to treat as final here.
+    //
+    // Without a terminal branch the reduce simply repeated: on 2026-09-24
+    // IWM 280P took the identical rejection once a minute for four hours
+    // after the operator had closed it by hand, and the day's risk budget
+    // held all five hand-closed contracts open — $448 of $500 charged to
+    // positions that no longer existed, which blocks every later entry.
+    //
+    // Nothing is sold here, so no exit_premium is written: there is no fill
+    // to attribute and execution stats must not gain a phantom one.
+    const patch = event === "TRIM"
+      ? { trim_fired: true, trim_pending: false, trim_qty: 0, trim_via: "broker_flat", contracts_remaining: 0 }
+      : { exit_fired: true, exit_pending: false, exit_qty: 0, exit_event: event, exit_via: "broker_flat", contracts_remaining: 0 };
+    await saveIndexDtMirror(env, signalId, patch);
+    try {
+      await releaseRisk(env, operatorEmail, signalId, { now: Date.now() });
+    } catch (_) { /* budget stays consumed — fails restrictive */ }
   }
 
   return {
