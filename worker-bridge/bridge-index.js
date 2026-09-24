@@ -3019,10 +3019,15 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
     return json({ ok: false, error: "missing_required_fields" }, 400);
   }
 
+  // Global kill switch.
+  if (env?.BRIDGE_KILL_SWITCH === "true") {
+    return json({ ok: false, rejected: true, reason: "global_kill_switch" }, 200);
+  }
+
   // Prefer a connected account that opted into options strategies
   // (Broker Connections toggle). Owner emails resolve to the opted-in
   // Webull sub-account instead of a creds-less parent row.
-  const { pickOptionsAccount, optionsStrategiesOn } = await import("./bridge-options-prefs.js");
+  const { pickOptionsAccount } = await import("./bridge-options-prefs.js");
   const ownerAccounts = await resolveBridgeAccounts(env, sanitized.user_id, { enabledOnly: true }).catch(() => []);
   const opted = pickOptionsAccount(ownerAccounts, {
     preferClass: env?.WEBULL_DEFAULT_ACCOUNT_CLASS || "ROTH_IRA",
@@ -3030,18 +3035,52 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
   const user = opted || await resolveBridgeUser(env, sanitized.user_id) || await readUser(env, sanitized.user_id);
   if (!user) return json({ ok: false, error: "user_not_found" }, 404);
 
-  // Global kill switch.
-  if (env?.BRIDGE_KILL_SWITCH === "true") {
-    return json({ ok: false, rejected: true, reason: "global_kill_switch" }, 200);
+  // The signal owner's own order and every partner mirror go out together.
+  // Sequencing them would hand the operator a better fill than the people
+  // mirroring it, on a lane where a minute moves the premium 10%.
+  const [primary, mirrors] = await Promise.all([
+    placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 }),
+    fanOutOptionsMirrors(env, ctx, sanitized, payload, { t0 }).catch((e) => ([{
+      user_id: null,
+      ok: false,
+      reason: "fanout_failed",
+      detail: String(e?.message || e).slice(0, 200),
+    }])),
+  ]);
+
+  // The operator's result stays at the TOP LEVEL, byte for byte as before.
+  // The main worker's day-trade ledger (extractMirrorFill,
+  // reconcileIndexDtFill, timed:opt-dt-mirror) reads these fields, and a
+  // partner must never be able to move the operator's bookkeeping.
+  if (mirrors.length) {
+    primary.body.fanout = { accounts: mirrors.length, results: mirrors };
   }
+  return json(primary.body, primary.status);
+}
+
+/**
+ * Place one options order on one account.
+ *
+ * `mirror` marks a partner target: it is the signal owner's trade being
+ * copied, not their own order, which changes exactly one rule — a reduce
+ * is clamped to the position that account actually holds instead of being
+ * refused. See clampReduceToHeld for why that asymmetry is deliberate.
+ */
+async function placeOptionsOrderForAccount(env, ctx, sanitized, user, { t0 = Date.now(), mirror = false } = {}) {
+  const { optionsStrategiesOn } = await import("./bridge-options-prefs.js");
+  const reply = (body, status = 200) => ({ body, status });
+  // What the account held before this order, per the sell guard's own read
+  // of the broker. Used to settle the partner day-loss ledger.
+  let heldBeforeQty = null;
+
   if (!user.broker_integration_enabled) {
-    return json({ ok: false, rejected: true, reason: "user_disabled" }, 200);
+    return reply({ ok: false, rejected: true, reason: "user_disabled" });
   }
   // Options-specific gate — separate from stock enablement so users
   // can authorize stocks-only without options. Broker Connections
   // toggle writes options_enabled + long_call/long_put vehicles.
   if (!optionsStrategiesOn(user) && user.role !== "operator") {
-    return json({ ok: false, rejected: true, reason: "options_not_enabled" }, 200);
+    return reply({ ok: false, rejected: true, reason: "options_not_enabled" });
   }
 
   // Translate play → broker order shape (IBKR or Webull).
@@ -3059,11 +3098,11 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
     placeFn = ibPlace;
   }
 
-  if (!brokerOrder) return json({ ok: false, rejected: true, reason: "play_translation_failed" }, 200);
+  if (!brokerOrder) return reply({ ok: false, rejected: true, reason: "play_translation_failed" });
 
   // Dry-run path — return what WOULD be sent without hitting the broker.
   if (sanitized.dry_run || user.mock_mode) {
-    return json({
+    return reply({
       ok: true,
       dry_run: true,
       mock: true,
@@ -3078,7 +3117,7 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
         mock: true,
       },
       latency_ms: Date.now() - t0,
-    }, 200);
+    });
   }
 
   // Live SELL: reject if the broker does not hold enough of this contract.
@@ -3093,12 +3132,28 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
         status: "rejected",
         reject_reason: "positions_unavailable",
       });
-      return json({
+      return reply({
         ok: false, rejected: true, reason: "positions_unavailable",
         detail: loaded.error, latency_ms: Date.now() - t0,
-      }, 200);
+      });
     }
-    const guard = applyOptionsSellGuard(brokerOrder, loaded.positions || []);
+    let guard = applyOptionsSellGuard(brokerOrder, loaded.positions || []);
+    // A partner who scaled down on the way in holds fewer contracts than
+    // the model is closing. Refusing that reduce strands them in a
+    // position the model has already exited, so clamp to what they hold —
+    // which can only ever sell less, never more.
+    if (!guard.ok && mirror && Number(guard.held_qty) > 0) {
+      const { clampReduceToHeld } = await import("./bridge-options-fanout.js");
+      const clamped = clampReduceToHeld(brokerOrder.qty, guard.held_qty);
+      if (clamped.qty > 0) {
+        brokerOrder.qty = clamped.qty;
+        brokerOrder._mirror_reduce_clamped = {
+          requested_qty: clamped.requested_qty ?? null,
+          held_qty: clamped.held_qty ?? null,
+        };
+        guard = applyOptionsSellGuard(brokerOrder, loaded.positions || []);
+      }
+    }
     if (!guard.ok) {
       await recordOptionsAccountFill(env, {
         user, sanitized, brokerOrder,
@@ -3116,13 +3171,14 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
         status: "rejected",
         reject_reason: guard.reason,
       }).catch(() => {});
-      return json({
+      return reply({
         ok: false, rejected: true, reason: guard.reason,
         held_qty: guard.held_qty ?? null,
         requested_qty: guard.requested_qty ?? brokerOrder.qty,
         latency_ms: Date.now() - t0,
-      }, 200);
+      });
     }
+    heldBeforeQty = Number(guard.held_qty) >= 0 ? Number(guard.held_qty) : null;
   }
 
   // Buy-side cash gate — options webhook historically skipped
@@ -3162,7 +3218,7 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
           status: "rejected",
           reject_reason: "insufficient_buying_power",
         });
-        return json({
+        return reply({
           ok: false,
           rejected: true,
           reason: "insufficient_buying_power",
@@ -3171,7 +3227,7 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
           reserved_usd: reserved,
           debit_usd: debit,
           latency_ms: Date.now() - t0,
-        }, 200);
+        });
       }
       brokerOrder.qty = maxQty;
       debit = optionDebitUsd({ premium, qty: maxQty }) || (unit * maxQty);
@@ -3196,6 +3252,28 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
     reject_reason: placeOk ? null : (placed?.error || fill?.reason || "place_failed"),
   });
 
+  // Partner day-loss ledger. Charged only after the broker accepts, so a
+  // failed place never consumes an allowance, and never for the operator —
+  // the main worker already keeps that account's budget and a second
+  // charge here would drift against it.
+  if (mirror && placeOk && sanitized.trade_id) {
+    try {
+      const { commitPartnerRisk, settlePartnerRisk } = await import("./bridge-options-risk.js");
+      const qty = Number(fill?.filled_qty) > 0 ? Number(fill.filled_qty) : Number(brokerOrder.qty);
+      const px = Number(brokerOrder.limit_price) || Number(sanitized.play?.premium?.mid) || 0;
+      if (String(brokerOrder.action || "").toUpperCase() === "SELL") {
+        await settlePartnerRisk(env, user, sanitized.trade_id, {
+          closedQty: qty, closePremium: px, heldBefore: heldBeforeQty,
+        });
+      } else {
+        await commitPartnerRisk(env, user, sanitized.trade_id, {
+          contracts: qty, premium: px, ticker: sanitized.ticker,
+          orderId: fill?.order_id || placed?.order_id || null,
+        });
+      }
+    } catch (_) { /* a ledger write must never unplace a live order */ }
+  }
+
   // Audit log (uses writeAudit which is the canonical helper).
   try {
     await writeAudit(env, {
@@ -3217,7 +3295,7 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
     });
   } catch (_) { /* best-effort */ }
 
-  return json({
+  return reply({
     ok: !!placed?.ok,
     ticker: sanitized.ticker,
     play_archetype: sanitized.play.archetype,
@@ -3226,6 +3304,97 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
     fill,
     latency_ms: Date.now() - t0,
   }, placed?.ok ? 200 : 502);
+}
+
+/**
+ * Copy an options order to every partner account that opted in.
+ *
+ * Isolated per target the way the equity fan-out is: one partner's broker
+ * rejecting, throwing, or timing out must not touch another partner's
+ * order and must not touch the operator's. Nothing here can fail the
+ * caller — the worst case is a results row saying why an account sat out.
+ */
+async function fanOutOptionsMirrors(env, ctx, sanitized, payload, { t0 = Date.now() } = {}) {
+  const {
+    optionsMirrorTargets, scaleContractsForAccount, optionsMirrorPayload,
+    accountEquityUsd, dailyLossLimitFromUser, modelPremiumMid, modelContractsOf,
+    vehicleMaxPerOrderUsd,
+  } = await import("./bridge-options-fanout.js");
+
+  const ownerEmail = String(sanitized.user_id || "").split("#")[0].toLowerCase();
+  const participants = await listMirrorParticipants(env, ownerEmail).catch(() => []);
+  const targets = optionsMirrorTargets(participants);
+  if (!targets.length) return [];
+
+  const modelContracts = modelContractsOf(sanitized.play);
+  const premium = modelPremiumMid(sanitized.play);
+  const modelBookUsd = Number(payload?.model_capital_usd)
+    || Number(env?.MODEL_BOOK_BASE_USD)
+    || 100000;
+  const isSell = String(sanitized.play?.legs?.[0]?.action || "").toUpperCase() === "SELL"
+    || String(sanitized.play?.side || "").toLowerCase() === "sell"
+    || sanitized.play?._day_trade_close === true;
+
+  const dispatchOne = async (target) => {
+    const row = {
+      user_id: target.user_id,
+      owner_email: target.owner_email || String(target.user_id || "").split("#")[0],
+      broker: resolveBrokerId(target) || target.broker || null,
+    };
+    try {
+      // A reduce goes out at the model's qty and is clamped to the
+      // position that account holds; only an ENTRY is sized relationally.
+      let contracts = modelContracts;
+      if (!isSell) {
+        const sized = scaleContractsForAccount({
+          modelContracts,
+          premium,
+          accountEquity: accountEquityUsd(target),
+          modelBookUsd,
+          dailyLossLimitUsd: dailyLossLimitFromUser(target),
+          maxPerOrderUsd: vehicleMaxPerOrderUsd(target, {
+            archetype: sanitized.play?.archetype,
+            vehicle: payload?.vehicle,
+          }),
+        });
+        if (!(sized.contracts > 0)) {
+          return { ...row, ok: false, skipped: true, reason: sized.reason, sizing: sized };
+        }
+        contracts = sized.contracts;
+        row.sizing = sized;
+
+        // Last gate before the ticket: what the account's day has already
+        // cost. Caps rather than refuses, so an account with room for one
+        // contract takes one.
+        const { budgetContractsFor } = await import("./bridge-options-risk.js");
+        const budgeted = await budgetContractsFor(env, target, { contracts, premium });
+        row.budget = budgeted.budget;
+        if (!(budgeted.contracts > 0)) {
+          return { ...row, ok: false, skipped: true, reason: budgeted.reason, sizing: sized };
+        }
+        contracts = budgeted.contracts;
+        if (budgeted.contracts < sized.contracts) row.budget_reason = budgeted.reason;
+      }
+      const perPayload = optionsMirrorPayload(payload, target, { contracts });
+      const perSanitized = {
+        ...sanitized,
+        user_id: String(target.user_id || "").toLowerCase(),
+        play: perPayload.play,
+      };
+      const out = await placeOptionsOrderForAccount(env, ctx, perSanitized, target, { t0, mirror: true });
+      return {
+        ...row,
+        ok: out.body?.ok === true,
+        http_status: out.status,
+        contracts,
+        result: out.body,
+      };
+    } catch (e) {
+      return { ...row, ok: false, reason: "mirror_error", detail: String(e?.message || e).slice(0, 200) };
+    }
+  };
+
+  return await Promise.all(targets.map(dispatchOne));
 }
 
 async function loadOptionsPositionsForGuard(env, user, broker) {

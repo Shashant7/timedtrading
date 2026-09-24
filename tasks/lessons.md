@@ -6,6 +6,71 @@
 
 ---
 
+## A limitation nobody re-read is indistinguishable from a bug [2026-09-24]
+
+"The partner Webull account never received the day trades?" It never
+could. `/bridge/order` (equity, LETF) had fanned model trades out to
+mirror participants since multi-tenant launched; `/bridge/options/order`
+resolved ONE account through `pickOptionsAccount` and returned. The
+partner row was flawless — `broker_integration_enabled`,
+`mirror_participant` and `options_enabled` all true, 151 lifetime orders,
+two of them that same morning. Shares landed. Day trades never did.
+
+- **It was written down, in the right file, and that did not help.**
+  `skills/partner-onboarding.md` said "Options auto-mirror is
+  operator-only… a partner mirrors equity/ETF trades only." Documenting a
+  gap under "Known limitations" retires it from the bug list without
+  retiring it from production. A limitation that silently produces the
+  same symptom as an outage needs an expiry date or an alarm, not a
+  bullet. Nothing reported a miss because nothing was ever asked to
+  place, so there was no rejection, no log line, and no drift.
+- **Check config before writing code, then check it again against the
+  real row.** Two minutes on `/timed/admin/broker-bridge/status` proved
+  the partner was fully provisioned and the gap was code — which is the
+  opposite of the usual answer for "partner not receiving trades" (the
+  troubleshooting table's own entry is "`mirror_participant` false").
+- **The status projection is not the row.** `equity_usd` is absent from
+  `/status` but present on the KV row and on `/portfolio` ($9,826.12).
+  Sizing off a field that only *looks* missing would have made every
+  partner sit out with `account_equity_unknown` — a fix that ships,
+  passes, and does nothing.
+- **Read the account's own settings before inventing a sizing rule.** The
+  partner had already set `long_put.max_per_order_usd: 500` and
+  `daily_loss_limit_usd: 500`. An equity-ratio rule alone would have
+  ignored the most explicit instruction the account holder had given.
+  `daily_loss_limit_usd` had been defined, defaulted and surfaced in the
+  UI since 2026-09-24 and was referenced nowhere outside its own test.
+- **Test against the real translator, not a hand-built fixture.** Two
+  bugs survived a fixture that "looked right" and died instantly against
+  `playToWebullOptionOrder`: it resolves qty as
+  `leg.qty ?? play.contracts`, so rewriting `contracts` alone would have
+  sent the partner the operator's size while every log said "scaled"; and
+  `play.premium` is a `{ mid }` object, so `Number(play.premium)` is NaN
+  and every premium-priced cap silently switches off. Both fail open.
+- **A setting that is stored, defaulted and displayed reads as enforced.**
+  `daily_loss_limit_usd` had a default, a UI control and a docstring
+  calling it "the dollar day-stop for options mirrors", and the only
+  thing referencing it was its own test. Nobody would have called that
+  out loud, but every layer of the product implied it. The follow-up
+  ("we need a daily cap loss limit for partner account") was the user
+  reading the UI and expecting it to mean something.
+- **Mirror the mechanism, not just the number.** The ask was a partner
+  day-stop "or at least mirror the Roth account". The partner row already
+  carried the Roth's $500 — the number was mirrored and did nothing. What
+  had to be mirrored was the ledger: `bridge-options-risk.js` runs the
+  operator's `worker/options-risk-budget.js` against `BRIDGE_KV` instead
+  of reimplementing it, because a second implementation of money rules is
+  a second set of rounding, rollover and replay bugs, and this one had
+  already been through the 2026-09-23 debit-vs-stop-distance fix that a
+  fresh copy would have quietly reintroduced.
+- **Reduces are clamped, not scaled.** A partner who took 1 on the way in
+  would trip `sell_qty_exceeds_held` on a model closing 2 and be stranded
+  in a position the model had already exited — the exact failure the
+  operator hit hours earlier, one tenant over. Clamping down can only
+  ever sell less. The operator's own reduce is deliberately NOT clamped:
+  the main worker reconciles it against `timed:opt-dt-mirror`, and
+  shrinking it there would hide the drift that lane exists to surface.
+
 ## The entry was fine; the stop was sitting on the entry price [2026-09-24]
 
 "The other issue is our timing of entries. We are a step behind usually
