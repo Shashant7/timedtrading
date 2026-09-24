@@ -56088,13 +56088,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 73.3219
+        "sql_duration_ms": 59.5687
       },
-      "duration": 73.3219,
+      "duration": 59.5687,
       "changes": 0,
-      "last_row_id": 30611,
+      "last_row_id": 31592,
       "changed_db": false,
-      "size_after": 5266919424,
+      "size_after": 5100412928,
       "rows_read": 6231,
       "rows_written": 0,
       "total_attempts": 1
