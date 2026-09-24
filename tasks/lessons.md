@@ -125,6 +125,51 @@ model was not out of risk appetite — it was out of bookkeeping.
 
 ---
 
+## Never truncate an id, and other things found buttoning up the mirror [2026-09-24]
+
+"Trims and exits should be mirror images" and "prepare for scale" — the
+operator's brief after the IWM stop-out. Auditing every lane for it found
+the same few mistakes repeated.
+
+- **Every truncated id lost orders.** Three lanes cut a client_order_id
+  down to fit Webull's window and all three collided: options
+  (`tt-opt-<signal>`, the IWM 278P stop), the investor mirror (keyed on the
+  position, so every trim of a position shared one id — MU refused as a
+  repeat, or deduped by the bridge claim and reported as mirrored), and
+  the equity fan-out (`tt-trim-<trade>-<pct>` cut to 28 chars, so a trade's
+  50% and 75% trims became one per-account id and the second never
+  placed). Keep an id verbatim if it fits; otherwise a readable head plus a
+  hash of the WHOLE id. A deduped claim returns `{ok:true}` — a collision
+  is silent by construction.
+- **A percentage needs a stated denominator on both sides.** Short Term
+  sent `tgt - oldTrim` (of the original position); the bridge multiplies
+  by the remaining sleeve. Laddered trims under-sold and a trim-to-full
+  left a quarter behind. Investor senders happened to use the current
+  position, so they were right — by accident of how each call site was
+  written. `reducePctOfRemaining` names the unit.
+- **A listing without a cursor is a silent cap.** `KV.list` with a limit
+  and no cursor, called with 100 / 200 / 50: the reconciler, the partner
+  fan-out and the token refresh each stopped at a fixed account row, the
+  same rows every time, with nothing logged. There is a row per
+  sub-account, so the first cliff was about ten owners away.
+- **Suppressing an alarm must not blind the sensor.** Auto-suppress after
+  four drifts also removed the row from the reconcile scan, so its
+  holdings froze. 27 closed Short Term sleeves "held" shares for up to 55
+  days, 25 of them in tickers neither account owned. Suppressed rows are
+  now read and released when resolved; they just never page.
+- **Read the broker's docs before promising an order type.** The operator
+  approved market orders for day trades; Webull's OpenAPI refuses `MARKET`
+  on options outright (LIMIT / STOP_LOSS / STOP_LOSS_LIMIT only). The
+  equivalent is a limit through the touch — and then the fill, not the
+  limit, is what gets booked.
+- **Two edits to one file in one parallel batch can clobber each other.**
+  A string replacement and a script edit to `bridge-reconciler.js` ran in
+  the same batch and the later write silently dropped the earlier one;
+  tests still passed because the surviving half was self-consistent. Edit
+  a file sequentially, and grep for every intended change afterwards.
+
+---
+
 ## A monitor that cries wolf is how a real one gets missed [2026-09-24]
 
 Auditing the three books after the stop-out fix, `model_broker_coverage`
