@@ -494,8 +494,17 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   Partner size = `floor(model × equity/book)` capped at 1×, a one-lot floor,
   then the row's own `max_per_order_usd` and `daily_loss_limit_usd`, then
   buying power. Reduces are NOT sized — they go at the model's qty and clamp
-  to contracts held, so a partner who scaled down on entry still exits. No
-  per-partner daily loss LEDGER yet (per-ticket caps only).
+  to contracts held, so a partner who scaled down on entry still exits.
+- **Partners get the operator's loss budget, not a copy of it (2026-09-24)**:
+  `bridge-options-risk.js` runs `worker/options-risk-budget.js` against
+  `BRIDGE_KV` keyed `…risk:{user_id}:{NY-date}`, so a partner's day stop has
+  the same consumed/remaining semantics, stop-distance charging, NY rollover
+  and idempotency as the Roth's. `daily_loss_limit_usd` had been stored,
+  defaulted to $500 and displayed since it was added while being enforced
+  nowhere. Charged only after the broker accepts, and only for MIRROR
+  targets — the main worker owns the operator's budget and a second charge
+  at the bridge would drift against it. Entries are capped to the remaining
+  budget, not refused.
 - **`play.premium` is `{ mid }`, and `leg.qty` beats `play.contracts`
   (2026-09-24)**: `playToWebullOptionOrder` resolves qty as
   `leg.qty ?? play.contracts`, so resizing a play MUST write the leg too or the

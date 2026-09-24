@@ -47,6 +47,22 @@ two of them that same morning. Shares landed. Day trades never did.
   sent the partner the operator's size while every log said "scaled"; and
   `play.premium` is a `{ mid }` object, so `Number(play.premium)` is NaN
   and every premium-priced cap silently switches off. Both fail open.
+- **A setting that is stored, defaulted and displayed reads as enforced.**
+  `daily_loss_limit_usd` had a default, a UI control and a docstring
+  calling it "the dollar day-stop for options mirrors", and the only
+  thing referencing it was its own test. Nobody would have called that
+  out loud, but every layer of the product implied it. The follow-up
+  ("we need a daily cap loss limit for partner account") was the user
+  reading the UI and expecting it to mean something.
+- **Mirror the mechanism, not just the number.** The ask was a partner
+  day-stop "or at least mirror the Roth account". The partner row already
+  carried the Roth's $500 — the number was mirrored and did nothing. What
+  had to be mirrored was the ledger: `bridge-options-risk.js` runs the
+  operator's `worker/options-risk-budget.js` against `BRIDGE_KV` instead
+  of reimplementing it, because a second implementation of money rules is
+  a second set of rounding, rollover and replay bugs, and this one had
+  already been through the 2026-09-23 debit-vs-stop-distance fix that a
+  fresh copy would have quietly reintroduced.
 - **Reduces are clamped, not scaled.** A partner who took 1 on the way in
   would trip `sell_qty_exceeds_held` on a model closing 2 and be stranded
   in a position the model had already exited — the exact failure the

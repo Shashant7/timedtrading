@@ -232,7 +232,8 @@ Set on the bridge row, applied in `bridge-options-fanout.js`, tightest wins:
 | Account equity | `equity_usd` (synced) | `floor(model × equity/book)`, capped at 1× — a mirror never takes more than the model |
 | One-lot floor | — | Small accounts would floor to 0 forever, so a single contract is allowed if it clears the caps below |
 | `max_per_order_usd` | `options_prefs.vehicles.{long_call,long_put}` | Hard notional ceiling per ticket |
-| `daily_loss_limit_usd` | `options_prefs` (default $500) | Risk ceiling; at a -50% stop a $500 limit tolerates a $1,000 debit |
+| `daily_loss_limit_usd` | `options_prefs` (default $500) | Per-ticket risk ceiling; at a -50% stop a $500 limit tolerates a $1,000 debit |
+| Day budget so far | `bridge-options-risk.js` ledger | What the account's day has already cost — see below |
 | Buying power | `cash_usd` / `buying_power_usd` | Final clamp in the bridge; 0 affordable → `insufficient_buying_power` |
 
 `equity_usd` missing means the account sits out with
@@ -243,13 +244,38 @@ Reduces are NOT sized. A trim or exit goes out at the model's qty and is
 clamped to the contracts that account actually holds, so a partner who
 scaled down on the way in still gets out.
 
+### The partner's daily loss budget
+
+`bridge-options-risk.js` runs the **operator's own** budget module
+(`worker/options-risk-budget.js`) against `BRIDGE_KV`, so a partner's day
+stop behaves exactly like the Roth's rather than being a second
+implementation of the same money rules:
+
+- `consumed = open risk + realised losses today`; `remaining = limit - consumed`
+- an open position is charged the **stop distance** (`debit x 0.5`), not
+  the debit — charging the debit double-counts and blocks good trades
+- a win gives its risk back, a loss keeps consuming, so a good day does
+  not throttle itself and a bad day tightens until it stops
+- keyed by the **NY** trading date and by `user_id`, so two partners never
+  share a budget
+- charged only AFTER the broker accepts; never charged for the operator,
+  whose budget the main worker already owns
+
+An entry is **capped** to what the day can still afford rather than
+refused, so an account with room for one contract takes one. When nothing
+is left the reason reads `daily_loss_budget_0_left_of_500`.
+
+Read an account's current standing:
+
+```bash
+curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/admin/broker-bridge/status" \
+  -H "X-API-Key: ${TIMED_TRADING_API_KEY}" | jq '.users[].user_id'
+# ledger key in BRIDGE_KV:
+#   timed:options:auto-mirror:risk:{user_id}:{NY-date}
+```
+
 ## Known limitations
 
-- **No per-partner daily loss LEDGER.** Each options ticket is capped
-  against that account's `daily_loss_limit_usd`, but nothing keeps a
-  running day tally per partner the way `worker/options-risk-budget.js`
-  does for the operator, so a partner can take several capped losses in
-  one day.
 - **Bridge-internal routes are cross-tenant by design** (`/bridge/status`,
   `/bridge/portfolio`, unfiltered `/bridge/account-ledger`). They need the
   operator key; never expose them to a session-authed path.
