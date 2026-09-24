@@ -607,10 +607,10 @@ export function shouldArmProfitLock(entry, peak) {
  * cleared +10%, which is a ~0.06% move in the underlying on a 0.4-delta 1DTE
  * contract. That put a zero-tolerance stop under every book in the whole
  * +10% → +50% band, where there is no profit target to reach either, so a
- * directionally-correct trade could only scratch. It did, seven times in
- * fifteen closed trades over 2026-09-23/24 (median peak +15.9%, none within
- * reach of the 1R trim) — including two IWM puts the desk was right about,
- * which were green again inside the hour. See tasks/lessons.md.
+ * directionally-correct trade could only scratch. It did, in nine of the
+ * eighteen rounds over 2026-09-23/24 (median peak +15.9%, none within reach
+ * of the 1R trim) — including two IWM puts the desk was right about, which
+ * were green again inside the hour. See tasks/lessons.md.
  */
 export function profitLockFloor(entry, peak) {
   const e = num(entry);
