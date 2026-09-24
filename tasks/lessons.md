@@ -61,6 +61,70 @@ at 15:10:17Z — 67 minutes before the 278P stop even existed.
 
 ---
 
+## Three ways to hold a position the broker already closed [2026-09-24]
+
+Chasing the IWM 278P stop surfaced three further paths by which a mirror
+keeps saying "one contract held" after the broker is flat. All three
+charge the day's loss budget: `consumed = open risk + realised losses`,
+open risk booked at the stop distance. By early afternoon eight entries
+held $496.50 of a $500 limit, roughly $448 of it phantom, and new
+entries were being refused `daily_loss_budget_52_left_of_500`. The
+model was not out of risk appetite — it was out of bookkeeping.
+
+- **A rejection that re-offering cannot fix needs a terminal branch.**
+  The quantity reconciler re-offered every refused reduce forever. IWM
+  280P took the identical `no_held_position` once a minute for hours.
+  `no_held_position` is the SELL guard's verdict for "holdings read fine
+  and this contract is not among them" — it deliberately says
+  `positions_unavailable` / `positions_unresolved` /
+  `position_direction_unknown` when it could not read the account, which
+  is what makes the first one safe to treat as final. The mirror now
+  stands down (`exit_via: broker_flat`, no exit price — nothing was
+  sold) and releases the risk.
+- **A status that lasts one tick is not the status to key off.**
+  `targetMirrorRemaining` mapped `closed` but not `flat`, and
+  `armIndexDayTradePlan` flips `closed` → `flat` on the very next
+  WAIT/SELL so a re-entry is allowed. So the reconciler had about a
+  minute to notice a drift and was blind afterwards — and blind
+  *silently*, because an unmapped status returned null and the caller
+  skipped with no telemetry line at all. Map the long-lived terminal
+  state, and record what you could not judge.
+- **"The first 50 orders" assumes an ordering the broker never
+  promised.** The single-order fill lookup read `page_size: 50` and gave
+  up. Webull's `/openapi/trade/order/history` is not newest-first — a
+  10-row page came back spanning six days, oldest row first — so as the
+  week's order count grows, today's orders fall out of the window. DIA
+  509P and QQQ 731P both FILLED at 16:17; every poll afterwards could
+  not see either order and answered "still working", so both sat
+  `exit_pending` for hours holding $139.50. `start_time` and
+  `last_create_time` had no observable effect when probed against the
+  live account; the 100-row maximum covers the whole current 7-day
+  history.
+- **"I could not find it" and "it is still working" are different
+  sentences.** The lookup returned `{ok: true, fill: null}` for both,
+  and the caller folded them into `working`. An unindexed order is still
+  an order, so standing pat is right — but the telemetry must say which
+  one it is (`reduce_order_unknown_to_broker` vs
+  `reduce_order_working`), or a lookup that silently fails looks exactly
+  like a limit patiently sitting there.
+- **Anything resolved only by an event will not be resolved.** This is
+  the same root as the reconciler's own reason for existing, hit twice
+  more. Stage 5b polls a working reduce properly — it just runs only
+  when the paper book raises an event, and a stop is the last event a
+  position ever raises. Every "poll it on the way in" comment is a bug
+  waiting for the tape to go quiet. The poll is now
+  `resolvePendingIndexDtReduce`, sibling to the entry resolver, and the
+  reconciler drives it on a schedule instead of hoping for an event.
+- **Do not book a partial.** It comes back persist AND pending: some
+  contracts filled, the rest of that same order still live. Clearing the
+  pending flags hands the remainder to the next pass as if nothing
+  covered it, which with a per-minute reconciler means a second SELL
+  stacked on a working one. Polls report the order's cumulative fill, so
+  waiting costs nothing and settling twice off a decrement
+  double-subtracts.
+
+---
+
 ## A limitation nobody re-read is indistinguishable from a bug [2026-09-24]
 
 "The partner Webull account never received the day trades?" It never
