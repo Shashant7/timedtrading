@@ -608,6 +608,19 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   `positions_unresolved` (with `unresolved_count`) instead. A row that DOES
   match but is `direction_unknown` returns `position_direction_unknown`. Still
   fail-closed; just no longer wearing a reason that reads as a correct refusal.
+- **A repair is LABELLED as a repair (2026-09-24)**: a reconciled reduce fills
+  at today's price, not the price the model left at. The market turned after
+  the IWM stops, so the stranded puts came back as WINNERS — and an unlabelled
+  gain is worse than an unlabelled loss, because the execution review reads a
+  stop mirrored hours late at a much better price as good execution and the
+  learning loops would take a lesson about stop placement from a parser bug.
+  `MIRROR_RECONCILE_REASON` travels into the records: the mirror gets
+  `exit_via`/`trim_via: "reconcile"` plus `reduce_paper_premium` and
+  `reduce_lag_ms`, and the decision-log row carries `via: "reconcile"` — which
+  must be a SEPARATE field from `reason`, since `reason` is nulled on a
+  `mirrored` decision. Economics stay honest either way: `settleIndexDtRisk`
+  and the budget reconcile both book at the real close price, never the paper
+  stop.
 - **A rejected reduce pages; it is never just a log line (2026-09-24)**: every
   mirror decision funnels through `recordIndexDtMirrorDecision`, so a `sell`
   that comes back `rejected`/`error` posts to the Discord system lane, deduped

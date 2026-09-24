@@ -1501,6 +1501,9 @@ export async function recordIndexDtMirrorDecision(env, ctx = {}, result = {}) {
     side: event === "BUY" ? "buy" : "sell",
     decision,
     reason: decision === "mirrored" ? null : (reason || null),
+    // Survives a `mirrored` decision, which nulls `reason`. Without it a
+    // repair is indistinguishable in the timeline from an on-time mirror.
+    via: ctx?.reason === MIRROR_RECONCILE_REASON ? "reconcile" : null,
     note: note || null,
     contracts: contracts != null ? contracts : null,
     ts: Date.now(),
@@ -1546,6 +1549,19 @@ export function parseIndexDtSignalId(signalId) {
 
 /** How far back an unmirrored reduce is still worth putting to the broker. */
 export const MIRROR_REDUCE_LOOKBACK_MS = 6 * 3600 * 1000;
+
+/**
+ * Marks a reduce that came from the reconciler rather than from the event.
+ *
+ * It has to travel all the way into the records. A repair fills at TODAY's
+ * price, not the price the model stopped at, and on 2026-09-24 the market
+ * turned after the stop — so the stranded IWM puts came back as winners. An
+ * unlabelled gain is worse than an unlabelled loss: the execution review
+ * reads a stop mirrored hours late at a much better price as good execution,
+ * and the learning loops would take a lesson about stop placement from what
+ * was only a parser bug.
+ */
+export const MIRROR_RECONCILE_REASON = "mirror_qty_reconcile";
 
 /**
  * How many contracts the broker SHOULD still hold for this signal.
@@ -1724,7 +1740,7 @@ export async function reconcileIndexDtMirrorPositions(env, {
 
     const result = await fireReduce(env, {
       event,
-      reason: "mirror_qty_reconcile",
+      reason: MIRROR_RECONCILE_REASON,
       ticker: contract.ticker,
       play,
       signal_id: signalId,
@@ -2112,6 +2128,18 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     const patch = event === "TRIM"
       ? { trim_fired: true, trim_pending: false, trim_qty: rec.filledQty, trim_premium: limitPrice, contracts_remaining: remainingAfter }
       : { exit_fired: true, exit_pending: false, exit_qty: rec.filledQty, exit_premium: limitPrice, exit_event: event, contracts_remaining: remainingAfter };
+    // A repair fills at today's price. Record that, and the price the model
+    // actually left at, so the gap between them is attributable to the repair
+    // instead of being read as execution quality.
+    if (ctx.reason === MIRROR_RECONCILE_REASON) {
+      Object.assign(patch, {
+        [event === "TRIM" ? "trim_via" : "exit_via"]: "reconcile",
+        reduce_paper_premium: Number(event === "TRIM" ? book.trim_premium : book.exit_premium) || null,
+        reduce_lag_ms: Math.max(0, Date.now() - (Number(
+          event === "TRIM" ? book.trim_ts : book.exit_ts,
+        ) || Date.now())),
+      });
+    }
     await saveIndexDtMirror(env, signalId, patch);
     // The contracts just sold stop being open risk and become realised P&L;
     // whatever is still held stays open at its original debit. A win gives

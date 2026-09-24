@@ -93,6 +93,23 @@ demonstrably held.
   `position_direction_unknown`. Both still block the sell — the fix is to
   the NAME, not the behaviour. Detecting them keys off field PRESENCE, not
   values, because the broken row's every contract field was null.
+- **A late repair must be labelled, and a LUCKY one most of all.** The
+  market turned after both stops, so by 11:00 ET the two stranded puts
+  were winners — IWM at 280.03, sitting on the day's low, with a 280
+  strike. That is the most dangerous possible shape for this bug: the
+  repair fills at today's price, and the gap between it and the model's
+  stop shows up as a large GAIN. Nothing in the record said why. The
+  execution review joins the decision log against the paper rows, so a
+  stop mirrored hours late at a 60% better price reads as good execution,
+  and the learning loops would take a lesson about stop placement from
+  what was only a parser bug. Provenance now travels all the way in:
+  `exit_via`/`trim_via: "reconcile"`, `reduce_paper_premium`,
+  `reduce_lag_ms` on the mirror, and `via: "reconcile"` on the log row —
+  a SEPARATE field from `reason`, because `reason` is nulled the moment
+  the decision is `mirrored`, which is exactly when a repair is hardest
+  to spot. **Flatten it anyway.** A stranded position has no stop, no
+  target and no owner; being green is luck, and on 1 DTE luck reverses
+  inside a minute.
 - **"Rejected" has to be loud, because the retry makes it quiet.** A
   reconciler that keeps trying also keeps the failure off anyone's screen.
   The page therefore hangs off `recordIndexDtMirrorDecision` — the one

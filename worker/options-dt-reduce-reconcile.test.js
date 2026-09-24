@@ -20,6 +20,8 @@ import {
   indexDtMirrorKey,
   OPT_DT_REDUCE_RECON_KEY,
   MIRROR_REDUCE_LOOKBACK_MS,
+  MIRROR_RECONCILE_REASON,
+  recordIndexDtMirrorDecision,
 } from "./options-auto-mirror.js";
 
 const SIG = "dt:IWM:2026-09-24:2026-09-25:P:279";
@@ -316,6 +318,40 @@ describe("reconcileIndexDtMirrorPositions — trims are first class", () => {
     await run();
     expect(fired[0].event).toBe("EXIT");
     expect(fired[0].max_reduce_qty).toBe(2);
+  });
+});
+
+// The market turned after the 2026-09-24 stops, so the stranded puts came
+// back as WINNERS. A repair fills at today's price, and an unlabelled gain is
+// worse than an unlabelled loss: it reads as good execution rather than as a
+// bug being cleaned up.
+describe("a repair is labelled as a repair", () => {
+  it("tags the reduce it fires so the records can tell", async () => {
+    const { fired, run } = harness();
+    await run();
+    expect(fired[0].reason).toBe(MIRROR_RECONCILE_REASON);
+  });
+
+  it("keeps the provenance on a decision that DID mirror, where reason is nulled", async () => {
+    const env = { KV_TIMED: kvMock() };
+    await recordIndexDtMirrorDecision(
+      env,
+      { signal_id: SIG, ticker: "IWM", event: "STOP", reason: MIRROR_RECONCILE_REASON },
+      { skipped: false, fill: { status: "filled" }, close_qty: 1 },
+    );
+    const [row] = JSON.parse(env.KV_TIMED.store.get("timed:opt-dt-mirror-log"));
+    expect(row).toMatchObject({ decision: "mirrored", reason: null, via: "reconcile" });
+  });
+
+  it("leaves an on-time mirror unlabelled", async () => {
+    const env = { KV_TIMED: kvMock() };
+    await recordIndexDtMirrorDecision(
+      env,
+      { signal_id: SIG, ticker: "IWM", event: "STOP", reason: "hard_stop" },
+      { skipped: false, fill: { status: "filled" }, close_qty: 1 },
+    );
+    const [row] = JSON.parse(env.KV_TIMED.store.get("timed:opt-dt-mirror-log"));
+    expect(row.via).toBeNull();
   });
 });
 
