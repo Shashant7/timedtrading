@@ -91,6 +91,36 @@
       the paper STOP left 1 of 3 contracts on — the mirror declines to stack
       into a position it still holds. Defensible, but worth a look at why a
       STOP sold 1 of 2 remaining rather than flattening.
+- [x] **Reliability and resilience pass on the day-trade lane (2026-09-24,
+      same PR).** Operator: "Are there any other improvements we can make to
+      get this to be reliable and resilient?" Four holes, all the same shape —
+      a failure that leaves no trace and never heals.
+      (1) **The ledger is rebuilt from the mirrors every tick.** Commit and
+      release are idempotent, but idempotency only protects an operation that
+      RUNS: a release the isolate never reached leaves the day paying for a
+      position that does not exist until midnight, which is the counter's
+      one-way failure in a new shape. `reconcileRiskBudget` frees a charge
+      with no position behind it, re-prices a held one off
+      `contracts_remaining`, and BOOKS a close the ledger never heard about.
+      (2) **A lost settle is now detectable.** The close path writes the
+      mirror BEFORE it settles, so "flat mirror, charged budget" is exactly
+      the state a thrown `settleRisk` leaves — and freeing it would erase a
+      realised loss and LOOSEN the limit. `settleIndexDtRisk` stamps
+      `risk_settled_qty`, so the reconciler can tell "already booked" from
+      "booking lost" and book the lost one at the mirror's close price. It
+      stamps BEFORE booking, so a failed stamp retries next tick instead of
+      re-booking every minute. Anything it cannot price is left alone as
+      `drift`.
+      (3) **A KV lease across isolates.** `*/1` and `*/5` are separate cron
+      expressions, so at minute 0/5/10 two invocations fire and a module-level
+      busy flag protects neither. Fails open — an unreadable lease reconciles
+      anyway.
+      (4) **NY trading date + paging.** A UTC budget key rolled at 20:00 ET,
+      inside the evening reconcile window. And nothing watched this lane at
+      all: `recordCronFailure`/`recordCronSuccess` under `index_dt_reconcile`
+      now put it on `/timed/health` and the GitHub watchdog, and an exhausted
+      budget posts once per NY day to the Discord system lane.
+      4498 tests; each of the five guarantees mutation-checked.
 - [x] **The engine never finished a market-hours tick (2026-09-22).** DDOG's
       0.1× Cloud Pivot entry scored, wrote D1 and sent its Discord card, then
       the `tt-engine` `*/5` isolate was killed with `outcome:

@@ -9393,3 +9393,61 @@ answered three of the four questions and found a bug nobody had asked about.
   IWM 283P, while the losers were nearly all entry-grade F — read wrong, cut
   fast, -$20 average. That is a healthy shape, and the count cap is what stood
   between it and the broker.
+
+## 2026-09-24 — Making the day-trade lane resilient, not just correct
+
+Follow-up to the above: the operator asked what else would make this lane
+reliable. Four holes, all of the same shape — a failure that leaves no trace
+and never heals.
+
+- **Idempotency only protects an operation that RUNS.** The dollar budget
+  replaced a counter that could only go up, on the reasoning that commit is an
+  assignment and release is a delete, so neither can be lost by replaying.
+  That is true and it is not enough: a release the isolate never REACHED is
+  not a replay problem, and nothing retries it. The day then pays for a
+  position that does not exist until midnight — the same one-way failure in a
+  new shape. A ledger that cannot be rebuilt from ground truth will eventually
+  be wrong. `reconcileRiskBudget` rebuilds it from the broker mirrors on every
+  tick. When adding a ledger, the reconciler against ground truth is part of
+  the feature, not a follow-up.
+
+- **A reconciler has to be honest about what it cannot prove.** The first cut
+  freed any charge whose mirror said flat. That is wrong: the close path
+  writes the mirror BEFORE it settles the budget, so "flat mirror, charged
+  budget" is exactly the state a lost settle leaves behind, and freeing it
+  erases a realised loss and LOOSENS the day's limit. The fix was to make the
+  question answerable rather than guess at it — `settleIndexDtRisk` now stamps
+  `risk_settled_qty`, so the reconciler can tell "already booked" from
+  "booking lost" and BOOK the lost one at the mirror's recorded close price.
+  Anything it still cannot price is left alone and counted as drift. When a
+  repair is ambiguous, add the fact that would disambiguate it; do not pick
+  the convenient branch.
+
+- **Write the record of a repair before making it.** A booking made without a
+  stamp is remade every minute until the budget is spent on one trade. Stamp
+  first: a failed stamp costs one tick's delay, a failed booking after a good
+  stamp costs one trade's P&L. The cheap failure has to be the likely one.
+
+- **`*/1` and `*/5` are two crons, not one.** At minute 0, 5, 10 ... Cloudflare
+  fires both, and they can land in different isolates, where a module-level
+  `let` busy-guard protects neither from the other. Two reconcile loops
+  polling a broker LIST endpoint every five seconds is how a rate-limit stops
+  reconciliation altogether — the exact failure the loop exists to prevent. A
+  KV lease is best-effort (no compare-and-set) but it collapses the routine
+  overlap, and it must fail OPEN: an unreadable lease reconciles anyway.
+
+- **A UTC day key rolls at 20:00 ET, in the middle of the evening reconcile.**
+  The budget was keyed on `toISOString().slice(0,10)`, so a loss booked at
+  20:05 ET landed on tomorrow's ledger and an overnight hold's open risk
+  vanished from today's. Signal ids, the paper books and mirror coverage were
+  all already on the NY date. Anything that means "trading day" gets
+  `toLocaleDateString("en-CA", { timeZone: "America/New_York" })`.
+
+- **Silence is not health, and nothing else was watching.** A reconcile loop
+  that throws every tick looks exactly like a quiet session: no pending
+  entries, no log line, no alert. That is how two orders placed at the open on
+  2026-09-23 went unlooked-at all day. It now records a cron tombstone under
+  `index_dt_reconcile`, which surfaces on `/timed/health` and in the GitHub
+  watchdog, and heals on success. The budget hitting zero is the system
+  working, but it is equally silent and indistinguishable from "no setups
+  today" — so it says so once per NY day, with the arithmetic.

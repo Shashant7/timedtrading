@@ -518,7 +518,33 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   list and it returns. Self-terminating: it only spins while an order is
   young enough to still fill, and a stale order is cancelled and gone. Never
   put this back inside the options pass — reconciliation must not depend on
-  the thing it is checking.
+  the thing it is checking. Guarded by a KV lease
+  (`acquireReconcileLease`, 55s): the `*/1` and `*/5` crons are separate
+  expressions, so at minute 0/5/10 Cloudflare fires TWO invocations that can
+  land in different isolates where the module-global busy flag protects
+  neither. Best-effort (KV has no CAS) and it cannot wedge — an unreadable
+  lease reconciles anyway.
+- **The loss ledger is rebuilt from the mirrors every tick (2026-09-24)**:
+  `reconcileRiskBudget`. Commit/release are idempotent, but idempotency only
+  protects an operation that RUNS — a release the isolate never reached
+  leaves the day paying for a position that does not exist. It frees a charge
+  with no position behind it, re-prices a held one off `contracts_remaining`,
+  and BOOKS a close the ledger never heard about (the close path writes the
+  mirror BEFORE it settles, so a throwing `settleRisk` strands a flat mirror
+  against a charged budget). `settleIndexDtRisk` stamps `risk_settled_qty` on
+  the mirror, which is the only thing that tells "already booked" from
+  "booking lost"; a re-entry must reset it with the other round flags. The
+  reconciler stamps BEFORE it books, so a failed stamp retries next tick
+  rather than re-booking every minute; anything it cannot stamp or price is
+  left alone and counted as `drift`. **The ledger's day is the NEW YORK
+  trading date** (`tradingDayOf`) — a UTC key rolls at 20:00 ET, inside the
+  evening reconcile window.
+- **Nothing else watches this lane, so it pages for itself (2026-09-24)**: the
+  cron records `recordCronFailure`/`recordCronSuccess` under
+  `index_dt_reconcile` (KV tombstone → `/timed/health.cronFailures` → GitHub
+  watchdog), and posts once per NY day to the Discord system lane when the
+  budget is exhausted. A reconcile loop that throws every tick is otherwise
+  indistinguishable from a quiet session.
 - **The broker goes BEFORE Discord (2026-09-23)**: the mirror used to hang off
   `maybeNotifyDayTradePaperEvent().then()`, so a live 0/1 DTE order waited on a
   webhook round-trip and was never dispatched at all if that chain rejected.
