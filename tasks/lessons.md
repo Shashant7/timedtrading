@@ -100,8 +100,9 @@ demonstrably held.
   repair fills at today's price, and the gap between it and the model's
   stop shows up as a large GAIN. Nothing in the record said why. The
   execution review joins the decision log against the paper rows, so a
-  stop mirrored hours late at a 60% better price reads as good execution,
-  and the learning loops would take a lesson about stop placement from
+  stop mirrored hours late at a much better price reads as good
+  execution, and the learning loops would take a lesson about stop
+  placement from
   what was only a parser bug. Provenance now travels all the way in:
   `exit_via`/`trim_via: "reconcile"`, `reduce_paper_premium`,
   `reduce_lag_ms` on the mirror, and `via: "reconcile"` on the log row —
