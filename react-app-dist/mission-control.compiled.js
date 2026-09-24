@@ -1343,54 +1343,38 @@ function VehicleTogglesCard({
     const DEFAULTS = {
       equity_long: {
         enabled: true,
-        daily_cap: 3,
-        max_per_order_usd: 300
+        max_per_order_usd: 5000
       },
       long_call: {
         enabled: false,
-        daily_cap: 2,
-        max_per_order_usd: 200,
-        max_loss_per_order_usd: 75
+        max_per_order_usd: 500
       },
       long_put: {
         enabled: false,
-        daily_cap: 2,
-        max_per_order_usd: 200,
-        max_loss_per_order_usd: 75
+        max_per_order_usd: 500
       },
       vertical_spread: {
         enabled: false,
-        daily_cap: 2,
-        max_per_order_usd: 200,
-        max_loss_per_order_usd: 75
+        max_per_order_usd: 500
       },
       leaps: {
         enabled: false,
-        daily_cap: 1,
-        max_per_order_usd: 500,
-        max_loss_per_order_usd: 500
+        max_per_order_usd: 500
       },
       straddle: {
         enabled: false,
-        daily_cap: 1,
-        max_per_order_usd: 300,
-        max_loss_per_order_usd: 200
+        max_per_order_usd: 500
       },
       moonshot: {
         enabled: false,
-        daily_cap: 1,
-        max_per_order_usd: 100,
-        max_loss_per_order_usd: 100
+        max_per_order_usd: 250
       },
       lotto: {
         enabled: false,
-        daily_cap: 1,
-        max_per_order_usd: 250,
-        max_loss_per_order_usd: 250
+        max_per_order_usd: 250
       },
       index_trend_letf: {
         enabled: false,
-        daily_cap: 2,
         max_per_order_usd: 2000
       }
     };
@@ -1403,13 +1387,21 @@ function VehicleTogglesCard({
     }
     return out;
   }, [user?.options_prefs, user?.user_id]);
+  const initialLoss = React.useMemo(() => {
+    const raw = user?.options_prefs?.daily_loss_limit_usd;
+    if (raw === 0) return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n) : 500;
+  }, [user?.options_prefs?.daily_loss_limit_usd, user?.user_id]);
   const [rows, setRows] = useState(initial);
+  const [dailyLoss, setDailyLoss] = useState(initialLoss);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const updatedAt = user?.options_prefs_updated_at;
   React.useEffect(() => {
     setRows(initial);
-  }, [initial]);
+    setDailyLoss(initialLoss);
+  }, [initial, initialLoss]);
   const ROW_META = [{
     key: "equity_long",
     label: "Equity (long)",
@@ -1497,6 +1489,9 @@ function VehicleTogglesCard({
         };
       }
       setRows(nextRows);
+      if (nextPrefs?.daily_loss_limit_usd !== undefined) {
+        setDailyLoss(Number(nextPrefs.daily_loss_limit_usd) || 0);
+      }
       if (typeof onSaved === "function") onSaved(nextPrefs, j.updated_at);
       setTimeout(() => setMsg(null), 3500);
     } catch (e) {
@@ -1510,7 +1505,10 @@ function VehicleTogglesCard({
     }
   };
   const enabledCount = ROW_META.filter(m => rows[m.key]?.enabled).length;
-  const collapseSub = enabledCount > 0 ? `${enabledCount} vehicle${enabledCount === 1 ? "" : "s"} on` : "all off";
+  const collapseSub = enabledCount > 0 ? `${enabledCount} on · $${Number(dailyLoss).toLocaleString()}/day loss` : "all off";
+  const uid = String(user?.user_id || "");
+  const isRoth = /roth/i.test(uid) || /ROTH/i.test(String(user?.webull_account_class || ""));
+  const isPartnerCash = /individual-cash/i.test(uid) && !/shashant@gmail\.com/i.test(uid);
   return React.createElement(McCollapse, {
     id: `bridge-vehicle-prefs-${user?.user_id || "unknown"}`,
     title: "Options auto-mirror (per vehicle)",
@@ -1524,14 +1522,34 @@ function VehicleTogglesCard({
       lineHeight: 1.45,
       maxWidth: 520
     }
-  }, "Naked-short vehicles are deferred. Option vehicles default to OFF \u2014 opt in one at a time."), React.createElement("div", {
+  }, "Day stop is a dollar budget (default $500), not an order-count cap. Naked shorts are deferred. Index day-trade options still route to the preferred Roth when multiple accounts are options-on."), React.createElement("div", {
     className: "flex items-center gap-2 flex-wrap"
   }, msg && React.createElement("span", {
     className: "text-[10px] " + (msg.kind === "err" ? "text-rose-300" : msg.kind === "ok" ? "mc-pos" : "mc-mute")
   }, msg.text), updatedAt > 0 && !msg && React.createElement("span", {
     className: "text-[10px] mc-mute italic",
     title: new Date(updatedAt).toLocaleString()
-  }, "saved ", fmtAgo(updatedAt), " ago"), React.createElement("button", {
+  }, "saved ", fmtAgo(updatedAt), " ago"), isRoth && React.createElement("button", {
+    className: "mc-btn mc-btn-ok",
+    style: {
+      fontSize: 10,
+      padding: "3px 8px"
+    },
+    disabled: busy,
+    onClick: () => submit({
+      apply_roth_ira_defaults: true
+    }, "Applying Roth defaults")
+  }, "Roth defaults (all strategies \xB7 $500/day)"), isPartnerCash && React.createElement("button", {
+    className: "mc-btn mc-btn-ok",
+    style: {
+      fontSize: 10,
+      padding: "3px 8px"
+    },
+    disabled: busy,
+    onClick: () => submit({
+      apply_partner_cash_defaults: true
+    }, "Applying Partner Cash defaults")
+  }, "Partner defaults (Call/Put/LETF \xB7 $500/day)"), React.createElement("button", {
     className: "mc-btn mc-btn-warn",
     style: {
       fontSize: 10,
@@ -1549,9 +1567,44 @@ function VehicleTogglesCard({
     },
     disabled: busy,
     onClick: () => submit({
-      vehicles: rows
+      vehicles: rows,
+      daily_loss_limit_usd: dailyLoss
     }, "Saving")
   }, "Save"))), React.createElement("div", {
+    className: "flex items-center gap-3 flex-wrap mb-3",
+    style: {
+      padding: "8px 10px",
+      background: "rgba(34,197,94,0.06)",
+      border: "1px solid rgba(34,197,94,0.18)",
+      borderRadius: 6
+    }
+  }, React.createElement("div", {
+    className: "text-[11px] font-semibold text-[#d1d5db]"
+  }, "Daily loss limit ($)"), React.createElement("input", {
+    type: "number",
+    min: "0",
+    max: "1000000",
+    step: "25",
+    value: Number(dailyLoss) || 0,
+    disabled: busy,
+    onChange: e => setDailyLoss(Number(e.target.value) || 0),
+    style: {
+      width: 90,
+      background: "rgba(0,0,0,0.30)",
+      border: "1px solid rgba(255,255,255,0.10)",
+      borderRadius: 4,
+      padding: "4px 6px",
+      color: "white",
+      fontSize: 12,
+      textAlign: "right"
+    }
+  }), React.createElement("div", {
+    className: "text-[10px] mc-mute",
+    style: {
+      maxWidth: 420,
+      lineHeight: 1.4
+    }
+  }, "Stop-charged open risk + realised losses for the NY session. 0 = off. User-configurable.")), React.createElement("div", {
     className: "mc-table-scroll",
     style: {
       background: "rgba(0,0,0,0.20)",
@@ -1568,15 +1621,7 @@ function VehicleTogglesCard({
     style: {
       textAlign: "right"
     }
-  }, "Daily Cap"), React.createElement("th", {
-    style: {
-      textAlign: "right"
-    }
-  }, "Max / Order ($)"), React.createElement("th", {
-    style: {
-      textAlign: "right"
-    }
-  }, "Max Loss / Order ($)"))), React.createElement("tbody", null, ROW_META.map(m => {
+  }, "Max / Order ($)"))), React.createElement("tbody", null, ROW_META.map(m => {
     const r = rows[m.key];
     return React.createElement("tr", {
       key: m.key
@@ -1591,30 +1636,6 @@ function VehicleTogglesCard({
       onChange: e => setRow(m.key, {
         enabled: e.target.checked
       })
-    })), React.createElement("td", {
-      style: {
-        textAlign: "right"
-      }
-    }, React.createElement("input", {
-      type: "number",
-      min: "0",
-      max: "50",
-      step: "1",
-      value: Number(r?.daily_cap) || 0,
-      disabled: busy,
-      onChange: e => setRow(m.key, {
-        daily_cap: Number(e.target.value) || 0
-      }),
-      style: {
-        width: 50,
-        background: "rgba(0,0,0,0.30)",
-        border: "1px solid rgba(255,255,255,0.10)",
-        borderRadius: 4,
-        padding: "2px 4px",
-        color: "white",
-        fontSize: 11,
-        textAlign: "right"
-      }
     })), React.createElement("td", {
       style: {
         textAlign: "right"
@@ -1639,33 +1660,7 @@ function VehicleTogglesCard({
         fontSize: 11,
         textAlign: "right"
       }
-    })), React.createElement("td", {
-      style: {
-        textAlign: "right"
-      }
-    }, m.showLoss ? React.createElement("input", {
-      type: "number",
-      min: "0",
-      max: "100000",
-      step: "25",
-      value: Number(r?.max_loss_per_order_usd) || 0,
-      disabled: busy,
-      onChange: e => setRow(m.key, {
-        max_loss_per_order_usd: Number(e.target.value) || 0
-      }),
-      style: {
-        width: 70,
-        background: "rgba(0,0,0,0.30)",
-        border: "1px solid rgba(255,255,255,0.10)",
-        borderRadius: 4,
-        padding: "2px 4px",
-        color: "white",
-        fontSize: 11,
-        textAlign: "right"
-      }
-    }) : React.createElement("span", {
-      className: "mc-mute"
-    }, "\u2014")));
+    })));
   })))));
 }
 function LearningQueueCard({
@@ -2565,12 +2560,14 @@ function BridgeSection({
     const prefs = autoMirror.prefs;
     const todayCount = Number(autoMirror.today_count) || 0;
     const remaining = Number(autoMirror.today_remaining) || 0;
+    const lossBudget = autoMirror.loss_budget || null;
+    const dailyLossLimit = Number(prefs.daily_loss_limit_usd);
+    const dailyLossDisplay = Number.isFinite(dailyLossLimit) ? dailyLossLimit : 500;
     const equity = Number(portfolio?.users?.[0]?.equity_usd) || 0;
     const suggestedNotional = equity > 0 ? Math.max(50, Math.round(equity * 0.15 / 50) * 50) : prefs.max_notional_per_order_usd;
-    const suggestedLoss = equity > 0 ? Math.max(25, Math.round(equity * 0.05 / 25) * 25) : prefs.max_loss_per_order_usd;
-    const suggestedDaily = 3;
+    const suggestedDailyLoss = 500;
     const isSmallAccount = equity > 0 && equity < 5000;
-    const oversized = isSmallAccount && (Number(prefs.max_notional_per_order_usd) > equity * 0.3 || Number(prefs.max_loss_per_order_usd) > equity * 0.1);
+    const oversized = isSmallAccount && Number(prefs.max_notional_per_order_usd) > equity * 0.3;
     const saveAutoMirror = async (patch, confirmMsg) => {
       if (busy) return;
       if (confirmMsg && !confirm(confirmMsg)) return;
@@ -2621,19 +2618,25 @@ function BridgeSection({
       style: {
         lineHeight: 1.5
       }
-    }, "Master switch for the operator mirror pipeline (index day-trade, index trend LETF, swing options). When OFF, the worker records mirror decisions but does not place orders \u2014 even if per-account vehicles below are enabled. Turn ON here, then enable vehicles per connected account above."), React.createElement("div", {
+    }, "Master switch for the operator mirror pipeline (index day-trade, index trend LETF, swing options). When OFF, the worker records mirror decisions but does not place orders \u2014 even if per-account vehicles below are enabled. Turn ON here, then enable vehicles per connected account above. The day-trade lane is governed by the daily loss limit (dollars), not order-count caps."), React.createElement("div", {
       className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"
     }, React.createElement("div", {
       className: "mc-kpi"
     }, React.createElement("div", {
       className: "mc-kpi-label"
-    }, "Today"), React.createElement("div", {
+    }, "Daily loss limit"), React.createElement("div", {
       className: "mc-kpi-value text-[15px]"
-    }, todayCount, React.createElement("span", {
-      className: "text-[10px] mc-mute"
-    }, "/", prefs.daily_cap || 0)), React.createElement("div", {
+    }, "$", dailyLossDisplay.toLocaleString()), React.createElement("div", {
       className: "mc-kpi-sub"
-    }, remaining, " remaining")), React.createElement("div", {
+    }, dailyLossDisplay === 0 ? "off" : "NY session stop")), React.createElement("div", {
+      className: "mc-kpi"
+    }, React.createElement("div", {
+      className: "mc-kpi-label"
+    }, "Loss budget left"), React.createElement("div", {
+      className: "mc-kpi-value text-[15px]"
+    }, lossBudget ? `$${Math.round(Number(lossBudget.remaining_usd) || 0).toLocaleString()}` : "—"), React.createElement("div", {
+      className: "mc-kpi-sub"
+    }, "of today's limit")), React.createElement("div", {
       className: "mc-kpi"
     }, React.createElement("div", {
       className: "mc-kpi-label"
@@ -2641,15 +2644,7 @@ function BridgeSection({
       className: "mc-kpi-value text-[15px]"
     }, "$", Number(prefs.max_notional_per_order_usd || 0).toLocaleString()), React.createElement("div", {
       className: "mc-kpi-sub"
-    }, "per order")), React.createElement("div", {
-      className: "mc-kpi"
-    }, React.createElement("div", {
-      className: "mc-kpi-label"
-    }, "Max Loss"), React.createElement("div", {
-      className: "mc-kpi-value text-[15px]"
-    }, "$", Number(prefs.max_loss_per_order_usd || 0).toLocaleString()), React.createElement("div", {
-      className: "mc-kpi-sub"
-    }, "per order")), React.createElement("div", {
+    }, "per order (sizing)")), React.createElement("div", {
       className: "mc-kpi"
     }, React.createElement("div", {
       className: "mc-kpi-label"
@@ -2657,13 +2652,13 @@ function BridgeSection({
       className: "mc-kpi-value text-[12px] font-mono"
     }, (prefs.modes_allowed || []).join(",") || "—"), React.createElement("div", {
       className: "mc-kpi-sub"
-    }, (prefs.archetypes_allowed || []).length, " archetypes"))), React.createElement("div", {
+    }, (prefs.archetypes_allowed || []).length, " archetypes \xB7 trader count ", todayCount, "/", prefs.daily_cap || 0))), React.createElement("div", {
       className: "flex items-center gap-2 mb-2 flex-wrap"
     }, React.createElement("button", {
       disabled: busy,
       onClick: () => saveAutoMirror({
         enabled: !prefs.enabled
-      }, prefs.enabled ? "Disable options auto-mirror? Already-open options trades are not affected; future model entries will only generate suggestions." : `Enable options auto-mirror?\n\nThe model's Trader entries will auto-place ${(prefs.archetypes_allowed || []).join(" / ")} via the broker bridge, capped at:\n  ${prefs.daily_cap}/day · max $${Number(prefs.max_notional_per_order_usd).toLocaleString()}/order · max $${Number(prefs.max_loss_per_order_usd).toLocaleString()} loss per order`),
+      }, prefs.enabled ? "Disable options auto-mirror? Already-open options trades are not affected; future model entries will only generate suggestions." : `Enable options auto-mirror?\n\nThe model's Trader entries will auto-place via the broker bridge.\nDay-trade lane: $${dailyLossDisplay}/day loss limit · max $${Number(prefs.max_notional_per_order_usd).toLocaleString()}/order notional`),
       style: {
         padding: "4px 12px",
         fontSize: 11,
@@ -2674,6 +2669,29 @@ function BridgeSection({
         border: `1px solid ${prefs.enabled ? "rgba(248,113,113,0.34)" : "rgba(34,197,94,0.34)"}`
       }
     }, prefs.enabled ? "Disable auto-mirror" : "Enable auto-mirror"), React.createElement("button", {
+      disabled: busy,
+      onClick: () => {
+        const v = prompt(`Daily loss limit (USD)\n\nCurrent: $${dailyLossDisplay}\nDefault: $${suggestedDailyLoss}\n0 = disable the gate`, String(dailyLossDisplay));
+        if (v == null) return;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0 || n > 1_000_000) {
+          alert("Must be 0–1000000");
+          return;
+        }
+        saveAutoMirror({
+          daily_loss_limit_usd: Math.round(n)
+        });
+      },
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(34,197,94,0.12)",
+        color: "#22c55e",
+        border: "1px solid rgba(34,197,94,0.34)"
+      }
+    }, "Edit daily loss limit"), React.createElement("button", {
       disabled: busy,
       onClick: () => {
         const v = prompt(`Max notional per order (USD)\n\nCurrent: $${prefs.max_notional_per_order_usd}\nSmall-account suggestion (15% of $${Math.round(equity).toLocaleString()}): $${suggestedNotional}`, String(prefs.max_notional_per_order_usd || 0));
@@ -2697,52 +2715,6 @@ function BridgeSection({
         border: "1px solid rgba(103,232,249,0.28)"
       }
     }, "Edit max notional"), React.createElement("button", {
-      disabled: busy,
-      onClick: () => {
-        const v = prompt(`Max loss per order (USD)\n\nCurrent: $${prefs.max_loss_per_order_usd}\nSmall-account suggestion (5% of $${Math.round(equity).toLocaleString()}): $${suggestedLoss}`, String(prefs.max_loss_per_order_usd || 0));
-        if (v == null) return;
-        const n = Number(v);
-        if (!Number.isFinite(n) || n <= 0) {
-          alert("Must be a positive number");
-          return;
-        }
-        saveAutoMirror({
-          max_loss_per_order_usd: n
-        });
-      },
-      style: {
-        padding: "3px 10px",
-        fontSize: 10,
-        borderRadius: 6,
-        cursor: busy ? "wait" : "pointer",
-        background: "rgba(103,232,249,0.10)",
-        color: "#67e8f9",
-        border: "1px solid rgba(103,232,249,0.28)"
-      }
-    }, "Edit max loss"), React.createElement("button", {
-      disabled: busy,
-      onClick: () => {
-        const v = prompt(`Daily cap (orders per day)\n\nCurrent: ${prefs.daily_cap}\nSmall-account suggestion: ${suggestedDaily}`, String(prefs.daily_cap || 0));
-        if (v == null) return;
-        const n = Number(v);
-        if (!Number.isFinite(n) || n < 0 || n > 100) {
-          alert("Must be 0-100");
-          return;
-        }
-        saveAutoMirror({
-          daily_cap: Math.round(n)
-        });
-      },
-      style: {
-        padding: "3px 10px",
-        fontSize: 10,
-        borderRadius: 6,
-        cursor: busy ? "wait" : "pointer",
-        background: "rgba(103,232,249,0.10)",
-        color: "#67e8f9",
-        border: "1px solid rgba(103,232,249,0.28)"
-      }
-    }, "Edit daily cap"), React.createElement("button", {
       disabled: busy,
       onClick: () => {
         const ALL_MODES = ["RIDE", "READY", "DRIFT", "FADE"];
@@ -2798,9 +2770,8 @@ function BridgeSection({
       disabled: busy,
       onClick: () => saveAutoMirror({
         max_notional_per_order_usd: suggestedNotional,
-        max_loss_per_order_usd: suggestedLoss,
-        daily_cap: suggestedDaily
-      }, `Apply small-account defaults for options?\n\nEquity: $${Math.round(equity).toLocaleString()}\n\nNew caps:\n  • Max notional: $${suggestedNotional}/order (~15% of equity)\n  • Max loss: $${suggestedLoss}/order (~5% of equity)\n  • Daily cap: ${suggestedDaily} orders`),
+        daily_loss_limit_usd: suggestedDailyLoss
+      }, `Apply small-account defaults for options?\n\nEquity: $${Math.round(equity).toLocaleString()}\n\nNew caps:\n  • Max notional: $${suggestedNotional}/order (~15% of equity)\n  • Daily loss limit: $${suggestedDailyLoss}`),
       style: {
         padding: "3px 10px",
         fontSize: 10,
@@ -2810,9 +2781,9 @@ function BridgeSection({
         color: "#fbbf24",
         border: "1px solid rgba(251,191,36,0.28)"
       }
-    }, "Apply small-account defaults \u26A1")), isSmallAccount && oversized && React.createElement("div", {
+    }, "Apply small-account defaults")), isSmallAccount && oversized && React.createElement("div", {
       className: "text-[11px] text-amber-300 italic"
-    }, "Current options caps are oversized for a $", Math.round(equity).toLocaleString(), " account. The equity-cap layer above already enforces $300/order on equities, but options auto-mirror has its own caps that still allow up to $", Number(prefs.max_notional_per_order_usd).toLocaleString(), "notional. Tap ", React.createElement("strong", null, "Apply small-account defaults \u26A1"), " to bring them in line."));
+    }, "Current options notional is oversized for a $", Math.round(equity).toLocaleString(), " account. Tap ", React.createElement("strong", null, "Apply small-account defaults"), " to bring max notional and the daily loss limit in line."));
   })()), users.length > 0 && React.createElement(McCollapse, {
     id: "bridge-users",
     title: "Order Activity",
@@ -4397,6 +4368,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1789936652903:875261041
+// cache-bust:1790219867358:639118181
 
-// cache-bust:1789936652903:875261041
+// cache-bust:1790219867358:639118181

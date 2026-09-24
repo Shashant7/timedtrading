@@ -464,7 +464,12 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   limit - consumed`. A win gives its risk back (a good day does not throttle
   itself); a loss keeps consuming (a bad day tightens until it stops).
   `prefs.daily_loss_limit_usd` (default **$500**, `0` = off; operator's number,
-  2026-09-24). **An open ticket is charged its STOP DISTANCE, not its debit**
+  2026-09-24). **Per-account copy lives on bridge `options_prefs.daily_loss_limit_usd`**
+  (Mission Control VehicleTogglesCard + Broker Connections); saving the operator's
+  Roth syncs into `timed:options:auto-mirror:{ADMIN_EMAIL}` so the day-trade lane
+  and the UI agree. Roth preset = all long-side strategies + LETF; Partner Cash =
+  Long Call / Long Put / LETF only. Index day-trade still routes via
+  `pickOptionsAccount` (Roth preferred). **An open ticket is charged its STOP DISTANCE, not its debit**
   (`optionStopRiskUsd`, `DEFAULT_STOP_FRACTION = 0.5`, mirrors `HARD_STOP_PCT`
   -50) — these are managed to a hard stop, so charging the whole debit prices
   a loss the doctrine never takes. Replayed at $500 on the 2026-09-23 tape,

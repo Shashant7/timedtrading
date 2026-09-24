@@ -1297,11 +1297,19 @@ export default {
       // an extra KV round-trip per order.
       //
       // Payload:
-      //   { user_id, vehicles: { long_call: { enabled, max_per_order_usd,
-      //     daily_cap, max_loss_per_order_usd }, ... } }
+      //   { user_id, daily_loss_limit_usd?, vehicles: { long_call: {
+      //     enabled, max_per_order_usd?, daily_cap?, max_loss_per_order_usd? }, ... } }
       // OR
       //   { user_id, apply_small_account_defaults: true }
       //   (writes a known-safe small-account preset)
+      // OR
+      //   { user_id, apply_roth_ira_defaults: true }
+      //   { user_id, apply_partner_cash_defaults: true }
+      //
+      // 2026-09-24 — daily_loss_limit_usd (default $500, 0 = off) is the
+      // account-level day stop. Per-vehicle daily_cap / max_loss_per_order
+      // remain writable for legacy Trader-lane caps but are no longer the
+      // primary Mission Control controls for the day-trade lane.
       //
       // Naked-short vehicle keys are silently stripped (defense in depth
       // — the engine already short-circuits before reaching here).
@@ -1313,13 +1321,20 @@ export default {
         const user = await readUser(env, userId);
         if (!user) return json({ ok: false, error: "user_not_found" }, 404);
 
+        const {
+          DEFAULT_DAILY_LOSS_LIMIT_USD,
+          normalizeDailyLossLimitUsd,
+          partnerCashVehicleEnables,
+          rothIraVehicleEnables,
+        } = await import("./bridge-options-prefs.js");
+
         const NAKED = new Set([
           "short_call", "short_put", "iron_condor_naked", "short_straddle",
           "short_strangle", "short_combo", "covered_call_naked",
         ]);
         const RECOGNIZED = new Set([
           "equity_long", "long_call", "long_put", "vertical_spread",
-          "leaps", "straddle", "moonshot", "index_trend_letf",
+          "leaps", "straddle", "moonshot", "lotto", "index_trend_letf",
         ]);
         // 2026-07-22 — equity_long bumped from a 3/day + $300 preset that
         // was clearly copy-pasted from the options-moonshot rows below.
@@ -1338,13 +1353,43 @@ export default {
           leaps:           { enabled: false, daily_cap: 1, max_per_order_usd: 500, max_loss_per_order_usd: 500 },
           straddle:        { enabled: false, daily_cap: 1, max_per_order_usd: 300, max_loss_per_order_usd: 200 },
           moonshot:        { enabled: false, daily_cap: 1, max_per_order_usd: 100, max_loss_per_order_usd: 100 },
+          lotto:           { enabled: false, daily_cap: 1, max_per_order_usd: 250, max_loss_per_order_usd: 250 },
           index_trend_letf: { enabled: false, daily_cap: 2, max_per_order_usd: 2000 },
         };
 
         const current = user.options_prefs?.vehicles || {};
         let nextVehicles;
+        let nextDailyLoss = user.options_prefs?.daily_loss_limit_usd;
+        if (nextDailyLoss === undefined) nextDailyLoss = DEFAULT_DAILY_LOSS_LIMIT_USD;
+
         if (body?.apply_small_account_defaults === true) {
           nextVehicles = JSON.parse(JSON.stringify(SMALL_ACCOUNT_DEFAULTS));
+          nextDailyLoss = DEFAULT_DAILY_LOSS_LIMIT_USD;
+        } else if (body?.apply_roth_ira_defaults === true) {
+          nextVehicles = { ...current };
+          for (const [k, row] of Object.entries(rothIraVehicleEnables())) {
+            nextVehicles[k] = { ...(nextVehicles[k] || SMALL_ACCOUNT_DEFAULTS[k] || {}), ...row, enabled: true };
+          }
+          if (!nextVehicles.equity_long) {
+            nextVehicles.equity_long = { ...SMALL_ACCOUNT_DEFAULTS.equity_long };
+          }
+          nextDailyLoss = DEFAULT_DAILY_LOSS_LIMIT_USD;
+          user.options_enabled = true;
+        } else if (body?.apply_partner_cash_defaults === true) {
+          nextVehicles = { ...current };
+          const partner = partnerCashVehicleEnables();
+          for (const [k, row] of Object.entries(partner)) {
+            nextVehicles[k] = {
+              ...(nextVehicles[k] || SMALL_ACCOUNT_DEFAULTS[k] || {}),
+              ...row,
+              enabled: !!row.enabled,
+            };
+          }
+          if (!nextVehicles.equity_long) {
+            nextVehicles.equity_long = { ...SMALL_ACCOUNT_DEFAULTS.equity_long };
+          }
+          nextDailyLoss = DEFAULT_DAILY_LOSS_LIMIT_USD;
+          user.options_enabled = !!(partner.long_call?.enabled || partner.long_put?.enabled);
         } else {
           nextVehicles = { ...current };
           for (const [k, row] of Object.entries(body?.vehicles || {})) {
@@ -1377,8 +1422,19 @@ export default {
             }
             nextVehicles[key] = next;
           }
+          if (body?.daily_loss_limit_usd !== undefined) {
+            const v = Number(body.daily_loss_limit_usd);
+            if (!Number.isFinite(v) || v < 0 || v > 1_000_000) {
+              return json({ ok: false, error: "daily_loss_limit_usd_must_be_0_to_1000000" }, 400);
+            }
+            nextDailyLoss = normalizeDailyLossLimitUsd(v);
+          }
         }
-        user.options_prefs = { ...(user.options_prefs || {}), vehicles: nextVehicles };
+        user.options_prefs = {
+          ...(user.options_prefs || {}),
+          vehicles: nextVehicles,
+          daily_loss_limit_usd: normalizeDailyLossLimitUsd(nextDailyLoss),
+        };
         user.options_prefs_updated_at = Date.now();
         await writeUser(env, userId, user);
         return json({
@@ -1421,6 +1477,9 @@ export default {
         const next = applyOptionsStrategyPatch(user, {
           options_enabled: typeof body?.options_enabled === "boolean" ? body.options_enabled : undefined,
           vehicles: body?.vehicles || null,
+          daily_loss_limit_usd: body?.daily_loss_limit_usd !== undefined
+            ? body.daily_loss_limit_usd
+            : undefined,
         });
         await writeUser(env, userId, next);
         return json({
