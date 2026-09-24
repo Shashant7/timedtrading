@@ -125,6 +125,84 @@ model was not out of risk appetite — it was out of bookkeeping.
 
 ---
 
+## A monitor that cries wolf is how a real one gets missed [2026-09-24]
+
+Auditing the three books after the stop-out fix, `model_broker_coverage`
+reported 29 anomalies with 18 of severity `fail`. Seventeen of the
+eighteen were the monitor being wrong. Worse, the incident record showed
+five investor cash *warnings* under a `fail` headline, so the first read
+(mine, reported to the operator) was "5 warnings, zero failures" — an
+answer that was both wrong and reassuring.
+
+- **Sample worst-first, or the sample is a coin flip.** An incident
+  stores five anomalies out of however many the check found, in the
+  check's own emission order. Coverage happened to emit its eleven
+  investor DCA warnings before its eighteen failures, so the record held
+  no failure at all. Anything that truncates evidence has to rank it
+  first, and say what it is not showing (`anomaly_count`,
+  `anomaly_fail_count`).
+- **"Never attempted" and "declined on purpose" are opposite
+  findings.** Fifteen `index_dt ENTRY unmatched — never_attempted`
+  failures were sitting in the sweep. Fourteen were prior-session
+  signals the vehicle daily cap had refused and one was QQQ 744C,
+  declined by the loss budget. Every reason was already in
+  `timed:opt-dt-mirror-log`; coverage read the log, found no terminal
+  match (the terminal test only ever fires for a reduce) and threw the
+  reason on the floor. A gate saying no with its reason written down is
+  terminal on an entry — the setup is gone, there is nothing to heal. A
+  skip with *no* recorded reason must stay `unmatched`: that one really
+  is a signal going missing.
+- **A ratio from one sample is not a ratio.** The relative-qty basis was
+  the FIRST mirrored open. An investor position is built by DCA and every
+  add is sized against the cash the account has that day, so the true
+  ratio walks away from the opening buy's. GS, DINO and EMR each paged
+  `TRIM qty drift` on a leg that reached the broker and filled. Basis is
+  now the sum of every mirrored open.
+- **A fraction needs a remainder to be a fraction of.** All three of
+  those trims were the model closing out — `/timed/investor/positions`
+  no longer listed any of them and neither Webull account held a share.
+  A reduce that leaves the account flat is judged on that, not on size.
+- **Say which order fell short.** `mirror_suppressed:<reason>` is the
+  bridge reporting that the *sleeve's entry* was rejected at preflight,
+  so a later reduce has no fully-mirrored position behind it. Rendered
+  as `EMR TRIM mirrored only in part
+  (mirror_suppressed:insufficient_cash_for_one_unit_0_lt_154.73)` it
+  reads as a sell the broker refused for lack of cash — impossible, and
+  it sent triage after a broken sell path. The sell worked and moved
+  4.61 shares; the DCA buy months earlier was the thing the cash ceiling
+  cut down.
+
+---
+
+## Isolating a partner's bookkeeping is not the same as ignoring it [2026-09-24]
+
+`/bridge/options/order` places the signal owner's order and every partner
+mirror in one call, returning the operator's result at the top level with
+`fanout: { accounts, results }` beside it. The isolation is deliberate and
+documented — a partner must never move the operator's day-loss ledger.
+The main worker then never read `fanout` at all, so a partner leg that
+failed while the operator's filled was neither recorded nor said out loud.
+
+- **A near-miss guard can be scoped to the wrong shape.**
+  `bridgeResponseIsOk` *has* a fan-out clause, written for exactly this
+  hazard ("fan-out wrappers always used to return `{ok:true}` even when
+  every account rejected"). It tests `parsed.fanout === true`, which
+  matches the equity route's flat `{fanout:true, results:[…]}` and not
+  the options route's nested object under the same key. The guard looked
+  present in review and was dead in production.
+- **Grade a partner leg with the operator's own function.** Partner legs
+  now go through `deriveMirrorDecision`. A second grader is a second
+  definition of "mirrored" that can disagree with the first.
+- **Check whether the heal already generalises before building a second
+  one.** There is still no per-partner reconciler and none was added: a
+  reconciler-driven close goes back through the options webhook, which
+  fans out again, and `clampReduceToHeld` clamps each account to the
+  contracts it actually holds — so an account already flat no-ops while
+  one still holding gets reduced. The gap was never the healing. It was
+  knowing it had happened.
+
+---
+
 ## A limitation nobody re-read is indistinguishable from a bug [2026-09-24]
 
 "The partner Webull account never received the day trades?" It never

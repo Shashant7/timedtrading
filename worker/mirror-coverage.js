@@ -649,6 +649,31 @@ export function buildCoverageRows(actions = [], ctx = {}) {
   return rows;
 }
 
+/**
+ * Say which order fell short: this one, or the entry it is selling.
+ *
+ * `mirror_suppressed:<reason>` is the bridge reporting that the sleeve's
+ * ENTRY was rejected at preflight, so a later reduce against the same
+ * trade_id has no fully-mirrored position behind it. The reason carried
+ * forward belongs to that entry.
+ *
+ * 2026-09-24 — `EMR TRIM mirrored only in part
+ * (mirror_suppressed:insufficient_cash_for_one_unit_0_lt_154.73)` reads
+ * as a sell the broker refused for lack of cash, which is not a thing
+ * that can happen. The sell went through and moved 4.61 shares; it was
+ * the DCA buy months earlier that the cash ceiling cut down. Triage went
+ * looking for a broken sell path.
+ */
+export function describePartialMirror(row) {
+  const reason = String(row?.reason || "").trim();
+  const m = reason.match(/^mirror_suppressed:(.*)$/);
+  if (m && isReduceEvent(row?.event)) {
+    const why = m[1].trim() || "entry not mirrored";
+    return `${row.ticker} ${row.event} sold against a sleeve whose ENTRY was suppressed (${why})`;
+  }
+  return `${row.ticker} ${row.event} mirrored only in part (${reason || "partial"})`;
+}
+
 export function coverageAnomalies(rows = [], {
   nowMs = Date.now(),
   graceMs = COVERAGE_GRACE_MS,
@@ -670,7 +695,7 @@ export function coverageAnomalies(rows = [], {
         // Two different causes land here now — a fan-out child rejecting,
         // and the bridge scaling the order to fit the account. Naming only
         // the first would misdescribe the second, so let the reason speak.
-        detail: `${row.ticker} ${row.event} mirrored only in part (${row.reason || "partial"})`,
+        detail: describePartialMirror(row),
       });
     } else if ((row.status === "unmatched" || row.status === "rejected") && anomalyVisible(row, list)) {
       const heal = healForCoverageRow(row);

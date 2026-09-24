@@ -6,6 +6,7 @@ import {
   classifyActionCoverage,
   relativeQtyOk,
   computeTradeRelativeQty,
+  describePartialMirror,
   buildCoverageRows,
   coverageAnomalies,
   evaluateModelBrokerCoverage,
@@ -423,6 +424,38 @@ describe("relative qty contract", () => {
     ];
     // Both are opens, so the basis is their sum and neither is exempt.
     expect(computeTradeRelativeQty(rows, { held: {} }).ratio).toBeCloseTo(0.46);
+  });
+});
+
+describe("describePartialMirror", () => {
+  it("says the ENTRY was suppressed, not the sell", () => {
+    expect(describePartialMirror({
+      ticker: "EMR",
+      event: "TRIM",
+      reason: "mirror_suppressed:insufficient_cash_for_one_unit_0_lt_154.73",
+    })).toBe("EMR TRIM sold against a sleeve whose ENTRY was suppressed"
+      + " (insufficient_cash_for_one_unit_0_lt_154.73)");
+  });
+
+  it("leaves an ordinary partial alone", () => {
+    expect(describePartialMirror({
+      ticker: "ANET",
+      event: "DCA_BUY",
+      reason: "broker_scaled_to_1.1_of_9.8_11pct_cash_buffer",
+    })).toBe("ANET DCA_BUY mirrored only in part (broker_scaled_to_1.1_of_9.8_11pct_cash_buffer)");
+  });
+
+  it("does not reword an OPEN — a buy really can be cash-capped", () => {
+    expect(describePartialMirror({
+      ticker: "EMR",
+      event: "DCA_BUY",
+      reason: "mirror_suppressed:insufficient_cash_for_one_unit_0_lt_154.73",
+    })).toContain("mirrored only in part");
+  });
+
+  it("survives a missing reason", () => {
+    expect(describePartialMirror({ ticker: "KO", event: "TRIM" }))
+      .toBe("KO TRIM mirrored only in part (partial)");
   });
 });
 
