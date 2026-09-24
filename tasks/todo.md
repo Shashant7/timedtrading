@@ -21,6 +21,14 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+## Active — Daily Brief miss / OOM catch-up (2026-09-24)
+
+- [x] Root cause: tt-research `exceededMemory` at 13:01 UTC on morning slot
+- [x] Brief-first hourly schedule + defer heavy arms on exact 9/17 ET
+- [x] Same-day catch-up (morning→15 ET, evening→20 ET, flash +1h)
+- [x] Manual morning 2026-09-24 generated (live)
+- [ ] Commit, push, PR
+
 ### Active
 ## Active — Portfolio all lanes (2026-09-24)
 

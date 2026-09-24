@@ -654,6 +654,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   (billing, credentials, quota bump, API key swap) MUST leave a
   tombstone + one-shot Discord page on first detection.
 
+**Daily Brief miss — tt-research exceededMemory, need brief-first + catch-up (2026-09-24)**
+- Symptom: morning brief missing at open; GraphQL `tt-research` at 13:01 UTC
+  `status=exceededMemory`. Manual generate worked (OpenAI OK).
+- Root: hourly learning-desk / Loop2 / portfolio-risk waitUntils started
+  before `generateDailyBrief`; exact-hour-only gate had no same-day retry.
+- Fix: `brief-cron.js` fires brief first, defers heavy arms on 9/17 ET,
+  catch-up through 15/20 ET (+1h for intraday flash).
+
 **CF long-term capture — compounder dip + pullback DCA (2026-07-23)**
 - CF auto-open (growth_strong + weekly_pullback + intraday) worked; D1 left
   `thesis`/`thesis_invalidation` null and DCA was calendar-only.

@@ -4431,6 +4431,30 @@ because the bridge flattens the model portion).
 
 ---
 
+## Daily Brief missed at 9 AM ET — tt-research exceededMemory, no catch-up [2026-09-24]
+
+**Symptom.** Operator (~9:17 AM ET Thu): Daily Brief didn't fire.
+`daily_briefs` had no `2026-09-24-morning` until a manual
+`POST /timed/daily-brief/generate`. GraphQL on `tt-research`:
+`2026-09-24T13:01:01Z status=exceededMemory` (also Sep 23 morning/evening
+slots). OpenAI was fine — manual generate succeeded in ~50s.
+
+**Root.** The hourly tick started learning-desk + Loop2 + portfolio-risk
+`waitUntil`s **before** `generateDailyBrief`. On exact 9 AM / 5 PM ET
+hours the isolate OOMed; `skipIfExists` only helps when a later tick
+retries, and the old gate was exact-hour-only (`h === 9` / `h === 17`).
+
+**Fix.** `worker/brief-cron.js`: schedule morning/evening **first** on
+every weekday hourly tick; defer heavy hourly arms on exact brief hours;
+same-day catch-up (morning→15 ET, evening→20 ET, flash +1h) with a
+one-shot #system-alerts note on catch-up. Manual morning for 2026-09-24
+already posted.
+
+**Rule.** Brief generation must win the isolate on its hour. Exact-hour
+gates without catch-up silently lose the day when the worker OOMs.
+
+---
+
 ## Daily Brief silently vanished for 2 trading days — OpenAI billing exhausted, "degraded" swallowed the alert [2026-07-29]
 
 **Symptom.** Operator (Wed morning): "Could you look into why the Daily

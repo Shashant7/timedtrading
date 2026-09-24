@@ -1252,6 +1252,13 @@ import {
   mergeEarningsEventLists,
   d1EnsureBriefSchema,
 } from "./daily-brief.js";
+import {
+  scheduleDailyBriefCron,
+  scheduleIntradayFlashCron,
+  shouldDeferHeavyHourlyWorkForBrief,
+  isEtWeekday,
+  etHourNow,
+} from "./brief-cron.js";
 import { seedHistoricalMarketEvents, checkMarketEventsCoverage } from "./market-events-seed.js";
 import {
   ensureOrchestratorSchema,
@@ -68202,6 +68209,8 @@ export default {
           engine_enabled: String(env.ENGINE_ENABLED ?? "(unset)"),
           engine_external: String(env.ENGINE_EXTERNAL ?? "(unset)"),
           feed_external: String(env.PRICE_FEED_EXTERNAL ?? "(unset)"),
+          research_enabled: String(env.RESEARCH_ENABLED ?? "(unset)"),
+          research_slots_external: String(env.RESEARCH_SLOTS_EXTERNAL ?? "(unset)"),
           score_candle_source: String(env.SCORE_CANDLE_SOURCE || "legacy"),
           candle_chain_ingest: String(env.CANDLE_CHAIN_INGEST ?? "(unset)"),
           has_chain_binding: !!env.CANDLE_CHAIN_SHARD,
@@ -105047,9 +105056,45 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && _utcH === 20 && _utcM === 45) vc.add("45 20 * * 1-5");
     }
     if (_isHourly) {
+      // 2026-09-24 — Daily Brief FIRST. tt-research was OOMing (`exceededMemory`)
+      // at 9 AM / 5 PM ET when learning-desk + Loop2 + portfolio-risk waitUntils
+      // shared the isolate with generateDailyBrief. Kick the brief off before
+      // those arms, and skip the heavy arms on exact brief hours. Catch-up
+      // windows (morning→15 ET, evening→20 ET) recover if the exact slot dies.
+      const _briefEtH = etHourNow();
+      const _briefWeekday = isEtWeekday();
+      const _deferHeavyForBrief = shouldDeferHeavyHourlyWorkForBrief(_briefEtH, {
+        weekday: _briefWeekday,
+      });
+      if (_briefWeekday) {
+        const _briefCandles = _makeHybridD1GetCandles(env);
+        scheduleDailyBriefCron(env, ctx, {
+          type: "morning",
+          etHour: _briefEtH,
+          weekday: true,
+          SECTOR_MAP,
+          d1GetCandles: _briefCandles,
+          notifyDiscord,
+          d1InsertNotification,
+        });
+        scheduleDailyBriefCron(env, ctx, {
+          type: "evening",
+          etHour: _briefEtH,
+          weekday: true,
+          SECTOR_MAP,
+          d1GetCandles: _briefCandles,
+          notifyDiscord,
+          d1InsertNotification,
+        });
+      }
+      if (_deferHeavyForBrief) {
+        console.log(`[CRON] Deferring heavy hourly arms — Daily Brief exact hour ${_briefEtH}:00 ET`);
+      }
+
       // CIO / CRO / CTO desk — hourly triage of learning_proposals.
       // Skip 22:00 UTC so the nightly scorecard + governor run first.
-      if (_utcH !== 22) {
+      // Also skip on exact Daily Brief hours (memory budget for OpenAI).
+      if (_utcH !== 22 && !_deferHeavyForBrief) {
         ctx.waitUntil((async () => {
           try {
             const desk = await _runLearningDeskCron(env);
@@ -105067,7 +105112,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
          Runs every hour during the trading day. Computes the pulse from
          the most recent N closed trades and decides whether to trip the
          breaker. Pause flag has 18h TTL so it auto-clears overnight. */
-      if (_isWeekday && _utcH >= 13 && _utcH <= 21) {
+      if (!_deferHeavyForBrief && _isWeekday && _utcH >= 13 && _utcH <= 21) {
         try {
           // Load DA config inline (the per-cycle scoring path loads it later
           // but the pulse fires before scoring).
@@ -107373,46 +107418,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
-    // ── Daily Brief: Morning (9 AM ET — 13:00 UTC in EDT, 14:00 UTC in EST) ──
-    if (vc.has("0 13 * * 1-5") || vc.has("0 14 * * 1-5")) {
-      const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
-      const h = parseInt(etHour, 10);
-      if (h === 9) {
-        ctx.waitUntil((async () => {
-          try {
-            console.log("[DAILY BRIEF CRON] Generating morning brief...");
-            const hybridGetCandles = _makeHybridD1GetCandles(env);
-            const morningOpts = {
-              SECTOR_MAP,
-              d1GetCandles: hybridGetCandles,
-              notifyDiscord,
-              d1InsertNotification,
-              skipIfExists: true,
-            };
-            let result;
-            try {
-              result = await generateDailyBrief(env, "morning", morningOpts);
-              console.log(`[DAILY BRIEF CRON] Morning: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
-            } catch (e) {
-              console.error("[DAILY BRIEF CRON] Morning failed:", String(e).slice(0, 300));
-              result = { ok: false, error: String(e?.message || e) };
-            }
-            await recordBriefCronOutcome(env, "daily_brief_morning", result);
-            try {
-              const { shouldScheduleBriefRetry, scheduleBriefCronRetry } = await import("./openai-spend.js");
-              if (shouldScheduleBriefRetry(result)) {
-                scheduleBriefCronRetry(ctx, env, "daily_brief_morning", () =>
-                  generateDailyBrief(env, "morning", morningOpts));
-              }
-            } catch (_) { /* retry scheduling optional */ }
-          } catch (e) {
-            console.error("[DAILY BRIEF CRON] Morning outer failed:", String(e).slice(0, 300));
-            await recordBriefCronOutcome(env, "daily_brief_morning", { ok: false, error: String(e?.message || e) });
-          }
-        })());
-      }
-      // Don't return — allow other handlers
-    }
+    // ── Daily Brief: Morning / Evening ───────────────────────────────
+    // Scheduled at the TOP of the hourly block (see `_isHourly` above) so
+    // generateDailyBrief wins the isolate before learning-desk / Loop2 /
+    // portfolio-risk. Exact hour + same-day catch-up live in brief-cron.js.
+    // (Previously gated here on vc "0 13/14" / "0 21/22" AFTER those arms
+    // had already started — 2026-09-23/24 tt-research exceededMemory and
+    // morning 2026-09-24 never landed until a manual POST.)
 
     // ── Intraday CRO/FSD sync — every weekday hour 13-21 UTC ──────────
     // 2026-06-03 — Operator expectation: "I expect it to periodically
@@ -107616,45 +107628,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
-    // ── Daily Brief: Evening (5 PM ET — 21:00 UTC in EDT, 22:00 UTC in EST) ──
-    if (vc.has("0 21 * * 1-5") || vc.has("0 22 * * 1-5")) {
-      const etHour = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
-      const h = parseInt(etHour, 10);
-      if (h === 17) {
-        ctx.waitUntil((async () => {
-          try {
-            console.log("[DAILY BRIEF CRON] Generating evening brief...");
-            const hybridGetCandles = _makeHybridD1GetCandles(env);
-            const eveningOpts = {
-              SECTOR_MAP,
-              d1GetCandles: hybridGetCandles,
-              notifyDiscord,
-              d1InsertNotification,
-              skipIfExists: true,
-            };
-            let result;
-            try {
-              result = await generateDailyBrief(env, "evening", eveningOpts);
-              console.log(`[DAILY BRIEF CRON] Evening: ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
-            } catch (e) {
-              console.error("[DAILY BRIEF CRON] Evening failed:", String(e).slice(0, 300));
-              result = { ok: false, error: String(e?.message || e) };
-            }
-            await recordBriefCronOutcome(env, "daily_brief_evening", result);
-            try {
-              const { shouldScheduleBriefRetry, scheduleBriefCronRetry } = await import("./openai-spend.js");
-              if (shouldScheduleBriefRetry(result)) {
-                scheduleBriefCronRetry(ctx, env, "daily_brief_evening", () =>
-                  generateDailyBrief(env, "evening", eveningOpts));
-              }
-            } catch (_) { /* retry scheduling optional */ }
-          } catch (e) {
-            console.error("[DAILY BRIEF CRON] Evening outer failed:", String(e).slice(0, 300));
-            await recordBriefCronOutcome(env, "daily_brief_evening", { ok: false, error: String(e?.message || e) });
-          }
-        })());
-      }
-    }
+    // ── Daily Brief: Evening — see early `_isHourly` brief-cron schedule.
+    // (Previous exact-hour-only handler removed 2026-09-24; catch-up covers
+    // missed 5 PM ET slots through 8 PM ET.)
 
     // ── Brief Accuracy Evaluator (P0.7.158, 2026-05-14) ──
     //
@@ -107901,60 +107877,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
-    // ── Intraday Flash Insights: 11 AM + 2 PM ET (twice per session) ──
-    // Runs on the "0 * * * *" schedule. Pre-filtered via the broad
-    // weekday-hourly virtual cron ("0 14-23 * * 1-5", added above at
-    // line ~69158 whenever UTC hour is 13-21 on a weekday). The real
-    // ET-hour gate below limits firing to exactly 11 AM and 2 PM ET,
-    // matching Daily Brief / Phase-C pulse patterns of "compute via
-    // _isHourly, then narrow by ET hour".
-    //
-    // History: previously fired hourly 10 AM – 3 PM ET. User feedback
-    // (P0.7.133): "happens at 10, 11 and 1, which seems excessive and
-    // tends to be redundant." Trimmed to two flashes:
-    //   • 11 AM ET — post-open consolidation read, after the opening
-    //     hour has set the day's tone (first hour captures ~60% of
-    //     daily range — see SPY notes in daily-brief.js).
-    //   • 2 PM ET — post-lunch / pre-close pivot. Lunch lull is over,
-    //     late-day direction (3-4 PM bias) is starting to form.
-    // These two times bracket the session without flooding the live
-    // feed with near-identical takes 60 minutes apart.
+    // ── Intraday Flash Insights: 11 AM + 2 PM ET (+1h catch-up) ──
+    // Runs on the weekday hourly window. Exact slots + one-hour catch-up
+    // when the exact tick OOMs (same class of failure as Daily Brief).
     if (vc.has("0 14-23 * * 1-5")) {
-      const _etFlashStr = new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false });
-      const _etFlashH = parseInt(_etFlashStr, 10);
-      if (_etFlashH === 11 || _etFlashH === 14) {
-        ctx.waitUntil((async () => {
-          try {
-            console.log(`[INTRADAY FLASH CRON] Generating flash insight at ${_etFlashH}:00 ET...`);
-            const hybridGetCandles = _makeHybridD1GetCandles(env);
-            const flashOpts = {
-              SECTOR_MAP,
-              d1GetCandles: hybridGetCandles,
-              notifyDiscord,
-              skipIfExists: true,
-              intradayEtHour: _etFlashH,
-            };
-            let result;
-            try {
-              result = await generateIntradayBrief(env, flashOpts);
-              console.log(`[INTRADAY FLASH CRON] ${result.ok ? "OK" : result.error} (${result.elapsed || 0}ms)`);
-            } catch (e) {
-              console.error("[INTRADAY FLASH CRON] Failed:", String(e).slice(0, 300));
-              result = { ok: false, error: String(e?.message || e) };
-            }
-            await recordBriefCronOutcome(env, "intraday_flash", result);
-            try {
-              const { shouldScheduleBriefRetry, scheduleBriefCronRetry } = await import("./openai-spend.js");
-              if (shouldScheduleBriefRetry(result)) {
-                scheduleBriefCronRetry(ctx, env, "intraday_flash", () =>
-                  generateIntradayBrief(env, flashOpts));
-              }
-            } catch (_) { /* retry scheduling optional */ }
-          } catch (e) {
-            console.error("[INTRADAY FLASH CRON] Outer failed:", String(e).slice(0, 300));
-            await recordBriefCronOutcome(env, "intraday_flash", { ok: false, error: String(e?.message || e) });
-          }
-        })());
+      const _etFlashH = etHourNow();
+      if (isEtWeekday()) {
+        scheduleIntradayFlashCron(env, ctx, {
+          etHour: _etFlashH,
+          weekday: true,
+          SECTOR_MAP,
+          d1GetCandles: _makeHybridD1GetCandles(env),
+          notifyDiscord,
+        });
       }
     }
 
