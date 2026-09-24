@@ -23,12 +23,12 @@
 ### Active
 ## Active — Options account prefs alignment (2026-09-24)
 
-- [ ] Bridge `options_prefs.daily_loss_limit_usd` (default $500) on POST /bridge/user/options-prefs
-- [ ] Mission Control VehicleTogglesCard: account daily loss + vehicle enables; stop leading with daily_cap / max_loss_per_order
-- [ ] Broker Connections: user-editable daily loss limit per account
-- [ ] Roth: all option vehicles ON + $500/day; Partner Cash: long_call/long_put/LETF + $500/day
-- [ ] Options order fanout to opted-in accounts (owner + mirror participants)
-- [ ] Sync operator auto-mirror KV daily_loss_limit_usd + vehicles from Roth save
+- [x] Bridge `options_prefs.daily_loss_limit_usd` (default $500) on POST /bridge/user/options-prefs
+- [x] Mission Control VehicleTogglesCard: account daily loss + vehicle enables; stop leading with daily_cap / max_loss_per_order
+- [x] Broker Connections: user-editable daily loss limit per account
+- [x] Roth: all option vehicles ON + $500/day; Partner Cash: long_call/long_put/LETF + $500/day (live KV applied)
+- [x] Sync operator auto-mirror KV daily_loss_limit_usd + vehicles from Roth save (live KV applied)
+- [ ] Options day-trade multi-account fan-out (deferred — mirror state is single-fill; Roth remains pickOptionsAccount)
 
 
 - [x] **Eleven day trades, zero broker positions (2026-09-23).** Not
