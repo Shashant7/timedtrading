@@ -17,6 +17,7 @@
 import { describe, it, expect } from "vitest";
 import worker from "./bridge-index.js";
 import { hmacSign } from "./bridge-crypto.js";
+import { buildIndexDayTradeClosePlay } from "../worker/options-auto-mirror.js";
 
 const HMAC = "test-bridge-hmac-key";
 const OPERATOR = "op@x.com";
@@ -255,20 +256,33 @@ describe("POST /bridge/options/order — partner fan-out", () => {
     expect(sizes[`${PARTNER2}#webull#individual-cash`]).toBe(2);
   });
 
-  it("fans a day-trade exit out too, not just the entry", async () => {
-    const sell = buyPayload({
-      play: {
-        archetype: "long_put", contracts: 2, premium: { mid: 0.63 },
-        _day_trade_close: true,
-        legs: [{
-          action: "SELL", optionType: "PUT", strike: 279,
-          expiration: "2026-09-25", qty: 2, premium_mid: 0.63,
-        }],
+  // Built by the REAL main-worker builder, not a hand-made fixture: if
+  // that builder changes shape, a partner's exit would get sized like an
+  // entry and could be scaled down below what they hold.
+  it("fans a day-trade exit out, and does not resize it like an entry", async () => {
+    // Source seed exactly as reconcileIndexDtMirrorPositions builds it.
+    const seed = {
+      archetype: "day_trade_put", ticker: "IWM", _day_trade_flavor: "put",
+      strikes: { primary: 279 }, expiration: { iso: "2026-09-25" },
+      premium: { mid: 0.63 },
+      legs: [{ action: "BUY", optionType: "PUT", strike: 279, expiration: "2026-09-25", qty: 2 }],
+    };
+    const closePlay = buildIndexDayTradeClosePlay(
+      seed,
+      {
+        ticker: "IWM", strike: 279, expiration: { iso: "2026-09-25" },
+        flavor: "put", qty: 2, limitPrice: 0.63, event: "STOP",
+        signalId: "dt:IWM:2026-09-24:2026-09-25:P:279",
       },
-    });
-    const r = await post(makeEnv([opRoth, partnerCash]), sell);
+    );
+    const r = await post(makeEnv([opRoth, partnerCash]), buyPayload({ play: closePlay }));
     expect(r.body.fanout.accounts).toBe(1);
-    expect(r.body.fanout.results[0].user_id).toBe(PARTNER_CASH);
+    const [mirror] = r.body.fanout.results;
+    expect(mirror.user_id).toBe(PARTNER_CASH);
+    // Entry sizing would have cut this to 1 on the equity ratio. A reduce
+    // goes out at the model's qty and is clamped to held at the guard.
+    expect(mirror.contracts).toBe(2);
+    expect(mirror.sizing).toBeUndefined();
   });
 
   it("honours the global kill switch before any account is touched", async () => {
