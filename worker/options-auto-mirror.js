@@ -1753,6 +1753,14 @@ export async function reconcileIndexDtMirrorPositions(env, {
       flavor,
       indicesFlagOn,
     });
+    // A reduce that reached the broker and came back rejected left the books
+    // exactly as drifted as one that never fired. Recording only `skipped`
+    // hid the worst case there is: on 2026-09-24 the IWM 278P stop was
+    // rejected on all 20 retries (a reused client_order_id — Webull's "do not
+    // place an order repeatedly") while this field listed only the two
+    // reduces that HAD placed, so nothing paged and the contract was
+    // flattened by hand 18 minutes later.
+    const rec = result?.reconcile;
     out.fired.push({
       signal_id: signalId,
       ticker: contract.ticker,
@@ -1762,7 +1770,8 @@ export async function reconcileIndexDtMirrorPositions(env, {
       qty: result?.close_qty ?? null,
       limit_price: result?.limit_price ?? null,
       skipped: !!result?.skipped,
-      reason: result?.reason || null,
+      placed: !result?.skipped && !!(rec?.persist || rec?.pending),
+      reason: result?.reason || rec?.reason || null,
     });
   }
 
@@ -1770,7 +1779,7 @@ export async function reconcileIndexDtMirrorPositions(env, {
   // moment the books agree. A watchdog reading a field that lingers after the
   // drift clears learns nothing; one that disappears is a signal either way.
   try {
-    const stuck = out.skipped.concat(out.fired.filter((f) => f.skipped));
+    const stuck = out.skipped.concat(out.fired.filter((f) => f.skipped || !f.placed));
     if (stuck.length) {
       await env.KV_TIMED.put(OPT_DT_REDUCE_RECON_KEY, JSON.stringify({
         ts: now, scanned: out.scanned, drifted: out.drifted, unmirrored: stuck,

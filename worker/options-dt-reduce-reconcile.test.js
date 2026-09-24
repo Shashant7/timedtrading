@@ -86,7 +86,15 @@ function harness({ mirror = mirroredHolding(), book = closedBook(), quote = { mi
     resolvePremium: async () => quote,
     fireReduce: async (_env, ctx) => {
       fired.push(ctx);
-      return { skipped: false, close_qty: 1, limit_price: 0.5 };
+      // `reconcile` is what says the order actually took. Stage 5b always
+      // returns it when it fires, and the telemetry below now reads it, so a
+      // stub that omits it would be modelling a reduce that never placed.
+      return {
+        skipped: false,
+        close_qty: 1,
+        limit_price: 0.5,
+        reconcile: { persist: true, pending: false, filledQty: 1, status: "filled" },
+      };
     },
     ...opts,
   });
@@ -368,6 +376,40 @@ describe("reconcileIndexDtMirrorPositions — telemetry", () => {
     await run({ fireReduce: async () => ({ skipped: true, reason: "vehicle_long_put_disabled" }) });
     const rec = JSON.parse(env.KV_TIMED.store.get(OPT_DT_REDUCE_RECON_KEY));
     expect(rec.unmirrored[0]).toMatchObject({ reason: "vehicle_long_put_disabled", event: "STOP" });
+  });
+
+  // 2026-09-24 — the IWM 278P stop-out. The reduce fired every minute for 18
+  // minutes and the broker rejected all 20 attempts (a reused
+  // client_order_id). `skipped` was false each time, so the breadcrumb listed
+  // only the two reduces that HAD placed and nothing paged; the contract was
+  // flattened by hand. A reduce that fires and is refused is still unmirrored.
+  it("records a reduce the broker rejected, not just one Stage 5b refused", async () => {
+    const { env, run } = harness();
+    await run({
+      fireReduce: async () => ({
+        skipped: false,
+        close_qty: 1,
+        limit_price: 0.44,
+        reconcile: { persist: false, pending: false, filledQty: 0, status: "rejected", reason: "order_rejected" },
+      }),
+    });
+    const rec = JSON.parse(env.KV_TIMED.store.get(OPT_DT_REDUCE_RECON_KEY));
+    expect(rec.unmirrored[0]).toMatchObject({
+      signal_id: SIG, event: "STOP", placed: false, reason: "order_rejected",
+    });
+  });
+
+  it("does not flag a reduce that left a working order at the broker", async () => {
+    const { env, run } = harness();
+    await run({
+      fireReduce: async () => ({
+        skipped: false,
+        close_qty: 1,
+        limit_price: 0.44,
+        reconcile: { persist: false, pending: true, filledQty: 0, status: "working", order_id: "X1" },
+      }),
+    });
+    expect(env.KV_TIMED.store.has(OPT_DT_REDUCE_RECON_KEY)).toBe(false);
   });
 
   it("clears the breadcrumb once the books agree", async () => {
