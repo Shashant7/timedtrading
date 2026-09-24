@@ -485,6 +485,22 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   **The lane must never bump the shared day counters again**: they are the
   Trader lane's live gate, and an uncapped lane bumping them would swap one
   starvation for another (`daily_cap_5_reached` for the rest of the day).
+- **Partners need TWO opt-ins for options (2026-09-24)**: `mirror_participant`
+  covers shares; `options_enabled` (or a `long_call`/`long_put` vehicle) covers
+  options. `/bridge/options/order` fans out to participants via
+  `fanOutOptionsMirrors` — until this date it placed on ONE resolved account,
+  so a fully-provisioned partner received every LETF share and not one index
+  day trade, with no rejection logged because nothing was ever asked to place.
+  Partner size = `floor(model × equity/book)` capped at 1×, a one-lot floor,
+  then the row's own `max_per_order_usd` and `daily_loss_limit_usd`, then
+  buying power. Reduces are NOT sized — they go at the model's qty and clamp
+  to contracts held, so a partner who scaled down on entry still exits. No
+  per-partner daily loss LEDGER yet (per-ticket caps only).
+- **`play.premium` is `{ mid }`, and `leg.qty` beats `play.contracts`
+  (2026-09-24)**: `playToWebullOptionOrder` resolves qty as
+  `leg.qty ?? play.contracts`, so resizing a play MUST write the leg too or the
+  order silently keeps the old size. `Number(play.premium)` is NaN — read
+  `play.premium.mid` (`modelPremiumMid`). Both fail open, quietly.
 - **Re-entry on the same contract is a first-class case (2026-09-24)**: a day
   trade re-enters a plan that re-presents itself, and the signal id IS the
   contract, so the second round lands on the first round's record. The BUY

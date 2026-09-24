@@ -131,6 +131,9 @@ and fans the same signal out to every *other* owner's opted-in account
 (`bridge-index.js` — the dispatcher). Sizing is relational: the partner's
 qty scales by `partner_equity / model_book_usd`.
 
+`/bridge/options/order` fans out the same way (since 2026-09-24) via
+`fanOutOptionsMirrors`, but gates on a second opt-in — see Step 3b.
+
 Disabling (toggle off, or **Pause all mirroring**) clears both flags via
 `pauseOwnerAccounts` and leaves the connection intact, so re-enabling is
 one click. Credentials are only removed by **Disconnect Webull**.
@@ -204,11 +207,49 @@ A quiet day (no fills, no positions) is skipped unless the row sets
 
 ---
 
+## Step 3b — Options are a SECOND opt-in
+
+`mirror_participant` covers shares. Options need `options_enabled` (or a
+`long_call` / `long_put` vehicle) on the same row, because a partner can
+authorize stocks without authorizing 1DTE index options. An account with
+mirroring on and options off receives LETF shares and no day trades —
+that is correct, not a bug.
+
+Check both before debugging anything else:
+
+```bash
+curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/admin/broker-bridge/status" \
+  -H "X-API-Key: ${TIMED_TRADING_API_KEY}" \
+  | jq '.users[] | {user_id, mirror_participant, options_enabled, webull_account_class}'
+```
+
+### How a partner's options size is decided
+
+Set on the bridge row, applied in `bridge-options-fanout.js`, tightest wins:
+
+| Input | Where | Effect |
+|---|---|---|
+| Account equity | `equity_usd` (synced) | `floor(model × equity/book)`, capped at 1× — a mirror never takes more than the model |
+| One-lot floor | — | Small accounts would floor to 0 forever, so a single contract is allowed if it clears the caps below |
+| `max_per_order_usd` | `options_prefs.vehicles.{long_call,long_put}` | Hard notional ceiling per ticket |
+| `daily_loss_limit_usd` | `options_prefs` (default $500) | Risk ceiling; at a -50% stop a $500 limit tolerates a $1,000 debit |
+| Buying power | `cash_usd` / `buying_power_usd` | Final clamp in the bridge; 0 affordable → `insufficient_buying_power` |
+
+`equity_usd` missing means the account sits out with
+`account_equity_unknown` rather than guessing a size — check the equity
+sync first if a partner is skipped.
+
+Reduces are NOT sized. A trim or exit goes out at the model's qty and is
+clamped to the contracts that account actually holds, so a partner who
+scaled down on the way in still gets out.
+
 ## Known limitations
 
-- **Options auto-mirror is operator-only.** `/bridge/options/order` places
-  on a single resolved account and does not fan out to participants, so a
-  partner mirrors equity/ETF trades only.
+- **No per-partner daily loss LEDGER.** Each options ticket is capped
+  against that account's `daily_loss_limit_usd`, but nothing keeps a
+  running day tally per partner the way `worker/options-risk-budget.js`
+  does for the operator, so a partner can take several capped losses in
+  one day.
 - **Bridge-internal routes are cross-tenant by design** (`/bridge/status`,
   `/bridge/portfolio`, unfiltered `/bridge/account-ledger`). They need the
   operator key; never expose them to a session-authed path.
@@ -224,4 +265,7 @@ A quiet day (no fills, no positions) is skipped unless the row sets
 | `409 webull_account_already_connected` | That Webull account belongs to another owner |
 | Partner accounts show `$0.00` | Equity snapshot missing — `bridge-equity-sync.js` stamps on positions/equity-curve; redeploy the bridge |
 | Model trades not reaching partner | `mirror_participant` false — re-toggle the account |
+| Shares arrive but no options day trades | `options_enabled` false on that row — options are a separate opt-in (Step 3b) |
+| Partner skipped with `account_equity_unknown` | No `equity_usd` on the row; the sizing refuses to guess. Re-sync equity |
+| Partner gets fewer contracts than the model | Expected — relational sizing plus the row's own caps (Step 3b) |
 | No daily email | Quiet-day skip, no `SENDGRID_API_KEY`, or the drain cron is not running |
