@@ -1,6 +1,6 @@
 # Entangled Mirror: model action to broker action, for any number of accounts
 
-Status: **proposal** (2026-09-24). Pilot lane: index day-trade options.
+Status: **decided; Phase 0 and Phase 1 shipped** (2026-09-24, PR #1499). Pilot lane: index day-trade options.
 Target: every mirrored lane (Short Term equity, index-trend LETF, day trades).
 
 ## 1. The requirement
@@ -376,27 +376,42 @@ live `entanglement_integrity` sanity check that reports a count per invariant.
 | Alerting | One message per model leg, not per account: `STOP SPY 771C: 1,987 settled, 9 insufficient_buying_power (at entry), 4 working, 0 defects`. Pages only on defects, or on `working` past the window. |
 | Storage | ~2,000 accounts × ~12 day-trade entries × ~2.5 legs ≈ 60k sleeve legs a day, plus attempts. Retain 90 days hot in D1, archive after. |
 
-## 8. Decisions needed
+## 8. Decisions (operator, 2026-09-24)
 
-1. **1-lot sleeves.** Recommended: size day-trade entries at two lots
-   whenever the account's caps allow it (so trims actually flow through),
-   and apply the model's own 1-lot rule (`indivisible_lot`, PROTECT) to the
-   rest. Today every mirror is pinned at one lot
-   (`index_dt_follow_paper_size` is off), so no broker trim can happen.
-2. **The operator becomes an ordinary sleeve.** Recommended: yes. Removing
-   the `ADMIN_EMAIL` special case is what makes account #3 identical to
-   account #2000.
-3. **Entry fill policy.** Limit within a slip cap for the entry window, then
-   `unfilled_at_limit` — versus chasing. Recommended: the cap, because a
-   chased fill in account 1,900 is a different trade from the model's.
-4. **No broker-native stops for day trades.** A native stop fires without a
-   model action, which makes the broker a second decision-maker the model
-   then has to ingest. Recommended: the model is the only actor; at most a
-   far catastrophic stop, recorded as its own leg kind if it ever fires.
-5. **New tables versus extending `mirror_trade_manifest`.** Recommended: new
-   tables, piloted on day trades, with Short Term migrated onto them and the
-   manifest retired afterwards. Extending the manifest inherits its mixed
-   `sync_state` vocabulary; running both long-term is two sources of truth.
+1. **Two lots.** Approved. The paper book's minimum is two lots (light 2 /
+   medium 2 / heavy 3) and the mirror follows it, inside each account's own
+   caps. An account whose caps allow only one lot takes one and carries
+   `indivisible_lot` through the trim.
+2. **The operator is an ordinary sleeve.** Approved. Partners with their own
+   ceilings are sized exactly like the operator's account; the equity ratio
+   remains only for an account that set none.
+3. **Market orders.** Approved in intent — the index chains are liquid — but
+   Webull's OpenAPI refuses `MARKET` on options (only `LIMIT`,
+   `STOP_LOSS` and `STOP_LOSS_LIMIT`). The shipped equivalent is a limit
+   priced through the touch by max(2 ticks, 3% of mid), for entries and
+   every reduce including trims. Fills are booked at the broker's average
+   price, never at the cushioned limit. `unfilled_at_limit` stays in the
+   closed set for the rare quote that moves past the cushion.
+4. **No broker-native stops — but confirm the stop at the broker.** The
+   model stays the only actor; the kernel's converge (§6) follows every trim
+   and stop through to each account's live holdings until verified, and
+   pages once per position if any account is still not there after ten
+   minutes.
+5. **New tables.** Approved, and live: `model_position`, `model_leg`,
+   `mirror_sleeve`, `mirror_order_attempt`. `mirror_sleeve_leg` (§4.1) is
+   deferred: converge over every sleeve of a position after each leg gives
+   the same per-account follow-through, and the per-leg row adds only
+   history.
+
+### Broker limits to design against
+
+From Webull's published limits: place, replace and cancel are 600 per
+minute, but order detail, open orders and order history are **2 requests
+per 2 seconds**. Converge therefore resolves in-flight orders by id only
+when an attempt is actually in flight, and holdings reads — not order
+history scans — are what verify a sleeve. Whether these limits are per app
+or per connected account decides how far sequential converge scales, and
+must be measured before the queue design in §7 is sized.
 
 Out of scope here but worth stating: placing orders in thousands of
 third-party accounts is discretionary management, with consent, disclosure
@@ -407,6 +422,14 @@ auditor would ask to see.
 
 Each phase ships behind a flag and has an exit criterion measured on live
 data, not asserted.
+
+**Status after PR #1499:** Phase 0 shipped in full, plus two defects found
+while doing it (investor trims sharing one client_order_id; the equity
+fan-out truncating trim ids into collisions). Phase 1 shipped live rather
+than in shadow — the operator's decisions made converge the stop-out check —
+so its exit criterion is now the first five sessions of both accounts'
+sleeves verifying every trim and stop. The KV mirror and risk ledger still
+run alongside; retiring them is Phase 2.
 
 | Phase | Scope | Exit criterion |
 |---|---|---|
