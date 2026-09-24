@@ -1426,12 +1426,23 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
   } = gate;
   const signalId = String(ctx.signal_id || "").trim();
 
+  // A re-entry lands on the signal id the first round already used, because
+  // the id is the contract and the desk is taking the same contract again.
+  // The guard below must therefore block a DUPLICATE of a live position, not
+  // a second round on a flat one.
+  let reentry = false;
   if (event === "BUY") {
     if (signalId) {
       const existing = await loadIndexDtMirror(env, signalId);
-      if (existing?.entry_fired || existing?.entry_placed) {
+      const holding = Number(existing?.contracts_remaining) > 0;
+      const working = existing?.entry_pending === true;
+      if (holding || working) {
         return { skipped: true, reason: "entry_already_mirrored" };
       }
+      // 2026-09-23 stopped out and re-entered SPY 766P, QQQ 737P and IWM 281P.
+      // Under the old guard every one of those second rounds was dropped, and
+      // SPY 766P's was the +$219 round of the session.
+      reentry = existing?.entry_fired === true || existing?.entry_placed === true;
     }
 
     // Price the entry where it can actually fill. The passive FMV ceiling is
@@ -1538,8 +1549,21 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     // lost or made instead of assuming the whole ticket went to zero.
     const entryPremium = Number(buyLimit ?? entryPlay.premium?.mid) || 0;
 
+    // A second round inherits the first round's record, so its trim and exit
+    // flags have to be cleared or the close path refuses the new position
+    // with `trim_already_mirrored` / `exit_already_mirrored`.
+    const roundReset = reentry
+      ? {
+        trim_fired: false, trim_pending: false, trim_qty: 0,
+        trim_premium: null, trim_order_id: null,
+        exit_fired: false, exit_pending: false, exit_qty: 0,
+        exit_premium: null, exit_order_id: null, exit_event: null,
+      }
+      : {};
+
     if (signalId && rec.persist) {
       await saveIndexDtMirror(env, signalId, {
+        ...roundReset,
         entry_fired: true,
         entry_placed: true,
         ticker,
@@ -1557,6 +1581,7 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
       });
     } else if (signalId && rec.pending) {
       await saveIndexDtMirror(env, signalId, {
+        ...roundReset,
         entry_fired: false,
         entry_placed: true,
         entry_pending: true,

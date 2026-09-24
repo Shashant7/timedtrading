@@ -295,6 +295,47 @@ describe("Stage 5b mirror safety invariants", () => {
     expect(r.reason).toBe("entry_already_mirrored");
   });
 
+  it("still blocks BUY while the first order is only working", async () => {
+    const kv = kvMock({
+      "timed:options:auto-mirror:op@x.com": PREFS,
+      [`timed:opt-dt-mirror:${SID}`]: JSON.stringify({
+        entry_placed: true, entry_pending: true, contracts: 1, contracts_remaining: 0,
+      }),
+    });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, []), {
+      event: "BUY", ticker: "QQQ", signal_id: SID, play: CALL_PLAY, indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(true);
+    expect(r.reason).toBe("entry_already_mirrored");
+  });
+
+  it("takes the same contract again once the position is flat", async () => {
+    // Day trading re-enters a plan that re-presents itself. SPY 766P, QQQ
+    // 737P and IWM 281P were each stopped out and taken again on 2026-09-23,
+    // and the old guard dropped every one of those second rounds.
+    const calls = [];
+    const kv = kvMock({
+      "timed:options:auto-mirror:op@x.com": PREFS,
+      [`timed:opt-dt-mirror:${SID}`]: JSON.stringify({
+        entry_fired: true, entry_placed: true, contracts: 1, contracts_remaining: 0,
+        trim_fired: true, exit_fired: true, exit_event: "STOP",
+      }),
+    });
+    const r = await maybeAutoMirrorIndexDayTradeEvent(bridgeEnv(kv, calls), {
+      event: "BUY", ticker: "QQQ", signal_id: SID, play: CALL_PLAY, indicesFlagOn: true,
+    });
+    expect(r.skipped).toBe(false);
+    expect(calls.length).toBe(1);
+
+    // The new round must not inherit the old round's close flags, or its own
+    // trim and exit are refused as already mirrored.
+    const mirror = JSON.parse(kv.store.get(`timed:opt-dt-mirror:${SID}`));
+    expect(mirror.entry_fired).toBe(true);
+    expect(mirror.trim_fired).toBe(false);
+    expect(mirror.exit_fired).toBe(false);
+    expect(mirror.exit_event).toBe(null);
+  });
+
   it("mirrors one lot for an index put whose single contract exceeds the max-loss throttle (bounded by notional)", async () => {
     const captured = [];
     const prefs = JSON.stringify({
