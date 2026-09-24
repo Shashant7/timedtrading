@@ -1596,7 +1596,7 @@ export default {
         const targetUserId = body?.user_id ? String(body.user_id).toLowerCase() : null;
         const users = targetUserId
           ? [await readUser(env, targetUserId)].filter(Boolean)
-          : await listConnectedUsers(env, 100);
+          : await listConnectedUsers(env);
         const eligible = users.filter(u => u && u.status === "connected" && u.broker_integration_enabled);
         const out = [];
         for (const u of eligible) {
@@ -1651,7 +1651,7 @@ export default {
           }
           return reconcileAllUsers(
             env,
-            () => listConnectedUsers(env, 100),
+            () => listConnectedUsers(env),
             (u) => brokerAdapterFor(u),
             { dryRun },
           );
@@ -1859,7 +1859,7 @@ export default {
           return;
         }
         const dryRun = String(env?.DAILY_DIGEST_DRY_RUN || "false").toLowerCase() === "true";
-        const users = await listConnectedUsers(env, 100);
+        const users = await listConnectedUsers(env);
         const eligible = users.filter(u => u && u.status === "connected" && u.broker_integration_enabled);
         let prepared = 0, skipped = 0, errored = 0;
         for (const u of eligible) {
@@ -1947,7 +1947,7 @@ export default {
       const dryRun = String(env?.BROKER_RECONCILE_DRY_RUN || "false").toLowerCase() === "true";
       const result = await reconcileAllUsers(
         env,
-        () => listConnectedUsers(env, 100),
+        () => listConnectedUsers(env),
         (u) => brokerAdapterFor(u),
         { dryRun },
       );
