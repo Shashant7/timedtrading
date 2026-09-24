@@ -30,6 +30,90 @@ describe("weekly governor pure helpers", () => {
     )).toBe(true);
   });
 
+  // 2026-09-23 — this is the only path that blocks a play without asking, so
+  // it must not act on a P&L-only verdict. A detector does not own its exits
+  // and cannot defend itself against a management bug.
+  it("holds back a bleeder whose entries still beat the book", () => {
+    const severe = planSevereDemotions([{
+      setup: "tt_ath_breakout",
+      direction: "long",
+      stats: { n: 20, profit_factor: 0.13, win_rate_pct: 35, pnl_usd: -945 },
+      entry_quality: { entry_edge: "confirmed", mfe_mae_ratio: 1.9, hit_rate_2pct: 55 },
+      mfe_capture_rate: 0.04,
+    }], { minN: 10, maxPf: 0.5, allowPaths: ["tt_ath_breakout"] });
+    expect(severe).toHaveLength(1);
+    expect(severe[0].action).toBe("fix_management");
+    expect(severe[0].config_key).toBeUndefined();
+    expect(severe[0].why).toMatch(/the leak is in the exits/);
+  });
+
+  it("holds back a marginal entry too — neutral is not grounds for a block", () => {
+    const severe = planSevereDemotions([{
+      setup: "tt_ath_breakout",
+      direction: "long",
+      stats: { n: 20, profit_factor: 0.2, win_rate_pct: 30, pnl_usd: -500 },
+      entry_quality: { entry_edge: "neutral", mfe_mae_ratio: 1.48, hit_rate_2pct: 48 },
+      mfe_capture_rate: -0.29,
+    }], { minN: 10, maxPf: 0.5, allowPaths: ["tt_ath_breakout"] });
+    expect(severe[0].action).toBe("fix_management");
+  });
+
+  it("still auto-demotes when the entries are measurably blind", () => {
+    const severe = planSevereDemotions([{
+      setup: "tt_ath_breakout",
+      direction: "long",
+      stats: { n: 20, profit_factor: 0.13, win_rate_pct: 35, pnl_usd: -945 },
+      entry_quality: { entry_edge: "absent", mfe_mae_ratio: 0.78, hit_rate_2pct: 35 },
+      mfe_capture_rate: -0.385,
+    }], { minN: 10, maxPf: 0.5, allowPaths: ["tt_ath_breakout"] });
+    expect(severe[0].action).toBe("auto_demote_blocked");
+    expect(severe[0].config_key).toBeTruthy();
+  });
+
+  // The pooled "absent" is 6 risk-on entries that work averaged with 25
+  // balanced-regime ones that do not. The block still applies — nothing gates
+  // the detector to risk-on, so leaving it armed keeps 80% of its fires in the
+  // regime that bleeds — but the route back is recorded.
+  it("still blocks a seasonal bleeder and records how to reinstate it", () => {
+    const severe = planSevereDemotions([{
+      setup: "tt_ath_breakout",
+      direction: "long",
+      stats: { n: 31, profit_factor: 0.25, win_rate_pct: 29, pnl_usd: -900 },
+      entry_quality: { entry_edge: "absent", mfe_mae_ratio: 0.78, hit_rate_2pct: 30 },
+      regime_fit: {
+        works_in: ["risk_on"],
+        fails_in: ["balanced"],
+        off_regime_share_pct: 80.6,
+        why: "gate the detector by regime rather than retiring it",
+      },
+      mfe_capture_rate: -0.385,
+    }], { minN: 10, maxPf: 0.5, allowPaths: ["tt_ath_breakout"] });
+    expect(severe[0].action).toBe("auto_demote_blocked");
+    expect(severe[0].config_key).toBeTruthy();
+    expect(severe[0].reinstate_behind_regime_gate.works_in).toEqual(["risk_on"]);
+    expect(severe[0].reinstate_behind_regime_gate.off_regime_share_pct).toBe(80.6);
+  });
+
+  it("leaves the reinstatement hint null when the signal fails everywhere", () => {
+    const severe = planSevereDemotions([{
+      setup: "tt_ath_breakout",
+      direction: "long",
+      stats: { n: 20, profit_factor: 0.13, win_rate_pct: 35, pnl_usd: -945 },
+      entry_quality: { entry_edge: "absent", mfe_mae_ratio: 0.78, hit_rate_2pct: 35 },
+    }], { minN: 10, maxPf: 0.5, allowPaths: ["tt_ath_breakout"] });
+    expect(severe[0].action).toBe("auto_demote_blocked");
+    expect(severe[0].reinstate_behind_regime_gate).toBe(null);
+  });
+
+  it("stays armed on rows with no entry grade, rather than silently disarming", () => {
+    const severe = planSevereDemotions([{
+      setup: "tt_ath_breakout",
+      direction: "long",
+      stats: { n: 14, profit_factor: 0.18, win_rate_pct: 28, pnl_usd: -700 },
+    }], { minN: 10, maxPf: 0.5, allowPaths: ["tt_ath_breakout"] });
+    expect(severe[0].action).toBe("auto_demote_blocked");
+  });
+
   it("does not auto-demote Cloud Pivot — that family is still in calibration", () => {
     const severe = planSevereDemotions([
       { setup: "tt_cloud_pivot", direction: "long", stats: { n: 12, profit_factor: 0.22, win_rate_pct: 25, pnl_usd: -140 } },

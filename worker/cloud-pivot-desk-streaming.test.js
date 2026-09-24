@@ -110,7 +110,7 @@ describe("resolveCloudLeaderFollowStamps", () => {
     });
   });
 
-  it("stamps a same-side follower and skips an opposite-side one", () => {
+  it("stamps a same-side follower and an opposite-side one as oppose", () => {
     // A leader can also be someone else's follower, and it stamps itself, so
     // pick followers that are not leaders in their own right.
     const followers = cloudPivotFollowersOf("SPY").filter((f) => !CLOUD_PIVOT_LEADERS.includes(f));
@@ -122,7 +122,12 @@ describe("resolveCloudLeaderFollowStamps", () => {
       [opposite]: { direction: "SHORT", trigger: "5_12_cross_dn" },
     });
     expect(stamps[same]._cloud_leader_follow.leader).toBe("SPY");
-    expect(stamps[opposite]).toBeUndefined();
+    expect(stamps[opposite]._cloud_leader_oppose).toEqual({
+      leader: "SPY",
+      leader_direction: "LONG",
+      direction: "SHORT",
+      trigger: "5_12_cross_dn",
+    });
   });
 
   it("stamps nothing when the leader has no curl", () => {

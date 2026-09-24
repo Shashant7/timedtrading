@@ -27433,6 +27433,7 @@ async function processTradeSimulation(
             if (_cpEntry?._cloud_magnet) tickerData._cloud_magnet = _cpEntry._cloud_magnet;
             if (_cpEntry?._cloud_session_plan) tickerData._cloud_session_plan = _cpEntry._cloud_session_plan;
             if (_cpEntry?._cloud_leader_follow) tickerData._cloud_leader_follow = _cpEntry._cloud_leader_follow;
+            if (_cpEntry?._cloud_leader_oppose) tickerData._cloud_leader_oppose = _cpEntry._cloud_leader_oppose;
             if (_cpEntry?._model_play && !tickerData.__model_play) {
               tickerData._model_play = _cpEntry._model_play;
             }
@@ -109985,6 +109986,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 if (_cp?._cloud_magnet) result._cloud_magnet = _cp._cloud_magnet;
                 if (_cp?._cloud_session_plan) result._cloud_session_plan = _cp._cloud_session_plan;
                 if (_cp?._cloud_leader_follow) result._cloud_leader_follow = _cp._cloud_leader_follow;
+                if (_cp?._cloud_leader_oppose) result._cloud_leader_oppose = _cp._cloud_leader_oppose;
                 if (_cp?._sequence_queue_proposal) {
                   result._sequence_queue_proposal = _cp._sequence_queue_proposal;
                 }
@@ -111227,12 +111229,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   const _stamp = _leaderStamps[sym];
                   if (_stamp?._cloud_leader) row._cloud_leader = _stamp._cloud_leader;
                   if (_stamp?._cloud_leader_follow) row._cloud_leader_follow = _stamp._cloud_leader_follow;
+                  if (_stamp?._cloud_leader_oppose) row._cloud_leader_oppose = _stamp._cloud_leader_oppose;
                   // Rank off the payload — the clouds the desk scores on only
                   // exist there — but with this row's leader stamps and live
                   // price, so the desk marks the same price the cards do.
                   if (payload && typeof payload === "object") {
                     if (_stamp?._cloud_leader) payload._cloud_leader = _stamp._cloud_leader;
                     if (_stamp?._cloud_leader_follow) payload._cloud_leader_follow = _stamp._cloud_leader_follow;
+                    if (_stamp?._cloud_leader_oppose) payload._cloud_leader_oppose = _stamp._cloud_leader_oppose;
                     if (Number(row.price) > 0) payload.price = row.price;
                     _deskScanned++;
                     try {

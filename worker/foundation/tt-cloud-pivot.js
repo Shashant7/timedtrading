@@ -115,7 +115,8 @@ export function cloudPivotKeepFrac(mfePct) {
 /**
  * Conviction for a fired Cloud Pivot detection, 0..5. Both 34/50 clouds
  * aligned with the direction is the baseline "real" setup (2); a leader
- * or a magnet ahead add to it; a soft-opposed cloud subtracts.
+ * or a magnet ahead add to it; a soft-opposed cloud or an opposing leader
+ * subtracts.
  * Used by the paper-family entry budget to take the best few, not all.
  */
 export function cloudPivotConviction(det) {
@@ -129,6 +130,7 @@ export function cloudPivotConviction(det) {
   if (c1h === dir) score += 1;
   else if (c1h && c1h !== dir) score -= 1;
   if (det.leader_follow?.leader) score += 1;
+  else if (det.leader_oppose?.leader) score -= 1;
   // A scheduled release / event-risk flag says volatility may change, not
   // that the reaction favors this side. Keep session if/then planning, but
   // do not let an unsigned catalyst label supply an admission point.
@@ -520,8 +522,11 @@ export function cloudLeaderFollowUniverse() {
  * payload at a time can resolve it without holding the universe in memory.
  * `curlBySym` is `{ SYM: detectTenMinCurl(payload) }` over
  * `cloudLeaderFollowUniverse()`. Returns `{ SYM: { _cloud_leader?,
- * _cloud_leader_follow? } }` — stamp these onto a payload before ranking it,
- * because the desk score pays +25 for a leader and +20 for a follow.
+ * _cloud_leader_follow?, _cloud_leader_oppose? } }` — stamp these onto a
+ * payload before ranking it. Follow pays +20 / +1 conviction; oppose pays
+ * −20 / −1, matching the ticker's own 34/50 clouds which have always scored
+ * both ways. Only agreement used to be recorded, so the tape could add
+ * conviction but never remove it.
  */
 export function resolveCloudLeaderFollowStamps(curlBySym = {}) {
   const curlOf = (sym) => (curlBySym instanceof Map ? curlBySym.get(sym) : curlBySym?.[sym]) || null;
@@ -540,22 +545,37 @@ export function resolveCloudLeaderFollowStamps(curlBySym = {}) {
     };
     for (const f of cloudPivotFollowersOf(leader)) {
       const folCurl = curlOf(f);
-      if (!folCurl || folCurl.direction !== leadCurl.direction) continue;
-      stamps[f] = {
-        ...(stamps[f] || {}),
-        _cloud_leader_follow: {
-          leader,
-          direction: leadCurl.direction,
-          trigger: folCurl.trigger,
-        },
-      };
+      if (!folCurl?.direction) continue;
+      if (folCurl.direction === leadCurl.direction) {
+        stamps[f] = {
+          ...(stamps[f] || {}),
+          _cloud_leader_follow: {
+            leader,
+            direction: leadCurl.direction,
+            trigger: folCurl.trigger,
+          },
+        };
+      } else {
+        stamps[f] = {
+          ...(stamps[f] || {}),
+          _cloud_leader_oppose: {
+            leader,
+            leader_direction: leadCurl.direction,
+            direction: folCurl.direction,
+            trigger: folCurl.trigger,
+          },
+        };
+      }
     }
   }
   return stamps;
 }
 
 /**
- * Stamp `_cloud_leader_follow` on same-side follower curls when a leader prints 10m 5/12.
+ * Stamp the leader relation on follower curls when a leader prints 10m 5/12:
+ * `_cloud_leader_follow` when the follower curls the same way,
+ * `_cloud_leader_oppose` when it curls against.
+ *
  * `rows` is `[{ sym, t }]`. Mutates ticker objects in place.
  */
 export function annotateCloudPivotLeaderFollows(rows = []) {
@@ -576,6 +596,7 @@ export function annotateCloudPivotLeaderFollows(rows = []) {
     if (!t) continue;
     if (stamp._cloud_leader) t._cloud_leader = stamp._cloud_leader;
     if (stamp._cloud_leader_follow) t._cloud_leader_follow = stamp._cloud_leader_follow;
+    if (stamp._cloud_leader_oppose) t._cloud_leader_oppose = stamp._cloud_leader_oppose;
   }
 }
 
@@ -598,6 +619,7 @@ export function detectTtCloudPivot(payload = {}, daCfg = {}, opts = {}) {
   const asOf = Number(opts.asOfTs || payload.ts || payload.ingest_ts || Date.now());
   const day2Eligible = isDay2CurlEligible(payload);
   const leaderFollow = payload._cloud_leader_follow || null;
+  const leaderOppose = payload._cloud_leader_oppose || null;
   const session = resolveCloudPivotSession(asOf, {
     allowDay2: day2Eligible,
     allowLeader: !!(leaderFollow?.direction),
@@ -687,6 +709,12 @@ export function detectTtCloudPivot(payload = {}, daCfg = {}, opts = {}) {
   if (leaderFollow?.leader && leaderFollow.direction === direction) {
     reasons.push(`leader_follow_${String(leaderFollow.leader).toLowerCase()}`);
   }
+  const opposedByLeader = leaderOppose?.leader
+    && leaderOppose.leader_direction
+    && leaderOppose.leader_direction !== direction;
+  if (opposedByLeader) {
+    reasons.push(`leader_oppose_${String(leaderOppose.leader).toLowerCase()}`);
+  }
 
   return {
     fires: true,
@@ -698,6 +726,7 @@ export function detectTtCloudPivot(payload = {}, daCfg = {}, opts = {}) {
     cloud_magnet: magnet,
     session_plan: plan,
     leader_follow: leaderFollow && leaderFollow.direction === direction ? leaderFollow : null,
+    leader_oppose: opposedByLeader ? leaderOppose : null,
     clouds: {
       c5_12: {
         bull: !!c512.bull,
@@ -727,6 +756,7 @@ function attachCloudContext(out, payload, det) {
   if (magnet) out._cloud_magnet = magnet;
   if (plan) out._cloud_session_plan = plan;
   if (det?.leader_follow) out._cloud_leader_follow = det.leader_follow;
+  if (det?.leader_oppose) out._cloud_leader_oppose = det.leader_oppose;
   if (payload?._cloud_leader) out._cloud_leader = payload._cloud_leader;
   return out;
 }
@@ -1195,6 +1225,7 @@ export function inspectTtCloudPivot(payload = {}) {
     one_h_sloping_against: cloudSlopingAgainst(rt1h?.c34_50, direction),
     leader: payload._cloud_leader || null,
     leader_follow: payload._cloud_leader_follow || null,
+    leader_oppose: payload._cloud_leader_oppose || null,
   };
 }
 
@@ -1244,6 +1275,7 @@ export function rankCloudPivotDeskRow(ticker, payload = {}, opts = {}) {
   if (insp.day2) { score += 20; why.push("day2"); }
   if (insp.leader) { score += 25; why.push(`leader_${insp.leader.symbol || ticker}`); }
   if (insp.leader_follow) { score += 20; why.push(`follow_${insp.leader_follow.leader}`); }
+  else if (insp.leader_oppose) { score -= 20; why.push(`against_${insp.leader_oppose.leader}`); }
   if (insp.session_plan) { score += 10; why.push("ifthen"); }
   if (insp.curl && insp.bias1h && insp.curl.direction === insp.bias1h) {
     score += 8;

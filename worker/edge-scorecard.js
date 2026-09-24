@@ -19,6 +19,14 @@
 
 import { summarizeSignalOutcomes } from "./signal-outcomes.js";
 import { canonicalPlayId } from "./foundation/play-catalog.js";
+import {
+  aggregateMfeCapture,
+  diagnoseLayer,
+  diagnoseRegimeFit,
+  gradeEntryQuality,
+  gradeEntryQualityByRegime,
+  summarizeEntryExcursions,
+} from "./trust-spine/entry-quality.js";
 
 /** Group ledger rows by catalog play id so "TT Cloud Pivot" and tt_cloud_pivot are one family. */
 export function setupGroupKey(row) {
@@ -34,10 +42,31 @@ export function groupTradesBySetup(rows, minN = 3) {
     if (!bySetup.has(key)) bySetup.set(key, []);
     bySetup.get(key).push(r);
   }
+  // The whole-cohort baseline is what makes an entry grade mean anything: an
+  // MFE:MAE of 1.8 is strong in a chop month and weak in a trend month, so it
+  // is only ever read against the same book over the same window.
+  const baseline = summarizeEntryExcursions(rows);
   return [...bySetup.entries()]
     .map(([key, list]) => {
       const [setup, direction] = key.split("|");
-      return { setup, direction, stats: computeWindowStats(list) };
+      const entryQuality = gradeEntryQuality(list, baseline);
+      const capture = aggregateMfeCapture(
+        list.map((r) => ({ pnl_pct: r.pnl_pct, mfe_pct: r.max_favorable_excursion })),
+      );
+      const byRegime = gradeEntryQualityByRegime(list, rows);
+      return {
+        setup,
+        direction,
+        stats: computeWindowStats(list),
+        // Graded separately on purpose: `stats` is what the book did with the
+        // trade, `entry_quality` is what the detector actually chose.
+        entry_quality: entryQuality,
+        entry_quality_by_regime: byRegime,
+        // Non-null only when the pooled grade is hiding a regime split.
+        regime_fit: diagnoseRegimeFit(byRegime),
+        mfe_capture_rate: capture,
+        diagnosis: diagnoseLayer(entryQuality?.entry_edge ?? null, capture),
+      };
     })
     .filter((s) => s.stats.n >= minN)
     .sort((a, b) => (b.stats.pnl_usd || 0) - (a.stats.pnl_usd || 0));
@@ -92,6 +121,20 @@ export function computeWindowStats(trades) {
 }
 
 /** Setups bleeding badly enough to propose demotion (operator decides). */
+/**
+ * Setups losing money over the window, split by WHICH LAYER is losing it.
+ *
+ * A low profit factor says the trade lost money, not that the signal was
+ * wrong. TT Support Bounce ran 60 days at PF 0.84 and a 29% win rate while
+ * its entries beat the book on both excursion axes — it reached +2% more
+ * often than the average trade the book took and converted 5% of it.
+ * Demoting it on profit factor would have deleted a working entry signal to
+ * avoid fixing an exit bug.
+ *
+ * So the P&L filter still decides who gets LOOKED at, and the entry grade
+ * decides what is proposed: `demote` only when the signal itself is not
+ * finding moves, `fix_management` when it is.
+ */
 export function findDemotionCandidates(perSetup, opts = {}) {
   const minN = Number(opts.minN) || 10;
   const maxPf = Number(opts.maxPf) || 0.8;
@@ -99,14 +142,61 @@ export function findDemotionCandidates(perSetup, opts = {}) {
     s.stats?.n >= minN
     && s.stats?.profit_factor != null
     && s.stats.profit_factor < maxPf,
-  ).map((s) => ({
-    setup: s.setup,
-    direction: s.direction,
-    n: s.stats.n,
-    profit_factor: s.stats.profit_factor,
-    win_rate_pct: s.stats.win_rate_pct,
-    pnl_usd: s.stats.pnl_usd,
-  }));
+  ).map((s) => {
+    const edge = s.entry_quality?.entry_edge ?? null;
+    // Only an entry that is measurably NOT finding moves is the detector's
+    // fault. "neutral" and an unreadable sample both stay with management,
+    // because the cost of wrongly deleting a signal is higher than the cost
+    // of looking at the exits one more week.
+    const entryAtFault = edge === "absent";
+    // A pooled "absent" can be an average of a regime where the entries work
+    // and one where they do not. That does NOT earn a stay of execution: the
+    // detector has no regime gate, so leaving it armed means it keeps firing
+    // in the regime that bleeds. Demote now, and record the way back in.
+    const regimeFit = entryAtFault ? (s.regime_fit || null) : null;
+    return {
+      setup: s.setup,
+      direction: s.direction,
+      n: s.stats.n,
+      profit_factor: s.stats.profit_factor,
+      win_rate_pct: s.stats.win_rate_pct,
+      pnl_usd: s.stats.pnl_usd,
+      entry_edge: edge,
+      mfe_mae_ratio: s.entry_quality?.mfe_mae_ratio ?? null,
+      hit_rate_2pct: s.entry_quality?.hit_rate_2pct ?? null,
+      mfe_capture_rate: s.mfe_capture_rate ?? null,
+      owner: entryAtFault ? "entry" : "management",
+      action: entryAtFault ? "demote" : "fix_management",
+      // Present only when the demote is throwing away a regime that works.
+      reinstate_behind_regime_gate: regimeFit
+        ? {
+          works_in: regimeFit.works_in,
+          fails_in: regimeFit.fails_in,
+          off_regime_share_pct: regimeFit.off_regime_share_pct,
+          why: regimeFit.why,
+        }
+        : null,
+      why: entryAtFault
+        ? (s.entry_quality?.why || "entries are not finding moves")
+          + (regimeFit ? ` — but ${regimeFit.why}` : "")
+        : `losing money but the entries hold up (${s.entry_quality?.why || "entry grade unavailable"})`
+          + " — fix the exits, do not demote the signal",
+    };
+  });
+}
+
+/** The subset of demotion candidates whose SIGNAL is the problem. */
+export function entryFaultDemotions(candidates) {
+  return (candidates || []).filter((c) => c.action === "demote");
+}
+
+/**
+ * Demoted detectors that still have a regime where the entries work. The block
+ * stands — nothing gates them to that regime yet — but these are the ones
+ * worth reinstating behind a gate rather than deleting.
+ */
+export function regimeGateCandidates(candidates) {
+  return (candidates || []).filter((c) => c.reinstate_behind_regime_gate);
 }
 
 /** Honest one-line flags about the current edge state. Pure. */
@@ -147,11 +237,18 @@ export async function buildEdgeScorecard(env, opts = {}) {
 
   let rows = [];
   try {
+    // The regime is joined from the session BEFORE the entry: it has to be
+    // knowable at entry time or the grade it feeds is hindsight.
     rows = (await db.prepare(
-      `SELECT ticker, direction, setup_name, setup_grade, entry_path, status, pnl, pnl_pct, exit_reason, exit_ts
-         FROM trades
-        WHERE status IN ('WIN','LOSS','FLAT') AND exit_ts >= ?1
-        ORDER BY exit_ts ASC LIMIT 3000`
+      `SELECT t.ticker, t.direction, t.setup_name, t.setup_grade, t.entry_path, t.status,
+              t.pnl, t.pnl_pct, t.max_favorable_excursion, t.max_adverse_excursion,
+              t.exit_reason, t.exit_ts,
+              (SELECT m.regime_overall FROM daily_market_snapshots m
+                WHERE m.date < date(t.entry_ts/1000,'unixepoch')
+                ORDER BY m.date DESC LIMIT 1) AS regime_at_entry
+         FROM trades t
+        WHERE t.status IN ('WIN','LOSS','FLAT') AND t.exit_ts >= ?1
+        ORDER BY t.exit_ts ASC LIMIT 3000`
     ).bind(since90).all())?.results || [];
   } catch (e) {
     return { ok: false, error_kind: "trades_read_failed", hint: String(e?.message || e).slice(0, 200) };

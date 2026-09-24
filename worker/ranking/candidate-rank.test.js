@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   CANDIDATE_RANK_VERSION, candidateBaseScore, computeCandidateScore,
-  stampTechnicalRank, stampCandidatePositions, processRankedCandidates,
+  stampTechnicalRank, stampCandidatePositions, processRankedCandidates, RANK_TILT_SIDE_FIELD,
 } from "./candidate-rank.js";
 
 function candidate(ticker, raw, extra = {}) {
@@ -371,5 +371,42 @@ describe("one candidate order", () => {
       });
       expect(stats).toEqual({ processed: 2, management: 0, entries: 2, deferred: 0 });
     });
+  });
+});
+
+describe("the side the overlays were signed for is recorded", () => {
+  it("stamps the rank side so a consumer trading the other way can re-sign", () => {
+    const long = { ticker: "AAPL", rank: 80, htf_score: 40 };
+    computeCandidateScore(long);
+    expect(long[RANK_TILT_SIDE_FIELD]).toBe("LONG");
+
+    const short = { ticker: "AAPL", rank: 80, htf_score: -40 };
+    computeCandidateScore(short);
+    expect(short[RANK_TILT_SIDE_FIELD]).toBe("SHORT");
+  });
+
+  it("records no side when the pass could not resolve one", () => {
+    const flat = { ticker: "AAPL", rank: 80, htf_score: 0 };
+    computeCandidateScore(flat);
+    expect(flat[RANK_TILT_SIDE_FIELD]).toBeUndefined();
+  });
+
+  it("clears a stale side on rescore, like the tilts it describes", () => {
+    const t = { ticker: "AAPL", rank: 80, htf_score: 40 };
+    computeCandidateScore(t);
+    expect(t[RANK_TILT_SIDE_FIELD]).toBe("LONG");
+    t.htf_score = 0;
+    computeCandidateScore(t);
+    expect(t[RANK_TILT_SIDE_FIELD]).toBeUndefined();
+  });
+
+  it("matches the sign the theme tilt was applied with", () => {
+    const themeMap = { enabled: true, by_ticker: { AAPL: { tilt: 3, theme: "ai" } } };
+    const short = { ticker: "AAPL", rank: 80, htf_score: -40 };
+    computeCandidateScore(short, { themeMap });
+    // A hot theme is a headwind for a short, so the stored tilt is negative...
+    expect(short._theme_tilt).toBe(-3);
+    // ...and the recorded side says which read that sign belongs to.
+    expect(short[RANK_TILT_SIDE_FIELD]).toBe("SHORT");
   });
 });
