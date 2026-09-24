@@ -203,6 +203,34 @@ failed while the operator's filled was neither recorded nor said out loud.
 
 ---
 
+## The deploy scripts do not stamp the sha the health check reports [2026-09-24]
+
+Deployed the partner options fan-out by hand with `npm run deploy:worker`
+and `npm run deploy:crons`. Both succeeded. `/timed/health` then reported
+`deployedSha: b07f1764` — a commit that was NOT what had just been
+uploaded.
+
+- **Only CI passes `--var ENGINE_GIT_SHA`.** `deploy-worker.yml` runs
+  `deploy-wrangler-retry.sh worker --env= --var ENGINE_GIT_SHA:${GITHUB_SHA:0:8}`;
+  the npm scripts run bare `wrangler deploy`. A wrangler var with no new
+  value KEEPS the old one, so a hand deploy inherits whatever sha CI last
+  stamped. The skill's own note ("a hand-run deploy leaves it unset") is
+  too kind — unset would at least look wrong. A stale-but-plausible sha
+  is the exact green-but-lying state that cost eleven days in the
+  incident this field was added for.
+- **A hand deploy can race a merge and win.** The PR merged mid-deploy;
+  CI deployed the merge commit at 16:23:33Z and a later hand re-stamp
+  overwrote it, leaving prod on branch code stamped with the branch sha
+  while main had moved on. Diffing
+  `git diff <sha> origin/main -- . ':(exclude)seed-timedtrading-levels/**'`
+  proved the bundles were identical and only the stamp was wrong, so the
+  fix was a re-stamp rather than a rebuild. Do that diff before assuming
+  either "it's fine" or "prod is stale".
+- Fixed by putting the `--var` form in `skills/deploy.md` as the default
+  copy-paste. The npm scripts should probably stamp it too.
+
+---
+
 ## A limitation nobody re-read is indistinguishable from a bug [2026-09-24]
 
 "The partner Webull account never received the day trades?" It never
