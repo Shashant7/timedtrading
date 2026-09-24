@@ -151,19 +151,101 @@
       600) are skipped with a logged reason when under 60s / 90s of wall —
       `ctx.waitUntil` in a cron handler defers nothing, and on the 14:30 tick
       those reads turned a tail that finished at 836s into a kill at 900s.
-- [ ] **`timed-trading-ingest` still OOMs its `*/5` during RTH.** Three real
-      causes are fixed (the pre-warm fan, the bar-pass overlap, the chart
-      calendar sharing that lane) and the overnight window is clean, but
-      13:15/13:20/13:30 were `exceededMemory` again at cpu 17-19s — roughly
-      double the 8-9s of the quiet hours. That isolate also serves every
-      `/timed/*` request and the PriceStream DO, and during RTH its log is a
-      solid wall of `POST https://do/ingest`. Next step is to measure rather
-      than guess: the remaining candidates are the per-request graphs of the
-      hot routes on a cron-sharing isolate, and the honest fix is probably to
-      move the `*/5` feed work off the worker that serves pages (the same
-      split that made `tt-engine` tractable) rather than to shave another
-      allocation. Does NOT affect trade execution — that is `tt-engine`,
-      which is green.
+- [x] **And it was the `*/1`, measured rather than guessed (2026-09-23).**
+      The monolith's remaining RTH kills were the last part of "fix the OOM
+      issue properly". The previous note guessed at the hot routes and at
+      splitting the `*/5`; both were wrong, and the measurement said so in
+      three steps.
+      1. Grouping `exceededMemory` by END instant turned 18 kills into SIX
+         isolate teardowns — one at `16:52:10` took five invocations at once
+         (three `*/1`, two `*/5`). The 128 MB cap is per-isolate, so most of
+         the 18 were collateral: one `*/1` victim had `cpu=116ms`. Wall time
+         did not correlate either (`16:15` died at 78s, a 714s tick was `ok`).
+      2. Filtering the kills by `eventType` returned `scheduled` ONLY — zero
+         `fetch` invocations, ever. That is what acquitted the co-resident
+         page traffic and the PriceStream DO, which the old note blamed.
+      3. `[PRICE FEED]` had zero log lines, because `tt-feed` already owns
+         the feed (12-23s a tick, zero OOMs). With it gone the `*/1` lane's
+         only real work is the candle-chain DO feed: 328 symbols of Alpaca 5m
+         bars plus a DO ingest each, 132-312s against a 60-second cadence with
+         no overlap guard, so three to five passes were resident together and
+         each held its own parse of the 2 MB universe index. Two passes 30s
+         apart both logged `fed:298 universe:328`.
+      Fixed as a pair, because a lease alone only converts overlap into lost
+      freshness: the 298 per-ticker DO pushes went from serial (~240ms each)
+      to concurrent per sub-batch across the 16 shards, taking a pass to ~36s
+      and inside its own cadence, and `_chainFeedSince` (4-min expiry,
+      `finally`-released) collapses whatever still overlaps. Coverage stays
+      the whole universe every pass, preserving the June starvation fix.
+      Also corrected two comments on that block that had rotted the
+      reassuring way: it claimed to be `AWAITED` (it is `waitUntil`) and to
+      rotate a chunk of the universe (rotation was removed in June).
+      PR [#1487](https://github.com/Shashant7/timedtrading/pull/1487).
+      **Correction:** the full window is 19 kills in SEVEN teardowns, not
+      18 in six — the first query had not yet ingested the `17:08` teardown.
+- [x] **Two more monolith tenants behind the `*/1` (2026-09-23).** Killing
+      the `*/1` overlap took kills from 19 to 5 and left the teardown RATE
+      unchanged (1 per 15.9 min → 1 per 16.5 min). That is what removing
+      COLLATERAL looks like, and it is what said to keep going.
+      1. **The bar pass had always overrun the 900s wall.** Visible only
+         once the `*/1` stopped dying around it: `*/5 sched 17:00:54 →
+         exceededWallTime wall=900s`. `cronFetchLatest`'s tiers sum to
+         ~670s off-hour (10/15/30 full universe ~360s + 5m half at 8s
+         pacing ~190s + 60/240 ~120s), which is exactly what production ran
+         (677/694/702/707/714s), and ~1030s at the top of the hour with
+         D/W/M. `tdFetchTimeSeries` now stops at an absolute deadline
+         BETWEEN batches, so what is already fetched still upserts. The
+         Alpaca per-symbol fallback is skipped on a short fetch (it would
+         replace a bounded stop with an unbounded heal) and
+         `bar_cron_aggregated` success is withheld (or freshness reads
+         healthy while D/W/M went unfetched). The tier ORDER already made
+         a cutoff safe: the stream-covered 5m is dropped first.
+      2. **`_d1LatestFingerprintCache` held 52 MB of the 128 MB isolate.**
+         The `*/5` ticks that died were indistinguishable from the ones
+         that lived (73-86s wall, 12-14.5s cpu either way) and one died
+         ALONE, because the invocation was never the problem. The cache
+         elides unchanged `ticker_latest` writes and stored
+         `` `${stage}|${len}|${payloadJson}` `` to do it, so the VALUE was
+         the payload: production is 332 rows / 52,291,932 bytes, avg 157 KB.
+         The 500-ENTRY cap was real and never engaged — the universe is 332.
+         `d1PayloadFingerprint()` (cyrb128 + exact length) is 52.2 MB →
+         13.0 KB measured, 87 ms for a full tick against a 12-14s budget,
+         0 collisions in 400k near-identical payloads. Both sites converted,
+         including the batch sync whose `_bindFps` stacked full payloads.
+      Verified in production: `18:52-19:37` is **0 teardowns over 7 `*/5`
+      ticks**, including three 687-697s bar-lane holders — exactly the
+      invocations that used to anchor one. tt-engine 8/8 `ok` over the same
+      window. PR [#1487](https://github.com/Shashant7/timedtrading/pull/1487).
+- [ ] **The monolith `*/5` still crosses the cap into the close.** Not
+      finished, and the numbers should not be read as if it were:
+      | window | | teardowns | killed | rate |
+      |---|---|---|---|---|
+      | baseline `15:17-17:08` | 111 min | 7 | 19 | 1/15.9m |
+      | after fixes 1+2 `17:37-18:43` | 66 min | 4 | 6 | 1/16.5m |
+      | after fix 3, mid `18:52-19:37` | 45 min | 0 | 0 | clean |
+      | after fix 3, close `19:37-20:07` | 30 min | 6 | 7 | 1/5.0m |
+      There is no 09-22 close to compare against — observability retention
+      had already dropped it, and a query over that window returns zero
+      events **of any kind**, so the apparent "0 teardowns yesterday" is
+      missing data and not a regression signal.
+      The signature is unchanged from before fix 3, so it is the same
+      remaining tenant: the `*/5` dies 9-11s after its move-status block
+      having spent ~46s silent between `[MIRROR COVERAGE]` and
+      `[MOVE_STATUS_SL_SKIP]`, taking at most one `*/1` with it. Only the
+      19:45 tick carried extra lanes (`45 19 * * 1-5`, the investor DCA
+      burst) — 19:30/19:40/19:50/19:55 were ordinary two-lane ticks, so it
+      is the ORDINARY tick getting heavier into the close, not a
+      once-a-day job. `[MIRROR COVERAGE]` grew `actions=59 → 73` and
+      `unmatched=15 → 18` over the same span.
+      Next tenants, in expected order: (a) the pre-warm chain, which
+      `_selfDispatch`es `/timed/all?slim=1` (x2) and `/timed/options/all`
+      (x3) through `this.fetch` — five full request graphs in this isolate;
+      (b) the mirror-coverage pass. Scoring is NOT a candidate: it runs on
+      tt-engine (zero `[SCORING]` lines on the monolith). Also still open
+      from the earlier pass: `runChartCandleCalendar` is a second
+      un-deadlined paced lane (an 18:05 `*/5` that SKIPPED the bar pass
+      still ran 626s because `claimBarLane()` had taken the lane first).
+      Needs a live RTH session to verify, so it wants its own branch.
 - [x] **Reduces now reach every mirrored tenant (2026-09-23).** Operator
       correction: every mirror-enabled account tracks the model on every
       position it held at activation, with quantity relational to account

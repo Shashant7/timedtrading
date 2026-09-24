@@ -319,6 +319,8 @@ export { BacktestRunner } from "./backtest-runner-do.js";
 export { CandleChainShard } from "./foundation/candle-chain-do.js";
 export { DeltaOneStream } from "./discovery/delta-one-stream.js";
 import { candleShardStub as _candleShardStub } from "./foundation/candle-chain-do.js";
+import { ingestChainSubBatch } from "./candle-chain-feed-batch.js";
+import { d1PayloadFingerprint } from "./d1-payload-fingerprint.js";
 import { prepareHtCandleWrite as _prepareHtCandleWrite } from "./foundation/candle-chain.js";
 // Phase 2 seam: chain-backed getCandles for shadow scoring (live-vs-chain diff).
 import { makeChainGetCandles as _makeChainGetCandles, getSeriesFromBases as _getSeriesFromBases, makeHybridGetCandles as _makeHybridGetCandles, HYBRID_CHAIN_TFS as _HYBRID_CHAIN_TFS, resolveScoreGetCandles as _resolveScoreGetCandles } from "./foundation/chain-series-adapter.js";
@@ -443,19 +445,15 @@ async function _feedCandleChainDO(env, allTickers, opts = {}) {
     try {
       barsBySym = await alpacaFetchAllBars(env, sub, "5", startISO, endISO, 10000) || {};
     } catch (_) { subErrors++; continue; } // isolate sub-batch failures
-    for (const ticker of sub) {
-      try {
-        const raw = barsBySym[ticker] || [];
-        const bars = raw.map(alpacaBarToCandle)
-          .filter((c) => c && Number.isFinite(c.ts) && Number.isFinite(c.o))
-          .map((c) => ({ ts: c.ts, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v != null ? c.v : null }));
-        if (bars.length === 0) { empty++; continue; }
-        const stub = _candleShardStub(env, ticker);
-        if (!stub) continue;
-        await stub.fetch(new Request("https://do/ingest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ticker, tf: "5", bars }) }));
-        fed++;
-      } catch (_) { errors++; }
-    }
+    // Concurrent, and bounded by SUB (which is also the Alpaca batch size).
+    // Serial round trips were most of what made a pass outrun its own cadence.
+    const _sb = await ingestChainSubBatch(sub, barsBySym, {
+      toCandle: alpacaBarToCandle,
+      stubFor: (ticker) => _candleShardStub(env, ticker),
+    });
+    fed += _sb.fed;
+    empty += _sb.empty;
+    errors += _sb.errors;
   }
   return { fed, empty, errors, subErrors, universe: universe.length };
 }
@@ -1078,6 +1076,21 @@ let _barCronSince = 0;
 // A healthy pass tops out around 10 min at top-of-hour; past 15 the holder
 // is gone. One skipped slot costs a half-slice rotation, not a refresh.
 const BAR_CRON_LEASE_MS = 15 * 60 * 1000;
+// And for the monolith's candle-chain DO feed, which since tt-feed took the
+// price feed away is the ENTIRE cost of the */1 lane: 328 symbols of Alpaca 5m
+// bars plus a DO ingest each, against a 60-second cadence. Measured at 132-312s
+// a pass on 2026-09-23, so three to five were always resident together, each
+// holding its own parse of the 2 MB universe index and its own bar maps. What
+// died was the isolate, not any one invocation — a single teardown at 16:52:10
+// took out five invocations at once (three */1 and two */5), which is why the
+// raw failure count read as 18 kills in two hours when it was really six.
+let _chainFeedSince = 0;
+// A healthy pass is well under a minute now that the ingest is no longer
+// serial; past four the holder is gone. Skipping an overlapping tick costs
+// nothing the next pass does not redo, because every pass covers the whole
+// universe by design (rotation was removed in 2026-06-15 after a rotating
+// chunk starved TSLA/AMZN/SPY behind a symbol Alpaca rejects).
+const CHAIN_FEED_LEASE_MS = 4 * 60 * 1000;
 // NY-session day key ("YYYY-MM-DD") for a ms timestamp or Date.
 //
 // 2026-09-05: this helper was referenced (calibration guards, re-confirm
@@ -41322,6 +41335,9 @@ async function d1GetCandlesAsOf(env, ticker, tf, limit = 200, asOfTs = null) {
 // already wrote an equivalent row within the staleness window.
 // The cache is per isolate (lost on respawn — that's a feature, it
 // guarantees a fresh write after a deploy/eviction).
+// The fingerprint is a DIGEST of the payload, never the payload (see
+// d1-payload-fingerprint.js). Holding the strings cost the isolate 52 MB of
+// its 128 MB before an invocation did anything, which is what killed the */5.
 const _d1IndexLastSeenCache = new Map();      // sym -> last_seen_ts we last wrote
 const _d1LatestFingerprintCache = new Map();  // sym -> last payload fingerprint
 const D1_INDEX_STALENESS_MS = 60 * 60 * 1000; // 1h — last_seen is just for ordering
@@ -41455,7 +41471,7 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
   // fingerprint — they tick on every call by design and have no
   // observable effect on the row's UI/scoring usefulness.
   try {
-    const fp = `${stage || ""}|${payloadJson ? payloadJson.length : 0}|${payloadJson || ""}`;
+    const fp = d1PayloadFingerprint(stage, payloadJson);
     const cached = _d1LatestFingerprintCache.get(sym);
     if (cached && cached === fp) {
       return { ok: true, skipped: true, reason: "fingerprint_match" };
@@ -41478,7 +41494,7 @@ async function d1UpsertTickerLatest(env, ticker, payload) {
       .bind(sym, ts, updatedAt, stage, prevStage, payloadJson)
       .run();
     try {
-      const fp = `${stage || ""}|${payloadJson ? payloadJson.length : 0}|${payloadJson || ""}`;
+      const fp = d1PayloadFingerprint(stage, payloadJson);
       _d1LatestFingerprintCache.set(sym, fp);
       // Keep cache bounded — keep the ~500 most recently written.
       if (_d1LatestFingerprintCache.size > 500) {
@@ -108098,11 +108114,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               blocklist: CHART_SYMBOL_BLOCKLIST,
             });
             ctx.waitUntil(
-              DataProvider.cronFetchLatest(env, allTickers)
+              // Deadlined against THIS invocation's wall, not the pass's own
+              // start: it is dispatched with `ctx.waitUntil`, which in a cron
+              // handler keeps the invocation alive rather than deferring
+              // anything, so the pass and the wall run out together.
+              DataProvider.cronFetchLatest(env, allTickers, {
+                deadlineMs: _now.getTime() + TICK_WALL_MS - TICK_SAFETY_MS,
+              })
                 .then(result => {
                   if (result) {
                     console.log(`[TD CRON] Bars: ${result.upserted} upserted, ${result.errors} errors`);
-                    if (_isTopOfHour) recordCronSuccess(env, "bar_cron_aggregated").catch(() => {});
+                    // A deadlined pass is not a successful aggregated pass —
+                    // recording it as one would let the freshness check read
+                    // healthy while D/W/M went unfetched.
+                    if (_isTopOfHour && !result.stoppedAtDeadline) recordCronSuccess(env, "bar_cron_aggregated").catch(() => {});
                   }
                 })
                 .catch(err => {
@@ -108243,33 +108268,54 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       }
       // ONGOING DO 5m INGEST (gated CANDLE_CHAIN_INGEST, default OFF): keep the
       // candle-chain DO's 5m base real-time fresh for the chain-backed LTF cutover.
-      // Runs on the LIGHT */1 cron (not the heavy */5 scoring) and is AWAITED so it
-      // reliably completes. Batch-fetches recent 5m from Alpaca per tick and pushes
-      // to the per-shard DOs; rotates a chunk of the universe so all refresh within
-      // a few minutes (< the freshness gate). No-op unless the flag is set.
+      // Runs on the */1 cron, which since tt-feed took the price feed away is
+      // this lane's only real work. Batch-fetches recent 5m from Alpaca and
+      // pushes to the per-shard DOs, covering the WHOLE universe each pass (no
+      // rotation — see _feedCandleChainDO). No-op unless the flag is set.
       try {
         if (String(env.CANDLE_CHAIN_INGEST || "").toLowerCase() === "1" || String(env.CANDLE_CHAIN_INGEST || "").toLowerCase() === "true") {
-          // Non-blocking (waitUntil) so it never delays the time-critical price
-          // feed; FULL scored universe every */1 tick (sub-batched) so no ticker
-          // starves. Universe = timed:tickers ∪ SECTOR_MAP (mirrors the scoring
-          // universe — SECTOR_MAP alone misses benchmarks/user tickers like SPY).
-          ctx.waitUntil((async () => {
-            // Universe = the authoritative SCORED set (snapshot keys) ∪ SECTOR_MAP
-            // ∪ timed:tickers. The snapshot (what /timed/all serves) is the only
-            // source that includes scored benchmarks + open positions (SPY/QQQ/IWM)
-            // which SECTOR_MAP/timed:tickers omit, leaving them stale → legacy.
-            const _set = new Set(Object.keys(SECTOR_MAP).map((x) => String(x).toUpperCase()));
-            try {
-              const _snap = await kvGetJSON(env.KV_TIMED, ALL_SNAPSHOT_KEY);
-              if (_snap?.data) for (const k of Object.keys(_snap.data)) _set.add(String(k).toUpperCase());
-            } catch (_) { /* snapshot optional */ }
-            try {
-              const _kvT = (await kvGetJSON(env.KV_TIMED, "timed:tickers")) || [];
-              if (Array.isArray(_kvT)) for (const x of _kvT) _set.add(String(x).toUpperCase());
-            } catch (_) { /* optional */ }
-            const r = await _feedCandleChainDO(env, [..._set]);
-            if (r && !r.skipped) console.log(`[CHAIN-DO-FEED] ${JSON.stringify(r)}`);
-          })().catch((e) => console.warn("[CHAIN-DO-FEED] err", String(e?.message || e).slice(0, 120))));
+          // One pass per isolate, same lease shape as the bar cron above.
+          //
+          // 2026-09-23 — `ctx.waitUntil` reads as "non-blocking" but in a cron
+          // handler it defers nothing: there is no response to return early, so
+          // the invocation stays alive until this settles. A pass that runs
+          // longer than its own 60-second cadence therefore overlaps itself, and
+          // three to five were resident at once, each with its own parse of the
+          // 2 MB universe index. The isolate's 128 MB is shared, so the kill was
+          // never attributable to one invocation: the teardown at 16:52:10 took
+          // five at once, three */1 and two */5 that were only collateral.
+          const _cfAge = _chainFeedSince ? Date.now() - _chainFeedSince : 0;
+          if (_chainFeedSince && _cfAge < CHAIN_FEED_LEASE_MS) {
+            console.warn(`[CHAIN-DO-FEED] skipped: the previous pass has been running ${Math.round(_cfAge / 1000)}s in this isolate`);
+          } else {
+            if (_chainFeedSince) {
+              console.warn(`[CHAIN-DO-FEED] lease expired after ${Math.round(_cfAge / 1000)}s — the holder died without releasing. Proceeding.`);
+            }
+            _chainFeedSince = Date.now();
+            // FULL scored universe every pass (sub-batched) so no ticker starves.
+            ctx.waitUntil((async () => {
+              // Universe = the authoritative SCORED set (snapshot keys) ∪ SECTOR_MAP
+              // ∪ timed:tickers. The snapshot (what /timed/all serves) is the only
+              // source that includes scored benchmarks + open positions (SPY/QQQ/IWM)
+              // which SECTOR_MAP/timed:tickers omit, leaving them stale → legacy.
+              try {
+                const _set = new Set(Object.keys(SECTOR_MAP).map((x) => String(x).toUpperCase()));
+                try {
+                  const _snap = await kvGetJSON(env.KV_TIMED, ALL_SNAPSHOT_KEY);
+                  if (_snap?.data) for (const k of Object.keys(_snap.data)) _set.add(String(k).toUpperCase());
+                } catch (_) { /* snapshot optional */ }
+                try {
+                  const _kvT = (await kvGetJSON(env.KV_TIMED, "timed:tickers")) || [];
+                  if (Array.isArray(_kvT)) for (const x of _kvT) _set.add(String(x).toUpperCase());
+                } catch (_) { /* optional */ }
+                const _cfStart = Date.now();
+                const r = await _feedCandleChainDO(env, [..._set]);
+                if (r && !r.skipped) console.log(`[CHAIN-DO-FEED] ${JSON.stringify(r)} in ${Date.now() - _cfStart}ms`);
+              } finally {
+                _chainFeedSince = 0;
+              }
+            })().catch((e) => console.warn("[CHAIN-DO-FEED] err", String(e?.message || e).slice(0, 120))));
+          }
         }
       } catch (e) { console.warn("[CHAIN-DO-FEED] err", String(e?.message || e).slice(0, 120)); }
 
@@ -111339,7 +111385,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   // payload that would be written matches what we
                   // last wrote, skip the row.
                   try {
-                    const _fp = `${_stage || ""}|${_pj.length}|${_pj}`;
+                    const _fp = d1PayloadFingerprint(_stage, _pj);
                     const _cached = _d1LatestFingerprintCache.get(_sym);
                     if (_cached && _cached === _fp) {
                       _d1FpSkipped++;

@@ -6,6 +6,120 @@
 
 ---
 
+## A cache keyed to skip a write was holding the whole universe [2026-09-23]
+
+The `*/5` kept dying after the `*/1` was fixed, and the ticks that died
+were indistinguishable from the ticks that lived — 73-86s wall, 12-14.5s
+CPU, either way. One died ALONE in its isolate. Nothing about the
+invocation explained it, because nothing about the invocation was the
+problem: `_d1LatestFingerprintCache` was already holding 52 MB of the
+isolate's 128 MB before the invocation started.
+
+- **A fingerprint that contains the thing it fingerprints is not a
+  fingerprint.** `d1UpsertTickerLatest` elides a D1 write when the row
+  has not changed, and stored `` `${stage}|${len}|${payloadJson}` `` per
+  ticker to decide. The elision is worth having (the TV ingest path
+  would otherwise rewrite the same ~157 KB row every bar). Storing the
+  payload to get it is not. `SELECT COUNT(*), SUM(length(payload_json))
+  FROM ticker_latest` → **332 rows, 52,291,932 bytes**, avg 157 KB, max
+  196 KB. A 128-bit digest answers the identical question in ~40 bytes:
+  52 MB → 13 KB, measured, for 87 ms of CPU against a 12-14s budget.
+- **"Bounded" was true and irrelevant.** The cache capped itself at 500
+  ENTRIES and the comment said so, which reads as safe right up until
+  you multiply by the entry size. The universe is 332 tickers, so the
+  cap never even engaged. Bound a cache by BYTES, or keep the entries
+  small enough that the count is a real bound.
+- **Module scope outlives the invocation, so a per-isolate cache is a
+  floor under every later invocation's budget.** Each tick's own peak
+  then has to fit in what is left. That is the whole explanation for two
+  identical ticks disagreeing about whether they fit, and for a `*/5`
+  dying with no one else in the room.
+- **When the victims are indistinguishable, stop profiling the victim.**
+  Wall, CPU and log position were the same on both sides. The question
+  that actually moved was "what does this isolate carry BEFORE the
+  invocation starts", which is answered by reading module-scope
+  declarations, not by reading the trace.
+- **Fix the tenant, then re-measure the RATE.** The `*/1` fix cut
+  invocations killed from 19 to 5 and left teardowns per minute
+  unchanged, which is exactly what removing collateral looks like. Had
+  the rate been the headline number from the start, the `*/5` would have
+  been named an hour earlier.
+
+---
+
+## The kill count was seven, not nineteen [2026-09-23]
+
+With `tt-engine` finally green, `timed-trading-ingest` was still failing
+its RTH crons. Grouping every scheduled invocation by outcome said 19
+`exceededMemory` in two hours, split 11 on the `*/1` and 8 on the `*/5`.
+Both numbers are artifacts.
+
+- **Group memory kills by their END instant before you read anything
+  into them.** The 128 MB limit is per-ISOLATE, so a teardown kills every
+  invocation resident in it at the same moment:
+
+  ```
+  isolate teardown at 16:05:05 killed 6 resident invocation(s):
+      */5  sched 15:55:54  wall=552s  cpu=15340ms
+      */1  sched 15:59:54  wall=312s  cpu=1855ms
+      */5  sched 16:00:54  wall=242s  cpu=13480ms
+      */1  sched 16:01:54  wall=192s  cpu=1679ms
+      */1  sched 16:02:54  wall=132s  cpu=2643ms
+      */1  sched 16:03:54  wall=72s   cpu=2092ms
+  ```
+
+  Nineteen kills were seven teardowns. Bucket within ~2s — the cascade
+  reports each resident invocation a few ms apart (`.416 .421 .566 .638
+  .671`), so exact-millisecond grouping splits one death into five.
+- **The victim tells you nothing about the cause.** A `*/1` killed with
+  `cpu=116ms` had allocated essentially nothing; it was simply resident.
+  The `*/1` "failed" more often than the `*/5` only because it fires five
+  times as often, so it is more often in the room.
+- **Wall time does not correlate either.** `16:15` and `16:50` died at
+  77-78s while a 714s tick came back `ok`. Long ticks were the survivors.
+- **The one honest signal was which event TYPES die.** Filtering on
+  `outcome=exceededMemory` and grouping by `eventType` returned
+  `scheduled` only — zero `fetch` invocations, ever. That is what ruled
+  out the co-resident page traffic and the PriceStream DO on this
+  worker, and left the crons. Worth doing before any code is read.
+- **Check what still lives on the worker before blaming what used to.**
+  The obvious suspect was the price feed, and `[PRICE FEED]` had *zero*
+  log lines: `tt-feed` already owns it (12-23s a tick, never overlapping,
+  zero OOMs). With the feed gone, the `*/1` lane's only real work is the
+  candle-chain DO feed — 328 symbols of Alpaca 5m bars plus a DO ingest
+  each, running 132-312s against a 60-second cadence with no overlap
+  guard, so three to five passes were always resident, each holding its
+  own parse of the 2 MB universe index.
+- **The duplication was in its own log the whole time.** Two passes
+  thirty seconds apart, both reporting the identical full sweep:
+
+  ```
+  16:56:02.530  */1  [CHAIN-DO-FEED] {"fed":298,"empty":30,"universe":328}
+  16:56:32.439  */1  [CHAIN-DO-FEED] {"fed":298,"empty":30,"universe":328}
+  ```
+
+- **A lease alone would have converted the overlap into lost
+  freshness.** The pass was slow because the 298 per-ticker DO pushes
+  were serial — one round trip at a time, ~240ms each, which is most of
+  the 132-312s. Making them concurrent per sub-batch (bounded by the
+  existing batch size, spread over 16 shards that each serialize their
+  own writes anyway) took a pass to ~36s, inside its own cadence. THEN
+  the lease (`_chainFeedSince`, 4-min expiry, released in a `finally`)
+  only has to catch what still overlaps. Fix the duration and the
+  overlap, in that order.
+- **`ctx.waitUntil` reads as "non-blocking" and is nothing of the
+  kind in a cron handler.** The call site's own comment said "so it never
+  delays the time-critical price feed". There is no response to return
+  early, so the invocation stays alive until it settles and holds
+  everything it allocated. Same lesson as the engine's monitoring passes,
+  learned again one lane over.
+- **Comments rot toward the reassuring.** That block also claimed the
+  work "is AWAITED so it reliably completes" (it is `waitUntil`) and
+  "rotates a chunk of the universe" (rotation was deliberately removed in
+  June). Both were fixed alongside the code.
+
+---
+
 ## A four-week-old ReferenceError, found by reading the log [2026-09-23]
 
 `[OPTIONS-ALL] day-trade build failed for SPY: _clockPrem is not defined`,
