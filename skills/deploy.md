@@ -85,15 +85,35 @@ since. The date alone is not the finding; the date against the source is.
 
 ## Worker deploy (default + production)
 
+**Always pass `--var ENGINE_GIT_SHA`.** Neither the bare `wrangler deploy`
+below nor `npm run deploy:worker` / `deploy:engine` / `deploy:research`
+stamps it — only CI does. A deploy without it leaves the PREVIOUS value in
+place, so `/timed/health` keeps reporting a commit that is no longer what
+is running. That is worse than "unset": it is the green-but-lying state
+this skill exists to prevent, and `deployedSha` is the one field anyone
+checks to answer "is prod current?". Hit on 2026-09-24.
+
 ```bash
-cd /workspace/worker
-# Default env (workers.dev URL)
-../node_modules/.bin/wrangler deploy 2>&1 | tail -5
-# Production env (custom domains, prod KV/D1 bindings, prod secrets)
-../node_modules/.bin/wrangler deploy --env production 2>&1 | tail -5
+cd /workspace
+SHA=$(git rev-parse HEAD | cut -c1-8)
+node scripts/embed-dashboard.js
+bash scripts/deploy-wrangler-retry.sh worker --env=           --var ENGINE_GIT_SHA:$SHA
+bash scripts/deploy-wrangler-retry.sh worker --env production --var ENGINE_GIT_SHA:$SHA
+bash scripts/deploy-wrangler-retry.sh worker-engine           --var ENGINE_GIT_SHA:$SHA
+bash scripts/deploy-wrangler-retry.sh worker-research         --var ENGINE_GIT_SHA:$SHA
 ```
 
-Both must succeed. The deploy is fast (~5s each).
+All four must succeed. Each deploy is fast (~5s).
+
+If a hand deploy races a merge, CI deploys the merge commit and a later
+hand deploy silently overwrites it. Re-stamp with the MERGE commit's sha
+once main settles, and diff first to confirm the bundles really are the
+same:
+
+```bash
+git diff --stat <deployed-sha> origin/main -- . ':(exclude)seed-timedtrading-levels/**'
+# empty == prod code equals main; only the stamp needs correcting
+```
 
 ### That was one of three. Now the cron workers.
 
