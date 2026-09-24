@@ -2005,6 +2005,41 @@ export default {
 // model-signal dispatch — their enable IS the opt-in. BROKER_FANOUT_ENABLED
 // continues to gate only the signal owner's own multi-account expansion,
 // so with no participants the behavior is exactly the legacy one.
+/** Room left for the base id once `-<8-char account suffix>` is appended. */
+const FANOUT_COID_BASE_MAX = 28;
+
+/**
+ * The per-account client_order_id base for an equity fan-out.
+ *
+ * This used to be `id.slice(0, 28)`, and cutting an id short is how three
+ * lanes have now lost orders. Short Term trims are `tt-trim-<trade>-<pct>`:
+ * `tt-trim-LULU-1788548997766-jrn7wqw5u-50` became `tt-trim-LULU-17885489977`
+ * for the 50% trim AND the 75% trim, so the bridge's 24h claim answered the
+ * second one `deduped` in every account and it was never placed. (The same
+ * truncation sank the IWM 278P options stop.)
+ *
+ * An id that fits is kept verbatim, so existing ids and their idempotency
+ * are unchanged. One that does not keeps a readable head and replaces the
+ * rest with a hash of the WHOLE id: still deterministic — a re-fire of the
+ * same order maps to the same base — but two different ids cannot collide
+ * on a shared prefix. Exported for tests.
+ */
+export function fanoutClientOrderIdBase(id) {
+  const clean = String(id || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  if (clean.length <= FANOUT_COID_BASE_MAX) return clean;
+  // FNV-1a over the full id, twice with different offsets for 64 bits.
+  const fnv = (seed) => {
+    let h = seed >>> 0;
+    for (let i = 0; i < clean.length; i++) {
+      h ^= clean.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, "0");
+  };
+  const hash = fnv(0x811c9dc5) + fnv(0x9e3779b9);
+  return `${clean.slice(0, FANOUT_COID_BASE_MAX - hash.length - 1)}-${hash}`;
+}
+
 async function handleOrderWebhook(env, ctx, payload) {
   const owner = String(payload?.user_id || "").toLowerCase();
   const vehicle = String(payload?.vehicle || "").toLowerCase();
@@ -2090,7 +2125,7 @@ async function handleOrderWebhook(env, ctx, payload) {
     // Keep a short, stable per-account suffix.
     let coid = null;
     if (payload?.client_order_id) {
-      const base = String(payload.client_order_id).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 28);
+      const base = fanoutClientOrderIdBase(payload.client_order_id);
       const suffix = String(acctId || "").replace(/[^a-zA-Z0-9]/g, "").slice(-8);
       coid = `${base}${suffix ? "-" + suffix : ""}`.slice(0, 40);
       if (coid.length < 10) coid = (coid + "xxxxxxxxxx").slice(0, 10);
