@@ -365,6 +365,142 @@ describe("relative qty contract", () => {
     expect(relativeQtyOk({ modelQty: 100, brokerQty: 2.04, basisRatio: 0.02 }).ok).toBe(true);
     expect(relativeQtyOk({ modelQty: 100, brokerQty: 3, basisRatio: 0.02 }).ok).toBe(false);
   });
+
+  // 2026-09-24 — GS / DINO / EMR. A DCA'd position is built from adds that
+  // are each sized against that day's cash, so the opening buy's ratio is a
+  // sample of one and the true ratio moves off it.
+  it("bases the ratio on ALL mirrored opens, not just the first", () => {
+    const rel = computeTradeRelativeQty([
+      { event: "BUY", status: "mirrored", model_qty: 100, broker_qty: 2, key: "e1" },
+      { event: "DCA_BUY", status: "mirrored", model_qty: 100, broker_qty: 8, key: "e2" },
+      // 200 model / 10 broker = 0.05. The exit sells the whole sleeve.
+      { event: "SELL", status: "mirrored", model_qty: 200, broker_qty: 10, key: "x" },
+    ]);
+    expect(rel.ratio).toBeCloseTo(0.05);
+    expect(rel.ok).toBe(true);
+  });
+
+  it("would have called that same exit drift on the first-open ratio", () => {
+    // Guards the fix: measured against the opening 0.02 the broker's 10
+    // shares are 5x the 4 "expected", which is what paged three times.
+    expect(relativeQtyOk({ modelQty: 200, brokerQty: 10, basisRatio: 0.02 }).ok).toBe(false);
+  });
+
+  it("does not size-check a reduce that left the broker flat", () => {
+    const rows = [
+      { event: "BUY", status: "mirrored", model_qty: 100, broker_qty: 2, key: "e", ticker: "GS" },
+      { event: "TRIM", status: "mirrored", model_qty: 100, broker_qty: 50, key: "x", ticker: "GS" },
+    ];
+    expect(computeTradeRelativeQty(rows).ok).toBe(false);
+    // Same rows, but the account holds nothing afterwards: the model closed
+    // out and the broker went flat with it.
+    const rel = computeTradeRelativeQty(rows, { held: { AAPL: { qty: 3 } } });
+    expect(rel.ok).toBe(true);
+    expect(rel.drifts).toHaveLength(0);
+  });
+
+  it("still size-checks a reduce that left shares behind", () => {
+    const rows = [
+      { event: "BUY", status: "mirrored", model_qty: 100, broker_qty: 2, key: "e", ticker: "GS" },
+      { event: "TRIM", status: "mirrored", model_qty: 100, broker_qty: 50, key: "x", ticker: "GS" },
+    ];
+    expect(computeTradeRelativeQty(rows, { held: { GS: { qty: 4 } } }).ok).toBe(false);
+  });
+
+  it("still size-checks when holdings could not be read", () => {
+    // A null map means the call failed. Nothing may be concluded from it.
+    const rows = [
+      { event: "BUY", status: "mirrored", model_qty: 100, broker_qty: 2, key: "e", ticker: "GS" },
+      { event: "TRIM", status: "mirrored", model_qty: 100, broker_qty: 50, key: "x", ticker: "GS" },
+    ];
+    expect(computeTradeRelativeQty(rows, { held: null }).ok).toBe(false);
+  });
+
+  it("does not exempt an OPEN just because the ticker reads flat", () => {
+    const rows = [
+      { event: "BUY", status: "mirrored", model_qty: 100, broker_qty: 2, key: "e", ticker: "GS" },
+      { event: "DCA_BUY", status: "mirrored", model_qty: 100, broker_qty: 90, key: "d", ticker: "GS" },
+    ];
+    // Both are opens, so the basis is their sum and neither is exempt.
+    expect(computeTradeRelativeQty(rows, { held: {} }).ratio).toBeCloseTo(0.46);
+  });
+});
+
+describe("declined entry vs never attempted", () => {
+  const dtEntry = (ts) => ({
+    lane: "index_dt", ticker: "QQQ", event: "BUY", qty: 1, ts,
+    trade_id: "dt:QQQ:2026-09-24:2026-09-25:C:744",
+  });
+
+  it("a loss-budget decline is terminal, carrying its reason", () => {
+    const cov = classifyActionCoverage(dtEntry(OLD), {
+      ring: [],
+      mirrorLogs: [{
+        signal_id: "dt:QQQ:2026-09-24:2026-09-25:C:744",
+        event: "BUY",
+        decision: "skipped",
+        reason: "daily_loss_budget_52_left_of_500_needs_108",
+      }],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("rejected_terminal");
+    expect(cov.reason).toContain("daily_loss_budget");
+  });
+
+  it("a vehicle daily cap decline is terminal", () => {
+    const cov = classifyActionCoverage(dtEntry(OLD), {
+      ring: [],
+      mirrorLogs: [{
+        signal_id: "dt:QQQ:2026-09-24:2026-09-25:C:744",
+        event: "BUY",
+        decision: "skipped",
+        reason: "vehicle_daily_cap_2_reached_for_long_put",
+      }],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("rejected_terminal");
+  });
+
+  it("an entry with no decision record stays unmatched / never_attempted", () => {
+    const cov = classifyActionCoverage(dtEntry(OLD), {
+      ring: [], mirrorLogs: [], nowMs: NOW,
+    });
+    expect(cov.status).toBe("unmatched");
+    expect(cov.reason).toBe("never_attempted");
+  });
+
+  it("an unrecognised skip reason stays unmatched but reports the reason", () => {
+    const cov = classifyActionCoverage(dtEntry(OLD), {
+      ring: [],
+      mirrorLogs: [{
+        signal_id: "dt:QQQ:2026-09-24:2026-09-25:C:744",
+        event: "BUY",
+        decision: "skipped",
+        reason: "some_new_gate_nobody_has_mapped",
+      }],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("unmatched");
+    expect(cov.reason).toBe("some_new_gate_nobody_has_mapped");
+  });
+
+  it("a declined-entry reason does NOT excuse a reduce", () => {
+    // The whole point of the check is that an unsold position pages.
+    const cov = classifyActionCoverage({
+      lane: "index_dt", ticker: "QQQ", event: "EXIT", qty: 1, ts: OLD,
+      trade_id: "dt:QQQ:2026-09-24:2026-09-25:C:744",
+    }, {
+      ring: [],
+      mirrorLogs: [{
+        signal_id: "dt:QQQ:2026-09-24:2026-09-25:C:744",
+        event: "EXIT",
+        decision: "skipped",
+        reason: "daily_loss_budget_52_left_of_500_needs_108",
+      }],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("unmatched");
+  });
 });
 
 describe("coverageAnomalies / evaluateModelBrokerCoverage", () => {

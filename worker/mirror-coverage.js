@@ -175,6 +175,64 @@ export function isCoverageTerminalReject(reason, event) {
   return false;
 }
 
+/**
+ * Gates that DECLINE an entry on purpose, by name.
+ *
+ * Each of these is a risk or policy rule answering "no" with its own
+ * reason recorded: the per-day loss budget, a vehicle's daily cap, a
+ * notional or max-loss ceiling, a signal already mirrored, a ticker the
+ * lane does not trade. The order never went out because nothing was
+ * supposed to send it.
+ */
+const DECLINED_ENTRY_RE = new RegExp([
+  "daily_loss_budget",
+  "vehicle_daily_cap",
+  "daily_cap",
+  "max_per_order",
+  "over_max_loss",
+  "over_cap",
+  "one_lot_notional",
+  "one_lot_max_loss",
+  "account_too_small",
+  "ticker_not_index",
+  "entry_already_mirrored",
+  "no_mirrored_entry",
+  "kill_switch",
+  "user_disabled",
+  "options_not_enabled",
+  "disabled",
+].join("|"), "i");
+
+/**
+ * Did a gate refuse this ENTRY on purpose?
+ *
+ * `unmatched` means "never left the monolith", and the reason it prints
+ * when no ring row exists is `never_attempted`. For a reduce that is the
+ * whole point of the check. For an entry it conflated two opposite
+ * findings: a signal the pipeline DROPPED, and a signal a risk gate
+ * deliberately declined and wrote its reason down.
+ *
+ * 2026-09-24 — fifteen `index_dt ENTRY unmatched — never_attempted`
+ * failures sat in the sweep. Fourteen were prior-session signals the
+ * vehicle daily cap had refused and one was `QQQ 744C`, declined by the
+ * loss budget. Every reason was already in `timed:opt-dt-mirror-log`;
+ * coverage read the log, found no terminal match (the terminal test only
+ * ever fires for a reduce) and threw the reason away. Eighteen failures
+ * with nothing actionable in them is how a real one goes unnoticed — and
+ * how the truncated incident record ended up showing five warnings under
+ * a `fail` headline.
+ *
+ * A declined entry is terminal: the setup is gone and there is nothing to
+ * heal hours later. A skip with NO recorded reason stays `unmatched` —
+ * that one really is the pipeline dropping a signal.
+ */
+export function isDeclinedEntry(reason, event) {
+  if (!isOpenEvent(event)) return false;
+  const text = String(reason || "").trim();
+  if (!text) return false;
+  return DECLINED_ENTRY_RE.test(text);
+}
+
 export function isCoverageDeferredReject(reason) {
   return DEFERRED_REASONS.test(String(reason || ""));
 }
@@ -327,6 +385,7 @@ export function classifyActionCoverage(action, {
 
   const logs = matchingMirrorLogs(action, mirrorLogs);
   const latestLog = logs[0] || null;
+  let declinedReason = null;
   if (latestLog) {
     const decision = String(latestLog.decision || (latestLog.skipped ? "skipped" : "")).toLowerCase();
     const reason = rejectText(latestLog);
@@ -344,6 +403,13 @@ export function classifyActionCoverage(action, {
     if (isCoverageTerminalReject(reason, action.event) || decision === "skipped" && isCoverageTerminalReject(reason, action.event)) {
       return { status: "rejected_terminal", reason: reason.slice(0, 160), broker_qty: 0, order_id: null };
     }
+    if (isDeclinedEntry(reason, action.event)) {
+      return { status: "rejected_terminal", reason: reason.slice(0, 160), broker_qty: 0, order_id: null };
+    }
+    // Still unmatched, but the lane said WHY. Falling through without this
+    // reprints the reason as `never_attempted`, which is the one thing it
+    // is not: something looked at this signal and wrote an answer down.
+    if (reason) declinedReason = reason;
   }
 
   if (ageMs >= 0 && ageMs < graceMs) {
@@ -400,7 +466,9 @@ export function classifyActionCoverage(action, {
     status: "unmatched",
     reason: falseOk
       ? (falseOk.deduped ? "deduped_not_a_fill" : "false_ok_no_order_id")
-      : (hits.length ? (rejectText(hits[hits.length - 1]) || "ring_not_a_place") : "never_attempted"),
+      : (hits.length
+        ? (rejectText(hits[hits.length - 1]) || "ring_not_a_place")
+        : (declinedReason ? declinedReason.slice(0, 160) : "never_attempted")),
     broker_qty: null,
     order_id: null,
   };
@@ -426,20 +494,55 @@ export function relativeQtyOk({
 }
 
 /**
- * First mirrored open sets the scale. Later mirrored opens/reduces must
- * stay on that ratio (model 100 / broker 2, then exit 100 / 2 — not 100).
+ * A reduce that leaves the broker holding nothing cannot be the wrong size.
+ *
+ * The ratio test asks "is this the right FRACTION of the position?", which
+ * only means something while there is a position left to be a fraction of.
+ * A final flatten is judged on one thing: the account is empty afterwards.
+ *
+ * 2026-09-24 — GS, DINO and EMR each paged `TRIM qty drift` on a leg that
+ * had reached the broker and filled, and all three were the model closing
+ * out: `/timed/investor/positions` no longer listed any of them and both
+ * Webull accounts held zero. The broker had done exactly the right thing
+ * and the monitor called it a failure, three times, for a reason no
+ * operator could act on.
  */
-export function computeTradeRelativeQty(rows = []) {
+export function reduceWentFlat(row, held) {
+  if (!isReduceEvent(row?.event)) return false;
+  const after = heldCoverageQty(held, row?.ticker);
+  return after != null && after <= COVERAGE_FLAT_EPSILON;
+}
+
+/**
+ * Mirrored opens set the scale; later mirrored rows must stay on it
+ * (model 100 / broker 2, then exit 100 / 2 — not 100).
+ *
+ * The basis is the SUM of the mirrored opens, not the first one. An
+ * investor position is built by DCA, and every add is sized against the
+ * cash the account has that day — so the first buy's ratio is a sample of
+ * one, and by the third add the true ratio has moved off it. Measuring a
+ * later leg against the opening sample is how a correctly sized sleeve
+ * reads as drift. Summing both sides asks the question that actually
+ * matters: of everything the model bought, what share did the broker buy?
+ */
+export function computeTradeRelativeQty(rows = [], { held = null } = {}) {
   const list = Array.isArray(rows) ? rows : [];
-  const entry = list.find((r) => isOpenEvent(r.event) && (r.status === "mirrored" || r.status === "mirrored_partial")
+  const opens = list.filter((r) => isOpenEvent(r.event)
+    && (r.status === "mirrored" || r.status === "mirrored_partial")
     && Number(r.model_qty || r.qty) > 0 && Number(r.broker_qty) > 0);
-  if (!entry) return { ok: true, skipped: "no_mirrored_entry", ratio: null, drifts: [] };
-  const ratio = Number(entry.broker_qty) / Number(entry.model_qty || entry.qty);
+  if (!opens.length) return { ok: true, skipped: "no_mirrored_entry", ratio: null, drifts: [] };
+  const modelTotal = opens.reduce((sum, r) => sum + Number(r.model_qty || r.qty), 0);
+  const brokerTotal = opens.reduce((sum, r) => sum + Number(r.broker_qty), 0);
+  if (!(modelTotal > 0) || !(brokerTotal > 0)) {
+    return { ok: true, skipped: "no_mirrored_entry", ratio: null, drifts: [] };
+  }
+  const ratio = brokerTotal / modelTotal;
   const drifts = [];
   for (const row of list) {
-    if (row === entry) continue;
+    if (opens.includes(row)) continue;
     if (row.status !== "mirrored" && row.status !== "mirrored_partial") continue;
     if (!(Number(row.model_qty || row.qty) > 0) || !Number.isFinite(Number(row.broker_qty))) continue;
+    if (reduceWentFlat(row, held)) continue;
     const check = relativeQtyOk({
       modelQty: row.model_qty || row.qty,
       brokerQty: row.broker_qty,
@@ -537,7 +640,7 @@ export function buildCoverageRows(actions = [], ctx = {}) {
     byTrade.get(tid).push(row);
   }
   for (const group of byTrade.values()) {
-    const rel = computeTradeRelativeQty(group);
+    const rel = computeTradeRelativeQty(group, { held: ctx.held });
     for (const row of group) {
       row.qty_ratio = rel.ratio;
       row.qty_drift = (rel.drifts || []).find((d) => d.key === row.key) || null;
