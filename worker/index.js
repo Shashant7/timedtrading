@@ -104481,8 +104481,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.log(`[OPT-DT-RECONCILE] watching ${r.watched} pending over ${r.passes} passes (${r.reason})`);
           }
           const _dtBudget = r?.budget;
-          if (_dtBudget?.freed || _dtBudget?.repriced || _dtBudget?.drift) {
-            console.log(`[OPT-DT-RECONCILE] budget repair: freed=${_dtBudget.freed} repriced=${_dtBudget.repriced} drift=${_dtBudget.drift} usd=${_dtBudget.freedUsd} ${JSON.stringify(_dtBudget.driftSignals || [])}`);
+          if (_dtBudget?.freed || _dtBudget?.repriced || _dtBudget?.booked || _dtBudget?.drift) {
+            console.log(`[OPT-DT-RECONCILE] budget repair: freed=${_dtBudget.freed} ($${_dtBudget.freedUsd}) repriced=${_dtBudget.repriced} booked=${_dtBudget.booked} ($${_dtBudget.bookedUsd}) drift=${_dtBudget.drift} ${JSON.stringify(_dtBudget.driftSignals || [])}`);
           }
           // The budget hitting zero stops the lane trading for the rest of
           // the day. That is the system working, but it is silent from the

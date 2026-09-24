@@ -284,25 +284,37 @@ export async function settleRisk(env, userEmail, signalId, { realizedUsd = 0, re
  *   - no mirror at all, or a mirror that says the order never became a
  *     position -> nothing was ever owned, so no P&L is possible and the
  *     charge is pure waste. Dropped. This is the 2026-09-23 wedge.
- *   - held, with a contract count -> re-price the charge off what is
- *     actually held, so a trim the settle path missed stops overcharging.
- *   - held once, now flat -> a close happened, and from here it cannot tell
- *     whether `settleRisk` already booked the P&L. Dropping it would risk
- *     erasing a realised loss and loosening the budget, so it is LEFT ALONE
- *     and counted as drift. It clears at the day roll, and persistent drift
- *     is worth a page rather than a silent guess.
+ *   - contracts closed that the ledger has not booked -> book them, at the
+ *     mirror's recorded close price when it has one and at the hard stop
+ *     when it does not. This is the case the close path drops when its
+ *     `settleRisk` throws, and it is the only one-way failure left: the
+ *     mirror write happens FIRST, so a settle that never ran leaves the
+ *     day paying for a position the mirror already calls flat.
+ *   - still held -> re-price the charge off what is actually held, so a
+ *     trim the settle path missed stops overcharging.
  *
- * `loadMirror` is injected so this stays a leaf module. `limitUsd` is only
- * used to report the post-repair snapshot, which is what the cron pages on.
+ * WHAT IT WILL NOT DO. Book anything twice. `markSettled` stamps the
+ * cumulative booked quantity on the mirror BEFORE the ledger is touched:
+ * if that stamp fails the booking is skipped entirely and retried next
+ * tick, and if the stamp lands but the ledger write does not, the day
+ * under-books one close rather than re-booking it every minute until the
+ * budget is spent. Anything it cannot stamp is left alone and counted as
+ * drift.
+ *
+ * `loadMirror` / `markSettled` are injected so this stays a leaf module.
+ * `limitUsd` is only used to report the post-repair snapshot, which is
+ * what the cron pages on.
  */
 export async function reconcileRiskBudget(env, userEmail, {
   loadMirror,
+  markSettled = null,
   now = Date.now(),
   limitUsd = 0,
   stopFraction = DEFAULT_STOP_FRACTION,
 } = {}) {
   const empty = {
-    checked: 0, freed: 0, repriced: 0, freedUsd: 0, drift: 0, driftSignals: [], snapshot: null,
+    checked: 0, freed: 0, repriced: 0, booked: 0, bookedUsd: 0,
+    freedUsd: 0, drift: 0, driftSignals: [], snapshot: null,
   };
   if (!env?.KV_TIMED || !userEmail || typeof loadMirror !== "function") return empty;
 
@@ -323,7 +335,6 @@ export async function reconcileRiskBudget(env, userEmail, {
       continue; // cannot read ground truth — leave the charge in place
     }
 
-    const held = Math.max(0, Math.round(num(mirror?.contracts_remaining)));
     const working = mirror?.entry_pending === true;
     const everOwned = mirror?.entry_fired === true || mirror?.entry_placed === true;
 
@@ -336,29 +347,67 @@ export async function reconcileRiskBudget(env, userEmail, {
       continue;
     }
 
-    if (held > 0) {
-      const basis = num(mirror?.entry_premium);
-      const frac = Number(mirror?.entry_stop_fraction) || stopFraction;
-      const trueUsd = optionStopRiskUsd(basis, held, { stopFraction: frac });
-      const charged = num(next[signalId]?.usd);
-      if (trueUsd > 0 && Math.abs(trueUsd - charged) >= 0.5) {
-        out.freedUsd += charged - trueUsd;
-        out.repriced++;
-        next[signalId] = { ...next[signalId], usd: trueUsd, ts: now };
+    const charged = num(next[signalId]?.usd);
+    const basis = num(mirror?.entry_premium);
+    const frac = Number(mirror?.entry_stop_fraction) || stopFraction;
+    const bought = Math.max(0, Math.round(num(mirror?.contracts)));
+    const held = Math.max(0, Math.round(num(mirror?.contracts_remaining)));
+    const booked = Math.max(0, Math.round(num(mirror?.risk_settled_qty)));
+    const closed = bought - held;
+    const unbooked = closed - booked;
+
+    const asDrift = () => {
+      out.drift++;
+      if (out.driftSignals.length < 8) out.driftSignals.push(signalId);
+    };
+
+    // A mirror with no entry size, or one that claims to hold more than it
+    // bought, cannot be reasoned about at all.
+    if (bought <= 0 || closed < 0) { asDrift(); continue; }
+
+    // A close the ledger never heard about — the close path writes the
+    // mirror first, so its `settleRisk` throwing loses the booking. Book it
+    // here, so the day keeps paying for a loss it really took.
+    if (unbooked > 0) {
+      if (!(basis > 0) || typeof markSettled !== "function") { asDrift(); continue; }
+      try {
+        await markSettled(env, signalId, closed);
+      } catch (_) {
+        asDrift(); // stamp first: an unstamped booking would repeat every tick
+        continue;
       }
+      const close = num(mirror?.exit_premium) || num(mirror?.trim_premium) || 0;
+      // No recorded close price leaves the hard stop as the only defensible
+      // assumption, which is exactly what those contracts were charged.
+      const realizedUsd = close > 0
+        ? Math.round((close - basis) * 100 * unbooked * 100) / 100
+        : -optionStopRiskUsd(basis, unbooked, { stopFraction: frac });
+      state.realized_pnl_usd = num(state.realized_pnl_usd) + realizedUsd;
+      out.booked++;
+      out.bookedUsd += realizedUsd;
+    }
+
+    if (held <= 0) {
+      out.freedUsd += Math.max(0, charged);
+      out.freed++;
+      delete next[signalId];
       continue;
     }
 
-    // Owned, now flat, and this function cannot prove the P&L was booked.
-    out.drift++;
-    if (out.driftSignals.length < 8) out.driftSignals.push(signalId);
+    const trueUsd = optionStopRiskUsd(basis, held, { stopFraction: frac });
+    if (trueUsd > 0 && Math.abs(trueUsd - charged) >= 0.5) {
+      out.freedUsd += charged - trueUsd;
+      out.repriced++;
+      next[signalId] = { ...next[signalId], usd: trueUsd, ts: now };
+    }
   }
 
-  if (out.freed || out.repriced) {
+  if (out.freed || out.repriced || out.booked) {
     state.open = next;
     await saveRiskState(env, userEmail, state, now);
   }
   out.freedUsd = Math.round(out.freedUsd * 100) / 100;
+  out.bookedUsd = Math.round(out.bookedUsd * 100) / 100;
   out.snapshot = riskBudgetSnapshot(state, limitUsd);
   return out;
 }

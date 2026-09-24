@@ -397,6 +397,10 @@ describe("reconcileRiskBudget — the ledger is rebuilt from the mirrors", () =>
   // the counter this module replaced had. So the ledger has to be
   // reconstructible from ground truth.
   const mirrors = (map) => async (_env, sid) => map[sid] ?? null;
+  /** Records what the reconciler claims it has booked, the way KV would. */
+  const stamper = (map) => async (_env, sid, qty) => {
+    if (map[sid]) map[sid].risk_settled_qty = qty;
+  };
 
   it("frees a charge whose order never became a position", async () => {
     const kv = kvMock();
@@ -433,17 +437,19 @@ describe("reconcileRiskBudget — the ledger is rebuilt from the mirrors", () =>
   });
 
   it("re-prices a held position down to what is actually still held", async () => {
-    // Charged for 3 lots, a trim the settle path missed left 1.
+    // Charged for 3 lots, a trim the settle path booked left 1.
     const kv = kvMock();
     await commitRisk(envOf(kv), OP, "dt:IWM:281P", { usd: 169.5, now: NOW });
     const r = await reconcileRiskBudget(envOf(kv), OP, {
       loadMirror: mirrors({
         "dt:IWM:281P": {
-          entry_fired: true, contracts_remaining: 1, entry_premium: 1.13, entry_stop_fraction: 0.5,
+          entry_fired: true, contracts: 3, contracts_remaining: 1, risk_settled_qty: 2,
+          entry_premium: 1.13, entry_stop_fraction: 0.5,
         },
       }),
       now: NOW,
     });
+    expect(r.booked).toBe(0);
     expect(r.repriced).toBe(1);
     expect(r.freedUsd).toBe(113);
     expect(riskBudgetSnapshot(stateIn(kv), 500).open_usd).toBe(56.5);
@@ -454,28 +460,135 @@ describe("reconcileRiskBudget — the ledger is rebuilt from the mirrors", () =>
     await commitRisk(envOf(kv), OP, "dt:IWM:281P", { usd: 169.5, now: NOW });
     const r = await reconcileRiskBudget(envOf(kv), OP, {
       loadMirror: mirrors({
-        "dt:IWM:281P": { entry_fired: true, contracts_remaining: 3, entry_premium: 1.13 },
+        "dt:IWM:281P": {
+          entry_fired: true, contracts: 3, contracts_remaining: 3, entry_premium: 1.13,
+        },
       }),
       now: NOW,
     });
     expect(r.repriced).toBe(0);
     expect(r.freed).toBe(0);
+    expect(r.booked).toBe(0);
   });
 
-  it("will NOT drop a position that was owned and is now flat", async () => {
-    // From here it cannot tell whether settleRisk already booked the P&L.
-    // Dropping it could erase a realised loss and loosen the budget, so it
-    // fails restrictive and reports drift instead of guessing.
+  it("books a close the ledger never heard about, at the price it closed", async () => {
+    // The close path writes the mirror FIRST, so a settleRisk that throws
+    // leaves a flat mirror and a still-charged budget. That loss is real
+    // and the day has to keep paying for it.
     const kv = kvMock();
+    const map = {
+      "dt:QQQ:737P": {
+        entry_fired: true, contracts: 2, contracts_remaining: 0,
+        entry_premium: 1.18, exit_premium: 0.9, exit_fired: true,
+      },
+    };
     await commitRisk(envOf(kv), OP, "dt:QQQ:737P", { usd: 118, now: NOW });
     const r = await reconcileRiskBudget(envOf(kv), OP, {
-      loadMirror: mirrors({ "dt:QQQ:737P": { entry_fired: true, contracts_remaining: 0 } }),
+      loadMirror: mirrors(map), markSettled: stamper(map), now: NOW, limitUsd: 500,
+    });
+    expect(r.booked).toBe(1);
+    expect(r.bookedUsd).toBe(-56); // (0.90 - 1.18) x 100 x 2
+    expect(r.freed).toBe(1);
+    const snap = riskBudgetSnapshot(stateIn(kv), 500);
+    expect(snap.open_usd).toBe(0);
+    expect(snap.realized_loss_usd).toBe(56);
+    expect(map["dt:QQQ:737P"].risk_settled_qty).toBe(2);
+  });
+
+  it("books it only once, however many ticks run", async () => {
+    const kv = kvMock();
+    const map = {
+      "dt:QQQ:737P": {
+        entry_fired: true, contracts: 2, contracts_remaining: 1,
+        entry_premium: 1.18, trim_premium: 1.5,
+      },
+    };
+    await commitRisk(envOf(kv), OP, "dt:QQQ:737P", { usd: 118, now: NOW });
+    const opts = { loadMirror: mirrors(map), markSettled: stamper(map), now: NOW };
+    const first = await reconcileRiskBudget(envOf(kv), OP, opts);
+    const second = await reconcileRiskBudget(envOf(kv), OP, opts);
+    expect(first.booked).toBe(1);
+    expect(second.booked).toBe(0);
+    expect(riskBudgetSnapshot(stateIn(kv), 500).realized_pnl_usd).toBe(32);
+  });
+
+  it("charges the hard stop when the close price was never recorded", async () => {
+    // No recorded exit leaves the stop as the only defensible assumption,
+    // and it is exactly what those contracts were charged.
+    const kv = kvMock();
+    const map = {
+      "dt:QQQ:737P": { entry_fired: true, contracts: 2, contracts_remaining: 0, entry_premium: 1.18 },
+    };
+    await commitRisk(envOf(kv), OP, "dt:QQQ:737P", { usd: 118, now: NOW });
+    const r = await reconcileRiskBudget(envOf(kv), OP, {
+      loadMirror: mirrors(map), markSettled: stamper(map), now: NOW,
+    });
+    expect(r.bookedUsd).toBe(-118);
+    expect(riskBudgetSnapshot(stateIn(kv), 500).consumed_usd).toBe(118);
+  });
+
+  it("will not book what it cannot first record — it retries next tick", async () => {
+    // A booking made without a stamp would be remade every minute until the
+    // budget was spent on one trade.
+    const kv = kvMock();
+    const map = {
+      "dt:QQQ:737P": { entry_fired: true, contracts: 2, contracts_remaining: 0, entry_premium: 1.18 },
+    };
+    await commitRisk(envOf(kv), OP, "dt:QQQ:737P", { usd: 118, now: NOW });
+    const r = await reconcileRiskBudget(envOf(kv), OP, {
+      loadMirror: mirrors(map),
+      markSettled: async () => { throw new Error("kv down"); },
       now: NOW,
+    });
+    expect(r.booked).toBe(0);
+    expect(r.drift).toBe(1);
+    expect(riskBudgetSnapshot(stateIn(kv), 500).open_usd).toBe(118);
+  });
+
+  it("reports drift rather than guessing when there is no cost basis", async () => {
+    const kv = kvMock();
+    const map = { "dt:QQQ:737P": { entry_fired: true, contracts: 2, contracts_remaining: 0 } };
+    await commitRisk(envOf(kv), OP, "dt:QQQ:737P", { usd: 118, now: NOW });
+    const r = await reconcileRiskBudget(envOf(kv), OP, {
+      loadMirror: mirrors(map), markSettled: stamper(map), now: NOW,
     });
     expect(r.drift).toBe(1);
     expect(r.driftSignals).toEqual(["dt:QQQ:737P"]);
     expect(r.freed).toBe(0);
     expect(riskBudgetSnapshot(stateIn(kv), 500).open_usd).toBe(118);
+  });
+
+  it("reports drift on a mirror it cannot reason about at all", async () => {
+    const kv = kvMock();
+    await commitRisk(envOf(kv), OP, "a", { usd: 118, now: NOW });
+    await commitRisk(envOf(kv), OP, "b", { usd: 118, now: NOW });
+    const r = await reconcileRiskBudget(envOf(kv), OP, {
+      loadMirror: mirrors({
+        a: { entry_fired: true, contracts: 0, contracts_remaining: 0 },        // no entry size
+        b: { entry_fired: true, contracts: 1, contracts_remaining: 3 },        // holds more than it bought
+      }),
+      now: NOW,
+    });
+    expect(r.drift).toBe(2);
+    expect(r.freed).toBe(0);
+    expect(riskBudgetSnapshot(stateIn(kv), 500).open_usd).toBe(236);
+  });
+
+  it("frees a slot the settle path already booked in full", async () => {
+    const kv = kvMock();
+    await commitRisk(envOf(kv), OP, "dt:QQQ:737P", { usd: 118, now: NOW });
+    const r = await reconcileRiskBudget(envOf(kv), OP, {
+      loadMirror: mirrors({
+        "dt:QQQ:737P": {
+          entry_fired: true, contracts: 2, contracts_remaining: 0, risk_settled_qty: 2,
+          entry_premium: 1.18,
+        },
+      }),
+      now: NOW,
+    });
+    expect(r.booked).toBe(0);
+    expect(r.freed).toBe(1);
+    expect(riskBudgetSnapshot(stateIn(kv), 500).open_usd).toBe(0);
   });
 
   it("keeps the charge when the mirror cannot be read at all", async () => {
@@ -516,7 +629,10 @@ describe("reconcileRiskBudget — the ledger is rebuilt from the mirrors", () =>
   });
 
   it("is a no-op without KV, an operator, or a mirror reader", async () => {
-    const none = { checked: 0, freed: 0, repriced: 0, freedUsd: 0, drift: 0, driftSignals: [], snapshot: null };
+    const none = {
+      checked: 0, freed: 0, repriced: 0, booked: 0, bookedUsd: 0,
+      freedUsd: 0, drift: 0, driftSignals: [], snapshot: null,
+    };
     expect(await reconcileRiskBudget({}, OP, { loadMirror: mirrors({}) })).toEqual(none);
     expect(await reconcileRiskBudget(envOf(kvMock()), "", { loadMirror: mirrors({}) })).toEqual(none);
     expect(await reconcileRiskBudget(envOf(kvMock()), OP, {})).toEqual(none);

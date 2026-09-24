@@ -847,3 +847,135 @@ describe("close path — a working buy must not outlive the model's exit", () =>
     expect(r.reason).toBe("entry_fill_pending");
   });
 });
+
+describe("a close whose settle is lost still costs the day", () => {
+  // The close path writes the mirror BEFORE it settles the budget. If the
+  // settle throws, the mirror says flat and the budget is still charged,
+  // and nothing in the old design could ever tell that apart from a
+  // position that had already been booked.
+  const PREFS = JSON.stringify({
+    enabled: true, daily_cap: 6,
+    vehicles: { long_put: { enabled: true, daily_cap: 2, max_per_order_usd: 300, max_loss_per_order_usd: 250 } },
+  });
+  const SIG = "dt:SPY:2026-09-23:2026-09-24:P:768";
+  const RISK_PREFIX = "timed:options:auto-mirror:risk:";
+
+  const filledMirror = () => ({
+    signal_id: SIG,
+    ticker: "SPY",
+    entry_placed: true,
+    entry_pending: false,
+    entry_fired: true,
+    contracts: 2,
+    contracts_remaining: 2,
+    entry_premium: 1.18,
+    entry_stop_fraction: 0.5,
+    flavor: "put",
+    vehicle: "long_put",
+    strike: 768,
+  });
+
+  function exitEnv(kv) {
+    return {
+      ADMIN_EMAIL: OP,
+      KV_TIMED: kv,
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      BROKER_BRIDGE_URL: "https://bridge.example.workers.dev",
+      BROKER_BRIDGE: {
+        fetch: async () => new Response(JSON.stringify({
+          ok: true, order_id: "SELL1", fill: { status: "filled", filled_qty: 2, order_id: "SELL1" },
+        }), { status: 200 }),
+      },
+    };
+  }
+
+  const exitCtx = () => ({
+    event: "EXIT",
+    ticker: "SPY",
+    signal_id: SIG,
+    premium: 0.9,
+    bid: 0.9,
+    book: { contracts: 2, contracts_remaining: 2 },
+    indicesFlagOn: true,
+    play: {
+      archetype: "day_trade_put",
+      _day_trade_flavor: "put",
+      strikes: { primary: 768 },
+      expiration: { iso: "2026-09-24" },
+      legs: [{ action: "BUY", optionType: "PUT", strike: 768, expiration: "2026-09-24", qty: 2 }],
+      premium: { mid: 0.9, bid: 0.9 },
+      max_loss_usd: 236,
+    },
+  });
+
+  async function seed(kv) {
+    kv.store.set(`timed:options:auto-mirror:${OP}`, PREFS);
+    kv.store.set(indexDtMirrorKey(SIG), JSON.stringify(filledMirror()));
+    await commitRisk({ KV_TIMED: kv }, OP, SIG, { usd: 118, now: Date.now() });
+  }
+
+  const snap = (kv) => {
+    const raw = kv.store.get(RISK_STATE_KEY(OP, tradingDayOf(Date.now())));
+    return riskBudgetSnapshot(raw ? JSON.parse(raw) : {}, 500);
+  };
+
+  it("records on the mirror how much of the position the ledger has booked", async () => {
+    const kv = kvMock();
+    await seed(kv);
+    await maybeAutoMirrorIndexDayTradeEvent(exitEnv(kv), exitCtx());
+    const after = JSON.parse(kv.store.get(indexDtMirrorKey(SIG)));
+    expect(after.contracts_remaining).toBe(0);
+    expect(after.risk_settled_qty).toBe(2);
+    expect(snap(kv).open_usd).toBe(0);
+  });
+
+  it("books the loss on the next reconcile tick when the settle was lost", async () => {
+    const kv = kvMock();
+    await seed(kv);
+    const realPut = kv.put;
+    kv.put = async (k, v, o) => {
+      if (k.startsWith(RISK_PREFIX)) throw new Error("kv down");
+      return realPut(k, v, o);
+    };
+    await maybeAutoMirrorIndexDayTradeEvent(exitEnv(kv), exitCtx());
+    kv.put = realPut;
+
+    // Mirror flat, ledger still charged, and no stamp to say otherwise.
+    const stranded = JSON.parse(kv.store.get(indexDtMirrorKey(SIG)));
+    expect(stranded.contracts_remaining).toBe(0);
+    expect(stranded.risk_settled_qty).toBeUndefined();
+    expect(snap(kv).open_usd).toBe(118);
+
+    const r = await runPendingIndexDtReconcileLoop({ ...exitEnv(kv) }, OP, {
+      clock: () => Date.now(), sleep: async () => {},
+    });
+    expect(r.budget.booked).toBe(1);
+    expect(r.budget.freed).toBe(1);
+    const healed = snap(kv);
+    expect(healed.open_usd).toBe(0);
+    // Sold 2 at $0.90 against a $1.18 basis.
+    expect(healed.realized_loss_usd).toBe(56);
+    expect(healed.remaining_usd).toBe(444);
+  });
+
+  it("does not book it twice if the lane keeps reconciling", async () => {
+    const kv = kvMock();
+    await seed(kv);
+    const realPut = kv.put;
+    kv.put = async (k, v, o) => {
+      if (k.startsWith(RISK_PREFIX)) throw new Error("kv down");
+      return realPut(k, v, o);
+    };
+    await maybeAutoMirrorIndexDayTradeEvent(exitEnv(kv), exitCtx());
+    kv.put = realPut;
+
+    // Two ticks a minute apart, so the first tick's lease has expired.
+    const loop = () => runPendingIndexDtReconcileLoop({ ...exitEnv(kv) }, OP, {
+      clock: () => Date.now(), sleep: async () => {}, lease: async () => ({ ok: true }),
+    });
+    await loop();
+    const second = await loop();
+    expect(second.budget.booked).toBe(0);
+    expect(snap(kv).realized_loss_usd).toBe(56);
+  });
+});

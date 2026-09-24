@@ -1259,6 +1259,7 @@ export async function runPendingIndexDtReconcileLoop(env, operatorEmail, {
       const prefs = await loadAutoMirrorPrefs(env, operatorEmail);
       budget = await reconcileRiskBudget(env, operatorEmail, {
         loadMirror: loadIndexDtMirror,
+        markSettled: markIndexDtRiskSettled,
         now: clock(),
         limitUsd: dailyLossLimitFor(prefs),
       });
@@ -1282,6 +1283,17 @@ export async function runPendingIndexDtReconcileLoop(env, operatorEmail, {
  * from. Releasing the whole commitment there would understate the day's
  * loss, so it is left open instead and expires with the key at end of day —
  * restrictive, like every other fallback in this lane.
+ *
+ * On success it stamps the cumulative booked quantity on the mirror. That
+ * stamp is what lets `reconcileRiskBudget` tell "this close is already in
+ * the ledger" from "this close was lost", which it otherwise cannot: the
+ * caller writes the mirror BEFORE settling, so a settle that throws leaves
+ * a flat mirror and a still-charged budget with nothing to distinguish it.
+ *
+ * The stamp goes AFTER the settle deliberately — never claim a booking
+ * before making it. A settle that lands and a stamp that does not is only
+ * visible on a partial close, since a full exit deletes the ledger slot and
+ * leaves the reconciler nothing to look at.
  */
 async function settleIndexDtRisk(env, operatorEmail, signalId, mirror, { closedQty, closePremium, remainingQty }) {
   const basis = Number(mirror?.entry_premium) || 0;
@@ -1295,10 +1307,23 @@ async function settleIndexDtRisk(env, operatorEmail, signalId, mirror, { closedQ
     stopFraction: Number(mirror?.entry_stop_fraction) || undefined,
   });
   try {
-    return await settleRisk(env, operatorEmail, signalId, { realizedUsd, remainingRiskUsd });
+    const settled = await settleRisk(env, operatorEmail, signalId, { realizedUsd, remainingRiskUsd });
+    const booked = Math.max(0, Math.round(Number(mirror?.risk_settled_qty) || 0)) + sold;
+    await saveIndexDtMirror(env, signalId, { risk_settled_qty: booked });
+    return settled;
   } catch (_) {
-    return null; // budget stays as-is — fails restrictive
+    return null; // budget stays as-is — the reconciler books it from the mirror
   }
+}
+
+/**
+ * Stamp how many contracts of a mirrored day trade the ledger has booked.
+ * Passed to `reconcileRiskBudget` so it can record a repair before making
+ * it, which is what stops a repair repeating every tick.
+ */
+async function markIndexDtRiskSettled(env, signalId, qty) {
+  const booked = Math.max(0, Math.round(Number(qty) || 0));
+  return saveIndexDtMirror(env, signalId, { risk_settled_qty: booked });
 }
 
 async function gateIndexDayTradeMirror(env, ctx = {}) {
@@ -1619,6 +1644,9 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
         trim_premium: null, trim_order_id: null,
         exit_fired: false, exit_pending: false, exit_qty: 0,
         exit_premium: null, exit_order_id: null, exit_event: null,
+        // Round one's booked quantity must not count against round two, or
+        // the budget reconciler reads the new position as already settled.
+        risk_settled_qty: 0,
       }
       : {};
 
