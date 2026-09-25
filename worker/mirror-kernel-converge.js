@@ -8,7 +8,12 @@
 // This is how "the stop actually happened at the broker" is established —
 // not by a fill echo on one account, but by each account's own holdings.
 
-import { listUnverifiedPositions, markPositionVerified } from "./mirror-kernel.js";
+import {
+  listUnverifiedPositions,
+  listPendingMirrorDispatches,
+  markMirrorDispatchDispatched,
+  markPositionVerified,
+} from "./mirror-kernel.js";
 
 /** After this long without every account confirmed, someone is told. */
 export const CONVERGE_ALERT_AFTER_MS = 10 * 60 * 1000;
@@ -72,6 +77,22 @@ export async function convergeIndexDtPositions(env, {
   } catch (e) {
     out.errors.push({ reason: `list_failed:${String(e?.message || e).slice(0, 80)}` });
     return out;
+  }
+  // Dual-path: the outbox is the durable "must dispatch" ledger. Promote
+  // pending rows as soon as converge is about to touch them (or already has
+  // them via listUnverifiedPositions). Queue fan-out will consume this list
+  // later; today it only proves the producer side.
+  try {
+    const pending = await listPendingMirrorDispatches(db, { now, limit });
+    out.outbox_pending = pending.length;
+    const dueIds = new Set(due.map((p) => p.position_id));
+    for (const row of pending) {
+      if (dueIds.has(row.position_id) && row.status === "pending") {
+        await markMirrorDispatchDispatched(db, row.position_id, Number(row.seq), now);
+      }
+    }
+  } catch (e) {
+    out.errors.push({ reason: `outbox_list_failed:${String(e?.message || e).slice(0, 80)}` });
   }
   out.due = due.length;
 

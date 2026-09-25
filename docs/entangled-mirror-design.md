@@ -429,7 +429,9 @@ fan-out truncating trim ids into collisions). Phase 1 shipped live rather
 than in shadow — the operator's decisions made converge the stop-out check —
 so its exit criterion is now the first five sessions of both accounts'
 sleeves verifying every trim and stop. The KV mirror and risk ledger still
-run alongside; retiring them is Phase 2.
+run alongside; retiring them is Phase 2. A D1 `mirror_dispatch_outbox`
+dual-write on every model reduce is live as the Phase 2 producer side —
+converge settles those rows today; Cloudflare Queue fan-out is still deferred.
 
 | Phase | Scope | Exit criterion |
 |---|---|---|

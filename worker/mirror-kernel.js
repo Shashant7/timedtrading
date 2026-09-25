@@ -87,6 +87,23 @@ export const KERNEL_TABLES = [
   `CREATE INDEX IF NOT EXISTS idx_attempt_position ON mirror_order_attempt (position_id, account_id)`,
   `CREATE INDEX IF NOT EXISTS idx_attempt_broker_order ON mirror_order_attempt (broker_order_id)`,
   `CREATE INDEX IF NOT EXISTS idx_attempt_status ON mirror_order_attempt (status, updated_at)`,
+  // Phase 2 first slice: durable dispatch outbox dual-written with every
+  // model reduce. Cron + converge drain it today; a Cloudflare Queue will
+  // replace the drain later. KV mirror / risk ledger stay until five clean
+  // sessions (docs/entangled-mirror-design.md §9).
+  `CREATE TABLE IF NOT EXISTS mirror_dispatch_outbox (
+    position_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    lane TEXT NOT NULL DEFAULT 'index_dt',
+    signal_id TEXT,
+    event TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    enqueued_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (position_id, seq)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_dispatch_outbox_pending
+    ON mirror_dispatch_outbox (status, enqueued_at)`,
 ];
 
 let _schemaReady = null;
@@ -284,7 +301,75 @@ export async function recordModelLeg(db, {
        WHERE position_id = ?1`,
     ).bind(positionId, remaining, status, seq, ev, now, opened),
   ]);
+  // Reduces must leave a durable dispatch row before any broker send. BUY
+  // stays off the outbox — sleeves open on fill, and converge only heals
+  // TRIM/EXIT/STOP.
+  if (ev === "TRIM" || ev === "EXIT" || ev === "STOP") {
+    await enqueueMirrorDispatch(db, {
+      positionId, seq, lane, signalId, event: ev, now,
+    });
+  }
   return { position_id: positionId, seq };
+}
+
+/**
+ * Durable "brokers must follow this model reduce" row. Idempotent on
+ * (position_id, seq). Status starts pending; converge marks dispatched /
+ * settled. Cloudflare Queue will fan these out later — until then the
+ * minute cron drains via convergeIndexDtPositions.
+ */
+export async function enqueueMirrorDispatch(db, {
+  positionId, seq, lane = "index_dt", signalId = null, event, now = Date.now(),
+} = {}) {
+  const pid = String(positionId || "").trim();
+  const n = Number(seq);
+  const ev = String(event || "").toUpperCase();
+  if (!pid || !Number.isFinite(n) || n < 0 || !LEG_EVENTS.has(ev)) return null;
+  await ensureMirrorKernelSchema(db);
+  await db.prepare(
+    `INSERT INTO mirror_dispatch_outbox
+       (position_id, seq, lane, signal_id, event, status, enqueued_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?6)
+     ON CONFLICT(position_id, seq) DO NOTHING`,
+  ).bind(pid, n, lane, signalId ? String(signalId) : null, ev, now).run();
+  return { position_id: pid, seq: n, event: ev, status: "pending" };
+}
+
+/** Pending (and stuck dispatched) rows the cron should push through converge. */
+export async function listPendingMirrorDispatches(db, {
+  lane = "index_dt",
+  now = Date.now(),
+  lookbackMs = 36 * 3600 * 1000,
+  limit = 20,
+} = {}) {
+  await ensureMirrorKernelSchema(db);
+  const res = await db.prepare(
+    `SELECT * FROM mirror_dispatch_outbox
+      WHERE lane = ?1 AND status IN ('pending', 'dispatched')
+        AND enqueued_at >= ?2
+      ORDER BY enqueued_at ASC LIMIT ?3`,
+  ).bind(lane, now - lookbackMs, limit).all();
+  return res?.results || [];
+}
+
+export async function markMirrorDispatchDispatched(db, positionId, seq, now = Date.now()) {
+  await db.prepare(
+    `UPDATE mirror_dispatch_outbox
+        SET status = CASE WHEN status = 'settled' THEN 'settled' ELSE 'dispatched' END,
+            updated_at = ?3
+      WHERE position_id = ?1 AND seq = ?2 AND status = 'pending'`,
+  ).bind(positionId, seq, now).run();
+}
+
+/** Settle every outbox row for a position up through verifiedSeq. */
+export async function settleMirrorDispatchesUpTo(db, positionId, verifiedSeq, now = Date.now()) {
+  const seq = Number(verifiedSeq);
+  if (!positionId || !Number.isFinite(seq)) return;
+  await db.prepare(
+    `UPDATE mirror_dispatch_outbox
+        SET status = 'settled', updated_at = ?3
+      WHERE position_id = ?1 AND seq <= ?2 AND status != 'settled'`,
+  ).bind(positionId, seq, now).run();
 }
 
 /**
@@ -315,6 +400,7 @@ export async function markPositionVerified(db, positionId, seq, now = Date.now()
     `UPDATE model_position SET verified_seq = MAX(verified_seq, ?2), verified_at = ?3
       WHERE position_id = ?1`,
   ).bind(positionId, seq, now).run();
+  await settleMirrorDispatchesUpTo(db, positionId, seq, now);
 }
 
 // ── Bridge: sleeves and attempts ────────────────────────────────────────
