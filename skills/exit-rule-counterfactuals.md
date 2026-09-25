@@ -17,6 +17,12 @@ ticker is one wrangler call.
 | What would the signals have made as options? (MODEL — no single-stock marks are stored) | `node scripts/model-st-signals-as-options.mjs` |
 | Would Prime trades do better held to their plan stop? (live trades) | `node scripts/replay-max-loss-r-floor.mjs --k 1 --grade Prime` |
 | Same question through the full engine (cascade included) | preprod replay with `deep_audit_conviction_*` (`worker/conviction-management.js`), see below |
+| After a trim, the remainder comes back to entry: floor, hold to plan, or wait for an hourly close? | `node scripts/replay-post-trim-floor.mjs` |
+| When price reaches our plan stop, does the context (gap, volume, RSI, phase, reclaim) say it will recover? Where do our stops sit vs recent swings? | `node scripts/replay-stop-context.mjs [--rows]` |
+| Would a stop beyond the prior 5/10-day swing do better at equal dollar risk? | `node scripts/replay-stop-placement.mjs [--buffer 0.1 --cap 3]` |
+
+The last three read the plan from the ENTRY event (`trade_events.meta_json.sl_price` /
+`tp_price`) — `positions.stop_loss` is the TRAILED stop — via `scripts/lib/trade-tape.mjs`.
 
 ## Traps
 
@@ -82,3 +88,61 @@ Preprod arms, Jul 1 – Sep 24 2026, 24 tickers incl. P / INTC / LITE, 10m, batc
   ratchet activation for Prime), not the loss side.
 - Run ids `cv-base-2026{07,08,09}`, `cv-conv-*`, `cv-hlc-*` in preprod
   `backtest_run_trades`.
+
+## Post-trim floor, stop-touch context, stop placement (2026-09-25)
+
+Live trades May – Sep 2026 (188 with a plan), 10m tape.
+
+**Post-trim entry floor** (`deep_audit_ja_post_trim_floor`, ON): 48 trimmed
+trades brought the remainder back to entry. From that touch, 26 went on to the
+full plan stop and 11 to target — the floor is mostly right. Remainder P&L, % of
+entry: floor −31.0 · hold to plan −38.7 · floor at half the risk −27.9 · floor
+on an HOURLY close −24.8 (best, +6.2 pts / 48 trades on the half still held).
+Two things cost more than the rule itself: fills average −0.65% against a
+−0.15% design (overnight gaps: JD −2.1, GEV −2.0, LULU −2.0), and the trim is
+taken at +0.5–0.7% on most trades, so "trim then floor at entry" caps a trade
+near breakeven unless it runs. The hourly-close variant is NOT replay-testable
+yet — see the look-ahead trap in `skills/backtest-replay.md`.
+
+**What happens at our stop** (83 plan-stop touches before target):
+
+- Price that reaches the stop keeps going: 13 recover to entry (16%), 57 trade
+  0.5R further first. Holding with a 0.5R backstop averages −1.28R vs −1.02R
+  exiting at the touch; waiting for a bar close is −1.16R. Exit on the touch.
+- "Oversold / exhausted at the stop" is the NORMAL state, not a signal: 60 of 76
+  touches had 10m RSI ≤ 30 (a stop is reached by a selloff). Recovery 15%
+  oversold vs 25% not; 1H phase ≤ −61.8: 18% vs 15%. No edge.
+- Gap-through (9) and heavy-volume breaks (4) did not fail more than quiet
+  touches — everything fails ~70%. The one weak signal: a touch bar that CLOSES
+  back above the stop recovers 25% vs 9%, but holding those only breaks even
+  (−1.01R vs −1.02R).
+- 45 of 83 touches are in the first 30 minutes (opening gaps / flushes); they
+  recover LESS (13%) — do not defer opening stops.
+- How the stop is set: scoring `tickerData.sl` = 1.5 x daily ATR, clamped to the
+  volatility tier's min/max % (`worker/indicators.js` ~4893); entry then layers
+  Gold Standard ATR remaps, Kijun / 4H ST / 1H cloud blends, regime and profile
+  multipliers, DA cap/floor, exhaustion tighten, and the ETF 0.5-0.7% clamp.
+  After entry it only tightens (trails, BE locks). Breach is a mark-vs-stop
+  compare: `classifyKanbanStage` on the engine cadence with the cushions below,
+  the feed cron every minute on `timed:prices` prints, and the pipeline
+  (`tt-core-exit.js`) with no cushions at all.
+- Existing breach guards are all pierce-depth tolerances (FVG/PDZ 0.5%, HTF
+  trend 0.5% RTH, ext-hours wick, opening wick OFF, hourly-EMA233 band ON), none
+  reads RSI / phase / LTF reversal — and the data says none should.
+
+**Where the stop sits matters more than how price behaves at it.** 76 of 188
+plan stops were INSIDE the prior 5-day swing range. Those were touched 50% of
+the time and recovered 10 of 38 (noise); stops beyond the swing were touched
+40% and recovered 3 of 45 (beyond the 10-day swing: 1 of 34). Stops under 1
+daily ATR: touched 55%, 9 of 34 recovered. Median stop 1.32 daily ATR.
+
+Candle replay (stop/target only, equal dollar risk): moving inside-swing stops
+0.1 ATR beyond the 5-day swing, capped at 3 ATR, took the 57 moved trades from
+−21.7R to +0.2R, robust to buffer / cap / horizon. **The full engine said no**
+(`deep_audit_stop_beyond_swing_*`, `worker/structural-stop.js`, OFF): arm
+`cv-ss-*` $4,658 realized vs $6,089. In the engine the plan stop is rarely the
+loss exit — `HARD_LOSS_CAP` ($250, 12 trades, −$3,482 in the baseline), max_loss
+and dead-money cut losers first — so a wider stop mostly means risk-based sizing
+buys 11% less, and the same 28 ratchet winners made $2,034 less. Lesson: a
+stop-placement counterfactual that replays only stop/target measures a stop
+the engine does not use; check which exit actually takes the losses first.
