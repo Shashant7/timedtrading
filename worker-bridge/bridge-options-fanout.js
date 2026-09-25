@@ -92,7 +92,6 @@ export function scaleContractsForAccount({
 
   const book = num(modelBookUsd) > 0 ? num(modelBookUsd) : 100000;
   const ratio = Math.min(1, equity / book);
-  const contracts = Math.floor(model * ratio);
 
   const px = num(premium);
   // Per-contract debit. A quoted option premium is per share.
@@ -117,6 +116,17 @@ export function scaleContractsForAccount({
   const capped = (reason) => ({
     contracts: 0, reason, ratio, unit_usd: unitUsd, max_debit_usd: maxDebit,
   });
+
+  // An account that set its own ceilings takes the model's size inside
+  // them — the same rule the operator's own account follows. Scaling by
+  // equity over a $100k model book on top of that pinned every partner to
+  // the one-lot floor (a $9.8k account: floor(2 × 0.098) = 0 → 1), and a
+  // one-lot sleeve can never trim. The equity ratio stays for an account
+  // that set no ceiling at all, which is the case its caution was for.
+  if (maxDebit != null && unitUsd == null) {
+    return { contracts: 0, reason: "no_premium_to_check_account_caps", ratio };
+  }
+  const contracts = maxDebit != null ? model : Math.floor(model * ratio);
 
   if (contracts < 1) {
     if (unitUsd == null) return { contracts: 0, reason: "no_premium_for_one_lot", ratio };

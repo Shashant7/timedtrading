@@ -90,19 +90,34 @@ describe("scaleContractsForAccount", () => {
     expect(out.ratio).toBe(1);
   });
 
-  it("scales down on the equity ratio like the equity lane does", () => {
-    // $50k against a $100k book -> half of 2 contracts.
-    const out = scaleContractsForAccount({ ...base, modelContracts: 4, accountEquity: 50000 });
+  const uncapped = { ...base, dailyLossLimitUsd: 0, maxPerOrderUsd: null };
+
+  it("scales an account with no ceilings of its own on the equity ratio", () => {
+    // $50k against a $100k book -> half of 4 contracts.
+    const out = scaleContractsForAccount({ ...uncapped, modelContracts: 4, accountEquity: 50000 });
     expect(out.contracts).toBe(2);
     expect(out.reason).toBe("scaled");
   });
 
   // Flooring alone sends every small account to zero forever, which is the
   // same as not shipping the feature.
-  it("floors at one lot when the ratio rounds to nothing", () => {
-    const out = scaleContractsForAccount({ ...base, accountEquity: 12000 });
+  it("floors an uncapped account at one lot when the ratio rounds to nothing", () => {
+    const out = scaleContractsForAccount({ ...uncapped, accountEquity: 12000 });
     expect(out.contracts).toBe(1);
     expect(out.reason).toBe("one_lot_floor");
+  });
+
+  // Same rule the operator's account follows. The ratio pinned every
+  // partner to one lot, and a one-lot sleeve can never trim.
+  it("gives an account with its own ceilings the model's size inside them", () => {
+    const out = scaleContractsForAccount({ ...base, modelContracts: 3, accountEquity: 12000 });
+    expect(out.contracts).toBe(3);
+    expect(out.reason).toBe("full");
+  });
+
+  it("refuses to size against ceilings it cannot price", () => {
+    const out = scaleContractsForAccount({ ...base, premium: null, accountEquity: 12000 });
+    expect(out).toMatchObject({ contracts: 0, reason: "no_premium_to_check_account_caps" });
   });
 
   it("refuses the one-lot floor when a single contract breaks the day-loss limit", () => {
@@ -168,7 +183,9 @@ describe("scaleContractsForAccount", () => {
       dailyLossLimitUsd: 500,
       maxPerOrderUsd: 500,
     });
-    expect(out.contracts).toBe(1);
+    // Two lots at $64 = $128, inside both the $500 ticket cap and the
+    // $1,000 of debit a $500 day-stop tolerates at -50%.
+    expect(out.contracts).toBe(2);
     expect(out.unit_usd).toBeCloseTo(64, 5);
   });
 });
@@ -218,8 +235,9 @@ describe("scaleContractsForAccount — sitting out", () => {
   });
 
   it("sits out a one-lot floor with no premium to price it", () => {
-    expect(scaleContractsForAccount({ ...base, premium: null, accountEquity: 12000 }))
-      .toMatchObject({ contracts: 0, reason: "no_premium_for_one_lot" });
+    expect(scaleContractsForAccount({
+      ...base, dailyLossLimitUsd: 0, premium: null, accountEquity: 12000,
+    })).toMatchObject({ contracts: 0, reason: "no_premium_for_one_lot" });
   });
 
   it("uses the same stop fraction as the main worker's risk budget", () => {

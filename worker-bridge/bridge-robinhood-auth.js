@@ -443,7 +443,7 @@ export async function ensureRhAccessToken(env, user) {
 }
 
 /** Cron: proactively refresh RH tokens nearing expiry. */
-export async function refreshRhTokensIfNeeded(env, { limit = 50 } = {}) {
+export async function refreshRhTokensIfNeeded(env, { limit } = {}) {
   const mock = String(env?.BROKER_BRIDGE_MOCK || "true").toLowerCase() !== "false";
   if (mock) return { ok: true, skipped: "mock_mode", refreshed: 0 };
   const { listConnectedUsers } = await import("./bridge-storage.js");

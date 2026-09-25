@@ -506,7 +506,14 @@ export function reconcileReducerQty({
     : null;
 
   let intended;
-  if (pct != null) {
+  // A full-exit side sells the sleeve; a pct riding along with it is not a
+  // fraction of anything the caller can know. 2026-09-24 — the Short Term
+  // trim-to-full path sent side `exit` with `reduce_pct` = the last trim's
+  // delta of the ORIGINAL position, this branch ran first, and a trim to
+  // 50% followed by a trim to 100% sold half the remainder: 25% of the
+  // position stayed at the broker after the model was flat.
+  if (pct != null && isFull) reasons.push(`full_side_ignores_pct_${(pct * 100).toFixed(1)}`);
+  if (pct != null && !isFull) {
     const basis = model != null && model > 0 ? model : held;
     intended = basis * pct;
     reasons.push(`pct_${(pct * 100).toFixed(1)}_of_${model != null ? "model" : "held"}`);

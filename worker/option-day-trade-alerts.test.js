@@ -229,3 +229,71 @@ describe("maybeNotifyDayTradePaperEvent", () => {
     expect(notifyDiscord).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("re-entry cooldown across contracts on one underlying", () => {
+  // QQQ 742C stopped at 11:20 on 2026-09-24 and 731P was bought at 11:21 —
+  // a different book, so only a per-underlying stamp can see the re-entry.
+  beforeEach(() => notifyDiscord.mockClear());
+  const t0 = Date.parse("2026-08-20T10:12:00-04:00");
+
+  async function openThenStop(env) {
+    await maybeNotifyDayTradePaperEvent(env, { ...payload, now: t0 });
+    return maybeNotifyDayTradePaperEvent(env, {
+      ...payload,
+      now: t0 + 5 * 60_000,
+      premium: 0.15,
+      execution: { ...payload.execution, action: "SELL", sell_kind: "premium_stop", premium_band: { ...payload.execution.premium_band, premium: 0.15 } },
+    });
+  }
+
+  const otherContract = (now) => ({
+    ...payload,
+    signal_id: "dt:SPY:2026-08-20:2026-08-21:C:765",
+    flavor: "call",
+    strike: 765,
+    now,
+    execution: {
+      ...payload.execution,
+      contract: { ticker: "SPY", flavor: "call", strike: 765, expiration: { dte: 1 } },
+    },
+  });
+
+  it("stamps the underlying when a round closes", async () => {
+    const store = {};
+    const closed = await openThenStop(mockEnv(store));
+    expect(["STOP", "EXIT"]).toContain(closed.event);
+    expect(Number(store["timed:opt-dt:last-close:SPY"])).toBe(t0 + 5 * 60_000);
+  });
+
+  it("blocks a BUY on another SPY contract a minute later", async () => {
+    const store = {};
+    const env = mockEnv(store);
+    await openThenStop(env);
+    let fired = false;
+    const r = await maybeNotifyDayTradePaperEvent(env, { ...otherContract(t0 + 6 * 60_000), onEvent: () => { fired = true; } });
+    expect(r.event).toBeNull();
+    expect(r.blocked).toBe("reentry_cooldown");
+    expect(fired).toBe(false);
+  });
+
+  it("allows it once ten minutes have passed", async () => {
+    const store = {};
+    const env = mockEnv(store);
+    await openThenStop(env);
+    const r = await maybeNotifyDayTradePaperEvent(env, otherContract(t0 + 16 * 60_000));
+    expect(r.event).toBe("BUY");
+  });
+
+  it("does not cool down a different underlying", async () => {
+    const store = {};
+    const env = mockEnv(store);
+    await openThenStop(env);
+    const r = await maybeNotifyDayTradePaperEvent(env, {
+      ...otherContract(t0 + 6 * 60_000),
+      ticker: "QQQ",
+      signal_id: "dt:QQQ:2026-08-20:2026-08-21:C:740",
+      execution: { ...payload.execution, contract: { ticker: "QQQ", flavor: "call", strike: 740, expiration: { dte: 1 } } },
+    });
+    expect(r.event).toBe("BUY");
+  });
+});

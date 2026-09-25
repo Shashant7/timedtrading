@@ -147,7 +147,7 @@ export async function handleWebullOauthStart(env, req) {
     // (double orders) using shared credentials.
     {
       const { listConnectedUsers } = await import("./bridge-storage.js");
-      const allRows = await listConnectedUsers(env, 200);
+      const allRows = await listConnectedUsers(env);
       const clash = findCrossOwnerWebullClash(allRows, userId, accounts);
       if (clash) {
         return {
@@ -326,7 +326,7 @@ export async function handleWebullOauthDisconnect(env, req) {
   // Owner email — disconnect all Webull sub-accounts for this login.
   const owner = userId.split("#webull#")[0];
   const { listConnectedUsers } = await import("./bridge-storage.js");
-  const all = await listConnectedUsers(env, 200);
+  const all = await listConnectedUsers(env);
   const targets = all.filter((u) => {
     if (String(u?.broker || "").toLowerCase() !== "webull") return false;
     if (u.user_id === owner || u.owner_email === owner) return true;

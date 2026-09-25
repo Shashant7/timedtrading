@@ -247,9 +247,16 @@ export async function appendFormingChartCandle(env, ticker, tfKey, candles, opts
     return { candles: out, forming: true };
   }
 
-  if (tf === "60" && opts.intradayForming === true) {
+  // 60m forms for chart reads that ask for it. Finer intraday frames form
+  // only for a caller that names them (`formingIntradayTfs`), so charts keep
+  // their behaviour and only the day-trade clock's fresh score sees them.
+  const intradayMin = Number(tf);
+  const formsIntraday = (tf === "60" && opts.intradayForming === true)
+    || (Array.isArray(opts.formingIntradayTfs) && opts.formingIntradayTfs.includes(tf)
+      && [5, 10, 15, 30, 60].includes(intradayMin));
+  if (formsIntraday) {
     const todayKey = getNyEtParts(nowMs).dateStr;
-    const buckets = expectedIntradayBuckets(todayKey, 60).filter((ts) => ts <= nowMs);
+    const buckets = expectedIntradayBuckets(todayKey, intradayMin).filter((ts) => ts <= nowMs);
     const bucketTs = buckets[buckets.length - 1];
     if (!Number.isFinite(bucketTs) || bucketTs <= 0) {
       return { candles: out, forming: false };

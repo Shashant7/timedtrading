@@ -133,6 +133,31 @@ export function bridgeResponseIsOk(parsed, httpOk) {
   return true;
 }
 
+/**
+ * The `reduce_pct` to send for a trim from `fromTrim` to `toTrim`, both
+ * fractions of the ORIGINAL position.
+ *
+ * The bridge applies `reduce_pct` to the account's CURRENT sleeve
+ * (`reconcileReducerQty`: `intended = broker_remaining × pct`). Sending the
+ * raw delta `toTrim - fromTrim` mixed the two units: trim 50% then 75%
+ * sent 0.25 and sold 12.5% of the original, and trim 50% then 100% sent
+ * 0.50 as side `exit` and sold half of what was left — 25% of the position
+ * stayed at the broker after the model was flat, for a catch-up to sell
+ * later at another price. The fraction of what REMAINS is the only number
+ * that means the same thing to both sides.
+ *
+ * Returns null for a full close: an exit sells the sleeve, it is not a
+ * percentage of it.
+ */
+export function reducePctOfRemaining(fromTrim, toTrim) {
+  const from = Math.max(0, Math.min(1, Number(fromTrim) || 0));
+  const to = Math.max(0, Math.min(1, Number(toTrim) || 0));
+  if (to >= 0.9999) return null;
+  const remaining = 1 - from;
+  if (!(remaining > 1e-9) || !(to > from)) return null;
+  return Math.min(1, (to - from) / remaining);
+}
+
 export function parseBridgeOrderIds(parsed) {
   const nested = parsed?.response && typeof parsed.response === "object"
     ? parsed.response
@@ -326,6 +351,34 @@ export async function recordBridgeMirrorSkip(env, {
  * op = { kind: "open"|"add"|"trim"|"dca", ticker, shares, price, reason,
  *        position_id, score, stage }
  */
+/**
+ * What makes one investor mirror order a different order from another.
+ *
+ * The lot when the caller names one. Otherwise, for a BUY, the position:
+ * one open per position. A REDUCE is different — a position is trimmed
+ * many times, and most trim call sites pass no lot, so keying on the
+ * position gave every trim of it the same client_order_id. The bridge's
+ * 24h claim then answered the second trim `{ok:true, deduped:true}`
+ * without placing it, or Webull refused it as "Please do not place an
+ * order repeatedly" (MU, 2026-09-23). Same defect as the IWM 278P stop,
+ * one lane over.
+ *
+ * So a reduce is keyed on the action: position, kind, quantity, pct,
+ * reason and NY date. A genuine re-fire of the same action still dedupes;
+ * a later trim of the same position always differs in quantity, because
+ * the position it is a fraction of has shrunk.
+ */
+export function investorMirrorIdempotencyKey({ op = {}, tradeId, side, kind, qty }) {
+  if (op?.lot_id) return String(op.lot_id);
+  if (side === "buy") return String(tradeId);
+  const nyDate = new Date(Number(op?.action_ts) || Date.now())
+    .toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const pct = op?.reduce_pct ?? op?.trim_pct ?? "";
+  return [
+    tradeId, kind, (Number(qty) || 0).toFixed(6), pct, op?.reason || op?.source || "", nyDate,
+  ].join("|");
+}
+
 async function shortClientOrderId(kind, tradeId, nonce = "") {
   // Webull: client_order_id length must be 10–40. Position ids like
   // inv-PANW-auto-<ms> made `tt-lt-dca-inv-inv-…` overflow (44+).
@@ -414,7 +467,7 @@ export async function forwardInvestorMirror(env, op = {}) {
   // Hash the lot, not just the position. Same-position DCAs used to
   // reuse one client_order_id (PLTR Aug 27 then Sep 2) and the bridge
   // dropped the add as duplicate_client_order_id.
-  const idempotencyKey = op?.lot_id || tradeId;
+  const idempotencyKey = investorMirrorIdempotencyKey({ op, tradeId, side, kind, qty });
   const clientOrderId = await shortClientOrderId(kind, idempotencyKey, nonce);
   // Optional reduce_pct hint. When the model expresses a trim as "X% of
   // the position" (event-risk profile, auto-reduce), forward the pct so

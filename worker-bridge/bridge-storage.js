@@ -79,15 +79,52 @@ export async function writeUser(env, userId, userObj) {
   }
 }
 
-export async function listConnectedUsers(env, limit = 100) {
+/**
+ * Upper bound on account rows read in one listing. A ceiling on runaway
+ * cost, not a page size — every caller wants every account.
+ */
+export const LIST_USERS_MAX = 10000;
+const LIST_USERS_GET_CHUNK = 25;
+
+/**
+ * Every `bridge:user:` row, paged to the end.
+ *
+ * This used to be ONE `KV.list` call with a limit and no cursor, and every
+ * scheduled path passed 100: the manifest reconciler, the daily digest, and
+ * (at 200) the options/equity mirror-participant fan-out. Account 101 was
+ * never reconciled — always the same ones, lexicographically, with nothing
+ * logged. A row exists per sub-account (one owner already has five), so the
+ * cliff was about twenty owners away.
+ */
+export async function listConnectedUsers(env, limit = LIST_USERS_MAX) {
   const KV = env?.BRIDGE_KV;
   if (!KV) return [];
+  const cap = Math.max(1, Math.min(LIST_USERS_MAX, Number(limit) || LIST_USERS_MAX));
   try {
-    const list = await KV.list({ prefix: "bridge:user:", limit });
+    const names = [];
+    let cursor;
+    do {
+      const page = await KV.list({
+        prefix: "bridge:user:",
+        limit: Math.min(1000, cap - names.length),
+        ...(cursor ? { cursor } : {}),
+      });
+      for (const k of page?.keys || []) names.push(k.name);
+      cursor = page?.list_complete === false ? page.cursor : null;
+    } while (cursor && names.length < cap);
+    if (cursor) {
+      console.warn(`[BRIDGE] listConnectedUsers stopped at the ${cap}-row ceiling with more rows unread`);
+    }
+
     const out = [];
-    for (const k of list.keys || []) {
-      const raw = await KV.get(k.name);
-      if (raw) out.push(JSON.parse(raw));
+    for (let i = 0; i < names.length; i += LIST_USERS_GET_CHUNK) {
+      const raws = await Promise.all(
+        names.slice(i, i + LIST_USERS_GET_CHUNK).map((n) => KV.get(n).catch(() => null)),
+      );
+      for (const raw of raws) {
+        if (!raw) continue;
+        try { out.push(JSON.parse(raw)); } catch (_) { /* skip a corrupt row, keep the rest */ }
+      }
     }
     return out;
   } catch (e) {
@@ -107,7 +144,7 @@ export async function resolveBridgeUser(env, userId, opts = {}) {
   const direct = await readUser(env, id);
   if (direct?.status === "connected") return direct;
 
-  const all = await listConnectedUsers(env, 200);
+  const all = await listConnectedUsers(env);
   const subs = all.filter((u) => {
     if (String(u?.broker || "").toLowerCase() !== "webull") return false;
     if (u.status !== "connected") return false;
@@ -151,7 +188,7 @@ export async function resolveBridgeAccounts(env, ownerId, opts = {}) {
   };
 
   add(await readUser(env, id));
-  const all = await listConnectedUsers(env, 200);
+  const all = await listConnectedUsers(env);
   for (const u of all) {
     const uid = String(u?.user_id || "").toLowerCase();
     if (uid === id) { add(u); continue; }
@@ -171,7 +208,7 @@ export async function resolveBridgeAccounts(env, ownerId, opts = {}) {
  */
 export async function listMirrorParticipants(env, excludeOwner = "") {
   const skip = String(excludeOwner || "").toLowerCase().trim();
-  const all = await listConnectedUsers(env, 200);
+  const all = await listConnectedUsers(env);
   return all.filter((u) => {
     if (!u || u.status !== "connected") return false;
     if (!u.broker_integration_enabled || u.mirror_participant !== true) return false;
@@ -196,7 +233,7 @@ export async function listMirrorParticipants(env, excludeOwner = "") {
 export async function pauseOwnerAccounts(env, ownerEmail) {
   const owner = String(ownerEmail || "").toLowerCase().trim();
   if (!owner) return { paused: 0, accounts: [] };
-  const all = await listConnectedUsers(env, 200);
+  const all = await listConnectedUsers(env);
   const targets = all.filter((u) => {
     const uid = String(u?.user_id || "").toLowerCase();
     const rowOwner = String(u?.owner_email || uid.split("#")[0] || "").toLowerCase();

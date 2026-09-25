@@ -103,9 +103,13 @@ export function buildWebullOptionOrderPayload(user, order, { preview = false } =
     throw new Error("incomplete_option_order");
   }
 
+  // The mirror kernel assigns the id and records it before the order leaves,
+  // so the broker's copy and ours are the same string. Anything that does
+  // not fit Webull's window falls back to a fresh generated id.
+  const assigned = String(order.client_order_id || "");
   const clientOrderId = preview
     ? `tt-opt-prev-${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`
-    : optionOrderClientId(order.trade_id);
+    : (/^[A-Za-z0-9_-]{10,32}$/.test(assigned) ? assigned : optionOrderClientId(order.trade_id));
 
   const newOrder = {
     client_order_id: clientOrderId,

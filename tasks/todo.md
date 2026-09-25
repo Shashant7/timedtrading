@@ -21,24 +21,30 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-## Active — Entangled mirror: model → broker for N accounts (2026-09-24)
+## Active — Broker mirroring buttoned up for scale (2026-09-24)
 
-Design: [`docs/entangled-mirror-design.md`](../docs/entangled-mirror-design.md).
-Awaiting operator decisions in §8 before Phase 1.
+Design: `docs/entangled-mirror-design.md` (PR #1498). Operator decisions:
+two lots, operator is an ordinary sleeve, market-equivalent orders
+(Webull refuses MARKET on options), no native stops but verify stops at
+the broker, new tables.
 
-- [x] Map both mirrored paths end to end (Short Term equity, day-trade options)
-- [x] Design: sleeves per account, target-state reduces (`sleeveTarget`),
-      outbox write path, closed divergence set, derived risk budget
-- [ ] Operator decisions (§8): 1-lot sizing, operator as ordinary sleeve,
-      entry fill policy, no native stops, new tables vs manifest
-- [ ] **Phase 0** — Short Term `reduce_pct` sent as fraction of original but
-      applied to remaining (trim-to-full after a 50% trim leaves 25%);
-      `listConnectedUsers` uncursored at 100; 27 stale model-closed trader
-      sleeves; day-trade `position_id` per round
-- [ ] Phase 1 — kernel tables + invariants, shadow mode for both accounts
-- [ ] Phase 2 — day trades dispatched through the kernel
+- [x] Short Term `reduce_pct` as fraction of remaining; exit ignores pct
+- [x] `listConnectedUsers` paged; token refresh reaches every account
+- [x] Suppressed manifest rows observed + released (27 frozen sleeves)
+- [x] Investor trims get distinct client_order_ids
+- [x] Equity fan-out no longer truncates trim ids into collisions
+- [x] Day trades: two lots, follow paper size, partners inside own caps
+- [x] Day trades: priced through the touch, booked at the fill
+- [x] Kernel tables + model legs + per-account attempts + converge
+- [ ] Watch the first live session: model_leg rows, both accounts'
+      sleeves, converge verifying stops in both accounts
+- [ ] Phase 2: retire the KV mirror / risk ledger for day trades once the
+      kernel has run clean for five sessions
+- [ ] Queue-based fan-out before accounts outgrow sequential converge
 - [ ] Phase 3 — converge reconciler, sharded sweeps, load test at 2,000
 - [ ] Phase 4 — Short Term + index-trend onto the kernel; retire manifest
+- [ ] NVDA divergence (Roth 9.28 vs target 1; partner 1 vs 9.14) — needs
+      an operator call, not a code change
 
 ## Active — Index DT entry timing review / profit-lock floor (2026-09-24)
 
