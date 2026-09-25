@@ -21,6 +21,20 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+## Active — Portfolio Day Trade P&L gap (2026-09-25)
+
+Index option day trades (e.g. 2026-09-23, 16 rounds / +$702) were
+missing or undercounted on Portfolio:
+
+- [x] Root cause: `closedTradesFromPaperActions` ignored TRIM proceeds
+      (only final EXIT/STOP qty × premium delta); Performance Overview
+      was ST/LT ledger only
+- [x] Round accounting matches `scripts/replay-day-trades.mjs` (TRIM +
+      re-entry on same signal_id)
+- [x] Performance Overview Day Trade toggle; ring `DT_ACTIONS_MAX` 80→500
+- [x] Unit tests + frontend build
+
+### Active
 ## Active — Conviction-aware management for Short Term (2026-09-25)
 
 Prime trades held to their structural stop and trailed wider
