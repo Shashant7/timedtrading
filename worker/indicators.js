@@ -30,7 +30,7 @@ import { evaluateBreakoutWatch, stampBreakoutWatchOnTicker } from "./breakout-wa
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
 // this version let us know exactly which logic produced them.
-export const SCORING_VERSION = "2.1.10-2026-09-10";
+export const SCORING_VERSION = "2.1.11-2026-09-25";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)
@@ -1729,6 +1729,23 @@ export function computeTfBundle(bars, anchors = null) {
   const breakoutAbovePrevHigh = Number.isFinite(prevHigh) && barHigh > prevHigh;
   const breakdownBelowPrevLow = Number.isFinite(prevLow) && barLow < prevLow;
 
+  // Swing extremes over the N bars BEFORE the current one. The current bar is
+  // excluded on purpose: live it is still forming, and in replay the D bar is
+  // keyed by its start time, so it can carry the whole session's range.
+  const swingOf = (n) => {
+    if (last < n) return { lo: null, hi: null };
+    let lo = Infinity, hi = -Infinity;
+    for (let i = last - n; i <= last - 1; i++) {
+      const bl = bars[i]?.l ?? closes[i];
+      const bh = bars[i]?.h ?? closes[i];
+      if (Number.isFinite(bl) && bl < lo) lo = bl;
+      if (Number.isFinite(bh) && bh > hi) hi = bh;
+    }
+    return { lo: Number.isFinite(lo) ? lo : null, hi: Number.isFinite(hi) ? hi : null };
+  };
+  const swing5 = swingOf(5);
+  const swing10 = swingOf(10);
+
   const ath52w = {
     // Entry checks need actual levels and completed preceding closes, not
     // an intraday high/low excursion or an unavailable ctx.bundles object.
@@ -1745,6 +1762,10 @@ export function computeTfBundle(bars, anchors = null) {
     tight_base_5d_pct: tightBase5d != null ? Math.round(tightBase5d * 100) / 100 : null,
     breakout_above_prev_high: breakoutAbovePrevHigh,
     breakdown_below_prev_low: breakdownBelowPrevLow,
+    swing_low_5: swing5.lo,
+    swing_high_5: swing5.hi,
+    swing_low_10: swing10.lo,
+    swing_high_10: swing10.hi,
     // V16 Setup #4: 3% threshold for our universe (heavily growth-stock
     // loaded; tickers rarely sit within 1.5% of ATH but often within 3%
     // before breakout). 5% threshold for tight_base (loosened from 3%
