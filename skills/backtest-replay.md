@@ -110,20 +110,19 @@ checks run on */5 cron ticks against live prints). For those rules, replay
 can only prove no-harm; the positive case needs unit tests pinned to the
 live tape and a live observation window.
 
-### Higher-timeframe bars LOOK AHEAD (2026-09-25, not fixed)
+### Higher-timeframe bars LOOK AHEAD (2026-09-25, fixed)
 
-`replay-candle-batches.js` slices every timeframe with `c.ts <= intervalTs`,
-and candles are keyed by bar START. So the bar still in progress is included
-with its FINAL OHLC. BRK-B at 2026-08-03 09:50 ET (price 517.54): the D bundle
-already had px 513.14 = that session's 4:00 PM close and the full day's
-high/low; the 4H bundle had 511.47 (the 1:30 PM close); the 1H bundle 515.25
-(the 10:30 close). Every D / 4H / 1H / 30m indicator in replay — EMAs,
-SuperTrend, RSI, phase, `daily_structure`, `ema_regime_daily` — sees up to one
-bar of the future. Arm-vs-arm comparisons share the leak, but absolute replay
-results are optimistic and any rule keyed to a higher-timeframe CLOSE (e.g. an
-hourly-close stop confirm) will validate falsely. Fix = drop bars whose end is
-after `intervalTs` and synthesize the forming bar from the 10m bars (what live
-does), then re-baseline.
+Fixed in `aea91b5ec` / PR #1504: `barsAsOf` in `worker/replay-asof-bars.js`
+rebuilds forming D / 4H / 1H / W bars from the completed 10m bars at
+`intervalTs`, so HTF indicators no longer see the rest of the bar's final
+OHLC. Arm-vs-arm comparisons that ran *before* the fix (including the
+conviction `cv-*` arms) were optimistic on HTF-close rules and must be
+**re-baselined** on the asof tape before trusting absolute PnL. Conviction
+management stays OFF until that re-run.
+
+Previously: `replay-candle-batches.js` sliced every timeframe with
+`c.ts <= intervalTs`, and candles are keyed by bar START, so the bar still
+in progress was included with its FINAL OHLC.
 
 ### `tf_tech[tf].atr` is not a number
 

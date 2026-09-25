@@ -88,6 +88,22 @@ describe("broker intents — classification", () => {
     expect(isReducerOrder({ ...exitOrder, vehicle: "option_day_trade" })).toBe(false);
   });
 
+  // Short Term equity and index-trend LETF exits both use mode=trader, so
+  // their reduces are durable on broker_intents. Day-trade options are not —
+  // they ride the kernel / KV intent stream. Phase 2 Cloudflare Queue is
+  // still deferred (docs/entangled-mirror-design.md).
+  it("covers Short Term and index-trend LETF exits as durable reducers", () => {
+    expect(isReducerOrder({
+      mode: "trader", side: "exit", vehicle: "shares", qty: 10, ticker: "UNP",
+    })).toBe(true);
+    expect(isReducerOrder({
+      mode: "trader", side: "exit", vehicle: "index_trend_letf", qty: 5, ticker: "TNA",
+    })).toBe(true);
+    expect(isReducerOrder({
+      mode: "trader", side: "buy", vehicle: "shares", qty: 10, ticker: "UNP",
+    })).toBe(false);
+  });
+
   it("classifies bridge outcomes", () => {
     expect(classifyBridgeOutcome({ ok: true })).toBe("placed");
     expect(classifyBridgeOutcome({ ok: false, skip: "equity_ah_too_late_for_broker" })).toBe("deferred");

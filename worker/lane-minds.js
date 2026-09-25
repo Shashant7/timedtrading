@@ -27,7 +27,9 @@ export const LANE_MINDS = Object.freeze({
     id: "short_term",
     label: "Swing trader",
     protective: false,
-    // Structural / conviction holds stay OFF until replay look-ahead is fixed.
+    // Structural / conviction holds stay OFF until cv-* arms are re-run on
+    // the post-look-ahead (barsAsOf) tape. Look-ahead itself is fixed
+    // (aea91b5ec); the prior negative A/B was measured with the leak.
     conviction_structural: false,
     shares_portfolio_risk: true,
     ignore_dt_clock: true,

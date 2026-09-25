@@ -26,7 +26,9 @@
 // skills/exit-rule-counterfactuals.md) was negative on both halves: the
 // wider trail -$381 (every changed trade gave back more from the same peak),
 // holding to plan risk -$1,408 realized (Prime +$641, rest of the book
-// -$2,049). Kept for re-testing, not for enabling.
+// -$2,049). Those arms ran BEFORE the look-ahead fix (aea91b5ec /
+// barsAsOf). Do not flip `deep_audit_conviction_mgmt_enabled` until cv-* is
+// re-baselined on the asof tape. Kept for re-testing, not for enabling.
 
 export const CONVICTION_DEFAULTS = Object.freeze({
   enabled: false,

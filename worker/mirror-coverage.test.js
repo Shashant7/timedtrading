@@ -140,6 +140,45 @@ describe("classifyActionCoverage — Short Term", () => {
     });
     expect(cov.status).toBe("mirrored_partial");
   });
+
+  it("ST EXIT no_broker_position is known-why external_reduction", () => {
+    const a = { ...stEntry(), event: "EXIT" };
+    const cov = classifyActionCoverage(a, {
+      ring: [{
+        ticker: "TWLO",
+        side: "exit",
+        trade_id: a.trade_id,
+        ts: OLD + 1000,
+        status: "error",
+        reject_reason: "no_broker_position",
+      }],
+      nowMs: NOW,
+    });
+    expect(cov).toMatchObject({
+      status: "rejected_terminal",
+      reason: "external_reduction",
+      known_why: true,
+    });
+    expect(healForCoverageRow({ ...a, ...cov })).toBeNull();
+  });
+
+  it("ST EXIT client_order_id_collision is a defect + trader exit heal", () => {
+    const a = { ...stEntry(), event: "EXIT" };
+    const cov = classifyActionCoverage(a, {
+      ring: [{
+        ticker: "TWLO",
+        side: "exit",
+        trade_id: a.trade_id,
+        ts: OLD + 1000,
+        status: "error",
+        reject_reason: "client_order_id_collision",
+      }],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("unmatched");
+    expect(cov.reason).toMatch(/^defect:client_order_id_collision/);
+    expect(healForCoverageRow({ ...a, ...cov })).toBe(HEAL_TRADER_EXIT);
+  });
 });
 
 describe("classifyActionCoverage — Long Term", () => {
@@ -262,7 +301,7 @@ describe("classifyActionCoverage — index-trend / index DT / convexity", () => 
     expect(cov.status).toBe("rejected_terminal");
   });
 
-  it("12. index-trend EXIT generic bridge_reject stays unmatched", () => {
+  it("12. index-trend EXIT generic bridge_reject is a defect (healable unmatched)", () => {
     const a = modelActionFromIndexTrend({
       event: "EXIT",
       signal_id: "it:IWM:TNA:LONG:2026-W36",
@@ -282,7 +321,9 @@ describe("classifyActionCoverage — index-trend / index DT / convexity", () => 
       nowMs: NOW,
     });
     expect(cov.status).toBe("unmatched");
-    expect(cov.reason).toMatch(/bridge_reject/);
+    expect(cov.reason).toMatch(/^defect:bridge_reject/);
+    expect(cov.known_why).toBe(false);
+    expect(healForCoverageRow({ ...a, ...cov })).toBe(HEAL_INDEX_EXIT);
   });
 
   it("13. index DT BUY unmatched", () => {
@@ -1022,7 +1063,8 @@ describe("a reduce is settled by what the broker still holds", () => {
         ring: [], intents: [], mirrorLogs: [], held: HELD, nowMs: NOW,
       });
       expect(cov.status).toBe("rejected_terminal");
-      expect(cov.reason).toBe("broker_position_already_flat");
+      expect(cov.reason).toBe("external_reduction");
+      expect(cov.known_why).toBe(true);
     }
   });
 
@@ -1050,7 +1092,8 @@ describe("a reduce is settled by what the broker still holds", () => {
         ring: [], intents: [], mirrorLogs: [], held: HELD, sleeves, nowMs: NOW,
       });
       expect(cov.status).toBe("rejected_terminal");
-      expect(cov.reason).toBe("broker_never_held_this_trade");
+      expect(cov.reason).toBe("external_reduction");
+      expect(cov.known_why).toBe(true);
     }
   });
 
@@ -1065,7 +1108,8 @@ describe("a reduce is settled by what the broker still holds", () => {
       nowMs: NOW,
     });
     expect(cov.status).toBe("rejected_terminal");
-    expect(cov.reason).toBe("broker_sleeve_already_flat");
+    expect(cov.reason).toBe("external_reduction");
+    expect(cov.known_why).toBe(true);
   });
 
   it("keeps paging an EXIT whose sleeve still holds shares", () => {

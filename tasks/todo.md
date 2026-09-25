@@ -37,9 +37,12 @@ After SPY 763P (operator cancelled, partner held through STOP):
       day) so whipsaw stacks stop eating the book; ST/LT ignore DT clock
       (`lane-minds.js`). Conviction structural stays OFF until look-ahead
       re-baseline.
+- [x] Named sync extended to ST + index-trend (equity flat synonyms →
+      `external_reduction`; unnamed reduces → `defect:` + heal)
+- [x] Look-ahead fixed on main (`aea91b5ec` / `barsAsOf`); docs updated
 - [ ] Phase 2: CF Queue fan-out + retire KV mirror / risk ledger
-- [ ] Extend named sync + auto-fix to ST equity + index-trend sleeves
-- [ ] ST conviction / structural mind ON after look-ahead fix
+      (ST/index-trend reduces already durable via `broker_intents`)
+- [ ] ST conviction / structural mind ON after post-asof cv-* re-baseline
 
 ### Active
 ## Active — Portfolio Day Trade P&L gap (2026-09-25)
@@ -71,13 +74,12 @@ OFF). Replay first: two live cases (P, INTC) cannot validate it.
 - [x] Decision: keep OFF; recorded in `skills/exit-rule-counterfactuals.md`
 - [x] Post-trim floor + stop-touch context + stop placement counterfactuals;
       structural stop arm `cv-ss-*` negative ($4,658 vs $6,089), stays OFF
-- [ ] **Fix replay look-ahead first** (`replay-candle-batches.js` includes the
-      in-progress D/4H/1H bar with its final OHLC), then re-baseline — every
-      HTF-close rule and absolute replay number depends on it
+- [x] **Fix replay look-ahead** (`barsAsOf` / `aea91b5ec`) — HTF bars no longer
+      see the rest of the forming bar. Re-baseline absolute arms before
+      trusting HTF-close rules or enabling conviction.
 - [ ] Candidate next arm (not started): upside exits for Prime — post-trim
       entry floor (hourly-close variant) and the 1.5% ratchet arm cut held
-      P/INTC at +0.2-0.7%; trims land at +0.5-0.7%
-
+      P/INTC at +0.2-0.7%; trims land at +0.5-0.7%. Re-run on asof tape.
 ## Active — Broker mirroring buttoned up for scale (2026-09-24)
 
 Design: `docs/entangled-mirror-design.md` (PR #1498). Operator decisions:
