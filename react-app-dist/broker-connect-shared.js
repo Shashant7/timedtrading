@@ -77,12 +77,92 @@
         ...u,
         portfolio: p?.portfolio || null,
         positions: p?.positions || null,
+        // /bridge/portfolio used to drop option lots; keep them on the
+        // merged row so Mission Control can render them next to shares.
+        options_positions: Array.isArray(p?.options_positions) ? p.options_positions : null,
+        options_count: Number.isFinite(Number(p?.options_count)) ? Number(p.options_count) : null,
         equity_usd: p?.equity_usd ?? null,
         cash_usd: p?.cash_usd ?? null,
         buying_power_usd: p?.buying_power_usd ?? null,
         account_id: p?.account_id || brokerAccountId(u),
       };
     });
+  }
+
+  // Keep in sync with worker-bridge/bridge-positions-options.js.
+  function formatOptionHoldingLabel(op) {
+    const und = String(op?.underlying || op?.symbol || "").toUpperCase();
+    if (!und) return null;
+    const rightRaw = String(op?.option_type || op?.right || "").toUpperCase().replace(/[^A-Z]/g, "");
+    let right = "?";
+    if (rightRaw === "P" || rightRaw === "PUT" || rightRaw.startsWith("PUT")) right = "P";
+    else if (rightRaw === "C" || rightRaw === "CALL" || rightRaw.startsWith("CALL")) right = "C";
+    else if (rightRaw.includes("PUT")) right = "P";
+    const strike = Number(op?.strike);
+    const strikeStr = Number.isFinite(strike)
+      ? (Math.abs(strike - Math.round(strike)) < 1e-6 ? String(Math.round(strike)) : strike.toFixed(2))
+      : null;
+    let exp = "";
+    const expRaw = op?.expiration || op?.expiry || null;
+    if (expRaw) {
+      const d = String(expRaw).slice(0, 10);
+      const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      exp = m ? `${m[2]}/${m[3]}` : d;
+    }
+    const core = strikeStr ? `${und} ${strikeStr}${right}` : `${und} ${right}`;
+    return exp ? `${core} ${exp}` : core;
+  }
+
+  function looksLikeOptionRow(p) {
+    if (!p || typeof p !== "object") return false;
+    if (String(p.instrument || "").toLowerCase() === "option") return true;
+    if (p.option_type || p.optionType || p.putOrCall) return true;
+    const strike = Number(p.strike ?? p.strike_price ?? p.strikePrice);
+    if (Number.isFinite(strike) && strike > 0 && (p.expiration || p.expiry)) return true;
+    const ac = String(p.assetClass || p.asset_class || p.secType || "").toUpperCase();
+    return ac === "OPT" || ac === "OPTION" || ac === "FOP";
+  }
+
+  function normalizeMcOptionRow(op) {
+    const rightRaw = String(op?.option_type || op?.right || op?.putOrCall || "").toUpperCase();
+    let optionType = null;
+    if (rightRaw === "P" || rightRaw === "PUT" || rightRaw.startsWith("PUT") || rightRaw.includes("PUT")) optionType = "PUT";
+    else if (rightRaw === "C" || rightRaw === "CALL" || rightRaw.startsWith("CALL")) optionType = "CALL";
+    const label = (op?.instrument === "option" && op?.ticker)
+      ? op.ticker
+      : (formatOptionHoldingLabel(op) || String(op?.symbol || op?.ticker || op?.contractDesc || "—").toUpperCase());
+    return {
+      ...op,
+      instrument: "option",
+      option_type: optionType || op?.option_type || null,
+      ticker: label,
+      qty: op?.qty ?? op?.quantity ?? op?.broker_qty ?? op?.position,
+      avg_cost: op?.avg_cost ?? op?.avgCost ?? op?.average_cost ?? op?.cost_price,
+      market_value: op?.market_value ?? op?.mktValue ?? op?.marketValue,
+      unrealized_pnl: op?.unrealized_pnl ?? op?.unrealizedPnl ?? op?.unrealized_profit_loss,
+    };
+  }
+
+  /**
+   * Equity first, then option contracts, for Mission Control's per-account
+   * Open positions table. Prefers /bridge/portfolio options_positions;
+   * falls back to getEquityPositions().options so the table still fills
+   * before tt-broker-bridge is redeployed.
+   */
+  function collectOpenPositionRows(account) {
+    const equitySrc = Array.isArray(account?.positions?.positions)
+      ? account.positions.positions
+      : Array.isArray(account?.positions) ? account.positions
+      : [];
+    const equity = equitySrc.filter((p) => !looksLikeOptionRow(p));
+    const attached = Array.isArray(account?.options_positions) ? account.options_positions : [];
+    const bundled = Array.isArray(account?.positions?.options) ? account.positions.options : [];
+    const optSrc = attached.length ? attached : bundled;
+    const options = optSrc.map(normalizeMcOptionRow);
+    return [
+      ...equity.map((p) => ({ ...p, instrument: p.instrument || "equity" })),
+      ...options,
+    ];
   }
 
   async function postJson(apiBase, path, body) {
@@ -128,6 +208,9 @@
     brokerDisplayName,
     brokerAccountId,
     mergeAccountRows,
+    formatOptionHoldingLabel,
+    looksLikeOptionRow,
+    collectOpenPositionRows,
     connectWebull,
     disconnectWebull,
     testWebull,
@@ -136,4 +219,4 @@
   };
 })(typeof window !== "undefined" ? window : globalThis);
 
-// cache-bust:1790336610204:996657052
+// cache-bust:1790351942927:835516140

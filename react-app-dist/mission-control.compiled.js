@@ -2272,7 +2272,8 @@ function BridgeSection({
     }
   }, "No broker accounts connected yet. Use ", React.createElement("strong", null, "Add connection"), " below to link Webull (personal API) or IBKR."), connectedAccounts.map(u => {
     const ok = u?.portfolio?.ok;
-    const positions = Array.isArray(u?.positions?.positions) ? u.positions.positions : Array.isArray(u?.positions) ? u.positions : [];
+    const positions = BC?.collectOpenPositionRows ? BC.collectOpenPositionRows(u) : Array.isArray(u?.positions?.positions) ? u.positions.positions : Array.isArray(u?.positions) ? u.positions : [];
+    const optionCount = positions.filter(p => String(p?.instrument || "").toLowerCase() === "option").length;
     const userRow = u;
     const enabled = !!userRow.broker_integration_enabled;
     const caps = userRow.user_caps || {};
@@ -2384,7 +2385,14 @@ function BridgeSection({
       className: "mc-bridge-stat-label"
     }, "Positions"), React.createElement("div", {
       className: "mc-bridge-stat-value"
-    }, positions.length)), positionsMktTotal > 0 && React.createElement("div", {
+    }, positions.length, optionCount > 0 ? React.createElement("span", {
+      className: "mc-mute",
+      style: {
+        fontSize: 11,
+        fontWeight: 500,
+        marginLeft: 6
+      }
+    }, positions.length - optionCount, " eq \xB7 ", optionCount, " opt") : null)), positionsMktTotal > 0 && React.createElement("div", {
       className: "mc-bridge-stat"
     }, React.createElement("div", {
       className: "mc-bridge-stat-label"
@@ -2419,23 +2427,34 @@ function BridgeSection({
         textAlign: "right"
       }
     }, "Unrlz P&L"))), React.createElement("tbody", null, positions.map((p, i) => {
-      const qty = Number(p?.position ?? p?.qty ?? p?.quantity);
+      const isOpt = String(p?.instrument || "").toLowerCase() === "option";
+      const qty = Number(p?.position ?? p?.qty ?? p?.quantity ?? p?.broker_qty);
       const avg = Number(p?.avgCost ?? p?.avg_cost ?? p?.avgPrice ?? p?.avg_price ?? p?.cost_price);
       const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
       const pnl = Number(p?.unrealizedPnl ?? p?.unrealized_pnl ?? p?.unrealized_profit_loss ?? p?.upl);
-      const sym = String(p?.contractDesc ?? p?.symbol ?? p?.ticker ?? p?.conid ?? "—").toUpperCase();
+      const sym = isOpt ? String(p?.ticker || p?.symbol || "—") : String(p?.contractDesc ?? p?.symbol ?? p?.ticker ?? p?.conid ?? "—").toUpperCase();
+      const optRight = String(p?.option_type || "").toUpperCase();
+      const qtyLabel = Number.isFinite(qty) ? `${qty.toLocaleString("en-US", {
+        maximumFractionDigits: 2
+      })}${isOpt ? " ct" : ""}` : "—";
       return React.createElement("tr", {
         key: `${u.user_id}-${sym}-${i}`
       }, React.createElement("td", {
         className: "font-mono"
-      }, sym), React.createElement("td", {
+      }, sym, isOpt && React.createElement("span", {
+        className: `mc-pill ${optRight === "PUT" ? "mc-pill-fail" : "mc-pill-ok"}`,
+        style: {
+          marginLeft: 6,
+          fontSize: 9,
+          verticalAlign: "middle"
+        },
+        title: "Option holding at the broker"
+      }, optRight === "PUT" ? "PUT" : "CALL")), React.createElement("td", {
         style: {
           textAlign: "right"
         },
         className: "font-mono"
-      }, Number.isFinite(qty) ? qty.toLocaleString("en-US", {
-        maximumFractionDigits: 2
-      }) : "—"), React.createElement("td", {
+      }, qtyLabel), React.createElement("td", {
         style: {
           textAlign: "right"
         },
@@ -4413,6 +4432,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1790336610204:996657052
+// cache-bust:1790351942927:835516140
 
-// cache-bust:1790336610204:996657052
+// cache-bust:1790351942927:835516140

@@ -76,7 +76,9 @@ Used to sanity-check namespace sizes.
 DMARC, Discord embed delivery counts.
 
 ### 8. Broker Bridge
-The triage section for IBKR/Robinhood automation. See
+The triage section for IBKR/Robinhood/Webull automation. Per-account
+**Open positions** lists share lots and option contracts (label like
+`SPY 777C 09/20`) from `/bridge/portfolio` `options_positions`. See
 [broker-bridge.md](broker-bridge.md).
 
 ---

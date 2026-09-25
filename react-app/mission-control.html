@@ -14,7 +14,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
-    <script src="broker-connect-shared.js?v=20260707b"></script>
+    <script src="broker-connect-shared.js?v=20260925-mc-opt-pos"></script>
     <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
     <script src="investor-nav-badge.js?v=20260622a"></script>
     <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
@@ -2184,9 +2184,12 @@
 
                 {connectedAccounts.map((u) => {
                       const ok = u?.portfolio?.ok;
-                      const positions = Array.isArray(u?.positions?.positions) ? u.positions.positions
-                                      : Array.isArray(u?.positions) ? u.positions
-                                      : [];
+                      const positions = BC?.collectOpenPositionRows
+                        ? BC.collectOpenPositionRows(u)
+                        : (Array.isArray(u?.positions?.positions) ? u.positions.positions
+                          : Array.isArray(u?.positions) ? u.positions
+                          : []);
+                      const optionCount = positions.filter((p) => String(p?.instrument || "").toLowerCase() === "option").length;
                       const userRow = u;
                       const enabled = !!userRow.broker_integration_enabled;
                       const caps = userRow.user_caps || {};
@@ -2277,7 +2280,14 @@
                               )}
                               <div className="mc-bridge-stat">
                                 <div className="mc-bridge-stat-label">Positions</div>
-                                <div className="mc-bridge-stat-value">{positions.length}</div>
+                                <div className="mc-bridge-stat-value">
+                                  {positions.length}
+                                  {optionCount > 0 ? (
+                                    <span className="mc-mute" style={{ fontSize: 11, fontWeight: 500, marginLeft: 6 }}>
+                                      {positions.length - optionCount} eq · {optionCount} opt
+                                    </span>
+                                  ) : null}
+                                </div>
                               </div>
                               {positionsMktTotal > 0 && (
                                 <div className="mc-bridge-stat">
@@ -2303,15 +2313,33 @@
                                 <thead><tr><th>Ticker</th><th style={{textAlign:"right"}}>Qty</th><th style={{textAlign:"right"}}>Avg Cost</th><th style={{textAlign:"right"}}>Mkt Value</th><th style={{textAlign:"right"}}>Unrlz P&amp;L</th></tr></thead>
                                 <tbody>
                                   {positions.map((p, i) => {
-                                    const qty = Number(p?.position ?? p?.qty ?? p?.quantity);
+                                    const isOpt = String(p?.instrument || "").toLowerCase() === "option";
+                                    const qty = Number(p?.position ?? p?.qty ?? p?.quantity ?? p?.broker_qty);
                                   const avg = Number(p?.avgCost ?? p?.avg_cost ?? p?.avgPrice ?? p?.avg_price ?? p?.cost_price);
                                   const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
                                   const pnl = Number(p?.unrealizedPnl ?? p?.unrealized_pnl ?? p?.unrealized_profit_loss ?? p?.upl);
-                                    const sym = String(p?.contractDesc ?? p?.symbol ?? p?.ticker ?? p?.conid ?? "—").toUpperCase();
+                                    const sym = isOpt
+                                      ? String(p?.ticker || p?.symbol || "—")
+                                      : String(p?.contractDesc ?? p?.symbol ?? p?.ticker ?? p?.conid ?? "—").toUpperCase();
+                                    const optRight = String(p?.option_type || "").toUpperCase();
+                                    const qtyLabel = Number.isFinite(qty)
+                                      ? `${qty.toLocaleString("en-US", { maximumFractionDigits: 2 })}${isOpt ? " ct" : ""}`
+                                      : "—";
                                     return (
                                       <tr key={`${u.user_id}-${sym}-${i}`}>
-                                        <td className="font-mono">{sym}</td>
-                                        <td style={{textAlign:"right"}} className="font-mono">{Number.isFinite(qty) ? qty.toLocaleString("en-US",{maximumFractionDigits:2}) : "—"}</td>
+                                        <td className="font-mono">
+                                          {sym}
+                                          {isOpt && (
+                                            <span
+                                              className={`mc-pill ${optRight === "PUT" ? "mc-pill-fail" : "mc-pill-ok"}`}
+                                              style={{ marginLeft: 6, fontSize: 9, verticalAlign: "middle" }}
+                                              title="Option holding at the broker"
+                                            >
+                                              {optRight === "PUT" ? "PUT" : "CALL"}
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td style={{textAlign:"right"}} className="font-mono">{qtyLabel}</td>
                                         <td style={{textAlign:"right"}} className="font-mono">{Number.isFinite(avg) ? `$${avg.toFixed(2)}` : "—"}</td>
                                         <td style={{textAlign:"right"}} className="font-mono">{Number.isFinite(mkt) ? `$${mkt.toLocaleString("en-US",{maximumFractionDigits:0})}` : "—"}</td>
                                         <td style={{textAlign:"right"}} className={`font-mono ${pnl > 0 ? "mc-pos" : pnl < 0 ? "mc-neg" : "mc-mute"}`}>
