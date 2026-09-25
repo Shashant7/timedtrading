@@ -1,3 +1,5 @@
+import { lastPriorSessionIndex } from "./replay-asof-bars.js";
+
 export async function prepareCandleReplayRuntime(args = {}) {
   const {
     db,
@@ -122,11 +124,13 @@ export async function prepareCandleReplayRuntime(args = {}) {
 
   {
     const avg = (arr) => arr.length ? arr.reduce((sum, n) => sum + n, 0) / arr.length : null;
+    // These run once per replay day, before any interval: today's daily bar
+    // is the session's final close, so everything here reads the PRIOR
+    // session (what was knowable at the open).
     const getSectorPctChange = (sym) => {
       const dCandles = replaySectorCandles[sym] || candleCache[sym]?.D;
       if (!dCandles || dCandles.length < 2) return null;
-      let lastIdx = dCandles.length - 1;
-      while (lastIdx >= 0 && dCandles[lastIdx].ts > marketCloseMs) lastIdx--;
+      const lastIdx = lastPriorSessionIndex(dCandles, dateParam);
       if (lastIdx < 1) return null;
       const curr = dCandles[lastIdx];
       const prev = dCandles[lastIdx - 1];
@@ -143,13 +147,7 @@ export async function prepareCandleReplayRuntime(args = {}) {
     let vixState = null;
 
     if (replayVixCandles.length > 0) {
-      let lo = 0, hi = replayVixCandles.length - 1;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (replayVixCandles[mid].ts <= marketCloseMs) lo = mid + 1;
-        else hi = mid - 1;
-      }
-      const vixCandle = replayVixCandles[Math.max(0, lo - 1)];
+      const vixCandle = replayVixCandles[lastPriorSessionIndex(replayVixCandles, dateParam)];
       const vixPrice = vixCandle?.c ? Number(vixCandle.c) : null;
       if (Number.isFinite(vixPrice)) {
         if (vixPrice < 15) { vixState = "low_fear"; miScore += 1; miEvidence.push(`VIX ${vixPrice.toFixed(1)} is low-fear`); }
@@ -185,13 +183,7 @@ export async function prepareCandleReplayRuntime(args = {}) {
     const miOverall = miScore >= 2 ? "risk_on" : miScore <= -2 ? "risk_off" : "balanced";
     let miVixPrice = replayCurrentVix;
     if (!miVixPrice && replayVixCandles.length > 0) {
-      let vlo = 0, vhi = replayVixCandles.length - 1;
-      while (vlo <= vhi) {
-        const mid = (vlo + vhi) >> 1;
-        if (replayVixCandles[mid].ts <= marketCloseMs) vlo = mid + 1;
-        else vhi = mid - 1;
-      }
-      const vc = replayVixCandles[Math.max(0, vlo - 1)];
+      const vc = replayVixCandles[lastPriorSessionIndex(replayVixCandles, dateParam)];
       if (vc?.c) miVixPrice = Number(vc.c);
     }
 

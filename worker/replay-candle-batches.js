@@ -13,6 +13,7 @@ import {
 } from "./foundation/sequence-snapshot.js";
 import { buildEarningsClusterWindowsFromEvents, JULY_2025_EARNINGS_CLUSTER_FALLBACK } from "./pipeline/earnings-cluster-gate.js";
 import { refreshStHoldSetup } from "./supertrend-hold.js";
+import { barsAsOf, lastPriorSessionIndex } from "./replay-asof-bars.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // V13 Focus Tier — helpers
@@ -239,32 +240,42 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
         try {
           const bundles = {};
           let hasData = false;
+          // Completed bars + the forming bar as of this interval, per tf
+          // (worker/replay-asof-bars.js). Shared by the bundles, rawBars
+          // and TD Sequential below.
+          const asOfCtx = {
+            intervalTs,
+            leadingLtf: replayLeadingLtf,
+            ltfCandles: candleCache[ticker]?.[replayLeadingLtf] || [],
+            dailyCandles: candleCache[ticker]?.D || [],
+            sessionOpenMs: marketOpenMs,
+          };
+          const asOfBars = {};
+          const barsFor = (tf) => {
+            if (!asOfBars[tf]) asOfBars[tf] = barsAsOf(tf, candleCache[ticker]?.[tf] || [], asOfCtx);
+            return asOfBars[tf];
+          };
           for (const tf of REPLAY_TFS) {
-            const allCandles = candleCache[ticker][tf] || [];
-            let lo = 0, hi = allCandles.length - 1;
-            while (lo <= hi) {
-              const mid = (lo + hi) >> 1;
-              if (allCandles[mid].ts <= intervalTs) lo = mid + 1;
-              else hi = mid - 1;
-            }
-            const endIdx = hi + 1;
+            const sliced = barsFor(tf);
+            const endIdx = sliced.length;
             // M needs fewer bars for investor monthly_bundle (Jul 2025 has ~13
             // unique months in D1; the old 50-bar gate left monthly_bundle null
             // and investor-replay opened 0). computeTfBundle accepts >=15.
             const minBarsForTf = tf === "M" ? 15 : 50;
             if (endIdx >= minBarsForTf) {
               const cacheKey = `${ticker}:${tf}`;
+              const tail = sliced[endIdx - 1];
+              const sig = `${endIdx}:${tail.ts}:${tail.h}:${tail.l}:${tail.c}:${tail.v}`;
               const cached = bundleCache[cacheKey];
-              if (cached && cached.endIdx === endIdx) {
+              if (cached && cached.sig === sig) {
                 bundles[tf] = cached.bundle;
                 hasData = true;
               } else {
-                const sliced = allCandles.slice(0, endIdx);
                 const bundle = computeTfBundle(sliced);
                 if (bundle) {
                   bundles[tf] = bundle;
                   hasData = true;
-                  bundleCache[cacheKey] = { endIdx, bundle };
+                  bundleCache[cacheKey] = { sig, bundle };
                 }
               }
             }
@@ -288,8 +299,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
 
           const rawBars = {};
           for (const tf of ["D", "W", replayLeadingLtf]) {
-            const allCandles = candleCache[ticker]?.[tf] || [];
-            const sliced = allCandles.filter((c) => c.ts <= intervalTs);
+            const sliced = barsFor(tf);
             const minBars = (tf === "D" || tf === "W") ? 25 : 3;
             if (sliced.length >= minBars) rawBars[tf] = sliced;
           }
@@ -321,16 +331,11 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
             let tdEndIdxKey = "";
             const tdSeqCandles = {};
             for (const tf of tdSeqTfs) {
-              const allC = candleCache[ticker]?.[tf];
-              if (!_hasTdMinimum(allC)) continue;
-              let lo = 0, hi = allC.length - 1;
-              while (lo <= hi) {
-                const mid = (lo + hi) >> 1;
-                if (allC[mid].ts <= intervalTs) lo = mid + 1;
-                else hi = mid - 1;
-              }
-              const endIdx = hi + 1;
-              tdEndIdxKey += `${tf}:${endIdx},`;
+              if (!_hasTdMinimum(candleCache[ticker]?.[tf])) continue;
+              const allC = barsFor(tf);
+              const endIdx = allC.length;
+              const tail = allC[endIdx - 1];
+              tdEndIdxKey += `${tf}:${endIdx}:${tail?.c}:${tail?.h}:${tail?.l},`;
               if (endIdx >= 14) tdSeqCandles[tf] = allC.slice(Math.max(0, endIdx - 60), endIdx);
             }
             const tdCached = tdSeqCache[ticker];
@@ -508,14 +513,10 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           }
 
           if (replayVixCandles.length > 0) {
-            let lo = 0, hi = replayVixCandles.length - 1;
-            while (lo <= hi) {
-              const mid = (lo + hi) >> 1;
-              if (replayVixCandles[mid].ts <= intervalTs) lo = mid + 1;
-              else hi = mid - 1;
-            }
-            const vixIdx = Math.max(0, lo - 1);
-            const vixCandle = replayVixCandles[vixIdx];
+            // Daily only: today's bar is the session's final close, so use
+            // the prior session's.
+            const vixIdx = lastPriorSessionIndex(replayVixCandles, dateParam);
+            const vixCandle = vixIdx >= 0 ? replayVixCandles[vixIdx] : null;
             if (vixCandle?.c) result._vix = Number(vixCandle.c);
           } else if (replayCurrentVix != null) {
             result._vix = replayCurrentVix;
