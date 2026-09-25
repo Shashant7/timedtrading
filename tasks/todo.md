@@ -31,9 +31,11 @@ OFF). Replay first: two live cases (P, INTC) cannot validate it.
       (`tt-core-exit`) wiring; grade carried onto live + replay positions
 - [x] Unit tests; keys in `REPLAY_DA_KEYS`
 - [x] Preprod: model_config synced to prod, candles to 2026-09-24
-- [ ] Arms `cv-base-2026{07,08,09}` vs `cv-conv-2026{07,08,09}` (24 tickers,
-      10m, batch 24); realized dollars + trade-set diff
-- [ ] Decide enable / tune / drop; record the result
+- [x] Arms `cv-base-*` / `cv-conv-*` / `cv-hlc-*` Jul-Sep (24 tickers, 10m,
+      batch 24): base $6,089 realized, wider trail -$381, hold-to-plan -$1,408
+- [x] Decision: keep OFF; recorded in `skills/exit-rule-counterfactuals.md`
+- [ ] Candidate next arm (not started): upside exits for Prime — post-trim
+      entry floor and the 1.5% ratchet arm cut held P/INTC at +0.2-0.7%
 
 ## Active — Broker mirroring buttoned up for scale (2026-09-24)
 

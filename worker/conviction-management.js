@@ -22,8 +22,11 @@
 //   - the MFE ratchet gives back more before it locks;
 //   - the stale-runner force close waits longer.
 //
-// Every knob defaults OFF. It is a replay candidate until an A/B says
-// otherwise (skills/backtest-replay.md).
+// Every knob defaults OFF. Replay A/B 2026-09-25 (Jul-Sep 2026, 24 tickers,
+// skills/exit-rule-counterfactuals.md) was negative on both halves: the
+// wider trail -$381 (every changed trade gave back more from the same peak),
+// holding to plan risk -$1,408 realized (Prime +$641, rest of the book
+// -$2,049). Kept for re-testing, not for enabling.
 
 export const CONVICTION_DEFAULTS = Object.freeze({
   enabled: false,
