@@ -769,7 +769,11 @@ describe("Stage 5b fill + paper-size wiring", () => {
       indicesFlagOn: true,
     });
     expect(r.reconcile.persist).toBe(false);
-    expect(kv.store.has(`timed:opt-dt-mirror:${SID}`)).toBe(false);
+    // Only the round stamp: partners placed in the same bridge call may
+    // still have filled, and the close path needs to know a BUY went out.
+    const row = JSON.parse(kv.store.get(`timed:opt-dt-mirror:${SID}`));
+    expect(row.entry_fired).toBeUndefined();
+    expect(row.entry_sent_ts).toBeGreaterThan(0);
   });
 
   it("EXIT prices the close through the bid, not at mid, and books the bid", async () => {

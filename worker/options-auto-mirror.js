@@ -1688,6 +1688,11 @@ export function summarizePartnerFanout(fired, { event = "BUY" } = {}) {
     if (!row?.result || typeof row.result !== "object") {
       return { account, decision: "error", reason: why || "no_bridge_response", contracts: 0 };
     }
+    // A close refused because the account holds none of the contract is
+    // that account being flat already, not a reduce that failed to land.
+    if (ev !== "BUY" && String(row.result?.reason || row?.reason || "") === "no_held_position") {
+      return { account, decision: "flat", reason: "no_held_position", contracts: 0 };
+    }
     const requested = Math.max(1, Math.round(Number(row.contracts) || 1));
     const fill = extractMirrorFill({ response: row.result, ok: row.ok === true }, requested);
     const graded = deriveMirrorDecision({
@@ -2153,6 +2158,83 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
   return result;
 }
 
+/**
+ * The model closed a round the operator never held. Partners still may.
+ *
+ * The bridge places the operator's order and every partner mirror in one
+ * call, so returning early here when the operator's own entry did not fill
+ * also means no partner ever hears about the close. 2026-09-25: SPY 763P's
+ * operator buy was cancelled unfilled, the partner's filled, the model
+ * stopped at 11:01, and the partner was still holding at 12:17.
+ *
+ * EXIT / STOP only: they end the thesis. The close goes out at the model's
+ * full size; the bridge clamps every partner to what it actually holds
+ * (`clampReduceToHeld`), so a flat account no-ops and nothing is oversold.
+ * The operator's own leg is refused `no_held_position` — reported here as
+ * skipped, not as an unmirrored reduce. Sent once per round.
+ */
+export function shouldClosePartnersOnly(event, mirror) {
+  const ev = String(event || "").toUpperCase();
+  if (ev !== "EXIT" && ev !== "STOP") return false;
+  // Only a round whose BUY actually went to the bridge can have partner
+  // fills; `entry_sent_ts` is that round's id.
+  const sent = Number(mirror?.entry_sent_ts) || 0;
+  return sent > 0 && Number(mirror?.partners_close_for) !== sent;
+}
+
+async function closePartnersWhenOperatorFlat(env, ctx, gate, mirror, operatorReason) {
+  const event = String(ctx.event || "").toUpperCase();
+  const signalId = String(ctx.signal_id || "").trim();
+  if (!shouldClosePartnersOnly(event, mirror)) return { skipped: true, reason: operatorReason };
+  const { operatorEmail, ticker, play, vehicleKey } = gate;
+  const book = ctx.book || {};
+  const qty = Math.max(1, Math.round(Number(book.contracts) || 0), computeIndexDayTradeCloseQty(event, book));
+  const mid = Number(ctx.premium);
+  const bid = Number(ctx.bid ?? ctx.execution?.premium_band?.bid ?? play?.premium?.bid ?? play?.legs?.[0]?.premium_bid);
+  const limitPrice = marketableCloseLimit({ event, mid, bid });
+  if (!(limitPrice > 0)) return { skipped: true, reason: operatorReason, partners: "no_close_limit" };
+  const closePlay = buildIndexDayTradeClosePlay(play, {
+    ticker,
+    strike: ctx.strike ?? book.strike ?? play?.strikes?.primary,
+    expiration: ctx.expiration ?? book.expiration ?? play?.expiration,
+    flavor: ctx.flavor ?? book.flavor ?? play?._day_trade_flavor,
+    qty,
+    limitPrice,
+    event,
+    signalId,
+  });
+  if (!closePlay) return { skipped: true, reason: operatorReason, partners: "close_play_build_failed" };
+  const fired = await fireAutoMirror(env, operatorEmail, {
+    trade_id: signalId,
+    ticker,
+    play: closePlay,
+    vehicle: vehicleKey,
+    source: "auto_mirror_index_dt_close",
+    ...indexDtKernelIds(ctx, signalId),
+    lifecycle: "close",
+    side: "exit",
+    close_event: event,
+    close_reason: ctx.reason || null,
+    close_qty: qty,
+    limit_price: limitPrice,
+  });
+  await saveIndexDtMirror(env, signalId, {
+    partners_close_for: Number(mirror?.entry_sent_ts) || null,
+    partners_close_event: event,
+    partners_close_qty: qty,
+    partners_close_ts: Date.now(),
+  });
+  return {
+    skipped: true,
+    reason: `${operatorReason}_partners_closed`,
+    partners_only: true,
+    fired,
+    close_qty: qty,
+    vehicle: vehicleKey,
+    event,
+  };
+}
+
 async function runIndexDayTradeMirror(env, ctx = {}) {
   const event = String(ctx.event || "BUY").toUpperCase();
   if (event === "PROTECT") return { skipped: true, reason: "protect_no_broker_action" };
@@ -2267,6 +2349,11 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
       buy_limit: buyLimit,
     });
 
+    // Partners are placed in the same bridge call, so they can hold this
+    // round even if the operator's own order is refused or never fills.
+    // The close path keys partner-only closes off this stamp.
+    if (signalId) await saveIndexDtMirror(env, signalId, { entry_sent_ts: Date.now() });
+
     let fill = extractMirrorFill(fired, entryContracts);
     fill = await pollFillIfNeeded(env, operatorEmail, fill, entryContracts);
     const rec = reconcileIndexDtFill({ event: "BUY", requestedQty: entryContracts, fill });
@@ -2378,15 +2465,15 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
     if (r.outcome === "filled") {
       mirror = r.mirror;
     } else if (r.outcome === "cancelled") {
-      return { skipped: true, reason: "entry_order_cancelled_unfilled" };
+      return closePartnersWhenOperatorFlat(env, ctx, gate, r.mirror || mirror, "entry_order_cancelled_unfilled");
     } else if (r.outcome === "gone") {
-      return { skipped: true, reason: "entry_fill_rejected" };
+      return closePartnersWhenOperatorFlat(env, ctx, gate, r.mirror || mirror, "entry_fill_rejected");
     } else {
       return { skipped: true, reason: "entry_fill_pending" };
     }
   }
 
-  if (!mirror?.entry_fired) return { skipped: true, reason: "no_mirrored_entry" };
+  if (!mirror?.entry_fired) return closePartnersWhenOperatorFlat(env, ctx, gate, mirror, "no_mirrored_entry");
 
   if (event === "TRIM" && mirror.trim_fired) return { skipped: true, reason: "trim_already_mirrored" };
   if ((event === "EXIT" || event === "STOP") && mirror.exit_fired) {
