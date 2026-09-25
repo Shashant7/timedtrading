@@ -10003,3 +10003,9 @@ and never heals.
   watchdog, and heals on success. The budget hitting zero is the system
   working, but it is equally silent and indistinguishable from "no setups
   today" — so it says so once per NY day, with the arithmetic.
+
+- **Read the whole merge-state check, not its last line (2026-09-25).**
+  `bash scripts/check-branch-merge-state.sh | tail -1` printed a blank line
+  and looked like a pass while the script was reporting PR #1501 as MERGED;
+  seven commits went to a dead branch and had to be cherry-picked onto a new
+  one (#1503). Check the exit code or grep for `MERGED PR detected`.

@@ -515,9 +515,11 @@ function EquityCurveCard({
 function PerformanceSection({
   traderTrades,
   investorTrades,
+  dayTradeTrades,
   mode,
   traderOpenPl,
-  investorOpenPl
+  investorOpenPl,
+  dayTradeOpenPl
 }) {
   const TradesPerformance = useMemo(() => {
     const factory = typeof window !== "undefined" && window.TradesPerformanceFactory;
@@ -540,10 +542,10 @@ function PerformanceSection({
       }
     }, "Performance overview is loading…");
   }
-  const trades = mode === "trader" ? traderTrades || [] : investorTrades || [];
-  const startCash = 100000;
-  const openPl = mode === "trader" ? traderOpenPl : investorOpenPl;
-  const loading = mode === "trader" ? traderTrades == null : investorTrades == null;
+  const trades = mode === "trader" ? traderTrades || [] : mode === "investor" ? investorTrades || [] : dayTradeTrades || [];
+  const startCash = mode === "day_trade" ? 10000 : 100000;
+  const openPl = mode === "trader" ? traderOpenPl : mode === "investor" ? investorOpenPl : dayTradeOpenPl;
+  const loading = mode === "trader" ? traderTrades == null : mode === "investor" ? investorTrades == null : dayTradeTrades == null;
   const summary = useMemo(() => {
     if (!TradesPerformance.computeSummary) return null;
     return TradesPerformance.computeSummary(trades || [], {
@@ -1190,6 +1192,11 @@ function PortfolioApp() {
   const indexSwingRows = useMemo(() => buildPaperRows(paperPositions || [], "index_swing", onSelectTicker), [paperPositions, onSelectTicker]);
   const traderOpenPl = useMemo(() => positions == null ? null : sumOpenPl(traderRows), [positions, traderRows]);
   const investorOpenPl = useMemo(() => investorPositions == null ? null : sumOpenPl(investorRows), [investorPositions, investorRows]);
+  const dayTradeOpenPl = useMemo(() => paperPositions == null ? null : sumOpenPl(dayTradeRows), [paperPositions, dayTradeRows]);
+  const dayTradeHistory = useMemo(() => {
+    if (!Array.isArray(paperHistory)) return paperHistory;
+    return paperHistory.filter(t => String(t?._lane || t?._paper_lane || "") === "index_day_trade");
+  }, [paperHistory]);
   const allHistory = useMemo(() => {
     const tag = (arr, lane) => (Array.isArray(arr) ? arr : []).map(t => ({
       ...t,
@@ -1324,7 +1331,7 @@ function PortfolioApp() {
     style: {
       margin: 0
     }
-  }, monthlyMode === "trader" ? "Short Term" : "Long Term", " — calendar, monthly P&L, setup breakdown")), h("div", {
+  }, monthlyMode === "trader" ? "Short Term" : monthlyMode === "investor" ? "Long Term" : "Day Trade", " — calendar, monthly P&L, setup breakdown")), h("div", {
     className: "mode-toggle"
   }, h("button", {
     className: monthlyMode === "trader" ? "active" : "",
@@ -1332,12 +1339,17 @@ function PortfolioApp() {
   }, "Short Term"), h("button", {
     className: monthlyMode === "investor" ? "active" : "",
     onClick: () => setMonthlyMode("investor")
-  }, "Long Term"))), h(PerformanceSection, {
+  }, "Long Term"), h("button", {
+    className: monthlyMode === "day_trade" ? "active" : "",
+    onClick: () => setMonthlyMode("day_trade")
+  }, "Day Trade"))), h(PerformanceSection, {
     traderTrades: traderHistory,
     investorTrades: investorHistory,
+    dayTradeTrades: dayTradeHistory,
     mode: monthlyMode,
     traderOpenPl,
-    investorOpenPl
+    investorOpenPl,
+    dayTradeOpenPl
   })), h("section", {
     className: "tt-row",
     style: {
@@ -1401,6 +1413,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1790351251824:413224431
+// cache-bust:1790351942927:835516140
 
-// cache-bust:1790351251824:413224431
+// cache-bust:1790351942927:835516140

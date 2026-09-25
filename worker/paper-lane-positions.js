@@ -275,8 +275,14 @@ export function normalizePaperLaneActions({ dayTrade = [], indexTrend = [] } = {
 }
 
 /**
- * Collapse BUY → EXIT/STOP pairs (same signal_id) into closed trade rows
- * for Portfolio history / performance. TRIM stays on the activity feed only.
+ * Collapse a signal's BUY / TRIM / EXIT / STOP tape into closed round rows
+ * for Portfolio history / performance.
+ *
+ * Must match `scripts/replay-day-trades.mjs` round accounting: TRIM proceeds
+ * count toward realized P&L. Pairing only the final EXIT/STOP qty against
+ * entry undercounts every trimmed winner (e.g. BUY 2 + TRIM 1 + EXIT 1
+ * would report half the round). Re-entry on the same signal_id (same strike
+ * later in the session) opens a new round.
  */
 export function closedTradesFromPaperActions(actions = []) {
   const bySignal = new Map();
@@ -287,69 +293,102 @@ export function closedTradesFromPaperActions(actions = []) {
     bySignal.get(sid).push(a);
   }
   const trades = [];
+
+  const pushClosedRound = (sid, round) => {
+    if (!round?.entry || !round.legs?.length) return;
+    if (round.qtyRemaining > 0) return; // still open — not Portfolio history
+    const buy = round.entry;
+    const last = round.legs[round.legs.length - 1];
+    const closeEv = actionEvent(last);
+    if (closeEv !== "EXIT" && closeEv !== "STOP") return;
+
+    const entry = num(buy.price);
+    const entryQty = num(buy.qty) || 0;
+    const isOpt = last.instrument === "option" || buy.instrument === "option"
+      || round.legs.some((l) => l.instrument === "option");
+    const mult = isOpt ? OPT_MULTIPLIER : 1;
+
+    let sold = 0;
+    let proceeds = 0;
+    for (const leg of round.legs) {
+      const q = num(leg.qty) || 0;
+      const px = num(leg.price) || 0;
+      proceeds += px * q * mult;
+      sold += q;
+    }
+    const basis = (entry != null && entry > 0 && entryQty > 0) ? entry * entryQty * mult : null;
+    let realized = null;
+    let realizedPct = null;
+    if (basis != null && basis > 0) {
+      realized = Math.round((proceeds - basis) * 100) / 100;
+      realizedPct = Math.round(((proceeds - basis) / basis) * 1000) / 10;
+    }
+    // Volume-weighted exit across TRIM + final close (display only).
+    let exit = num(last.price);
+    if (sold > 0 && mult > 0) {
+      const vwap = proceeds / (sold * mult);
+      if (Number.isFinite(vwap) && vwap > 0) exit = Math.round(vwap * 10000) / 10000;
+    }
+
+    const status = realized == null
+      ? "CLOSED"
+      : realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "FLAT";
+    const lane = last.lane || buy.lane;
+    trades.push({
+      id: `${sid}:${closeEv}:${last.ts}`,
+      trade_id: sid,
+      signal_id: sid,
+      ticker: String(last.ticker || buy.ticker || "").toUpperCase(),
+      direction: "LONG",
+      entry_price: entry,
+      entryPrice: entry,
+      exit_price: exit,
+      exitPrice: exit,
+      entry_ts: Number(buy.ts) || null,
+      exit_ts: Number(last.ts) || null,
+      status,
+      realized_pnl: realized,
+      realizedPnl: realized,
+      pnl: realized,
+      realized_pct: realizedPct,
+      realizedPct: realizedPct,
+      pct_return: realizedPct,
+      pnl_pct: realizedPct,
+      pnlPct: realizedPct,
+      qty: entryQty,
+      contracts: isOpt ? entryQty : null,
+      shares: isOpt ? null : entryQty,
+      instrument: isOpt ? "option" : "letf",
+      _paper_lane: lane,
+      _lane: lane,
+      _lane_label: last.lane_label || buy.lane_label,
+      _vehicle_label: last.vehicle || buy.vehicle,
+      setup_name: lane === "index_swing" ? "Index Swings LETF" : "Index Day Trade",
+      note: closeEv === "STOP" ? "stop" : "exit",
+      close_event: closeEv,
+      reason: last.reason || null,
+    });
+  };
+
   for (const [sid, rows] of bySignal) {
     const ordered = [...rows].sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
-    const buys = ordered.filter((r) => actionEvent(r) === "BUY");
-    const closes = ordered.filter((r) => {
-      const ev = actionEvent(r);
-      return ev === "EXIT" || ev === "STOP";
-    });
-    if (!buys.length || !closes.length) continue;
-    // One closed row per close, pairing with the latest BUY at-or-before close.
-    for (const close of closes) {
-      const buy = [...buys].reverse().find((b) => (Number(b.ts) || 0) <= (Number(close.ts) || 0))
-        || buys[buys.length - 1];
-      if (!buy) continue;
-      const entry = num(buy.price);
-      const exit = num(close.price);
-      const qty = num(close.qty) || num(buy.qty) || 0;
-      const isOpt = close.instrument === "option" || buy.instrument === "option";
-      let realized = null;
-      let realizedPct = null;
-      if (entry != null && entry > 0 && exit != null) {
-        realizedPct = Math.round(((exit - entry) / entry) * 1000) / 10;
-        if (qty > 0) {
-          realized = isOpt
-            ? Math.round((exit - entry) * qty * OPT_MULTIPLIER * 100) / 100
-            : Math.round((exit - entry) * qty * 100) / 100;
-        }
+    let cur = null;
+    for (const e of ordered) {
+      const ev = actionEvent(e);
+      if (ev === "BUY") {
+        // Re-entry on the same signal_id starts a new round; drop any
+        // unfinished prior (still-open) tape rather than inventing a close.
+        cur = { entry: e, legs: [], qtyRemaining: num(e.qty) || 0 };
+        continue;
       }
-      const status = realized == null
-        ? "CLOSED"
-        : realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "FLAT";
-      const closeEv = actionEvent(close);
-      trades.push({
-        id: `${sid}:${closeEv}:${close.ts}`,
-        trade_id: sid,
-        signal_id: sid,
-        ticker: String(close.ticker || buy.ticker || "").toUpperCase(),
-        direction: isOpt ? "LONG" : "LONG",
-        entry_price: entry,
-        entryPrice: entry,
-        exit_price: exit,
-        exitPrice: exit,
-        entry_ts: Number(buy.ts) || null,
-        exit_ts: Number(close.ts) || null,
-        status,
-        realized_pnl: realized,
-        realizedPnl: realized,
-        pnl: realized,
-        realized_pct: realizedPct,
-        realizedPct: realizedPct,
-        pct_return: realizedPct,
-        qty,
-        contracts: isOpt ? qty : null,
-        shares: isOpt ? null : qty,
-        instrument: isOpt ? "option" : "letf",
-        _paper_lane: close.lane || buy.lane,
-        _lane: close.lane || buy.lane,
-        _lane_label: close.lane_label || buy.lane_label,
-        _vehicle_label: close.vehicle || buy.vehicle,
-        setup_name: close.lane === "index_swing" ? "Index Swings LETF" : "Index Day Trade",
-        note: closeEv === "STOP" ? "stop" : "exit",
-        close_event: closeEv,
-        reason: close.reason || null,
-      });
+      if (!cur) continue;
+      if (ev !== "TRIM" && ev !== "EXIT" && ev !== "STOP") continue;
+      cur.legs.push(e);
+      cur.qtyRemaining -= num(e.qty) || 0;
+      if ((ev === "EXIT" || ev === "STOP") && cur.qtyRemaining <= 0) {
+        pushClosedRound(sid, cur);
+        cur = null;
+      }
     }
   }
   trades.sort((a, b) => (Number(b.exit_ts) || 0) - (Number(a.exit_ts) || 0));

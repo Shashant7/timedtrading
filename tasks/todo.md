@@ -21,6 +21,20 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+## Active — Portfolio Day Trade P&L gap (2026-09-25)
+
+Index option day trades (e.g. 2026-09-23, 16 rounds / +$702) were
+missing or undercounted on Portfolio:
+
+- [x] Root cause: `closedTradesFromPaperActions` ignored TRIM proceeds
+      (only final EXIT/STOP qty × premium delta); Performance Overview
+      was ST/LT ledger only
+- [x] Round accounting matches `scripts/replay-day-trades.mjs` (TRIM +
+      re-entry on same signal_id)
+- [x] Performance Overview Day Trade toggle; ring `DT_ACTIONS_MAX` 80→500
+- [x] Unit tests + frontend build
+
+### Active
 ## Active — Conviction-aware management for Short Term (2026-09-25)
 
 Prime trades held to their structural stop and trailed wider
@@ -34,8 +48,14 @@ OFF). Replay first: two live cases (P, INTC) cannot validate it.
 - [x] Arms `cv-base-*` / `cv-conv-*` / `cv-hlc-*` Jul-Sep (24 tickers, 10m,
       batch 24): base $6,089 realized, wider trail -$381, hold-to-plan -$1,408
 - [x] Decision: keep OFF; recorded in `skills/exit-rule-counterfactuals.md`
+- [x] Post-trim floor + stop-touch context + stop placement counterfactuals;
+      structural stop arm `cv-ss-*` negative ($4,658 vs $6,089), stays OFF
+- [ ] **Fix replay look-ahead first** (`replay-candle-batches.js` includes the
+      in-progress D/4H/1H bar with its final OHLC), then re-baseline — every
+      HTF-close rule and absolute replay number depends on it
 - [ ] Candidate next arm (not started): upside exits for Prime — post-trim
-      entry floor and the 1.5% ratchet arm cut held P/INTC at +0.2-0.7%
+      entry floor (hourly-close variant) and the 1.5% ratchet arm cut held
+      P/INTC at +0.2-0.7%; trims land at +0.5-0.7%
 
 ## Active — Broker mirroring buttoned up for scale (2026-09-24)
 

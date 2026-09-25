@@ -671,6 +671,16 @@ function inferSellKind(clock) {
  */
 export const REENTRY_COOLDOWN_MS = 10 * 60 * 1000;
 
+/**
+ * Thesis exit persistence (see evaluateDayTradeThesis). Two 5m closes off
+ * the lean side / one 5m close back inside the broken OR level: on 9/23-9/25
+ * that exited 5 priced rounds at +17 pts vs holding, and 9/25's SPY 763P at
+ * about -20% instead of the -51% premium stop. The one-close lean version
+ * (+23 pts) flickered out of 9/23's +100% DIA put in its first 30 minutes.
+ */
+export const THESIS_LEAN_OFF_MS = 10 * 60 * 1000;
+export const THESIS_RECLAIM_MS = 5 * 60 * 1000;
+
 export function classifyPaperEvent({
   clock,
   book = null,
@@ -745,6 +755,7 @@ export function classifyPaperEvent({
         strike: clock?.contract?.strike ?? null,
         expiration: clock?.contract?.expiration || null,
         held_overnight: false,
+        entry_thesis: clock?.thesis || null,
       },
     };
   }
@@ -790,6 +801,29 @@ export function classifyPaperEvent({
       reason: "invalidation",
       nextBook: { ...closed, event: "STOP", held_overnight: false, peak_premium: peak },
     };
+  }
+
+  // Thesis exit: an untrimmed lean-driven book whose lean has been off side
+  // for THESIS_LEAN_OFF_MS, or whose broken OR level has been reclaimed for
+  // THESIS_RECLAIM_MS, while the underlying is worse than at entry.
+  const tc = status === "open" && !trimArmed ? clock?.thesis_check : null;
+  if (tc) {
+    const offNow = !!(tc.red && tc.lean_off);
+    const recNow = !!(tc.red && tc.reclaimed);
+    stamped.thesis_off_since = offNow ? (num(book?.thesis_off_since) || now) : null;
+    stamped.thesis_reclaim_since = recNow ? (num(book?.thesis_reclaim_since) || now) : null;
+    const offLong = offNow && now - stamped.thesis_off_since >= THESIS_LEAN_OFF_MS;
+    const recLong = recNow && now - stamped.thesis_reclaim_since >= THESIS_RECLAIM_MS;
+    if (offLong || recLong) {
+      return {
+        event: "STOP",
+        reason: recLong ? "thesis_reclaimed" : "thesis_lean_off",
+        nextBook: { ...closed, event: "STOP", held_overnight: false, peak_premium: peak },
+      };
+    }
+  } else if (book?.thesis_off_since || book?.thesis_reclaim_since) {
+    stamped.thesis_off_since = null;
+    stamped.thesis_reclaim_since = null;
   }
 
   if (!peakLockArmed && hardStop != null && mid != null && mid + 1e-9 <= hardStop) {
@@ -959,6 +993,13 @@ export function describePaperExitReason(reason, ctx = {}) {
   }
   if (r === "tp2") {
     return `Target exit — premium hit 2R` + (mid != null ? ` at ${money(mid)}.` : ".");
+  }
+  if (r === "thesis_reclaimed" || r === "thesis_lean_off") {
+    const how = r === "thesis_reclaimed"
+      ? `${sym || "price"} is back inside the opening range it broke`
+      : `the day lean that opened this ${isPut ? "put" : "call"} is gone`;
+    return `Thesis exit — ${how}, and the underlying is worse than at entry.` +
+      (mid != null ? ` Fill ${money(mid)}.` : "");
   }
   if (r === "open_trim") {
     return `Opening trim — overnight carry trimmed at the open` + (mid != null ? ` (${money(mid)}).` : ".");

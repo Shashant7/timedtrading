@@ -1,4 +1,5 @@
 import { serializeSequenceTrailSnapshot, sequenceTrailSnapshotEnabled } from "./foundation/sequence-snapshot.js";
+import { barsAsOf } from "./replay-asof-bars.js";
 
 export function createIntervalReplayStep(deps = {}) {
   const {
@@ -241,6 +242,22 @@ export function createIntervalReplayStep(deps = {}) {
             });
 
             const candleResult = await d1GetCandlesAllTfs(replayEnv, ticker, LIVE_TF_CONFIGS, { beforeTs: intervalTs });
+            // Completed bars + forming bar per tf (worker/replay-asof-bars.js):
+            // `beforeTs` keeps bars that START by intervalTs, final OHLC and all.
+            {
+              const leadingLtf = normalizeTfKey(replayEnv.LEADING_LTF || "10") || "10";
+              const asOfCtx = {
+                intervalTs,
+                leadingLtf,
+                ltfCandles: candleResult[leadingLtf]?.candles || [],
+                dailyCandles: candleResult.D?.candles || [],
+                sessionOpenMs: marketOpenMs,
+              };
+              for (const tfKey of Object.keys(candleResult)) {
+                const r = candleResult[tfKey];
+                if (r?.ok && Array.isArray(r.candles)) r.candles = barsAsOf(tfKey, r.candles, asOfCtx);
+              }
+            }
             const getCandlesCached = async (_env, _ticker, tf, _limit) => {
               const tfKey = normalizeTfKey(tf);
               return candleResult[tfKey] || { ok: false, candles: [] };
