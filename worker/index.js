@@ -5119,11 +5119,39 @@ function stampFocusConvictionOnTicker(tickerData, env) {
   }
 }
 
-async function forceRescoreSingleTicker(env, ticker) {
+/**
+ * Score one ticker from candles, WITHOUT writing it anywhere.
+ *
+ * `forceRescoreSingleTicker` persists the result over `timed:latest`, which
+ * every lane reads. The index day-trade clock needs a minute-fresh score for
+ * four tickers, and writing that over the shared snapshot is how whole-
+ * universe minute scoring gave the swing lanes whiplash before it was
+ * removed. So the computation stands alone and the caller decides.
+ *
+ * `liveSnap` (a `timed:prices` row) stitches today's forming bar into the D
+ * and W series — the same overlay the every-5-minute cron applies — and into any
+ * intraday frames named in `formingIntradayTfs`, so the score moves with the
+ * tape instead of waiting for the next closed bar.
+ */
+async function computeRescoredTicker(env, ticker, { liveSnap = null, formingIntradayTfs = null, withJourney = true } = {}) {
   // Match the */5 cron: without these lists, computeConvictionScore
   // cannot apply live Upticks +10 / Granny +10 (DDOG Sep 2026).
   await loadFocusListEnv(env);
   const candleCache = await d1GetCandlesAllTfs(env, ticker, RESCORE_TF_CONFIGS);
+  if (liveSnap && Number(liveSnap.p) > 0) {
+    const _tfs = ["D", "W", ...(Array.isArray(formingIntradayTfs) ? formingIntradayTfs : [])];
+    for (const _stf of _tfs) {
+      const row = candleCache[normalizeTfKey(_stf)];
+      if (!Array.isArray(row?.candles) || row.candles.length === 0) continue;
+      try {
+        const stitched = await appendFormingChartCandle(env, ticker, _stf, row.candles, {
+          priceSnap: liveSnap,
+          formingIntradayTfs,
+        });
+        if (stitched?.candles?.length) row.candles = stitched.candles;
+      } catch (_) { /* a failed stitch leaves the closed bars to score */ }
+    }
+  }
   const getCandlesCached = async (_env, _ticker, tf, _limit) => {
     const tfKey = normalizeTfKey(tf);
     return candleCache[tfKey] || { ok: false, candles: [] };
@@ -5182,15 +5210,68 @@ async function forceRescoreSingleTicker(env, ticker) {
     tickerData.timing_overlay = computeTimingOverlay(tickerData, _rawConf);
     tickerData.confluence_verdict = applyTimingOverlayToConfluence(_rawConf, tickerData.timing_overlay, tickerData);
   } catch (_) { /* timing overlay is best-effort */ }
-  try {
-    const _jr = Journey.updateJourney(existing?._journey || null, tickerData, now);
-    tickerData._journey = _jr.journey;
-  } catch (_) { /* journey stamp is best-effort */ }
+  if (withJourney) {
+    try {
+      const _jr = Journey.updateJourney(existing?._journey || null, tickerData, now);
+      tickerData._journey = _jr.journey;
+    } catch (_) { /* journey stamp is best-effort */ }
+  }
+  return { ok: true, ticker, tickerData };
+}
+
+async function forceRescoreSingleTicker(env, ticker) {
+  const r = await computeRescoredTicker(env, ticker);
+  if (!r.ok) return r;
+  const tickerData = r.tickerData;
   await kvPutJSON(env.KV_TIMED, `timed:latest:${ticker}`, tickerData);
   try {
     await d1UpsertTickerLatest(env, ticker, tickerData);
   } catch (_) {}
   return { ok: true, ticker, rank: tickerData.rank, price: tickerData.price };
+}
+
+/** A live quote this old is not the tape any more. */
+const DT_FRESH_SCORE_MAX_QUOTE_AGE_MS = 3 * 60 * 1000;
+/** Intraday frames stitched with the forming bar for the day-trade score. */
+const DT_FRESH_SCORE_FORMING_TFS = ["10", "15", "30", "60"];
+
+/**
+ * Minute-fresh scores for the index day-trade tickers, in memory only.
+ *
+ * Index scores in `timed:latest` refresh about every 10.5 minutes: tt-engine
+ * scores the whole ~330-ticker universe on its 5-minute cron and the pass overruns into
+ * its 10-minute lease. QQQ was scored 35 times on 2026-09-24, with gaps up
+ * to 25 minutes, while this clock ran every minute and bought 733P on a read
+ * ten minutes old that still said "pullback" as QQQ rallied 0.6% into it.
+ *
+ * Returns { [ticker]: tickerData } for the tickers that scored; any failure
+ * leaves that ticker on the shared snapshot, exactly as before.
+ */
+async function scoreDayTradeIndicesFresh(env, tickers, pricesMap, { now = Date.now() } = {}) {
+  const out = {};
+  const want = (tickers || []).filter((t) => {
+    const snap = pricesMap?.[t];
+    const ts = Number(snap?.q_ts || snap?.p_ts || snap?.t) || 0;
+    return Number(snap?.p) > 0 && ts > 0 && now - ts <= DT_FRESH_SCORE_MAX_QUOTE_AGE_MS;
+  });
+  for (let i = 0; i < want.length; i += 2) {
+    await Promise.all(want.slice(i, i + 2).map(async (t) => {
+      try {
+        const r = await computeRescoredTicker(env, t, {
+          liveSnap: pricesMap[t],
+          formingIntradayTfs: DT_FRESH_SCORE_FORMING_TFS,
+          withJourney: false,
+        });
+        if (r?.ok && r.tickerData) {
+          r.tickerData.__dt_fresh_score_ts = now;
+          out[t] = r.tickerData;
+        }
+      } catch (e) {
+        console.warn(`[DT-FRESH-SCORE] ${t}:`, String(e?.message || e).slice(0, 120));
+      }
+    }));
+  }
+  return out;
 }
 
 /**
@@ -49905,8 +49986,10 @@ async function loadLatestPredictionTicker(env, ticker) {
   return data;
 }
 
-async function buildTraderPredictionContract(env, ticker) {
-  const data = await loadLatestPredictionTicker(env, ticker);
+async function buildTraderPredictionContract(env, ticker, { dataOverride = null } = {}) {
+  const data = dataOverride && typeof dataOverride === "object"
+    ? dataOverride
+    : await loadLatestPredictionTicker(env, ticker);
   if (!data) return null;
   const regimeEvidence = await buildMarketRegimeEvidence(env, data);
   let profile = null;
@@ -95858,11 +95941,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 } catch (_) { /* per-ticker chain is best-effort */ }
               }));
             } catch (_) { /* chain prefetch is best-effort */ }
+            // Direction and conviction come from the scored snapshot, which for
+            // the indices is ~10.5 minutes old on average; the spot below is
+            // live. Score the four indices fresh, in memory, so both halves of
+            // the decision describe the same tape. Never written back — the
+            // swing lanes keep their */5 cadence.
+            let _dtFresh = {};
+            if (marketOpen && String(env?.DT_FRESH_INDEX_SCORE ?? "true").toLowerCase() !== "false") {
+              try {
+                _dtFresh = await scoreDayTradeIndicesFresh(env, _dtTickers, pricesMap);
+              } catch (e) {
+                console.warn("[DT-FRESH-SCORE] batch failed:", String(e?.message || e).slice(0, 120));
+              }
+            }
             for (const _dtSym of _dtTickers) {
               try {
-                const _dtContract = await buildTraderPredictionContract(env, _dtSym);
+                const _dtFreshRow = _dtFresh[_dtSym] || null;
+                const _dtContract = await buildTraderPredictionContract(env, _dtSym, { dataOverride: _dtFreshRow });
                 if (!_dtContract) continue;
-                const _dtTicker = tickers.find(t => String(t?.ticker || "").toUpperCase() === _dtSym) || {};
+                const _dtListed = tickers.find(t => String(t?.ticker || "").toUpperCase() === _dtSym) || {};
+                const _dtTicker = _dtFreshRow ? { ..._dtListed, ..._dtFreshRow } : _dtListed;
                 if (_dtFsdMacro && !_dtTicker.fsd_macro) _dtTicker.fsd_macro = _dtFsdMacro;
                 const _dtAtrDay = Number(_dtTicker?.atr_levels?.atr_day) || 0;
                 const _liveSpot = _resolveSpot(pricesMap, _dtSym, { marketOpen });
@@ -95881,7 +95979,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 let _dtGp = null;
                 let _dtScn = null;
                 try {
-                  _dtScn = await buildTickerScenario(env, _dtSym, { priceOverride: _dtPrice });
+                  _dtScn = await buildTickerScenario(env, _dtSym, { priceOverride: _dtPrice, latestOverride: _dtFreshRow });
                   _dtGp = _dtScn?.game_plan || null;
                   if (_dtGp) {
                     _dtLean = String(_dtGp.lean || "");

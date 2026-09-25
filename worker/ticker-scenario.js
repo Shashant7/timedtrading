@@ -239,8 +239,12 @@ export async function buildTickerScenario(env, ticker, opts = {}) {
   if (!sym) return null;
 
   const useOvernightPlaybook = isIndexDayTradeEtf(sym);
+  // `latestOverride` lets the day-trade clock hand in a minute-fresh score
+  // without it ever being written over the shared snapshot.
   const [latest, dailies, m5Candles] = await Promise.all([
-    loadLatestSnapshot(env, sym),
+    opts.latestOverride && typeof opts.latestOverride === "object"
+      ? Promise.resolve(opts.latestOverride)
+      : loadLatestSnapshot(env, sym),
     loadDailyCandles(env, sym, 40),
     useOvernightPlaybook ? loadM5Candles(env, sym, 100) : Promise.resolve([]),
   ]);

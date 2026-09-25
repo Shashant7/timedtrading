@@ -150,3 +150,40 @@ describe("runChartCandleCalendar shares the bar lane", () => {
     expect(ctx.waitUntil).toHaveBeenCalled();
   });
 });
+
+describe("appendFormingChartCandle — finer intraday frames for the day-trade score", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("forms the current 10m bar only for a caller that names 10m", async () => {
+    const now = Date.UTC(2026, 5, 22, 14, 47); // 10:47 ET: current 10m bucket is 10:40 ET.
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const buckets = expectedIntradayBuckets("2026-06-22", 10).filter((ts) => ts <= now);
+    const current = buckets[buckets.length - 1];
+    const prior = buckets[buckets.length - 2];
+    const candles = [{ ts: prior, o: 740, h: 741, l: 739, c: 740.5, v: 5 }];
+    const env = { KV_TIMED: kvWithPrice("QQQ", { p: 742.1 }) };
+
+    const named = await appendFormingChartCandle(env, "QQQ", "10", candles, { formingIntradayTfs: ["10"] });
+    expect(named.forming).toBe(true);
+    expect(named.candles[1]).toMatchObject({ ts: current, o: 740.5, c: 742.1, forming: true });
+
+    // Chart reads pass `intradayForming` for every frame; 10m must not change for them.
+    const chart = await appendFormingChartCandle(env, "QQQ", "10", candles, { intradayForming: true });
+    expect(chart.forming).toBe(false);
+    expect(chart.candles).toHaveLength(1);
+  });
+
+  it("updates, rather than duplicates, a bar already forming in the same bucket", async () => {
+    const now = Date.UTC(2026, 5, 22, 14, 47);
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const buckets = expectedIntradayBuckets("2026-06-22", 15).filter((ts) => ts <= now);
+    const current = buckets[buckets.length - 1];
+    const candles = [{ ts: current, o: 740, h: 741, l: 739.5, c: 740.2, v: 5 }];
+    const env = { KV_TIMED: kvWithPrice("QQQ", { p: 738.9 }) };
+    const out = await appendFormingChartCandle(env, "QQQ", "15", candles, { formingIntradayTfs: ["15"] });
+    expect(out.candles).toHaveLength(1);
+    expect(out.candles[0]).toMatchObject({ o: 740, h: 741, l: 738.9, c: 738.9, forming: true });
+  });
+});
