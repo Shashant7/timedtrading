@@ -18,6 +18,13 @@
 // 2-3 ATR and 5-20 session horizons (+11.7R to +22.8R).
 //
 // Only ever WIDENS the stop, never past `capAtr` daily ATRs from entry.
+//
+// Replay A/B 2026-09-25 (Jul-Sep 2026, 24 tickers): NEGATIVE, stays off.
+// $4,658 realized vs $6,089. The candle study replays stop/target only, but
+// in the engine the plan stop is rarely the loss exit (12 of 92 baseline
+// exits, mostly trailed winners) — HARD_LOSS_CAP, max_loss and dead-money
+// cut losers first. So the wider stop's real effect is risk-based sizing:
+// 11% smaller positions, and the same 28 ratchet winners made $2,034 less.
 
 export const STRUCTURAL_STOP_DEFAULTS = Object.freeze({
   enabled: false,
