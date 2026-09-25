@@ -14,6 +14,10 @@ import {
   isEquityHoliday,
   isNyRegularMarketOpenStatic,
 } from "./market-calendar.js";
+import {
+  LANE_MINDS,
+  dayTradeSessionReentryBlock,
+} from "./lane-minds.js";
 
 function num(v) {
   const n = Number(v);
@@ -691,6 +695,9 @@ export function classifyPaperEvent({
   reentryCooldownMs = REENTRY_COOLDOWN_MS,
   sessionStopCount = 0,
   maxSessionStops = null,
+  lastClose = null,
+  sessionRounds = null,
+  sessionMind = null,
 } = {}) {
   const action = String(clock?.action || "WAIT").toUpperCase();
   const status = String(book?.status || "flat");
@@ -723,8 +730,11 @@ export function classifyPaperEvent({
   if (canEnter && action === "BUY" && !isOptionsBuyWindowEt(now)) {
     return { event: null, nextBook: null };
   }
-  const sinceClose = now - (num(lastUnderlyingCloseTs) || 0);
-  if (canEnter && action === "BUY" && num(lastUnderlyingCloseTs) > 0
+  // Prefer structured lastClose.ts when present (richer stamp); fall back to
+  // the legacy numeric lastUnderlyingCloseTs.
+  const closeTs = num(lastClose?.ts) || num(lastUnderlyingCloseTs) || 0;
+  const sinceClose = now - closeTs;
+  if (canEnter && action === "BUY" && closeTs > 0
     && sinceClose >= 0 && sinceClose < (num(reentryCooldownMs) ?? REENTRY_COOLDOWN_MS)) {
     return { event: null, nextBook: null, blocked: "reentry_cooldown" };
   }
@@ -735,6 +745,21 @@ export function classifyPaperEvent({
     const streak = Math.max(0, Math.round(Number(sessionStopCount) || 0));
     if (canEnter && action === "BUY" && Number.isFinite(maxStops) && maxStops > 0 && streak >= maxStops) {
       return { event: null, nextBook: null, blocked: "session_stop_stand_down" };
+    }
+  }
+  // Session re-entry policy: one round per call/put side unless lean flipped;
+  // never re-buy after a green profit_lock_stop the same NY day.
+  if (canEnter && action === "BUY") {
+    const sessionBlock = dayTradeSessionReentryBlock({
+      side: clock?.contract?.flavor,
+      leanNow: clock?.thesis?.lean ?? clock?.thesis?.day_lean ?? clock?.day_lean,
+      sessionRounds: sessionRounds || [],
+      lastClose,
+      now,
+      mind: sessionMind || LANE_MINDS.day_trade,
+    });
+    if (sessionBlock) {
+      return { event: null, nextBook: null, blocked: sessionBlock };
     }
   }
   if (canEnter && action === "BUY") {

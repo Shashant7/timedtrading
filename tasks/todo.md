@@ -18,6 +18,21 @@
 
 ---
 
+## Active — ST + Index DT performance gates (2026-09-25)
+
+Week ending Sep 25: ST LEFT_MONEY on ratchet; DT first entries +$410 /
+re-entries −$1,224. Implement the agreed gates:
+
+- [x] DT: one round per underlying+side per NY day unless lean flipped
+- [x] DT: no re-buy after green `profit_lock_stop` same session
+- [x] ST: pause ATH Breakout (+ ATL Breakdown) in play catalog (Support
+      Bounce / Range Reversal already paused)
+- [x] ST: Prime upside — higher MFE ratchet arm (3%) + keep-frac (50%);
+      Prime-only post-trim entry floor (default on)
+- [x] Unit tests (123 pass across lane-minds / plan / ratchet / catalog)
+
+---
+
 ## Active — Model↔broker sync + lane minds (2026-09-25)
 
 After SPY 763P (operator cancelled, partner held through STOP):

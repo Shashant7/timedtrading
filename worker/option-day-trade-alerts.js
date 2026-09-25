@@ -14,7 +14,7 @@ import {
   buildDayTradeSignalEmbed,
   isOvernightCarry,
 } from "./option-day-trade-plan.js";
-import { dayTradeStopStreakKey } from "./lane-minds.js";
+import { dayTradeStopStreakKey, dayTradeSessionRoundsKey, dayTradeSideFromFlavor, normalizeDayLean, LANE_MINDS } from "./lane-minds.js";
 import { publishIndexDtIntent } from "./mirror-intent-stream.js";
 
 const BOOK_TTL = 3 * 86400;
@@ -74,11 +74,57 @@ export function dayTradeLastCloseKey(ticker) {
   return `timed:opt-dt:last-close:${String(ticker || "").toUpperCase()}`;
 }
 
-async function readLastUnderlyingClose(KV, ticker) {
+/**
+ * Read the last underlying close stamp. Legacy values were a bare epoch ms
+ * string; current values are JSON `{ts, reason, side, green, lean}`.
+ */
+export async function readLastUnderlyingCloseMeta(KV, ticker) {
   try {
-    const ts = Number(await KV.get(dayTradeLastCloseKey(ticker)));
-    return ts > 0 ? ts : null;
+    const raw = await KV.get(dayTradeLastCloseKey(ticker));
+    if (raw == null || raw === "") return null;
+    const asNum = Number(raw);
+    if (Number.isFinite(asNum) && asNum > 1e12 && String(asNum) === String(raw).trim()) {
+      return { ts: asNum };
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        const ts = Number(parsed.ts);
+        if (Number.isFinite(ts) && ts > 0) return { ...parsed, ts };
+      }
+    } catch (_) { /* fall through */ }
+    if (Number.isFinite(asNum) && asNum > 0) return { ts: asNum };
+    return null;
   } catch (_) { return null; }
+}
+
+async function readLastUnderlyingClose(KV, ticker) {
+  const meta = await readLastUnderlyingCloseMeta(KV, ticker);
+  return meta?.ts > 0 ? meta.ts : null;
+}
+
+async function readSessionRounds(KV, ticker, now = Date.now()) {
+  try {
+    const raw = await KV.get(dayTradeSessionRoundsKey(ticker, now));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) { return []; }
+}
+
+async function recordSessionRound(KV, ticker, { side, lean, ts } = {}, now = Date.now()) {
+  const resolved = dayTradeSideFromFlavor(side);
+  if (!KV || !ticker || !resolved) return;
+  const key = dayTradeSessionRoundsKey(ticker, now);
+  try {
+    const rounds = await readSessionRounds(KV, ticker, now);
+    rounds.push({
+      side: resolved,
+      lean: normalizeDayLean(lean) || null,
+      ts: Number(ts) || now,
+    });
+    await KV.put(key, JSON.stringify(rounds), { expirationTtl: 86400 });
+  } catch (_) { /* protective only */ }
 }
 
 async function readSessionStopStreak(KV, ticker, now = Date.now()) {
@@ -230,13 +276,18 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
   const bookKey = loaded.bookKey || dayTradeBookKey(signalId);
   const persistSignalId = loaded.signal_id || signalId;
 
+  const lastClose = await readLastUnderlyingCloseMeta(KV, payload.ticker);
+  const sessionRounds = await readSessionRounds(KV, payload.ticker, payload.now || Date.now());
   const decision = classifyPaperEvent({
     clock: payload.execution,
     book,
     premium: payload.premium ?? payload.execution?.premium_band?.premium,
     now: payload.now || Date.now(),
     size,
-    lastUnderlyingCloseTs: await readLastUnderlyingClose(KV, payload.ticker),
+    lastUnderlyingCloseTs: lastClose?.ts || null,
+    lastClose,
+    sessionRounds,
+    sessionMind: LANE_MINDS.day_trade,
     sessionStopCount: await readSessionStopStreak(KV, payload.ticker, payload.now || Date.now()),
   });
 
@@ -255,9 +306,31 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
       ...(decision.blocked ? { blocked: decision.blocked } : {}),
     };
   }
+  if (decision.event === "BUY" && payload.ticker) {
+    await recordSessionRound(KV, payload.ticker, {
+      side: decision.nextBook?.flavor || payload.execution?.contract?.flavor,
+      lean: decision.nextBook?.entry_thesis?.lean
+        || payload.execution?.thesis?.lean
+        || payload.execution?.thesis?.day_lean,
+      ts: payload.now || Date.now(),
+    }, payload.now || Date.now());
+  }
   if ((decision.event === "STOP" || decision.event === "EXIT") && payload.ticker) {
     try {
-      await KV.put(dayTradeLastCloseKey(payload.ticker), String(payload.now || Date.now()), { expirationTtl: 86400 });
+      const entryPx = Number(book?.entry_premium ?? decision.nextBook?.entry_premium);
+      const exitPx = Number(
+        decision.nextBook?.exit_premium
+        ?? payload.premium
+        ?? payload.execution?.premium_band?.premium,
+      );
+      const green = Number.isFinite(entryPx) && Number.isFinite(exitPx) && exitPx > entryPx;
+      await KV.put(dayTradeLastCloseKey(payload.ticker), JSON.stringify({
+        ts: payload.now || Date.now(),
+        reason: decision.reason || null,
+        side: dayTradeSideFromFlavor(book?.flavor || decision.nextBook?.flavor),
+        green,
+        lean: normalizeDayLean(book?.entry_thesis?.lean) || null,
+      }), { expirationTtl: 86400 });
     } catch (_) { /* a missing stamp only loses one cooldown, never an order */ }
     await bumpSessionStopStreak(KV, payload.ticker, decision.event, payload.now || Date.now());
   }
