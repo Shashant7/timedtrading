@@ -743,6 +743,10 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_conviction_r6_ratio_high",
   "deep_audit_conviction_stale_hours_mult",
   "deep_audit_conviction_hlc_to_plan",
+  "deep_audit_stop_beyond_swing_enabled",
+  "deep_audit_stop_beyond_swing_days",
+  "deep_audit_stop_beyond_swing_buffer_atr",
+  "deep_audit_stop_beyond_swing_cap_atr",
 ];
 
 const REPLAY_CFG_KEYS = [
