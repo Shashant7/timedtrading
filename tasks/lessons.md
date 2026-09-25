@@ -6,6 +6,25 @@
 
 ---
 
+## Portfolio is not positions — options were dropped on the MC path [2026-09-25]
+
+Mission Control Broker Mirror asked `/bridge/portfolio` for the
+per-account Open positions table. That handler already called
+`getEquityPositions`, and Webull already parses option lots onto
+`.options` from the same GET. The portfolio aggregator copied only
+`.positions` (equities) and Mission Control only read that array, so a
+live SPY call was invisible next to share lots. Broker Connections was
+fine: `/bridge/positions` already merged `optionPositionToHoldingItem`.
+
+The payload that feeds a screen is not the payload that has the data.
+If two routes share one adapter call, both must forward every field the
+UI claims to show — or the second screen silently lies. Fix is
+`attachPortfolioOptions` on `/bridge/portfolio` plus
+`collectOpenPositionRows` on the MC merge (falls back to
+`positions.options` so the table fills even before the bridge redeploys).
+
+---
+
 ## An id truncated from the wrong end stops being an id [2026-09-24]
 
 "I had to flatten IWM as the stop out never took effect." The model's

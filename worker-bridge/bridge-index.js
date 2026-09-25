@@ -75,6 +75,7 @@ import {
   adaptWebullEquityQtyForSession,
   ensureWebullEthOrderFields,
 } from "./bridge-webull-fract.js";
+import { attachPortfolioOptions } from "./bridge-positions-options.js";
 
 // 2026-05-29 — broker-router. Each user record carries a `broker`
 // field (`"robinhood"` | `"ibkr"` | `"webull"`); the router picks the right
@@ -1227,6 +1228,19 @@ export default {
               // Some adapters return the array directly.
               summary.positions = { ok: true, positions };
               summary.positions_count = positions.length;
+            }
+            // Webull parses options on the same GET as equities
+            // (`positions.options`) but this payload used to drop them,
+            // so Mission Control's per-account Open positions table was
+            // equity-only. Attach the same holding items /bridge/positions
+            // already shows. Fall back to getOptionsPositions only when
+            // the adapter did not bundle them (non-Webull).
+            attachPortfolioOptions(summary, summary.positions);
+            if (!(summary.options_positions || []).length && typeof adapter.getOptionsPositions === "function") {
+              try {
+                const ores = await adapter.getOptionsPositions(env, u);
+                if (ores && ores.ok !== false) attachPortfolioOptions(summary, ores);
+              } catch (_) { /* options optional — equity still renders */ }
             }
           } catch (e) {
             summary.positions = { ok: false, error: String(e?.message || e).slice(0, 200) };
