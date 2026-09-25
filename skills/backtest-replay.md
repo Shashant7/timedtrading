@@ -110,6 +110,29 @@ checks run on */5 cron ticks against live prints). For those rules, replay
 can only prove no-harm; the positive case needs unit tests pinned to the
 live tape and a live observation window.
 
+### Higher-timeframe bars LOOK AHEAD (2026-09-25, not fixed)
+
+`replay-candle-batches.js` slices every timeframe with `c.ts <= intervalTs`,
+and candles are keyed by bar START. So the bar still in progress is included
+with its FINAL OHLC. BRK-B at 2026-08-03 09:50 ET (price 517.54): the D bundle
+already had px 513.14 = that session's 4:00 PM close and the full day's
+high/low; the 4H bundle had 511.47 (the 1:30 PM close); the 1H bundle 515.25
+(the 10:30 close). Every D / 4H / 1H / 30m indicator in replay — EMAs,
+SuperTrend, RSI, phase, `daily_structure`, `ema_regime_daily` — sees up to one
+bar of the future. Arm-vs-arm comparisons share the leak, but absolute replay
+results are optimistic and any rule keyed to a higher-timeframe CLOSE (e.g. an
+hourly-close stop confirm) will validate falsely. Fix = drop bars whose end is
+after `intervalTs` and synthesize the forming bar from the 10m bars (what live
+does), then re-baseline.
+
+### `tf_tech[tf].atr` is not a number
+
+It is the ATR band object; the magnitude is `tf_tech[tf].atrPct` (ATR as % of
+price). `Number(tf_tech.D.atr)` is NaN — the REGIME_SL widening at entry falls
+through to `tickerData.atr` because of it, and a new rule reading it silently
+no-ops (replay byte-identical to baseline). Use `dailyAtrOf()` in
+`worker/structural-stop.js`.
+
 ### Auth, config drift, and dropped connections (2026-09-25)
 
 - Preprod's admin key is `TIMED_TRADING_API_KEY`, not `TIMED_API_KEY` (that one
