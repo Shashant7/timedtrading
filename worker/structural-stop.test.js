@@ -6,10 +6,11 @@ import {
   structuralStopLevel,
   applyStructuralStop,
   clampRespectingStructure,
+  dailyAtrOf,
   STRUCTURAL_STOP_DA_KEYS,
 } from "./structural-stop.js";
 import { REPLAY_DA_KEYS } from "./replay-runtime-setup.js";
-import { computeTfBundle } from "./indicators.js";
+import { computeTfBundle, assembleTickerData } from "./indicators.js";
 
 const ON = { deep_audit_stop_beyond_swing_enabled: "true" };
 // Entry 100, daily ATR 2, prior 5-day low 97, 10-day low 95.
@@ -65,6 +66,37 @@ describe("clampRespectingStructure", () => {
     expect(clampRespectingStructure(99.3, ctx())).toBeCloseTo(96.8, 9);
     expect(clampRespectingStructure(99.3, ctx({ daCfg: {} }))).toBe(99.3);
     expect(clampRespectingStructure(100.7, ctx({ direction: "SHORT" }))).toBeCloseTo(104.2, 9);
+  });
+});
+
+describe("dailyAtrOf", () => {
+  it("reads atrPct (tf_tech.D.atr is the band object, not a number)", () => {
+    const td = { tf_tech: { D: { atr: { band: "mid" }, atrPct: 2.5 } } };
+    expect(dailyAtrOf(td, 80)).toBeCloseTo(2, 9);
+    expect(dailyAtrOf({ tf_tech: { D: { atr: { band: "mid" } } } }, 80)).toBe(0);
+  });
+
+  it("feeds a level from a real assembled tickerData shape", () => {
+    const td = { tf_tech: { D: { atrPct: 2.5 } }, daily_structure: DS };
+    expect(structuralStopLevel({ direction: "LONG", entryPx: 100, dailyStructure: td.daily_structure, dailyAtr: dailyAtrOf(td, 100), daCfg: ON }))
+      .toBeCloseTo(97 - 0.25, 9);
+  });
+});
+
+describe("assembled tickerData carries both inputs", () => {
+  it("daily_structure.ath52w swings and tf_tech.D.atrPct", () => {
+    const bars = [];
+    for (let i = 0; i < 260; i++) {
+      const c = 100 + Math.sin(i / 5) * 3;
+      bars.push({ ts: Date.UTC(2025, 0, 1) + i * 86400000, o: c, h: c + 1, l: c - 1, c, v: 1e6 });
+    }
+    const b = computeTfBundle(bars);
+    const td = assembleTickerData("TEST", { M: b, W: b, D: b, "240": b, "60": b, "30": b, "15": b, "10": b });
+    expect(td.daily_structure.ath52w.swing_low_5).toBeGreaterThan(0);
+    expect(dailyAtrOf(td, 100)).toBeGreaterThan(0);
+    const lvl = structuralStopLevel({ direction: "LONG", entryPx: td.daily_structure.ath52w.swing_high_5 + 1,
+      dailyStructure: td.daily_structure, dailyAtr: dailyAtrOf(td, 100), daCfg: ON });
+    expect(lvl).toBeGreaterThan(0);
   });
 });
 

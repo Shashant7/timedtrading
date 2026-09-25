@@ -695,6 +695,7 @@ import {
 import {
   applyStructuralStop,
   clampRespectingStructure,
+  dailyAtrOf,
   loadStructuralStopConfig,
 } from "./structural-stop.js";
 import { computeFeedWindow } from "./feed/feed-window.js";
@@ -27367,7 +27368,7 @@ async function processTradeSimulation(
         const _structStopCtx = {
           direction, entryPx,
           dailyStructure: tickerData?.daily_structure,
-          dailyAtr: Number(tickerData?.tf_tech?.D?.atr) || 0,
+          dailyAtr: dailyAtrOf(tickerData, entryPx),
           daCfg: tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
         };
         {
@@ -31380,7 +31381,7 @@ async function processTradeSimulation(
             const _structStopCtx2 = {
               direction, entryPx: entryPrice,
               dailyStructure: tickerData?.daily_structure,
-              dailyAtr: Number(tickerData?.tf_tech?.D?.atr) || 0,
+              dailyAtr: dailyAtrOf(tickerData, entryPrice),
               daCfg: tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
             };
             {

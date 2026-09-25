@@ -32,6 +32,16 @@ function num(v, d) {
   return Number.isFinite(n) ? n : d;
 }
 
+/**
+ * Daily ATR in price units. `tf_tech.D.atr` is the ATR *band* object, not a
+ * number; the magnitude is `tf_tech.D.atrPct` (ATR as % of price).
+ */
+export function dailyAtrOf(tickerData, px) {
+  const pct = Number(tickerData?.tf_tech?.D?.atrPct);
+  const p = Number(px) || Number(tickerData?.daily_structure?.px) || 0;
+  return pct > 0 && p > 0 ? (pct / 100) * p : 0;
+}
+
 export function loadStructuralStopConfig(daCfg = {}) {
   const d = STRUCTURAL_STOP_DEFAULTS;
   const days = num(daCfg?.deep_audit_stop_beyond_swing_days, d.days);
