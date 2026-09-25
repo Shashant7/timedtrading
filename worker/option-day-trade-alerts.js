@@ -18,7 +18,10 @@ import {
 const BOOK_TTL = 3 * 86400;
 const DEFAULT_PROFILE = "speculator";
 const DT_ACTIONS_KEY = "timed:opt-dt-actions";
-const DT_ACTIONS_MAX = 80;
+// Busy index-DT sessions write ~3 events/round (BUY/TRIM/EXIT). 16 rounds
+// is ~48 events; keep several sessions so Portfolio history does not drop
+// the morning rounds when the afternoon fills the ring.
+const DT_ACTIONS_MAX = 500;
 
 export async function recordDayTradeAction(env, row) {
   const KV = env?.KV_TIMED;

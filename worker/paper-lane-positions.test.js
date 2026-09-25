@@ -159,13 +159,49 @@ describe("paper-lane-positions", () => {
     const dt = closed.find((t) => t.signal_id === "dt:a");
     expect(dt.status).toBe("WIN");
     expect(dt._paper_lane).toBe("index_day_trade");
-    // (1.5 - 1.0) * 2 contracts * 100 = $100
-    expect(dt.realized_pnl).toBe(100);
-    expect(dt.realized_pct).toBe(50);
+    // TRIM + EXIT both count: (1.2-1.0)*1*100 + (1.5-1.0)*2*100 = 20 + 100 = $120
+    expect(dt.realized_pnl).toBe(120);
+    expect(dt.qty).toBe(3);
+    // VWAP exit across sold contracts: (1.2*1 + 1.5*2) / 3 = 1.4
+    expect(dt.exit_price).toBeCloseTo(1.4, 4);
     const it = closed.find((t) => t.signal_id === "it:b");
     expect(it.status).toBe("LOSS");
     expect(it._paper_lane).toBe("index_swing");
     // (45 - 50) * 20 = -$100
     expect(it.realized_pnl).toBe(-100);
+  });
+
+  it("matches replay round P&L for a trimmed day-trade winner", () => {
+    // SPY P:768 style: BUY 2@0.59 TRIM1@0.99 EXIT1@1.19 → +$100
+    const actions = normalizePaperLaneActions({
+      dayTrade: [
+        { ts: 1, event: "BUY", ticker: "SPY", signal_id: "dt:SPY:2026-09-23:P:768", contracts: 2, premium: 0.59 },
+        { ts: 2, event: "TRIM", ticker: "SPY", signal_id: "dt:SPY:2026-09-23:P:768", contracts: 1, premium: 0.99 },
+        { ts: 3, event: "EXIT", ticker: "SPY", signal_id: "dt:SPY:2026-09-23:P:768", contracts: 1, premium: 1.19 },
+      ],
+    });
+    const [row] = closedTradesFromPaperActions(actions);
+    expect(row.realized_pnl).toBe(100);
+    expect(row.status).toBe("WIN");
+  });
+
+  it("opens a new round on re-entry of the same signal_id", () => {
+    const sid = "dt:SPY:2026-09-23:P:766";
+    const actions = normalizePaperLaneActions({
+      dayTrade: [
+        { ts: 1, event: "BUY", ticker: "SPY", signal_id: sid, contracts: 3, premium: 0.74 },
+        { ts: 2, event: "TRIM", ticker: "SPY", signal_id: sid, contracts: 1, premium: 1.23 },
+        { ts: 3, event: "STOP", ticker: "SPY", signal_id: sid, contracts: 2, premium: 0.67 },
+        { ts: 4, event: "BUY", ticker: "SPY", signal_id: sid, contracts: 3, premium: 0.80 },
+        { ts: 5, event: "TRIM", ticker: "SPY", signal_id: sid, contracts: 1, premium: 1.21 },
+        { ts: 6, event: "EXIT", ticker: "SPY", signal_id: sid, contracts: 2, premium: 1.69 },
+      ],
+    });
+    const closed = closedTradesFromPaperActions(actions);
+    expect(closed).toHaveLength(2);
+    // Round 1: (1.23-0.74)*1*100 + (0.67-0.74)*2*100 = 49 - 14 = 35
+    expect(closed.find((t) => t.exit_ts === 3).realized_pnl).toBe(35);
+    // Round 2: (1.21-0.80)*1*100 + (1.69-0.80)*2*100 = 41 + 178 = 219
+    expect(closed.find((t) => t.exit_ts === 6).realized_pnl).toBe(219);
   });
 });
