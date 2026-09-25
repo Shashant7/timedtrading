@@ -352,6 +352,16 @@ describe("classifyPaperEvent — re-entry cooldown per underlying", () => {
     expect(out.blocked).toBeUndefined();
     expect(out.event).not.toBe("BUY");
   });
+
+  it("stands down after max session stops (day-trader mind)", () => {
+    const out = buy(null, { sessionStopCount: 3 });
+    expect(out.event).toBeNull();
+    expect(out.blocked).toBe("session_stop_stand_down");
+  });
+
+  it("still enters when under the session stop cap", () => {
+    expect(buy(null, { sessionStopCount: 2 }).event).toBe("BUY");
+  });
 });
 
 describe("classifyPaperEvent", () => {

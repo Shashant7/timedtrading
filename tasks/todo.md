@@ -18,7 +18,28 @@
 
 ---
 
-## Open work — Mission Control + Today + UX polish
+## Active — Model↔broker sync + lane minds (2026-09-25)
+
+After SPY 763P (operator cancelled, partner held through STOP):
+
+- [x] #1508: close partners when operator never held (event path)
+- [x] Deploy #1508 (`7602fe73` on ingest/engine/research/feed)
+- [x] Proactive partner close reconciler (`reconcileIndexDtPartnerCloses`)
+      on the minute cron + `heal-closes` + health telemetry; only stamp
+      `partners_close_for` when partner legs settle
+- [x] Constant model→broker intent stream (KV `timed:opt-dt-intent:*`
+      published on every model leg; cron lists `close_owed`; Phase 2 CF
+      Queue still deferred per entangled-mirror-design)
+- [x] Sync checker known-why vs defect: unmatched reasons mapped through
+      `canonicalDivergence`; named → `rejected_terminal`, unnamed index_dt
+      reduces → `defect:…` + heal
+- [x] Day-trader mind: session stop stand-down (3 STOPs / underlying / NY
+      day) so whipsaw stacks stop eating the book; ST/LT ignore DT clock
+      (`lane-minds.js`). Conviction structural stays OFF until look-ahead
+      re-baseline.
+- [ ] Phase 2: CF Queue fan-out + retire KV mirror / risk ledger
+- [ ] Extend named sync + auto-fix to ST equity + index-trend sleeves
+- [ ] ST conviction / structural mind ON after look-ahead fix
 
 ### Active
 ## Active — Portfolio Day Trade P&L gap (2026-09-25)

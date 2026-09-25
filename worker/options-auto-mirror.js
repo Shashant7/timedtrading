@@ -2159,6 +2159,21 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
 }
 
 /**
+ * Idempotency key for a partner-only close of one day-trade round.
+ *
+ * Prefer `entry_sent_ts` (stamped the moment the BUY goes to the bridge).
+ * Rounds cancelled before that stamp existed still need one heal attempt —
+ * use a fixed legacy id so the reconciler fires once, not every minute.
+ */
+export function partnerCloseRoundId(mirror) {
+  const sent = Number(mirror?.entry_sent_ts) || 0;
+  if (sent > 0) return sent;
+  const status = String(mirror?.entry_fill_status || "").toLowerCase();
+  if (status === "cancelled" || status === "rejected" || status === "gone") return 1;
+  return 0;
+}
+
+/**
  * The model closed a round the operator never held. Partners still may.
  *
  * The bridge places the operator's order and every partner mirror in one
@@ -2176,16 +2191,45 @@ export async function maybeAutoMirrorIndexDayTradeEvent(env, ctx = {}) {
 export function shouldClosePartnersOnly(event, mirror) {
   const ev = String(event || "").toUpperCase();
   if (ev !== "EXIT" && ev !== "STOP") return false;
-  // Only a round whose BUY actually went to the bridge can have partner
-  // fills; `entry_sent_ts` is that round's id.
-  const sent = Number(mirror?.entry_sent_ts) || 0;
-  return sent > 0 && Number(mirror?.partners_close_for) !== sent;
+  const round = partnerCloseRoundId(mirror);
+  return round > 0 && Number(mirror?.partners_close_for) !== round;
+}
+
+/**
+ * True when the paper book is flat and the operator never held this round,
+ * so partners may still be long a thesis the model already abandoned.
+ *
+ * The quantity reconciler only scans mirrors with `entry_fired` and
+ * `contracts_remaining > 0` — exactly the shape this case is not. Without
+ * a separate pass, a stranded partner leg survives until someone notices
+ * on the Broker Connections screen.
+ */
+export function needsPartnerCloseReconcile(mirror, book) {
+  if (!mirror) return false;
+  if (mirror.entry_fired === true) return false;
+  // No book (TTL expired under a still-live mirror) is treated as flat when
+  // the operator never held — leaving the partner open forever is worse than
+  // one extra clampReduceToHeld close that no-ops on flat accounts.
+  const status = String(book?.status || "").toLowerCase();
+  const bookFlat = !book || status === "closed" || status === "flat";
+  if (!bookFlat) return false;
+  const bookEvent = String(book?.event || "").toUpperCase();
+  const event = bookEvent === "EXIT" || bookEvent === "STOP" ? bookEvent : "STOP";
+  return shouldClosePartnersOnly(event, mirror);
+}
+
+/** Partner legs that are already flat or reached the broker — safe to stamp. */
+export function partnersCloseSettled(fired, event = "STOP") {
+  const rows = summarizePartnerFanout(fired, { event });
+  if (!rows.length) return true;
+  return unmirroredPartnerLegs(rows).length === 0;
 }
 
 async function closePartnersWhenOperatorFlat(env, ctx, gate, mirror, operatorReason) {
   const event = String(ctx.event || "").toUpperCase();
   const signalId = String(ctx.signal_id || "").trim();
   if (!shouldClosePartnersOnly(event, mirror)) return { skipped: true, reason: operatorReason };
+  const round = partnerCloseRoundId(mirror);
   const { operatorEmail, ticker, play, vehicleKey } = gate;
   const book = ctx.book || {};
   const qty = Math.max(1, Math.round(Number(book.contracts) || 0), computeIndexDayTradeCloseQty(event, book));
@@ -2218,21 +2262,189 @@ async function closePartnersWhenOperatorFlat(env, ctx, gate, mirror, operatorRea
     close_qty: qty,
     limit_price: limitPrice,
   });
-  await saveIndexDtMirror(env, signalId, {
-    partners_close_for: Number(mirror?.entry_sent_ts) || null,
-    partners_close_event: event,
-    partners_close_qty: qty,
-    partners_close_ts: Date.now(),
-  });
+  // Only stamp when every partner is flat or filled. A rejected partner
+  // sell must stay eligible for the proactive reconciler — stamping on a
+  // failed fire is how a stranded put survives the rest of the session.
+  const settled = partnersCloseSettled(fired, event);
+  if (settled) {
+    await saveIndexDtMirror(env, signalId, {
+      partners_close_for: round,
+      partners_close_event: event,
+      partners_close_qty: qty,
+      partners_close_ts: Date.now(),
+    });
+    try {
+      const { markIndexDtIntentSettled } = await import("./mirror-intent-stream.js");
+      await markIndexDtIntentSettled(env, signalId, { partnersSettled: true });
+    } catch (_) { /* stream settle is telemetry for the drain */ }
+  } else {
+    await saveIndexDtMirror(env, signalId, {
+      partners_close_attempt_ts: Date.now(),
+      partners_close_attempt_event: event,
+    });
+  }
   return {
     skipped: true,
-    reason: `${operatorReason}_partners_closed`,
+    reason: settled
+      ? `${operatorReason}_partners_closed`
+      : `${operatorReason}_partners_close_unsettled`,
     partners_only: true,
+    partners_settled: settled,
     fired,
     close_qty: qty,
     vehicle: vehicleKey,
     event,
   };
+}
+
+export const MIRROR_PARTNER_RECONCILE_REASON = "mirror_partner_close_reconcile";
+export const OPT_DT_PARTNER_RECON_KEY = "timed:opt-dt:partner-close-unmirrored";
+
+/**
+ * Put back every partner-only close the event path never sent.
+ *
+ * Complements `reconcileIndexDtMirrorPositions`, which only sees operator
+ * mirrors that still show contracts remaining. When the operator never
+ * filled (or cancelled) and the model is already flat, that scan skips
+ * the row — and partners who filled on the shared BUY stay long. Runs on
+ * the same minute cron so a stranded leg cannot outlive the session.
+ */
+export async function reconcileIndexDtPartnerCloses(env, {
+  now = Date.now(),
+  lookbackMs = MIRROR_REDUCE_LOOKBACK_MS,
+  maxPages = 4,
+  maxFire = 4,
+  indicesFlagOn = true,
+  loadBook,
+  resolvePremium,
+  fireReduce = maybeAutoMirrorIndexDayTradeEvent,
+} = {}) {
+  const out = { scanned: 0, drifted: 0, fired: [], skipped: [] };
+  if (!env?.KV_TIMED) return out;
+
+  const prefix = indexDtMirrorKey("");
+  const signalIds = [];
+  let cursor;
+  for (let page = 0; page < maxPages; page++) {
+    let listed;
+    try {
+      listed = await env.KV_TIMED.list({ prefix, limit: 1000, cursor });
+    } catch (_) {
+      break;
+    }
+    for (const k of listed?.keys || []) {
+      const id = String(k?.name || "").slice(prefix.length);
+      if (id) signalIds.push(id);
+    }
+    if (listed?.list_complete !== false || !listed?.cursor) break;
+    cursor = listed.cursor;
+  }
+
+  const readBook = loadBook || (async (signalId) => {
+    const { dayTradeBookKey } = await import("./option-day-trade-alerts.js");
+    try {
+      const raw = await env.KV_TIMED.get(dayTradeBookKey(signalId));
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  });
+  const readPremium = resolvePremium || (async (contract) => {
+    const { resolveLiveOptionPremium, buildOccSymbol } = await import("./options-marks.js");
+    return resolveLiveOptionPremium(env, {
+      ticker: contract.ticker,
+      expirationIso: contract.expiration,
+      right: contract.right,
+      strike: contract.strike,
+      optionSymbol: buildOccSymbol(contract.ticker, contract.expiration, contract.right, contract.strike),
+      now,
+    });
+  });
+
+  for (const signalId of signalIds) {
+    if (out.fired.length >= maxFire) break;
+    const mirror = await loadIndexDtMirror(env, signalId);
+    const book = await readBook(signalId);
+    if (!needsPartnerCloseReconcile(mirror, book)) continue;
+    out.scanned++;
+
+    const bookEvent = String(book?.event || "").toUpperCase();
+    const event = bookEvent === "EXIT" || bookEvent === "STOP" ? bookEvent : "STOP";
+    const reducedAt = Number(book?.exit_ts) || Number(book?.updated_at) || 0;
+    if (reducedAt > 0 && (now - reducedAt) > lookbackMs) {
+      out.skipped.push({ signal_id: signalId, event, reason: "reduce_too_old" });
+      continue;
+    }
+    out.drifted++;
+
+    const contract = parseIndexDtSignalId(signalId);
+    if (!contract) {
+      out.skipped.push({ signal_id: signalId, event, reason: "unparseable_signal_id" });
+      continue;
+    }
+    const strike = Number(mirror.strike) > 0 ? Number(mirror.strike) : contract.strike;
+    const flavor = String(mirror.flavor || contract.flavor).toLowerCase();
+    const right = flavor === "put" ? "PUT" : "CALL";
+
+    const quote = await readPremium({ ...contract, strike, right });
+    const mid = Number(quote?.mid);
+    if (!(mid > 0)) {
+      out.skipped.push({ signal_id: signalId, event, reason: "no_live_premium" });
+      continue;
+    }
+
+    const play = {
+      archetype: flavor === "put" ? "day_trade_put" : "day_trade_call",
+      ticker: contract.ticker,
+      _day_trade_flavor: flavor,
+      strikes: { primary: strike },
+      expiration: { iso: contract.expiration },
+      premium: { mid },
+      legs: [{
+        action: "BUY",
+        optionType: right,
+        strike,
+        expiration: contract.expiration,
+        qty: Math.max(1, Math.round(Number(book?.contracts) || 1)),
+      }],
+    };
+
+    const result = await fireReduce(env, {
+      event,
+      reason: MIRROR_PARTNER_RECONCILE_REASON,
+      ticker: contract.ticker,
+      play,
+      signal_id: signalId,
+      book,
+      premium: mid,
+      bid: Number(quote?.bid) || null,
+      strike,
+      expiration: { iso: contract.expiration },
+      flavor,
+      indicesFlagOn,
+    });
+    out.fired.push({
+      signal_id: signalId,
+      ticker: contract.ticker,
+      event,
+      partners_only: !!result?.partners_only,
+      partners_settled: result?.partners_settled !== false && !!result?.partners_only,
+      reason: result?.reason || null,
+    });
+  }
+
+  try {
+    const stuck = out.skipped.concat(out.fired.filter((f) => !f.partners_settled));
+    if (stuck.length) {
+      await env.KV_TIMED.put(OPT_DT_PARTNER_RECON_KEY, JSON.stringify({
+        ts: now, scanned: out.scanned, drifted: out.drifted, unmirrored: stuck,
+      }), { expirationTtl: 86400 });
+    } else if (out.scanned > 0) {
+      await env.KV_TIMED.delete(OPT_DT_PARTNER_RECON_KEY);
+    }
+  } catch (_) { /* telemetry only */ }
+
+  return out;
 }
 
 async function runIndexDayTradeMirror(env, ctx = {}) {

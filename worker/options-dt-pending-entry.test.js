@@ -821,12 +821,13 @@ describe("close path — a working buy must not outlive the model's exit", () =>
     const calls = [];
     const r = await maybeAutoMirrorIndexDayTradeEvent(env(kv, calls), exitCtx("EXIT"));
     expect(calls).toContain("/bridge/options/order/cancel");
-    expect(r.reason).toBe("entry_order_cancelled_unfilled");
+    // Partner-only close may fan out a SELL: the BUY already went to the
+    // bridge (operator + partners), so cancelling the operator's working
+    // order does not mean every account is flat.
+    expect(r.reason).toMatch(/^entry_order_cancelled_unfilled/);
     const after = JSON.parse(kv.store.get(indexDtMirrorKey(SIG)));
     expect(after.entry_pending).toBe(false);
     expect(after.entry_placed).toBe(false);
-    // No SELL was sent — there was never a position to close.
-    expect(calls).not.toContain("/bridge/options/order");
   });
 
   it("STOP cancels it too", async () => {
@@ -835,7 +836,7 @@ describe("close path — a working buy must not outlive the model's exit", () =>
     const calls = [];
     const r = await maybeAutoMirrorIndexDayTradeEvent(env(kv, calls), exitCtx("STOP"));
     expect(calls).toContain("/bridge/options/order/cancel");
-    expect(r.reason).toBe("entry_order_cancelled_unfilled");
+    expect(r.reason).toMatch(/^entry_order_cancelled_unfilled/);
   });
 
   it("TRIM is not terminal — a fresh working buy is left alone", async () => {

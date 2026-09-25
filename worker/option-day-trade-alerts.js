@@ -14,6 +14,8 @@ import {
   buildDayTradeSignalEmbed,
   isOvernightCarry,
 } from "./option-day-trade-plan.js";
+import { dayTradeStopStreakKey } from "./lane-minds.js";
+import { publishIndexDtIntent } from "./mirror-intent-stream.js";
 
 const BOOK_TTL = 3 * 86400;
 const DEFAULT_PROFILE = "speculator";
@@ -77,6 +79,30 @@ async function readLastUnderlyingClose(KV, ticker) {
     const ts = Number(await KV.get(dayTradeLastCloseKey(ticker)));
     return ts > 0 ? ts : null;
   } catch (_) { return null; }
+}
+
+async function readSessionStopStreak(KV, ticker, now = Date.now()) {
+  try {
+    const n = Number(await KV.get(dayTradeStopStreakKey(ticker, now)));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch (_) { return 0; }
+}
+
+async function bumpSessionStopStreak(KV, ticker, event, now = Date.now()) {
+  const ev = String(event || "").toUpperCase();
+  if (ev !== "STOP" && ev !== "EXIT") return;
+  const key = dayTradeStopStreakKey(ticker, now);
+  try {
+    if (ev === "STOP") {
+      const n = (await readSessionStopStreak(KV, ticker, now)) + 1;
+      await KV.put(key, String(n), { expirationTtl: 86400 });
+      return n;
+    }
+    // A clean EXIT (thesis / target) is not a whipsaw — reset the streak so
+    // a later setup the same day is allowed.
+    await KV.put(key, "0", { expirationTtl: 86400 });
+  } catch (_) { /* streak is protective only */ }
+  return null;
 }
 
 function parseJson(raw) {
@@ -211,6 +237,7 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     now: payload.now || Date.now(),
     size,
     lastUnderlyingCloseTs: await readLastUnderlyingClose(KV, payload.ticker),
+    sessionStopCount: await readSessionStopStreak(KV, payload.ticker, payload.now || Date.now()),
   });
 
   if (decision.nextBook) {
@@ -232,6 +259,7 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     try {
       await KV.put(dayTradeLastCloseKey(payload.ticker), String(payload.now || Date.now()), { expirationTtl: 86400 });
     } catch (_) { /* a missing stamp only loses one cooldown, never an order */ }
+    await bumpSessionStopStreak(KV, payload.ticker, decision.event, payload.now || Date.now());
   }
 
   // 2026-09-23 — the broker goes first, ahead of Discord.
@@ -268,6 +296,22 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
       console.warn("[MIRROR KERNEL] model leg not recorded:", String(e?.message || e).slice(0, 160));
     }
   }
+
+  // Constant stream: every model leg publishes the remaining the brokers
+  // must converge to. close_owed rows are drained by the minute reconciler.
+  try {
+    const remaining = (decision.event === "EXIT" || decision.event === "STOP")
+      ? 0
+      : Math.max(0, Math.round(Number(legBook?.contracts_remaining ?? legBook?.contracts) || 0));
+    await publishIndexDtIntent(env, {
+      signalId: persistSignalId,
+      ticker: payload.ticker,
+      event: decision.event,
+      remainingQty: remaining,
+      entryTs: legBook?.entry_ts,
+      now: payload.now || Date.now(),
+    });
+  } catch (_) { /* stream must never block the order path */ }
 
   if (typeof payload.onEvent === "function") {
     try {
