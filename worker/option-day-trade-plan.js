@@ -689,6 +689,8 @@ export function classifyPaperEvent({
   size = null,
   lastUnderlyingCloseTs = null,
   reentryCooldownMs = REENTRY_COOLDOWN_MS,
+  sessionStopCount = 0,
+  maxSessionStops = null,
 } = {}) {
   const action = String(clock?.action || "WAIT").toUpperCase();
   const status = String(book?.status || "flat");
@@ -725,6 +727,15 @@ export function classifyPaperEvent({
   if (canEnter && action === "BUY" && num(lastUnderlyingCloseTs) > 0
     && sinceClose >= 0 && sinceClose < (num(reentryCooldownMs) ?? REENTRY_COOLDOWN_MS)) {
     return { event: null, nextBook: null, blocked: "reentry_cooldown" };
+  }
+  // Day-trader mind: after N stops on this underlying today, stand down.
+  // Prevents the 9/23–9/25 pattern of stacking stops into the same tape.
+  {
+    const maxStops = maxSessionStops == null ? 3 : Number(maxSessionStops);
+    const streak = Math.max(0, Math.round(Number(sessionStopCount) || 0));
+    if (canEnter && action === "BUY" && Number.isFinite(maxStops) && maxStops > 0 && streak >= maxStops) {
+      return { event: null, nextBook: null, blocked: "session_stop_stand_down" };
+    }
   }
   if (canEnter && action === "BUY") {
     const rr = clock?.rr?.trim != null

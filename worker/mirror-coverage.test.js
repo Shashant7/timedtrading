@@ -296,6 +296,56 @@ describe("classifyActionCoverage — index-trend / index DT / convexity", () => 
     expect(classifyActionCoverage(a, { ring: [], nowMs: NOW }).status).toBe("unmatched");
   });
 
+  it("index DT EXIT no_held_position is known-why external_reduction", () => {
+    const a = modelActionFromIndexDt({
+      event: "STOP",
+      signal_id: "dt:SPY:2026-09-25:P:763",
+      ticker: "SPY",
+      contracts: 1,
+      ts: OLD,
+    });
+    const cov = classifyActionCoverage(a, {
+      ring: [{
+        ticker: "SPY",
+        side: "exit",
+        trade_id: "dt:SPY:2026-09-25:P:763",
+        ts: OLD + 1000,
+        status: "error",
+        reject_reason: "no_held_position",
+      }],
+      nowMs: NOW,
+    });
+    expect(cov).toMatchObject({
+      status: "rejected_terminal",
+      reason: "external_reduction",
+      known_why: true,
+    });
+  });
+
+  it("index DT EXIT unnamed reject is a defect (healable unmatched)", () => {
+    const a = modelActionFromIndexDt({
+      event: "STOP",
+      signal_id: "dt:QQQ:2026-09-25:P:740",
+      ticker: "QQQ",
+      contracts: 1,
+      ts: OLD,
+    });
+    const cov = classifyActionCoverage(a, {
+      ring: [{
+        ticker: "QQQ",
+        side: "exit",
+        trade_id: "dt:QQQ:2026-09-25:P:740",
+        ts: OLD + 1000,
+        status: "error",
+        reject_reason: "client_order_id_collision",
+      }],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("unmatched");
+    expect(cov.reason).toMatch(/^defect:client_order_id_collision/);
+    expect(cov.known_why).toBe(false);
+  });
+
   it("convexity close with a pending options intent is pending, not an anomaly", () => {
     const a = {
       lane: "convexity",
@@ -861,17 +911,42 @@ describe("index_trend lane reads the paper book, not just the tape", () => {
     const cov = classifyActionCoverage(action, {
       ring: [],
       intents: [],
-      // The live mirror log only ever recorded cap skips.
+      // The live mirror log only ever recorded an unnamed pipeline drop —
+      // a known-why cap skip is rejected_terminal (canonicalDivergence).
       mirrorLogs: [{
         signal_id: "it:DIA:UDOW:LONG:2026-W38",
+        side: "buy",
+        decision: "skipped",
+        reason: "pipeline_dropped_no_reason",
+      }],
+      nowMs: NOW,
+    });
+    expect(cov.status).toBe("unmatched");
+    expect(healForCoverageRow({ ...action, ...cov })).toBe(HEAL_INDEX_ENTRY);
+  });
+
+  it("names a known-why cap skip as rejected_terminal (not a healable miss)", () => {
+    const action = modelActionFromIndexTrendBook(
+      { status: "open", shares: 42, entry_ts: OLD, entry_letf_price: 69.65 },
+      { letf: "UDOW", signalId: "it:DIA:UDOW:LONG:2026-W38b" },
+    );
+    const cov = classifyActionCoverage(action, {
+      ring: [],
+      intents: [],
+      mirrorLogs: [{
+        signal_id: "it:DIA:UDOW:LONG:2026-W38b",
         side: "buy",
         decision: "skipped",
         reason: "notional_2925_exceeds_cap_2000",
       }],
       nowMs: NOW,
     });
-    expect(cov.status).toBe("unmatched");
-    expect(healForCoverageRow({ ...action, ...cov })).toBe(HEAL_INDEX_ENTRY);
+    expect(cov).toMatchObject({
+      status: "rejected_terminal",
+      reason: "per_order_cap",
+      known_why: true,
+    });
+    expect(healForCoverageRow({ ...action, ...cov })).toBeNull();
   });
 
   // SPYU W38: the broker filled 9 shares, the ring row never got its

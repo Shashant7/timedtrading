@@ -104812,6 +104812,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (_dtPartners?.skipped?.length) {
               console.log(`[OPT-DT-RECONCILE] partner closes still open: ${JSON.stringify(_dtPartners.skipped)}`);
             }
+            // Drain the model→broker intent stream: any close_owed row the
+            // event path missed still gets a partner/operator reconcile pass.
+            try {
+              const { listCloseOwedIndexDtIntents } = await import("./mirror-intent-stream.js");
+              const owed = await listCloseOwedIndexDtIntents(env, { limit: 8 });
+              if (owed.length) {
+                console.log(`[OPT-DT-INTENT] close_owed ${owed.length}: ${owed.map((r) => r.signal_id).join(",")}`);
+              }
+            } catch (e) {
+              console.warn("[OPT-DT-INTENT] list failed:", String(e?.message || e).slice(0, 120));
+            }
             // Follow every reduce through to each account's own holdings —
             // the operator's and every partner's — until the broker shows it.
             // Isolated: a kernel failure must not cost the lane its reconcile.

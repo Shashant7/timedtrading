@@ -38,6 +38,7 @@ import { readIndexTrendActions, loadIndexTrendBook } from "./index-trend-alerts.
 import { indexTrendBookIsLive } from "./index-trend-paper.js";
 import { readDayTradeActions } from "./option-day-trade-alerts.js";
 import { OPT_DT_MIRROR_LOG_KEY } from "./options-auto-mirror.js";
+import { canonicalDivergence } from "./mirror-kernel.js";
 import { paperMirrorLogSide } from "./broker-day-actions-join.js";
 
 export const COVERAGE_GRACE_MS = 2 * 60 * 1000;
@@ -462,13 +463,36 @@ export function classifyActionCoverage(action, {
   }
 
   const falseOk = hits.find((r) => String(r?.status) === "ok" && isOpenEvent(action.event) && !ringLooksLikeRealPlace(r));
+  const unmatchedReason = falseOk
+    ? (falseOk.deduped ? "deduped_not_a_fill" : "false_ok_no_order_id")
+    : (hits.length
+      ? (rejectText(hits[hits.length - 1]) || "ring_not_a_place")
+      : (declinedReason ? declinedReason.slice(0, 160) : "never_attempted"));
+
+  // Known-why vs defect: map the raw reason onto the kernel's closed set.
+  // A named divergence is terminal (nothing to heal). Anything else on a
+  // reduce stays unmatched so heal-closes can re-fire — and is prefixed
+  // `defect:` so the page says so instead of looking like a silent skip.
+  const side = isOpenEvent(action.event) ? "buy" : "sell";
+  const named = canonicalDivergence(unmatchedReason, side);
+  if (named) {
+    return {
+      status: "rejected_terminal",
+      reason: named,
+      known_why: true,
+      broker_qty: isOpenEvent(action.event) ? null : 0,
+      order_id: null,
+    };
+  }
+  const defectReason = (String(action.lane || "") === "index_dt" && isReduceEvent(action.event)
+    && unmatchedReason && unmatchedReason !== "never_attempted")
+    ? `defect:${String(unmatchedReason).slice(0, 140)}`
+    : unmatchedReason;
+
   return {
     status: "unmatched",
-    reason: falseOk
-      ? (falseOk.deduped ? "deduped_not_a_fill" : "false_ok_no_order_id")
-      : (hits.length
-        ? (rejectText(hits[hits.length - 1]) || "ring_not_a_place")
-        : (declinedReason ? declinedReason.slice(0, 160) : "never_attempted")),
+    reason: defectReason,
+    known_why: false,
     broker_qty: null,
     order_id: null,
   };

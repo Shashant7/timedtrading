@@ -2273,6 +2273,10 @@ async function closePartnersWhenOperatorFlat(env, ctx, gate, mirror, operatorRea
       partners_close_qty: qty,
       partners_close_ts: Date.now(),
     });
+    try {
+      const { markIndexDtIntentSettled } = await import("./mirror-intent-stream.js");
+      await markIndexDtIntentSettled(env, signalId, { partnersSettled: true });
+    } catch (_) { /* stream settle is telemetry for the drain */ }
   } else {
     await saveIndexDtMirror(env, signalId, {
       partners_close_attempt_ts: Date.now(),

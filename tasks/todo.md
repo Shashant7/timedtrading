@@ -27,15 +27,19 @@ After SPY 763P (operator cancelled, partner held through STOP):
 - [x] Proactive partner close reconciler (`reconcileIndexDtPartnerCloses`)
       on the minute cron + `heal-closes` + health telemetry; only stamp
       `partners_close_for` when partner legs settle
-- [ ] Constant model→broker intent stream (kernel Phase 2 queue fan-out;
-      every model leg durable before broker; brokers consume, never poll
-      for "did we miss an event")
-- [ ] Sync checker: mismatch always named (known-why vs defect→auto-fix);
-      extend beyond operator-never-held to ST equity + index-trend
-- [ ] Distinct trader minds so DT whipsaws stop eating ST/LT P&L:
-      day trader (protective, anti-whipsaw, thesis exit already shipping),
-      swing (structural holds / conviction — arms stay OFF until look-ahead
-      re-baseline), investor (zone/rebalance, not DT clock)
+- [x] Constant model→broker intent stream (KV `timed:opt-dt-intent:*`
+      published on every model leg; cron lists `close_owed`; Phase 2 CF
+      Queue still deferred per entangled-mirror-design)
+- [x] Sync checker known-why vs defect: unmatched reasons mapped through
+      `canonicalDivergence`; named → `rejected_terminal`, unnamed index_dt
+      reduces → `defect:…` + heal
+- [x] Day-trader mind: session stop stand-down (3 STOPs / underlying / NY
+      day) so whipsaw stacks stop eating the book; ST/LT ignore DT clock
+      (`lane-minds.js`). Conviction structural stays OFF until look-ahead
+      re-baseline.
+- [ ] Phase 2: CF Queue fan-out + retire KV mirror / risk ledger
+- [ ] Extend named sync + auto-fix to ST equity + index-trend sleeves
+- [ ] ST conviction / structural mind ON after look-ahead fix
 
 ### Active
 ## Active — Portfolio Day Trade P&L gap (2026-09-25)
