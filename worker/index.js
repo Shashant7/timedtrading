@@ -692,6 +692,11 @@ import {
   staleRunnerHoursFor as _convStaleRunnerHours,
   hardLossCapDollarFor as _convHardLossCapDollar,
 } from "./conviction-management.js";
+import {
+  applyStructuralStop,
+  clampRespectingStructure,
+  loadStructuralStopConfig,
+} from "./structural-stop.js";
 import { computeFeedWindow } from "./feed/feed-window.js";
 import {
   enrichLiveOpenPositionContext,
@@ -27356,6 +27361,24 @@ async function processTradeSimulation(
           console.warn(`[EXHAUSTION_SL] ${sym} threw: ${String(_exhErr?.message || _exhErr).slice(0, 160)}`);
         }
 
+        // Last word on placement: never inside the prior N-day swing
+        // (worker/structural-stop.js). Runs before sizing so the wider stop
+        // buys fewer shares for the same dollar risk.
+        const _structStopCtx = {
+          direction, entryPx,
+          dailyStructure: tickerData?.daily_structure,
+          dailyAtr: Number(tickerData?.tf_tech?.D?.atr) || 0,
+          daCfg: tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
+        };
+        {
+          const _ss = applyStructuralStop(finalSL, _structStopCtx);
+          if (_ss.moved) {
+            console.log(`[STRUCTURAL_STOP] ${sym} ${direction}: ${finalSL.toFixed(2)} → ${_ss.sl.toFixed(2)} (beyond ${loadStructuralStopConfig(_structStopCtx.daCfg).days}-day swing)`);
+            finalSL = _ss.sl;
+            tickerData.__structural_stop_moved = true;
+          }
+        }
+
         if (profileTpMult !== 1.0) {
           if (trimTp?.price && Number.isFinite(trimTp.price)) {
             trimTp.price = Math.round((entryPx + (trimTp.price - entryPx) * profileTpMult) * 100) / 100;
@@ -27880,7 +27903,7 @@ async function processTradeSimulation(
             if (tickerData?.flags?.sq30_release) _whyParts.push("Squeeze Release");
             // Phase C — Stage 1 (2026-05-05) — ETF SL CLAMP (replay path).
             if (EtfProfile.isEtfProfileTicker(sym)) {
-              const _etfMaxStop = EtfProfile.computeEtfStopLoss(sym, entryPx, direction);
+              const _etfMaxStop = clampRespectingStructure(EtfProfile.computeEtfStopLoss(sym, entryPx, direction), _structStopCtx);
               if (Number.isFinite(_etfMaxStop)) {
                 const _origSL = finalSL;
                 if (direction === "LONG" && finalSL < _etfMaxStop) {
@@ -31354,6 +31377,20 @@ async function processTradeSimulation(
               }
             }
 
+            const _structStopCtx2 = {
+              direction, entryPx: entryPrice,
+              dailyStructure: tickerData?.daily_structure,
+              dailyAtr: Number(tickerData?.tf_tech?.D?.atr) || 0,
+              daCfg: tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
+            };
+            {
+              const _ss2 = applyStructuralStop(finalSL, _structStopCtx2);
+              if (_ss2.moved) {
+                console.log(`[STRUCTURAL_STOP] ${ticker} ${direction}: ${finalSL.toFixed(2)} → ${_ss2.sl.toFixed(2)} (beyond swing)`);
+                finalSL = _ss2.sl;
+              }
+            }
+
             // Phase C — Stage 1 (2026-05-05) — ETF SL CLAMP.
             // For ETFs in our profile, no SL should be wider than the
             // profile's max_distance_pct (default 0.7%). Wider stops on
@@ -31361,7 +31398,7 @@ async function processTradeSimulation(
             // Only TIGHTENS the stop — never loosens it.
             const _etfClampTicker = String(ticker || tickerData?.ticker || "").toUpperCase();
             if (EtfProfile.isEtfProfileTicker(_etfClampTicker)) {
-              const _etfMaxStop = EtfProfile.computeEtfStopLoss(_etfClampTicker, entryPrice, direction);
+              const _etfMaxStop = clampRespectingStructure(EtfProfile.computeEtfStopLoss(_etfClampTicker, entryPrice, direction), _structStopCtx2);
               if (Number.isFinite(_etfMaxStop)) {
                 const _origSL = finalSL;
                 if (direction === "LONG") {
