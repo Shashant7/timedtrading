@@ -24,6 +24,7 @@
     <script src="tt-global-search.js?v=20260610-verda3" defer></script>
     <script src="tt-rail-bridge.js?v=20260528a" defer></script>
     <script src="shared-price-utils.js?v=20260521a"></script>
+    <script src="portfolio-book-utils.js?v=20260925a"></script>
     <!-- TradesPerformance — same component the legacy /simulation-dashboard
          uses. Provides the P&L calendar + monthly perf table + setup
          breakdown. Loaded via window.TradesPerformanceFactory(deps). -->
@@ -147,6 +148,7 @@
         background: var(--tt-bg-surface); color: var(--tt-text-muted);
         font-size: 13px; font-weight: 700; letter-spacing: -0.01em;
         padding: 10px 16px; border-radius: 10px; cursor: pointer;
+        display: inline-flex; align-items: baseline; gap: 8px;
         transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
       }
       .book-tab:hover { color: var(--tt-text); border-color: var(--tt-border-hi); }
@@ -156,6 +158,19 @@
       }
       .book-tab.active.book-lt { background: var(--tt-violet); border-color: var(--tt-violet); }
       .book-tab.active.book-dt { background: var(--tt-cyan); border-color: var(--tt-cyan); }
+      .book-tab-pnl {
+        font-family: var(--tt-font-mono);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0;
+        color: var(--tt-text-dim);
+      }
+      .book-tab:not(.active) .book-tab-pnl.up { color: var(--tt-up-soft); }
+      .book-tab:not(.active) .book-tab-pnl.dn { color: var(--tt-dn-soft); }
+      /* Active tabs sit on light accent fills — use darker up/dn for contrast. */
+      .book-tab.active .book-tab-pnl.up { color: #065f46; }
+      .book-tab.active .book-tab-pnl.dn { color: #9f1239; }
+      .book-tab.active .book-tab-pnl:not(.up):not(.dn) { color: rgba(11, 14, 17, 0.55); }
       .tf-chips {
         display: inline-flex; gap: 4px; flex-wrap: wrap;
         background: var(--tt-bg-elev); border: 1px solid var(--tt-border);
@@ -499,6 +514,10 @@
       const fmtPct  = (n, decimals = 2) => Number.isFinite(n)
         ? `${n >= 0 ? "+" : ""}${n.toFixed(decimals)}%`
         : "—";
+      const bookTotalPnlPct = (payload, openPl, startCashDefault) =>
+        (typeof window !== "undefined" && window.TimedPortfolioBookUtils?.bookTotalPnlPct
+          ? window.TimedPortfolioBookUtils.bookTotalPnlPct(payload, openPl, startCashDefault)
+          : null);
       const fmtDate = (d) => {
         if (!d) return "—";
         if (typeof d === "number") d = new Date(d).toISOString().slice(0, 10);
@@ -1774,13 +1793,36 @@
             h("div", { className: "book-tabs", role: "tablist", "aria-label": "Portfolio books" },
               ["trader", "investor", "day_trade"].map((key) => {
                 const m = BOOK_META[key];
+                const payload = key === "investor"
+                  ? investorPayload
+                  : key === "day_trade"
+                    ? dayTradePayload
+                    : traderPayload;
+                const openPl = key === "investor"
+                  ? investorOpenPl
+                  : key === "day_trade"
+                    ? dayTradeOpenPl
+                    : traderOpenPl;
+                const startCash = key === "day_trade" ? 25000 : 100000;
+                const pnlPct = bookTotalPnlPct(payload, openPl, startCash);
+                const pnlCls = !Number.isFinite(pnlPct)
+                  ? ""
+                  : pnlPct > 0 ? " up" : pnlPct < 0 ? " dn" : "";
                 return h("button", {
                   key,
                   role: "tab",
                   "aria-selected": activeBook === key,
                   className: `book-tab ${m.tabClass}${activeBook === key ? " active" : ""}`,
                   onClick: () => setActiveBook(key),
-                }, m.label);
+                  title: Number.isFinite(pnlPct)
+                    ? `${m.label} total P&L ${fmtPct(pnlPct, 1)}`
+                    : m.label,
+                },
+                  h("span", { className: "book-tab-label" }, m.label),
+                  h("span", { className: `book-tab-pnl${pnlCls}` },
+                    Number.isFinite(pnlPct) ? fmtPct(pnlPct, 1) : "—",
+                  ),
+                );
               }),
             ),
 

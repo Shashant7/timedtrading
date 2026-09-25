@@ -11,6 +11,7 @@ const API_BASE = "";
 const fmtUsd = n => Number.isFinite(n) ? `$${Math.round(n).toLocaleString("en-US")}` : "—";
 const fmtUsdDec = n => Number.isFinite(n) ? `$${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}` : "—";
 const fmtPct = (n, decimals = 2) => Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n.toFixed(decimals)}%` : "—";
+const bookTotalPnlPct = (payload, openPl, startCashDefault) => typeof window !== "undefined" && window.TimedPortfolioBookUtils?.bookTotalPnlPct ? window.TimedPortfolioBookUtils.bookTotalPnlPct(payload, openPl, startCashDefault) : null;
 const fmtDate = d => {
   if (!d) return "—";
   if (typeof d === "number") d = new Date(d).toISOString().slice(0, 10);
@@ -1314,13 +1315,23 @@ function PortfolioApp() {
     "aria-label": "Portfolio books"
   }, ["trader", "investor", "day_trade"].map(key => {
     const m = BOOK_META[key];
+    const payload = key === "investor" ? investorPayload : key === "day_trade" ? dayTradePayload : traderPayload;
+    const openPl = key === "investor" ? investorOpenPl : key === "day_trade" ? dayTradeOpenPl : traderOpenPl;
+    const startCash = key === "day_trade" ? 25000 : 100000;
+    const pnlPct = bookTotalPnlPct(payload, openPl, startCash);
+    const pnlCls = !Number.isFinite(pnlPct) ? "" : pnlPct > 0 ? " up" : pnlPct < 0 ? " dn" : "";
     return h("button", {
       key,
       role: "tab",
       "aria-selected": activeBook === key,
       className: `book-tab ${m.tabClass}${activeBook === key ? " active" : ""}`,
-      onClick: () => setActiveBook(key)
-    }, m.label);
+      onClick: () => setActiveBook(key),
+      title: Number.isFinite(pnlPct) ? `${m.label} total P&L ${fmtPct(pnlPct, 1)}` : m.label
+    }, h("span", {
+      className: "book-tab-label"
+    }, m.label), h("span", {
+      className: `book-tab-pnl${pnlCls}`
+    }, Number.isFinite(pnlPct) ? fmtPct(pnlPct, 1) : "—"));
   })), h("section", {
     className: "tt-row"
   }, h("div", {
@@ -1465,6 +1476,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1790370787244:921741648
+// cache-bust:1790376770157:481949923
 
-// cache-bust:1790370787244:921741648
+// cache-bust:1790376770157:481949923
