@@ -55,6 +55,12 @@ jobs:
       - name: Install root deps
         run: bash scripts/ci-npm-install.sh --ignore-scripts
 
+      # --ignore-scripts skips better-sqlite3's install step, and the D1
+      # test double (worker/test-support/d1-sqlite.js) needs its native
+      # binding: without it the mirror-kernel tests fail and block the deploy.
+      - name: Build better-sqlite3 for the test suite
+        run: npm rebuild better-sqlite3
+
       - name: Run tests
         run: npm test
 

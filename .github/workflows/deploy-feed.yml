@@ -14,9 +14,12 @@ name: Deploy feed worker
 on:
   push:
     branches: [main]
+    # feed-index.js bundles ~40 modules from worker/ (data-provider,
+    # twelvedata, indicators, ...), not just worker/feed/. With the narrower
+    # filter, four data-provider fixes (9/23) never reached tt-feed.
     paths:
       - "worker-feed/**"
-      - "worker/feed/**"
+      - "worker/**"
       - ".github/workflows/deploy-feed.yml"
   workflow_dispatch:
 
