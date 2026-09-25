@@ -262,7 +262,12 @@ describe("re-entry cooldown across contracts on one underlying", () => {
     const store = {};
     const closed = await openThenStop(mockEnv(store));
     expect(["STOP", "EXIT"]).toContain(closed.event);
-    expect(Number(store["timed:opt-dt:last-close:SPY"])).toBe(t0 + 5 * 60_000);
+    const stamp = JSON.parse(store["timed:opt-dt:last-close:SPY"]);
+    expect(stamp.ts).toBe(t0 + 5 * 60_000);
+    expect(stamp).toMatchObject({
+      side: expect.any(String),
+      green: expect.any(Boolean),
+    });
   });
 
   it("blocks a BUY on another SPY contract a minute later", async () => {

@@ -196,13 +196,16 @@ describe("setup-grade admission", () => {
     expect(d.__setup_grade.score).toBe(4);
   });
 
-  it("still admits a convicted ATH through the live engine", () => {
+  it("passes setup-grade on a convicted ATH but catalog-pauses the live entry", () => {
+    // 2026-09-25 — ATH Breakout paused with Support Bounce / Range Reversal.
+    // Setup-grade still scores the tape; the admission seam is the hard stop.
     const d = alignedPayload();
     d._env = { _entryEngine: "tt_core", _deepAuditConfig: { deep_audit_forming_pair_entry: "false" } };
     const result = evaluateEntry(buildTradeContext(d, NOW));
-    expect(result.qualifies, JSON.stringify({ reason: result.reason, grade: d.__setup_grade })).toBe(true);
     expect(d.__setup_grade.allow).toBe(true);
     expect(d.__setup_grade.score).toBe(10);
+    expect(result.qualifies).toBe(false);
+    expect(result.reason).toBe("play_catalog_paused");
   });
 });
 
