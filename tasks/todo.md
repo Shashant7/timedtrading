@@ -18,7 +18,24 @@
 
 ---
 
-## Open work — Mission Control + Today + UX polish
+## Active — Model↔broker sync + lane minds (2026-09-25)
+
+After SPY 763P (operator cancelled, partner held through STOP):
+
+- [x] #1508: close partners when operator never held (event path)
+- [x] Deploy #1508 (`7602fe73` on ingest/engine/research/feed)
+- [x] Proactive partner close reconciler (`reconcileIndexDtPartnerCloses`)
+      on the minute cron + `heal-closes` + health telemetry; only stamp
+      `partners_close_for` when partner legs settle
+- [ ] Constant model→broker intent stream (kernel Phase 2 queue fan-out;
+      every model leg durable before broker; brokers consume, never poll
+      for "did we miss an event")
+- [ ] Sync checker: mismatch always named (known-why vs defect→auto-fix);
+      extend beyond operator-never-held to ST equity + index-trend
+- [ ] Distinct trader minds so DT whipsaws stop eating ST/LT P&L:
+      day trader (protective, anti-whipsaw, thesis exit already shipping),
+      swing (structural holds / conviction — arms stay OFF until look-ahead
+      re-baseline), investor (zone/rebalance, not DT clock)
 
 ### Active
 ## Active — Portfolio Day Trade P&L gap (2026-09-25)

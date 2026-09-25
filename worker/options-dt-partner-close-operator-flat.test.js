@@ -11,6 +11,10 @@ import { describe, it, expect } from "vitest";
 import {
   indexDtMirrorKey,
   maybeAutoMirrorIndexDayTradeEvent,
+  needsPartnerCloseReconcile,
+  partnerCloseRoundId,
+  partnersCloseSettled,
+  reconcileIndexDtPartnerCloses,
   shouldClosePartnersOnly,
   summarizePartnerFanout,
 } from "./options-auto-mirror.js";
@@ -119,21 +123,118 @@ describe("a STOP on a round the operator never held", () => {
   });
 
   it("sends nothing for a round no BUY ever went out on", async () => {
-    const kv = seeded({ ...operatorNeverFilled, entry_sent_ts: undefined });
+    const kv = seeded({
+      ...operatorNeverFilled,
+      entry_sent_ts: undefined,
+      entry_fill_status: undefined,
+    });
     const calls = [];
     await maybeAutoMirrorIndexDayTradeEvent(envWith(kv, calls), stopCtx());
     expect(calls).toHaveLength(0);
   });
+
+  it("does not stamp partners_close_for when the partner sell is refused", async () => {
+    const kv = seeded(operatorNeverFilled);
+    const calls = [];
+    const r = await maybeAutoMirrorIndexDayTradeEvent(
+      envWith(kv, calls, { ok: false, rejected: true, reason: "positions_unavailable" }),
+      stopCtx(),
+    );
+    expect(calls).toHaveLength(1);
+    expect(r.partners_settled).toBe(false);
+    const mirror = JSON.parse(kv.store.get(indexDtMirrorKey(SIG)));
+    expect(mirror.partners_close_for).toBeUndefined();
+    expect(mirror.partners_close_attempt_ts).toBeGreaterThan(0);
+  });
 });
 
-describe("shouldClosePartnersOnly", () => {
-  it("only for EXIT / STOP on a round whose BUY was sent and not yet closed", () => {
+describe("partnerCloseRoundId / shouldClosePartnersOnly", () => {
+  it("uses entry_sent_ts when present", () => {
+    expect(partnerCloseRoundId({ entry_sent_ts: 9 })).toBe(9);
     expect(shouldClosePartnersOnly("STOP", { entry_sent_ts: 5 })).toBe(true);
     expect(shouldClosePartnersOnly("EXIT", { entry_sent_ts: 5 })).toBe(true);
     expect(shouldClosePartnersOnly("TRIM", { entry_sent_ts: 5 })).toBe(false);
     expect(shouldClosePartnersOnly("STOP", { entry_sent_ts: 5, partners_close_for: 5 })).toBe(false);
     expect(shouldClosePartnersOnly("STOP", { entry_sent_ts: 9, partners_close_for: 5 })).toBe(true);
     expect(shouldClosePartnersOnly("STOP", null)).toBe(false);
+  });
+
+  it("falls back to a legacy id for cancelled rounds that predate entry_sent_ts", () => {
+    expect(partnerCloseRoundId({ entry_fill_status: "cancelled" })).toBe(1);
+    expect(shouldClosePartnersOnly("STOP", { entry_fill_status: "cancelled" })).toBe(true);
+    expect(shouldClosePartnersOnly("STOP", {
+      entry_fill_status: "cancelled", partners_close_for: 1,
+    })).toBe(false);
+  });
+});
+
+describe("needsPartnerCloseReconcile", () => {
+  it("is true only for operator-never-held rounds whose model book is flat", () => {
+    expect(needsPartnerCloseReconcile(operatorNeverFilled, { status: "flat", event: "STOP" })).toBe(true);
+    expect(needsPartnerCloseReconcile(operatorNeverFilled, { status: "closed", event: "EXIT" })).toBe(true);
+    expect(needsPartnerCloseReconcile(operatorNeverFilled, null)).toBe(true);
+    expect(needsPartnerCloseReconcile(operatorNeverFilled, { status: "open" })).toBe(false);
+    expect(needsPartnerCloseReconcile({ ...operatorNeverFilled, entry_fired: true }, { status: "flat" })).toBe(false);
+    expect(needsPartnerCloseReconcile({ ...operatorNeverFilled, partners_close_for: 1790345781286 }, { status: "flat" })).toBe(false);
+  });
+});
+
+describe("partnersCloseSettled", () => {
+  it("is true when every partner is flat or filled", () => {
+    expect(partnersCloseSettled({
+      response: { fanout: { results: [{ user_id: "a", ok: false, contracts: 1, result: { ok: false, rejected: true, reason: "no_held_position" } }] } },
+    })).toBe(true);
+  });
+  it("is false when a partner reduce is refused for a real reason", () => {
+    expect(partnersCloseSettled({
+      response: { fanout: { results: [{ user_id: "a", ok: false, contracts: 1, result: { ok: false, rejected: true, reason: "positions_unavailable" } }] } },
+    })).toBe(false);
+  });
+});
+
+describe("reconcileIndexDtPartnerCloses — proactive heal", () => {
+  it("fires a partner-only STOP when the qty reconciler would skip the row", async () => {
+    const kv = seeded(operatorNeverFilled);
+    const calls = [];
+    const out = await reconcileIndexDtPartnerCloses(envWith(kv, calls), {
+      indicesFlagOn: true,
+      loadBook: async () => ({ status: "flat", event: "STOP", contracts: 2, exit_ts: Date.now() - 60_000 }),
+      resolvePremium: async () => ({ mid: 0.72, bid: 0.71 }),
+    });
+    expect(out.drifted).toBe(1);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].play.legs[0].action).toBe("SELL");
+    expect(out.fired[0]).toMatchObject({ partners_only: true, partners_settled: true });
+    expect(JSON.parse(kv.store.get(indexDtMirrorKey(SIG))).partners_close_for).toBe(1790345781286);
+  });
+
+  it("heals a legacy cancelled mirror that never got entry_sent_ts", async () => {
+    const kv = seeded({
+      ...operatorNeverFilled,
+      entry_sent_ts: undefined,
+      entry_fill_status: "cancelled",
+    });
+    const calls = [];
+    const out = await reconcileIndexDtPartnerCloses(envWith(kv, calls), {
+      indicesFlagOn: true,
+      loadBook: async () => ({ status: "flat", event: "STOP", contracts: 2, exit_ts: Date.now() - 60_000 }),
+      resolvePremium: async () => ({ mid: 0.72, bid: 0.71 }),
+    });
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(kv.store.get(indexDtMirrorKey(SIG))).partners_close_for).toBe(1);
+    expect(out.fired[0].partners_settled).toBe(true);
+  });
+
+  it("does not re-fire after partners_close_for is stamped", async () => {
+    const kv = seeded({ ...operatorNeverFilled, partners_close_for: 1790345781286 });
+    const calls = [];
+    const out = await reconcileIndexDtPartnerCloses(envWith(kv, calls), {
+      indicesFlagOn: true,
+      loadBook: async () => ({ status: "flat", event: "STOP", exit_ts: Date.now() - 60_000 }),
+      resolvePremium: async () => ({ mid: 0.72, bid: 0.71 }),
+    });
+    expect(out.scanned).toBe(0);
+    expect(calls).toHaveLength(0);
   });
 });
 

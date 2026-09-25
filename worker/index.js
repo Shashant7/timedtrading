@@ -61067,6 +61067,17 @@ export default {
             };
           }
         } catch (_) { /* best-effort */ }
+        let indexDtPartnerCloseUnmirrored = null;
+        try {
+          const pr = await kvGetJSON(KV, "timed:opt-dt:partner-close-unmirrored");
+          if (pr && Array.isArray(pr.unmirrored) && pr.unmirrored.length) {
+            indexDtPartnerCloseUnmirrored = {
+              count: pr.unmirrored.length,
+              ageMin: pr.ts ? Math.round((Date.now() - pr.ts) / 60000) : null,
+              signals: pr.unmirrored.slice(0, 8),
+            };
+          }
+        } catch (_) { /* best-effort */ }
         let activeUsers30d = null;
         try {
           if (env?.DB) {
@@ -61212,6 +61223,7 @@ export default {
             cronTickAgeMin,
             cronFailures,
             indexDtReduceUnmirrored,
+            indexDtPartnerCloseUnmirrored,
             pricesAgeSec,
             staleSymbolCount,
             staleSymbolCountRaw,
@@ -85484,12 +85496,15 @@ export default {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         try {
-          const { reconcileIndexDtMirrorPositions } = await import("./options-auto-mirror.js");
-          const out = await reconcileIndexDtMirrorPositions(env, {
-            indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
-            lookbackMs: Number(url.searchParams.get("lookback_ms")) || undefined,
-          });
-          return sendJSON({ ok: true, ...out }, 200, corsHeaders(env, req));
+          const {
+            reconcileIndexDtMirrorPositions,
+            reconcileIndexDtPartnerCloses,
+          } = await import("./options-auto-mirror.js");
+          const lookbackMs = Number(url.searchParams.get("lookback_ms")) || undefined;
+          const indicesFlagOn = _optionsAutoMirrorIndicesEnabled(env);
+          const operator = await reconcileIndexDtMirrorPositions(env, { indicesFlagOn, lookbackMs });
+          const partners = await reconcileIndexDtPartnerCloses(env, { indicesFlagOn, lookbackMs });
+          return sendJSON({ ok: true, operator, partners }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
@@ -104771,7 +104786,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // is wrong. Runs after the entry sweep so a just-confirmed fill is
           // visible to it.
           if (isNyRegularMarketOpen()) {
-            const { reconcileIndexDtMirrorPositions } = await import("./options-auto-mirror.js");
+            const {
+              reconcileIndexDtMirrorPositions,
+              reconcileIndexDtPartnerCloses,
+            } = await import("./options-auto-mirror.js");
             const _dtQty = await reconcileIndexDtMirrorPositions(env, {
               indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
             });
@@ -104780,6 +104798,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
             if (_dtQty?.skipped?.length) {
               console.log(`[OPT-DT-RECONCILE] reduces still unmirrored: ${JSON.stringify(_dtQty.skipped)}`);
+            }
+            // Operator-never-held rounds are invisible to the qty reconciler
+            // above (no entry_fired / no contracts_remaining). Partners who
+            // filled on the shared BUY stay long unless this pass closes them
+            // (SPY 763P 2026-09-25).
+            const _dtPartners = await reconcileIndexDtPartnerCloses(env, {
+              indicesFlagOn: _optionsAutoMirrorIndicesEnabled(env),
+            });
+            if (_dtPartners?.fired?.length) {
+              console.log(`[OPT-DT-RECONCILE] partner closes: ${JSON.stringify(_dtPartners.fired)}`);
+            }
+            if (_dtPartners?.skipped?.length) {
+              console.log(`[OPT-DT-RECONCILE] partner closes still open: ${JSON.stringify(_dtPartners.skipped)}`);
             }
             // Follow every reduce through to each account's own holdings —
             // the operator's and every partner's — until the broker shows it.
