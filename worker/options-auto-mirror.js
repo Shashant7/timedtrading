@@ -1236,11 +1236,19 @@ export async function resolvePendingIndexDtEntry(env, operatorEmail, signalId, m
  * position anyone may write off, but not the same statement as "it is
  * sitting there", and the caller reports the two apart.
  */
+/** A SUBMITTED reduce that never fills blocks replacement SELLs at Webull
+ *  ("will reverse an existing position"). Cancel past this age so heal can
+ *  re-place. Matches the pending-entry stale window. */
+export const PENDING_REDUCE_STALE_MS = 10 * 60 * 1000;
+
 export async function resolvePendingIndexDtReduce(env, operatorEmail, signalId, mirror, {
   event = "EXIT",
+  now = Date.now(),
+  staleMs = PENDING_REDUCE_STALE_MS,
   deps = {},
 } = {}) {
   const poll = deps.pollFill || pollFillIfNeeded;
+  const cancel = deps.cancelOrder || cancelAutoMirrorOrder;
   const pendingKey = event === "TRIM" ? "trim" : "exit";
   const orderId = mirror?.[`${pendingKey}_order_id`];
   if (!mirror?.[`${pendingKey}_pending`] || !orderId) return { outcome: "not_pending", mirror };
@@ -1275,7 +1283,23 @@ export async function resolvePendingIndexDtReduce(env, operatorEmail, signalId, 
     });
     return { outcome: "filled", reconcile: rec, mirror: { ...mirror, ...patch } };
   }
-  if (rec.pending) return { outcome: "working", reconcile: rec, mirror };
+  if (rec.pending) {
+    // Stale unfilled reduce: cancel so the reconciler can re-place. Leaving
+    // it SUBMITTED forever is how IWM 280P sat long after STOP on 2026-09-25 —
+    // Webull refused every replacement SELL as a reverse of the open order.
+    // Prefer the reduce place clock — `ts` moves on every mirror write and
+    // would otherwise reset the stale window (same rule as entry_placed_at).
+    const placedAt = Number(mirror[`${pendingKey}_placed_at`]) || Number(mirror.ts) || 0;
+    if (placedAt > 0 && (now - placedAt) >= staleMs) {
+      await cancel(env, operatorEmail, { order_id: orderId }).catch(() => null);
+      const clear = event === "TRIM"
+        ? { trim_pending: false, trim_order_id: null }
+        : { exit_pending: false, exit_order_id: null };
+      await saveIndexDtMirror(env, signalId, clear);
+      return { outcome: "rejected", cancelled_stale: true, reconcile: rec, mirror: { ...mirror, ...clear } };
+    }
+    return { outcome: "working", reconcile: rec, mirror };
+  }
   return { outcome: "rejected", reconcile: rec, mirror };
 }
 
@@ -2802,9 +2826,10 @@ async function runIndexDayTradeMirror(env, ctx = {}) {
   } else if (rec.pending) {
     // Stamped with the reference, not the limit, so whoever settles the
     // order later books the expected fill if the broker reports none.
+    const placedAt = Date.now();
     const patch = event === "TRIM"
-      ? { trim_pending: true, trim_qty: qty, trim_order_id: fill.order_id || rec.order_id || null, trim_premium: closeRef ?? limitPrice }
-      : { exit_pending: true, exit_qty: qty, exit_order_id: fill.order_id || rec.order_id || null, exit_premium: closeRef ?? limitPrice, exit_event: event };
+      ? { trim_pending: true, trim_qty: qty, trim_order_id: fill.order_id || rec.order_id || null, trim_premium: closeRef ?? limitPrice, trim_placed_at: placedAt }
+      : { exit_pending: true, exit_qty: qty, exit_order_id: fill.order_id || rec.order_id || null, exit_premium: closeRef ?? limitPrice, exit_event: event, exit_placed_at: placedAt };
     await saveIndexDtMirror(env, signalId, patch);
   } else if (isBrokerFlatReject(rec)) {
     // The one rejection that re-offering cannot fix. `no_held_position` is

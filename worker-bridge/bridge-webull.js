@@ -179,5 +179,13 @@ export async function callWebullAction(env, user, action, args = {}) {
       trade_id: args.trade_id || "probe",
     });
   }
+  // Cancel by client_order_id (Webull's cancel body). Needed to clear a
+  // SUBMITTED day-trade reduce that blocks a replacement SELL ("will reverse
+  // an existing position") — IWM 280P 2026-09-25.
+  if (act === "cancel_order") {
+    const orderId = args.client_order_id || args.order_id;
+    if (!orderId) return { ok: false, error: "client_order_id_required" };
+    return cancelOrder(env, user, orderId);
+  }
   return { ok: false, error: `unknown_webull_action:${act}` };
 }

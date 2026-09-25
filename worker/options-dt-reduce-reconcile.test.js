@@ -503,10 +503,56 @@ describe("resolvePendingIndexDtReduce", () => {
   });
 
   it("reports a reduce that is genuinely still working", async () => {
-    const r = await call(pending(), { status: "working", order_id: "WB1" });
+    const r = await call(pending({ exit_placed_at: Date.now() }), { status: "working", order_id: "WB1" });
     expect(r.outcome).toBe("working");
     expect(r.missing).toBeFalsy();
     expect(r.env.KV_TIMED.store.size).toBe(0);
+  });
+
+  // 2026-09-25 — IWM 280P. A SUBMITTED reduce that never fills blocks every
+  // replacement SELL ("will reverse an existing position"). Past the stale
+  // window we cancel and clear pending so heal can re-place.
+  it("cancels a stale unfilled reduce so heal can re-place", async () => {
+    const now = 1_000_000;
+    const cancelled = [];
+    const env = { KV_TIMED: kvMock() };
+    const mirror = pending({ exit_placed_at: now - 11 * 60 * 1000, ts: now });
+    const r = await resolvePendingIndexDtReduce(env, "desk@example.com", SIG, mirror, {
+      now,
+      deps: {
+        pollFill: async () => ({ status: "working", order_id: "WB1" }),
+        cancelOrder: async (_e, _email, args) => {
+          cancelled.push(args);
+          return { ok: true, response: { cancelled: true } };
+        },
+      },
+    });
+    expect(r.outcome).toBe("rejected");
+    expect(r.cancelled_stale).toBe(true);
+    expect(cancelled).toEqual([{ order_id: "WB1" }]);
+    expect(r.mirror).toMatchObject({ exit_pending: false, exit_order_id: null });
+    const saved = JSON.parse(env.KV_TIMED.store.get(indexDtMirrorKey(SIG)));
+    expect(saved).toMatchObject({ exit_pending: false, exit_order_id: null });
+  });
+
+  it("does not cancel a fresh working reduce even when mirror.ts is old", async () => {
+    const now = 1_000_000;
+    const cancelled = [];
+    const env = { KV_TIMED: kvMock() };
+    const mirror = pending({ exit_placed_at: now - 60_000, ts: now - 60 * 60 * 1000 });
+    const r = await resolvePendingIndexDtReduce(env, "desk@example.com", SIG, mirror, {
+      now,
+      deps: {
+        pollFill: async () => ({ status: "working", order_id: "WB1" }),
+        cancelOrder: async (_e, _email, args) => {
+          cancelled.push(args);
+          return { ok: true };
+        },
+      },
+    });
+    expect(r.outcome).toBe("working");
+    expect(cancelled).toEqual([]);
+    expect(env.KV_TIMED.store.size).toBe(0);
   });
 
   it("flags a reduce the broker's order history does not contain", async () => {
