@@ -101,8 +101,9 @@ on an HOURLY close −24.8 (best, +6.2 pts / 48 trades on the half still held).
 Two things cost more than the rule itself: fills average −0.65% against a
 −0.15% design (overnight gaps: JD −2.1, GEV −2.0, LULU −2.0), and the trim is
 taken at +0.5–0.7% on most trades, so "trim then floor at entry" caps a trade
-near breakeven unless it runs. The hourly-close variant is NOT replay-testable
-yet — see the look-ahead trap in `skills/backtest-replay.md`.
+near breakeven unless it runs. The hourly-close variant is now replay-testable
+(`barsAsOf` / look-ahead fixed 2026-09-25) — re-baseline absolute numbers on
+the asof tape before trusting them; see `skills/backtest-replay.md`.
 
 **What happens at our stop** (83 plan-stop touches before target):
 
