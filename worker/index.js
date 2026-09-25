@@ -104829,9 +104829,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             try {
               const { convergeIndexDtPositions } = await import("./mirror-kernel-converge.js");
               const _conv = await convergeIndexDtPositions(env);
-              if (_conv.sold.length || _conv.behind.length || _conv.errors.length) {
+              if (_conv.sold.length || _conv.behind.length || _conv.errors.length || _conv.outbox_pending) {
                 console.log(`[MIRROR KERNEL] converge ${JSON.stringify({
-                  due: _conv.due, verified: _conv.verified.length, sold: _conv.sold, behind: _conv.behind, errors: _conv.errors,
+                  due: _conv.due, outbox_pending: _conv.outbox_pending || 0,
+                  verified: _conv.verified.length, sold: _conv.sold, behind: _conv.behind, errors: _conv.errors,
                 }).slice(0, 1500)}`);
               }
             } catch (e) {

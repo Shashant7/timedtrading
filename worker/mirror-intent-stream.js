@@ -3,7 +3,8 @@
 // The model pushes desired remaining quantity; brokers consume it.
 //
 // Until Phase 2 retires the KV mirror for a Cloudflare Queue, this is the
-// durable stream: every index day-trade model leg publishes (or updates) an
+// durable stream alongside the D1 `mirror_dispatch_outbox` dual-write in
+// mirror-kernel.js: every index day-trade model leg publishes (or updates) an
 // intent row keyed by signal id. The minute cron drains `close_owed` rows
 // through the existing partner + operator reconciler — so a missed STOP
 // event cannot leave a partner long with nothing to disagree with.

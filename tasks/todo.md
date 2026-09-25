@@ -38,11 +38,15 @@ After SPY 763P (operator cancelled, partner held through STOP):
       (`lane-minds.js`). Conviction structural stays OFF until look-ahead
       re-baseline.
 - [x] Named sync extended to ST + index-trend (equity flat synonyms →
-      `external_reduction`; unnamed reduces → `defect:` + heal)
+      `external_reduction`; unnamed reduces → `defect:` + heal) (#1510)
 - [x] Look-ahead fixed on main (`aea91b5ec` / `barsAsOf`); docs updated
+- [x] Phase 2 first slice: D1 `mirror_dispatch_outbox` dual-write on every
+      model reduce + settle on converge verify (KV / risk / fan-out kept;
+      CF Queue still deferred — gated on five clean sleeve-verify sessions)
 - [ ] Phase 2: CF Queue fan-out + retire KV mirror / risk ledger
       (ST/index-trend reduces already durable via `broker_intents`)
-- [ ] ST conviction / structural mind ON after post-asof cv-* re-baseline
+- [ ] ST conviction / structural mind ON after post-asof `cv-la-*`
+      re-baseline (asof Jul/Aug done; Sep in flight on preprod)
 
 ### Active
 ## Active — Portfolio Day Trade P&L gap (2026-09-25)
@@ -95,6 +99,8 @@ the broker, new tables.
 - [x] Day trades: two lots, follow paper size, partners inside own caps
 - [x] Day trades: priced through the touch, booked at the fill
 - [x] Kernel tables + model legs + per-account attempts + converge
+- [x] Phase 2 first slice: `mirror_dispatch_outbox` dual-write on reduces
+      (settle via converge; Queue + KV retirement still gated)
 - [ ] Watch the first live session: model_leg rows, both accounts'
       sleeves, converge verifying stops in both accounts
 - [ ] Phase 2: retire the KV mirror / risk ledger for day trades once the

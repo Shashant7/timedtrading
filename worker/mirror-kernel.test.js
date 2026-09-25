@@ -11,6 +11,9 @@ import {
   DIVERGENCE,
   recordModelLeg,
   listUnverifiedPositions,
+  listPendingMirrorDispatches,
+  markMirrorDispatchDispatched,
+  settleMirrorDispatchesUpTo,
   markPositionVerified,
   ensureSleeve,
   setSleeveStatus,
@@ -165,6 +168,49 @@ describe("model legs", () => {
   it("does not list a position whose only leg is the entry", async () => {
     await leg("BUY", 2, T0);
     expect(await listUnverifiedPositions(db, { now: T0 + 10 * 60_000 })).toHaveLength(0);
+  });
+
+  it("dual-writes a pending outbox row on every reduce, never on BUY", async () => {
+    await leg("BUY", 2, T0);
+    expect(await listPendingMirrorDispatches(db, { now: T0 })).toHaveLength(0);
+    await leg("TRIM", 1, T0 + 60_000);
+    await leg("STOP", 0, T0 + 120_000);
+    const pending = await listPendingMirrorDispatches(db, { now: T0 + 120_000 });
+    expect(pending).toHaveLength(2);
+    expect(pending.map((r) => r.event)).toEqual(["TRIM", "STOP"]);
+    expect(pending.every((r) => r.status === "pending")).toBe(true);
+  });
+
+  it("does not re-enqueue a duplicate reduce", async () => {
+    await leg("BUY", 2, T0);
+    await leg("STOP", 0, T0 + 60_000);
+    await leg("STOP", 0, T0 + 61_000); // duplicate
+    expect(await listPendingMirrorDispatches(db, { now: T0 + 61_000 })).toHaveLength(1);
+  });
+
+  it("promotes pending → dispatched → settled with the position", async () => {
+    await leg("BUY", 2, T0);
+    const stop = await leg("STOP", 0, T0 + 60_000);
+    const [row] = await listPendingMirrorDispatches(db, { now: T0 + 60_000 });
+    await markMirrorDispatchDispatched(db, row.position_id, row.seq, T0 + 90_000);
+    const mid = await listPendingMirrorDispatches(db, { now: T0 + 90_000 });
+    expect(mid).toHaveLength(1);
+    expect(mid[0].status).toBe("dispatched");
+    await markPositionVerified(db, stop.position_id, stop.seq, T0 + 120_000);
+    expect(await listPendingMirrorDispatches(db, { now: T0 + 120_000 })).toHaveLength(0);
+    const settled = await db.prepare(
+      `SELECT status FROM mirror_dispatch_outbox WHERE position_id = ?1 AND seq = ?2`,
+    ).bind(stop.position_id, stop.seq).first();
+    expect(settled.status).toBe("settled");
+  });
+
+  it("settleMirrorDispatchesUpTo covers every seq through verified", async () => {
+    await leg("BUY", 2, T0);
+    await leg("TRIM", 1, T0 + 30_000);
+    await leg("STOP", 0, T0 + 60_000);
+    const pid = `${SID}@${T0}`;
+    await settleMirrorDispatchesUpTo(db, pid, 2, T0 + 90_000);
+    expect(await listPendingMirrorDispatches(db, { now: T0 + 90_000 })).toHaveLength(0);
   });
 });
 
