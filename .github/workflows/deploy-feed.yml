@@ -50,13 +50,13 @@ jobs:
         run: bash scripts/ci-resolve-cf-secrets.sh
 
       - name: Deploy feed worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken:        ${{ env.CLOUDFLARE_API_TOKEN }}
-          accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: "4.92.0"
-          workingDirectory: worker-feed
-          command: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+        # Always stamp ENGINE_GIT_SHA. wrangler-action without --var leaves
+        # the previous value in place (green-but-lying: 2026-09-25 tt-feed
+        # still reported 0eb62379 after a successful #1510 deploy of 02cbc839).
+        run: bash scripts/deploy-wrangler-retry.sh worker-feed --var ENGINE_GIT_SHA:${GITHUB_SHA:0:8}
 
       - name: Post-deploy smoke
         run: |
