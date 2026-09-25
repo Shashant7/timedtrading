@@ -118,6 +118,14 @@ yet — see the look-ahead trap in `skills/backtest-replay.md`.
   (−1.01R vs −1.02R).
 - 45 of 83 touches are in the first 30 minutes (opening gaps / flushes); they
   recover LESS (13%) — do not defer opening stops.
+- How the stop is set: scoring `tickerData.sl` = 1.5 x daily ATR, clamped to the
+  volatility tier's min/max % (`worker/indicators.js` ~4893); entry then layers
+  Gold Standard ATR remaps, Kijun / 4H ST / 1H cloud blends, regime and profile
+  multipliers, DA cap/floor, exhaustion tighten, and the ETF 0.5-0.7% clamp.
+  After entry it only tightens (trails, BE locks). Breach is a mark-vs-stop
+  compare: `classifyKanbanStage` on the engine cadence with the cushions below,
+  the feed cron every minute on `timed:prices` prints, and the pipeline
+  (`tt-core-exit.js`) with no cushions at all.
 - Existing breach guards are all pierce-depth tolerances (FVG/PDZ 0.5%, HTF
   trend 0.5% RTH, ext-hours wick, opening wick OFF, hourly-EMA233 band ON), none
   reads RSI / phase / LTF reversal — and the data says none should.
