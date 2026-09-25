@@ -64,6 +64,19 @@ After SPY 763P (operator cancelled, partner held through STOP):
       re-baseline (asof Jul/Aug done; Sep in flight on preprod)
 
 ### Active
+## Active — Portfolio three books (2026-09-25)
+
+Operator: three clear portfolios — Short Term, Long Term, Day Trader —
+each with equity curve, timeframe performance, open positions, history,
+and PnL calendar. Day Trader had no durable book (KV action ring only).
+
+- [x] `day-trade-ledger.js`: $25k sleeve start, equity from closed rounds,
+      durable `account_ledger` mode=`day_trade` on STOP/EXIT + sync
+- [x] Equity-curve API: `mode=day_trade|all` returns Day Trader curve
+- [x] Portfolio UI: book tabs; selected book owns curve + calendar +
+      opens + history; Index Swings nest under Short Term
+- [x] Tests, build frontend, PR
+
 ## Active — Portfolio Day Trade P&L gap (2026-09-25)
 
 Index option day trades (e.g. 2026-09-23, 16 rounds / +$702) were

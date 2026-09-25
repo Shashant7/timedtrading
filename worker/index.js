@@ -898,7 +898,13 @@ import {
   maybeReviveIndexTrendBook as _itReviveBook,
 } from "./index-trend-alerts.js";
 import { paperEventToNotifType } from "./paper-lane-notify.js";
-import { listOpenPaperLaneTrades, listPaperLaneHistory, loadOpenIndexTrendBookForUnderlying } from "./paper-lane-positions.js";
+import {
+  listOpenPaperLaneTrades,
+  listPaperLaneHistory,
+  loadOpenIndexTrendBookForUnderlying,
+  closedTradesFromPaperActions as _closedTradesFromPaperActions,
+  normalizePaperLaneActions as _normalizePaperLaneActions,
+} from "./paper-lane-positions.js";
 import { buildIndexTrendSignalId as _itBuildSignalId, indexTrendBookIsLive as _itBookIsLive } from "./index-trend-paper.js";
 import { buildDayTradePositionMgmtLine as _optDtPositionMgmtLine, isOptionsSellWindowEt as _isOptionsSellWindowEt } from "./option-day-trade-plan.js";
 import {
@@ -907,6 +913,14 @@ import {
   combineAccountBooks as _combineAccountBooks,
   applyLiveMarkToEquityPoints as _applyLiveMarkToEquityPoints,
 } from "./account-summary.js";
+import {
+  DAY_TRADE_LEDGER_MODE as _DT_LEDGER_MODE,
+  DAY_TRADE_START_CASH as _DT_START_CASH,
+  buildDayTradeEquityPoints as _buildDayTradeEquityPoints,
+  summarizeDayTradeEquity as _summarizeDayTradeEquity,
+  syncDayTradeLedgerFromClosedTrades as _syncDayTradeLedgerFromClosedTrades,
+  filterDayTradeClosedTrades as _filterDayTradeClosedTrades,
+} from "./day-trade-ledger.js";
 import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction, applyPaperMirrorLog, paperMirrorLogSide } from "./broker-day-actions-join.js";
 import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendShouldCatchUpOpenEntry, indexTrendCatchUpPlaced, indexTrendCloseReadyToFinalize } from "./index-trend-auto-mirror.js";
 import { dcaSweepShouldMarkClean } from "./investor-dca-sweep.js";
@@ -43749,7 +43763,10 @@ async function d1InsertLedgerEntry(env, row) {
  */
 async function d1GetLedgerBalance(env, mode = "trader") {
   const db = env?.DB;
-  const initial = mode === "trader" ? PORTFOLIO_START_CASH : 100000;
+  const m = String(mode || "trader").toLowerCase();
+  const initial = m === "day_trade" ? _DT_START_CASH
+    : m === "trader" ? PORTFOLIO_START_CASH
+    : 100000;
   if (!db) return initial;
   try {
     await ensureAccountLedgerSchema(db, env?.KV_TIMED);
@@ -44437,7 +44454,9 @@ async function buildEquityPointsFromLedger(db, mode, sinceDate, untilDate) {
   const until = String(untilDate || "2099-12-31").slice(0, 10);
   const sinceMs = new Date(`${since}T00:00:00Z`).getTime() || 0;
   const untilMs = new Date(`${until}T23:59:59Z`).getTime() || Date.now();
-  const startCash = m === "investor" ? INVESTOR_REPLAY_CAPITAL : PORTFOLIO_START_CASH;
+  const startCash = m === "investor" ? INVESTOR_REPLAY_CAPITAL
+    : m === "day_trade" ? _DT_START_CASH
+    : PORTFOLIO_START_CASH;
 
   const preRow = await db.prepare(
     `SELECT SUM(COALESCE(realized_pnl, 0)) AS s FROM account_ledger
@@ -89704,7 +89723,8 @@ export default {
         }
       }
 
-      // GET /timed/portfolio/equity-curve?mode=trader|investor|both&since=YYYY-MM-DD&until=YYYY-MM-DD
+      // GET /timed/portfolio/equity-curve?mode=trader|investor|day_trade|both|all&since=&until=
+      // both = ST+LT (legacy). all = ST+LT+Day Trader.
       if (routeKey === "GET /timed/portfolio/equity-curve") {
         // P0.7.158 — rate-limit unauthenticated reads (proof.html etc.)
         // P0.7.168 (2026-05-15) — raise from 120 → 1200/hr. Same rationale
@@ -89721,10 +89741,98 @@ export default {
           const since = url.searchParams.get("since") || "2020-01-01";
           const until = url.searchParams.get("until") || "2099-12-31";
 
-          const modes = mode === "both" ? ["trader", "investor"] : [mode];
+          const modes = mode === "all" ? ["trader", "investor", "day_trade"]
+            : mode === "both" ? ["trader", "investor"]
+            : [mode];
           const result = {};
 
+          // Day Trader book: rebuild from paper action rounds, sync into
+          // account_ledger (mode=day_trade) so history survives the KV ring.
+          if (modes.includes("day_trade")) {
+            try {
+              await ensureAccountLedgerSchema(db, KV);
+              const rawActions = await _optDtReadActions(env, 0);
+              const norm = _normalizePaperLaneActions({ dayTrade: rawActions, indexTrend: [] });
+              const closedAll = _closedTradesFromPaperActions(norm);
+              const closedDt = _filterDayTradeClosedTrades(closedAll);
+              await _syncDayTradeLedgerFromClosedTrades(env, closedDt, {
+                insertFn: (row) => d1InsertLedgerEntry(env, row),
+              }).catch((e) => console.warn("[EQUITY CURVE] day_trade ledger sync:", String(e?.message || e).slice(0, 160)));
+
+              let openUnrealized = 0;
+              let openPositions = 0;
+              try {
+                const paper = await listOpenPaperLaneTrades(env);
+                const opens = (Array.isArray(paper) ? paper : []).filter(
+                  (t) => String(t?._paper_lane || t?._lane || "") === "index_day_trade",
+                );
+                openPositions = opens.length;
+                for (const t of opens) {
+                  const u = Number(t?.unrealized_pnl ?? t?.unrealizedPnl ?? t?.pnl);
+                  if (Number.isFinite(u)) openUnrealized += u;
+                }
+              } catch (_) { /* open overlay optional */ }
+
+              let points = await buildEquityPointsFromLedger(db, _DT_LEDGER_MODE, since, until);
+              let curveSource = points.length > 0 ? "ledger" : "none";
+              const fromActions = _buildDayTradeEquityPoints(closedDt, {
+                startCash: _DT_START_CASH,
+                since,
+                until,
+                openUnrealized: 0,
+                openPositions: 0,
+              });
+              if (fromActions.length > 0) {
+                const ledLast = points.length ? points[points.length - 1].date : "";
+                const actLast = fromActions[fromActions.length - 1].date;
+                if (!points.length || actLast >= ledLast) {
+                  points = fromActions;
+                  curveSource = "actions";
+                }
+              }
+              if (points.length && (openPositions > 0 || Math.abs(openUnrealized) > 0.005)) {
+                const tip = points[points.length - 1];
+                const marked = Math.round((Number(tip.equity) + openUnrealized) * 100) / 100;
+                points = points.slice(0, -1).concat([{
+                  ...tip,
+                  equity: marked,
+                  positionsValue: Math.round(openUnrealized * 100) / 100,
+                  openPositions,
+                  live_mark: true,
+                }]);
+                curveSource = curveSource === "none" ? "live_mark" : `${curveSource}+live_mark`;
+              } else if (!points.length && (openPositions > 0 || Math.abs(openUnrealized) > 0.005)) {
+                points = _buildDayTradeEquityPoints([], {
+                  startCash: _DT_START_CASH,
+                  openUnrealized,
+                  openPositions,
+                });
+                curveSource = "live_mark";
+              }
+
+              result.day_trade = {
+                points,
+                curve_source: curveSource,
+                summary: _summarizeDayTradeEquity(points, {
+                  startCash: _DT_START_CASH,
+                  closedTrades: closedDt,
+                  openUnrealized,
+                  openPositions,
+                }),
+              };
+            } catch (dtErr) {
+              console.error("[EQUITY CURVE] day_trade failed:", dtErr);
+              result.day_trade = {
+                points: [],
+                curve_source: "error",
+                summary: _summarizeDayTradeEquity([], { startCash: _DT_START_CASH }),
+                error: String(dtErr?.message || dtErr).slice(0, 200),
+              };
+            }
+          }
+
           for (const m of modes) {
+            if (m === "day_trade") continue;
             const rows = (await db.prepare(
               `SELECT snap_date, ts, cash, positions_value, total_equity, open_positions, day_realized_pnl, day_trades
                FROM portfolio_snapshots
