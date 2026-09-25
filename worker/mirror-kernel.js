@@ -180,7 +180,7 @@ export const DIVERGENCE = Object.freeze({
 const OPEN_REASONS = [
   [/daily_loss_budget/i, DIVERGENCE.DAILY_LOSS_BUDGET],
   [/vehicle_daily_cap|daily_cap_\d+_reached/i, DIVERGENCE.VEHICLE_DAILY_CAP],
-  [/max_per_order|per_order|notional_.*exceeds/i, DIVERGENCE.PER_ORDER_CAP],
+  [/max_per_order|per_order|notional_.*exceeds|exceeds_account_concentration|concentration_too_small/i, DIVERGENCE.PER_ORDER_CAP],
   [/max_loss|daily_loss_limit/i, DIVERGENCE.MAX_LOSS_CAP],
   [/insufficient|buying_power|\bbp_|cash_for_one/i, DIVERGENCE.INSUFFICIENT_BUYING_POWER],
   [/account_too_small/i, DIVERGENCE.ACCOUNT_TOO_SMALL],
@@ -188,19 +188,36 @@ const OPEN_REASONS = [
   [/cancel|expired|unfilled/i, DIVERGENCE.UNFILLED_AT_LIMIT],
 ];
 
+/** Equity + options "broker already flat" spellings — one known-why. */
+const EXTERNAL_REDUCTION_RE = new RegExp([
+  "(^|[^a-z_])no_held_position([^a-z_]|$)",
+  "no_broker_position",
+  "already_flat",
+  "nothing_to_sell",
+  "nothing_to_reduce",
+  "position_flat",
+  "position_zero",
+  "qty_zero",
+  "mirror_position_already_flat",
+  "broker_position_already_flat",
+  "broker_sleeve_already_flat",
+  "broker_never_held_this_trade",
+].join("|"), "i");
+
 /**
  * Map a raw refusal onto the closed set, or null when it is a defect.
  *
  * An entry may diverge for funds, a cap, the account's own settings, or a
  * limit that never filled. A reduce may diverge only because the holder
- * already sold (`no_held_position` — the SELL guard's clean-read verdict).
- * `positions_unavailable`, a collision, an unmapped broker reject: defects.
+ * already sold (options `no_held_position`, equity `no_broker_position` /
+ * `already_flat` / …). `positions_unavailable`, a collision, an unmapped
+ * broker reject: defects.
  */
 export function canonicalDivergence(rawReason, side) {
   const text = String(rawReason || "").trim();
   if (!text) return null;
   if (String(side || "").toLowerCase() === "sell") {
-    return /(^|[^a-z_])no_held_position([^a-z_]|$)/i.test(text) ? DIVERGENCE.EXTERNAL_REDUCTION : null;
+    return EXTERNAL_REDUCTION_RE.test(text) ? DIVERGENCE.EXTERNAL_REDUCTION : null;
   }
   for (const [re, reason] of OPEN_REASONS) if (re.test(text)) return reason;
   return null;

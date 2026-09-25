@@ -96,6 +96,20 @@ describe("canonicalDivergence — the closed set", () => {
   });
 
   it.each([
+    "no_broker_position",
+    "already_flat",
+    "nothing_to_sell",
+    "broker_sleeve_already_flat",
+    "broker_never_held_this_trade",
+  ])("names equity flat spelling %s as external_reduction", (raw) => {
+    expect(canonicalDivergence(raw, "sell")).toBe(DIVERGENCE.EXTERNAL_REDUCTION);
+  });
+
+  it("names a concentration ceiling as per_order_cap", () => {
+    expect(canonicalDivergence("exceeds_account_concentration_0.42", "buy")).toBe(DIVERGENCE.PER_ORDER_CAP);
+  });
+
+  it.each([
     ["Please do not place an order repeatedly", "buy"],
     ["account_equity_unknown", "buy"],
     ["positions_unavailable", "sell"],

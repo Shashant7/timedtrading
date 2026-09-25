@@ -367,9 +367,13 @@ export function classifyActionCoverage(action, {
   const rejectedHits = hits.filter((r) => String(r?.status || "") !== "ok" || rejectText(r));
   const terminalHit = rejectedHits.find((r) => isCoverageTerminalReject(rejectText(r), action.event));
   if (terminalHit) {
+    const raw = rejectText(terminalHit).slice(0, 160);
+    const side = isOpenEvent(action.event) ? "buy" : "sell";
+    const named = canonicalDivergence(raw, side);
     return {
       status: "rejected_terminal",
-      reason: rejectText(terminalHit).slice(0, 160),
+      reason: named || raw,
+      known_why: !!named,
       broker_qty: 0,
       order_id: null,
     };
@@ -438,7 +442,8 @@ export function classifyActionCoverage(action, {
     if (sleeve && sleeve.filled <= COVERAGE_FLAT_EPSILON) {
       return {
         status: "rejected_terminal",
-        reason: "broker_never_held_this_trade",
+        reason: canonicalDivergence("broker_never_held_this_trade", "sell") || "broker_never_held_this_trade",
+        known_why: true,
         broker_qty: 0,
         order_id: null,
       };
@@ -446,7 +451,8 @@ export function classifyActionCoverage(action, {
     if (sleeve && sleeve.remaining <= COVERAGE_FLAT_EPSILON) {
       return {
         status: "rejected_terminal",
-        reason: "broker_sleeve_already_flat",
+        reason: canonicalDivergence("broker_sleeve_already_flat", "sell") || "broker_sleeve_already_flat",
+        known_why: true,
         broker_qty: 0,
         order_id: null,
       };
@@ -455,7 +461,8 @@ export function classifyActionCoverage(action, {
     if (heldQty != null && heldQty <= COVERAGE_FLAT_EPSILON) {
       return {
         status: "rejected_terminal",
-        reason: "broker_position_already_flat",
+        reason: canonicalDivergence("broker_position_already_flat", "sell") || "broker_position_already_flat",
+        known_why: true,
         broker_qty: 0,
         order_id: null,
       };
@@ -471,8 +478,10 @@ export function classifyActionCoverage(action, {
 
   // Known-why vs defect: map the raw reason onto the kernel's closed set.
   // A named divergence is terminal (nothing to heal). Anything else on a
-  // reduce stays unmatched so heal-closes can re-fire — and is prefixed
+  // reduce stays unmatched so lane catch-ups can re-fire — and is prefixed
   // `defect:` so the page says so instead of looking like a silent skip.
+  // Applies to index_dt, Short Term, and index-trend (the three mirrored
+  // reduce lanes); investor/convexity keep their own vocabularies.
   const side = isOpenEvent(action.event) ? "buy" : "sell";
   const named = canonicalDivergence(unmatchedReason, side);
   if (named) {
@@ -484,7 +493,9 @@ export function classifyActionCoverage(action, {
       order_id: null,
     };
   }
-  const defectReason = (String(action.lane || "") === "index_dt" && isReduceEvent(action.event)
+  const DEFECT_REDUCE_LANES = new Set(["index_dt", "trader", "index_trend"]);
+  const defectReason = (DEFECT_REDUCE_LANES.has(String(action.lane || ""))
+    && isReduceEvent(action.event)
     && unmatchedReason && unmatchedReason !== "never_attempted")
     ? `defect:${String(unmatchedReason).slice(0, 140)}`
     : unmatchedReason;
