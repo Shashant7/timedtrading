@@ -24,7 +24,7 @@ const fmtMonth = yyyymm => {
 async function fetchEquityCurve() {
   const ts = Date.now();
   try {
-    const r = await fetch(`${API_BASE}/timed/portfolio/equity-curve?mode=both&_t=${ts}`, {
+    const r = await fetch(`${API_BASE}/timed/portfolio/equity-curve?mode=all&_t=${ts}`, {
       credentials: "include",
       cache: "no-store"
     });
@@ -543,7 +543,7 @@ function PerformanceSection({
     }, "Performance overview is loading…");
   }
   const trades = mode === "trader" ? traderTrades || [] : mode === "investor" ? investorTrades || [] : dayTradeTrades || [];
-  const startCash = mode === "day_trade" ? 10000 : 100000;
+  const startCash = mode === "day_trade" ? 25000 : 100000;
   const openPl = mode === "trader" ? traderOpenPl : mode === "investor" ? investorOpenPl : dayTradeOpenPl;
   const loading = mode === "trader" ? traderTrades == null : mode === "investor" ? investorTrades == null : dayTradeTrades == null;
   const summary = useMemo(() => {
@@ -657,7 +657,7 @@ const OPEN_PANE_COPY = {
   },
   day_trade: {
     title: "DAY TRADE · OPEN POSITIONS",
-    h2: "Currently held — Index Day Trade options"
+    h2: "Currently held — Day Trader options"
   },
   index_swing: {
     title: "INDEX SWINGS · OPEN POSITIONS",
@@ -893,7 +893,7 @@ const LANE_META = {
   },
   index_day_trade: {
     key: "index_day_trade",
-    label: "Day Trade",
+    label: "Day Trader",
     pill: "lane-day_trade"
   },
   index_swing: {
@@ -912,7 +912,8 @@ function laneMeta(lane) {
 function TradeHistory({
   trades,
   laneFilter,
-  onSelectTicker
+  onSelectTicker,
+  title
 }) {
   const rows = useMemo(() => {
     if (!Array.isArray(trades)) return [];
@@ -930,7 +931,7 @@ function TradeHistory({
     className: "tt-sec-title"
   }, "TRADE HISTORY"), h("div", {
     className: "tt-sec-h"
-  }, "Recent closed trades — all model lanes"), h("div", {
+  }, title || "Recent closed trades"), h("div", {
     className: "tbl-scroll"
   }, h("table", {
     className: "tbl"
@@ -1047,8 +1048,8 @@ function PortfolioApp() {
   const [investorHistory, setInvestorHistory] = useState(null);
   const [paperHistory, setPaperHistory] = useState(null);
   const [paperActions, setPaperActions] = useState(null);
-  const [monthlyMode, setMonthlyMode] = useState("trader");
-  const [historyLane, setHistoryLane] = useState("all");
+  const [activeBook, setActiveBook] = useState("trader");
+  const [timeframe, setTimeframe] = useState("ALL");
   const [error, setError] = useState(null);
   const [allData, setAllData] = useState(null);
   const [positionsFailed, setPositionsFailed] = useState(false);
@@ -1186,6 +1187,7 @@ function PortfolioApp() {
   const loading = !eq && !error;
   const traderPayload = eq?.trader || null;
   const investorPayload = eq?.investor || null;
+  const dayTradePayload = eq?.day_trade || null;
   const traderRows = useMemo(() => buildTraderRows(positions || [], priceMap, onSelectTicker), [positions, priceMap, onSelectTicker]);
   const investorRows = useMemo(() => buildInvestorRows(investorPositions || [], priceMap, onSelectTicker), [investorPositions, priceMap, onSelectTicker]);
   const dayTradeRows = useMemo(() => buildPaperRows(paperPositions || [], "index_day_trade", onSelectTicker), [paperPositions, onSelectTicker]);
@@ -1229,6 +1231,72 @@ function PortfolioApp() {
       alive = false;
     };
   }, [traderRows, investorRows, dayTradeRows, indexSwingRows]);
+  const BOOK_META = {
+    trader: {
+      key: "trader",
+      label: "Short Term",
+      sub: "Swing — 1 to 10 day holds · $100k paper",
+      color: "#34d399",
+      tabClass: "",
+      historyLane: "trader"
+    },
+    investor: {
+      key: "investor",
+      label: "Long Term",
+      sub: "Weeks to months · $100k paper",
+      color: "#a78bfa",
+      tabClass: "book-lt",
+      historyLane: "investor"
+    },
+    day_trade: {
+      key: "day_trade",
+      label: "Day Trader",
+      sub: "Index options · $25k sleeve",
+      color: "#22d3ee",
+      tabClass: "book-dt",
+      historyLane: "index_day_trade"
+    }
+  };
+  const book = BOOK_META[activeBook] || BOOK_META.trader;
+  function sliceEquityByTimeframe(points, tf) {
+    if (!Array.isArray(points) || !points.length) return [];
+    if (!tf || tf === "ALL") return points;
+    const last = points[points.length - 1]?.date;
+    if (!last) return points;
+    const end = new Date(`${last}T20:00:00Z`);
+    const start = new Date(end);
+    if (tf === "1W") start.setUTCDate(start.getUTCDate() - 7);else if (tf === "1M") start.setUTCMonth(start.getUTCMonth() - 1);else if (tf === "3M") start.setUTCMonth(start.getUTCMonth() - 3);else if (tf === "YTD") start.setUTCMonth(0, 1);else return points;
+    const key = start.toISOString().slice(0, 10);
+    const sliced = points.filter(p => String(p.date) >= key);
+    return sliced.length >= 2 ? sliced : points.slice(-Math.min(points.length, 2));
+  }
+  function timeframeReturn(points, startCash) {
+    if (!Array.isArray(points) || points.length < 1) return null;
+    const first = Number(points[0].equity);
+    const last = Number(points[points.length - 1].equity);
+    if (!Number.isFinite(first) || !Number.isFinite(last) || first === 0) return null;
+    const base = timeframe === "ALL" && Number.isFinite(startCash) && startCash > 0 ? startCash : first;
+    return (last - base) / base * 100;
+  }
+  const activePayload = activeBook === "investor" ? investorPayload : activeBook === "day_trade" ? dayTradePayload : traderPayload;
+  const activeHistory = activeBook === "investor" ? investorHistory : activeBook === "day_trade" ? dayTradeHistory : traderHistory;
+  const activeOpenPl = activeBook === "investor" ? investorOpenPl : activeBook === "day_trade" ? dayTradeOpenPl : traderOpenPl;
+  const slicedPoints = useMemo(() => sliceEquityByTimeframe(activePayload?.points || [], timeframe), [activePayload, timeframe]);
+  const slicedPayload = useMemo(() => {
+    if (!activePayload) return null;
+    const startCash = Number(activePayload?.summary?.startCash) || (activeBook === "day_trade" ? 25000 : 100000);
+    const ret = timeframeReturn(slicedPoints, startCash);
+    return {
+      ...activePayload,
+      points: slicedPoints,
+      summary: {
+        ...activePayload.summary,
+        totalReturnPct: Number.isFinite(ret) ? Math.round(ret * 100) / 100 : activePayload.summary?.totalReturnPct,
+        totalDays: slicedPoints.length,
+        endEquity: slicedPoints.length ? slicedPoints[slicedPoints.length - 1].equity : activePayload.summary?.endEquity
+      }
+    };
+  }, [activePayload, slicedPoints, activeBook, timeframe]);
   const openBooksReady = positions != null || investorPositions != null || paperPositions != null;
   return h(React.Fragment, null, loading && h("div", {
     className: "tt-loadbar",
@@ -1238,66 +1306,91 @@ function PortfolioApp() {
     className: "port-hero"
   }, h("div", null, h("div", {
     className: "label"
-  }, "PORTFOLIO"), h("h1", null, "How the model is performing"), h("div", {
+  }, "PORTFOLIO"), h("h1", null, "Three model books"), h("div", {
     className: "sub"
-  }, "Short Term, Long Term, Day Trade, and Index Swings — open risk, closed trades, and every action the model took. Equity curves for Short Term and Long Term still track the $100,000 paper books."))), h("section", {
+  }, "Short Term, Long Term, and Day Trader — each with its own equity curve, open risk, trade history, and P&L calendar."))), h("div", {
+    className: "book-tabs",
+    role: "tablist",
+    "aria-label": "Portfolio books"
+  }, ["trader", "investor", "day_trade"].map(key => {
+    const m = BOOK_META[key];
+    return h("button", {
+      key,
+      role: "tab",
+      "aria-selected": activeBook === key,
+      className: `book-tab ${m.tabClass}${activeBook === key ? " active" : ""}`,
+      onClick: () => setActiveBook(key)
+    }, m.label);
+  })), h("section", {
     className: "tt-row"
   }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: 10,
+      marginBottom: 10
+    }
+  }, h("div", null, h("div", {
     className: "tt-sec-title"
-  }, "EQUITY CURVES"), h("div", {
-    className: "tt-sec-h"
-  }, "Short Term vs Long Term"), loading ? h("div", {
-    className: "eq-grid"
-  }, [0, 1].map(i => h("div", {
-    key: i,
+  }, "ACCOUNT VALUE"), h("div", {
+    className: "tt-sec-h",
+    style: {
+      margin: 0
+    }
+  }, book.label, " equity")), h("div", {
+    className: "tf-chips",
+    role: "group",
+    "aria-label": "Timeframe"
+  }, ["1W", "1M", "3M", "YTD", "ALL"].map(tf => h("button", {
+    key: tf,
+    className: `tf-chip${timeframe === tf ? " active" : ""}`,
+    onClick: () => setTimeframe(tf)
+  }, tf)))), loading ? h("div", {
     className: "sk",
     style: {
       height: 360,
       borderRadius: 14
     }
-  }))) : h("div", {
-    className: "eq-grid"
-  }, h(EquityCurveCard, {
-    title: "Short Term",
-    sub: "Swing — 1 to 10 day holds",
-    color: "#34d399",
-    payload: traderPayload,
-    history: traderHistory,
-    openPnlOverride: traderOpenPl
-  }), h(EquityCurveCard, {
-    title: "Long Term",
-    sub: "Long-horizon — weeks to months",
-    color: "#a78bfa",
-    payload: investorPayload,
-    history: investorHistory,
-    openPnlOverride: investorOpenPl
-  }))), openBooksReady ? h("section", {
-    className: "op-grid"
-  }, h(OpenPositionsTable, {
+  }) : h(EquityCurveCard, {
+    title: book.label,
+    sub: book.sub,
+    color: book.color,
+    payload: slicedPayload,
+    history: activeHistory,
+    openPnlOverride: activeOpenPl
+  })), openBooksReady ? h("section", {
+    className: "tt-row"
+  }, activeBook === "trader" && h(React.Fragment, null, h(OpenPositionsTable, {
     rows: traderRows,
     mode: "trader",
     accent: "trader",
     verdictMap,
     loaded: positions != null,
     failed: positionsFailed
+  }), h("div", {
+    style: {
+      height: 14
+    }
   }), h(OpenPositionsTable, {
+    rows: indexSwingRows,
+    mode: "index_swing",
+    accent: "index_swing",
+    verdictMap,
+    loaded: paperPositions != null,
+    failed: paperPositionsFailed
+  })), activeBook === "investor" && h(OpenPositionsTable, {
     rows: investorRows,
     mode: "investor",
     accent: "investor",
     verdictMap,
     loaded: investorPositions != null,
     failed: investorPositionsFailed
-  }), h(OpenPositionsTable, {
+  }), activeBook === "day_trade" && h(OpenPositionsTable, {
     rows: dayTradeRows,
     mode: "day_trade",
     accent: "day_trade",
-    verdictMap,
-    loaded: paperPositions != null,
-    failed: paperPositionsFailed
-  }), h(OpenPositionsTable, {
-    rows: indexSwingRows,
-    mode: "index_swing",
-    accent: "index_swing",
     verdictMap,
     loaded: paperPositions != null,
     failed: paperPositionsFailed
@@ -1307,7 +1400,7 @@ function PortfolioApp() {
     className: "tt-sec-title"
   }, "OPEN POSITIONS"), h("div", {
     className: "tt-sec-h"
-  }, "Currently held by the model"), h("div", {
+  }, "Currently held"), h("div", {
     className: "sk",
     style: {
       height: 200,
@@ -1317,69 +1410,28 @@ function PortfolioApp() {
     className: "tt-row"
   }, h("div", {
     style: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      marginBottom: 10,
-      flexWrap: "wrap",
-      gap: 10
+      marginBottom: 10
     }
-  }, h("div", null, h("div", {
+  }, h("div", {
     className: "tt-sec-title"
-  }, "PERFORMANCE OVERVIEW"), h("div", {
+  }, "PERFORMANCE"), h("div", {
     className: "tt-sec-h",
     style: {
       margin: 0
     }
-  }, monthlyMode === "trader" ? "Short Term" : monthlyMode === "investor" ? "Long Term" : "Day Trade", " — calendar, monthly P&L, setup breakdown")), h("div", {
-    className: "mode-toggle"
-  }, h("button", {
-    className: monthlyMode === "trader" ? "active" : "",
-    onClick: () => setMonthlyMode("trader")
-  }, "Short Term"), h("button", {
-    className: monthlyMode === "investor" ? "active" : "",
-    onClick: () => setMonthlyMode("investor")
-  }, "Long Term"), h("button", {
-    className: monthlyMode === "day_trade" ? "active" : "",
-    onClick: () => setMonthlyMode("day_trade")
-  }, "Day Trade"))), h(PerformanceSection, {
+  }, book.label, " — calendar, monthly P&L, setup breakdown")), h(PerformanceSection, {
     traderTrades: traderHistory,
     investorTrades: investorHistory,
     dayTradeTrades: dayTradeHistory,
-    mode: monthlyMode,
+    mode: activeBook === "day_trade" ? "day_trade" : activeBook,
     traderOpenPl,
     investorOpenPl,
     dayTradeOpenPl
-  })), h("section", {
-    className: "tt-row",
-    style: {
-      marginBottom: 12
-    }
-  }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      flexWrap: "wrap",
-      gap: 10
-    }
-  }, h("div", null, h("div", {
-    className: "tt-sec-title"
-  }, "HISTORY & ACTIVITY"), h("div", {
-    className: "tt-sec-h",
-    style: {
-      margin: 0
-    }
-  }, "Filter by lane")), h("div", {
-    className: "mode-toggle"
-  }, [["all", "All"], ["trader", "Short Term"], ["investor", "Long Term"], ["index_day_trade", "Day Trade"], ["index_swing", "Index Swings"]].map(([key, label]) => h("button", {
-    key,
-    className: historyLane === key ? "active" : "",
-    onClick: () => setHistoryLane(key)
-  }, label))))), traderHistory || investorHistory || paperHistory ? h(TradeHistory, {
+  })), traderHistory || investorHistory || paperHistory ? h(TradeHistory, {
     trades: allHistory,
-    laneFilter: historyLane,
-    onSelectTicker
+    laneFilter: book.historyLane,
+    onSelectTicker,
+    title: `${book.label} — closed trades`
   }) : h("section", {
     className: "tt-row"
   }, h("div", {
@@ -1392,9 +1444,9 @@ function PortfolioApp() {
       height: 200,
       borderRadius: 12
     }
-  })), paperActions != null && h(ModelActivity, {
+  })), activeBook === "day_trade" && paperActions != null && h(ModelActivity, {
     actions: paperActions,
-    laneFilter: historyLane,
+    laneFilter: "index_day_trade",
     onSelectTicker
   })), RailOverlay && railTickerObj && h(RailOverlay, {
     ticker: railTickerObj,
@@ -1413,6 +1465,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1790351942927:835516140
+// cache-bust:1790370787244:921741648
 
-// cache-bust:1790351942927:835516140
+// cache-bust:1790370787244:921741648

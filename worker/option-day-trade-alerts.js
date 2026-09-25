@@ -355,6 +355,28 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     reason: decision.reason || null,
   }).catch(() => {});
 
+  // Durable Day Trader book — sync closed rounds into account_ledger so
+  // Portfolio equity + history survive the short KV action ring.
+  if ((decision.event === "STOP" || decision.event === "EXIT") && env?.DB) {
+    try {
+      const {
+        syncDayTradeLedgerFromClosedTrades,
+        filterDayTradeClosedTrades,
+      } = await import("./day-trade-ledger.js");
+      const {
+        normalizePaperLaneActions,
+        closedTradesFromPaperActions,
+      } = await import("./paper-lane-positions.js");
+      const raw = await readDayTradeActions(env, 0);
+      const closed = filterDayTradeClosedTrades(
+        closedTradesFromPaperActions(normalizePaperLaneActions({ dayTrade: raw, indexTrend: [] })),
+      ).filter((t) => String(t.signal_id || "") === String(persistSignalId || ""));
+      if (closed.length) {
+        await syncDayTradeLedgerFromClosedTrades(env, closed);
+      }
+    } catch (_) { /* ledger must never block Discord / broker */ }
+  }
+
   const flavor = payload.execution?.contract?.flavor || payload.flavor || "call";
   const strike = payload.execution?.contract?.strike ?? payload.strike;
   const vehicleLabel = strike
