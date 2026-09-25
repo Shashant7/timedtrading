@@ -21,6 +21,22 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+## Active — Conviction-aware management for Short Term (2026-09-25)
+
+Prime trades held to their structural stop and trailed wider
+(`worker/conviction-management.js`, all `deep_audit_conviction_*`, default
+OFF). Replay first: two live cases (P, INTC) cannot validate it.
+
+- [x] Policy module + inline (`classifyKanbanStage`) and pipeline
+      (`tt-core-exit`) wiring; grade carried onto live + replay positions
+- [x] Unit tests; keys in `REPLAY_DA_KEYS`
+- [x] Preprod: model_config synced to prod, candles to 2026-09-24
+- [x] Arms `cv-base-*` / `cv-conv-*` / `cv-hlc-*` Jul-Sep (24 tickers, 10m,
+      batch 24): base $6,089 realized, wider trail -$381, hold-to-plan -$1,408
+- [x] Decision: keep OFF; recorded in `skills/exit-rule-counterfactuals.md`
+- [ ] Candidate next arm (not started): upside exits for Prime — post-trim
+      entry floor and the 1.5% ratchet arm cut held P/INTC at +0.2-0.7%
+
 ## Active — Broker mirroring buttoned up for scale (2026-09-24)
 
 Design: `docs/entangled-mirror-design.md` (PR #1498). Operator decisions:

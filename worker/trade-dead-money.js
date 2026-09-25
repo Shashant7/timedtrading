@@ -62,6 +62,8 @@ export function enrichLiveOpenPositionContext(openPositionContext, openTrade) {
   ctx.setup_name = ctx.setup_name || ctx.setupName
     || openTrade.setup_name || openTrade.setupName || null;
   ctx.setupName = ctx.setup_name;
+  ctx.setup_grade = ctx.setup_grade || ctx.setupGrade
+    || openTrade.setup_grade || openTrade.setupGrade || null;
   ctx.slice_family = ctx.slice_family || ctx.entry_family
     || openTrade.slice_family || openTrade.entry_family || null;
   ctx.__tradeRef = openTrade;

@@ -110,6 +110,24 @@ checks run on */5 cron ticks against live prints). For those rules, replay
 can only prove no-harm; the positive case needs unit tests pinned to the
 live tape and a live observation window.
 
+### Auth, config drift, and dropped connections (2026-09-25)
+
+- Preprod's admin key is `TIMED_TRADING_API_KEY`, not `TIMED_API_KEY` (that one
+  is prod's and returns 401 on preprod): `TIMED_API_KEY=$TIMED_TRADING_API_KEY
+  scripts/monthly-slice.sh ...`.
+- Preprod `model_config` drifts from prod between sessions (on 2026-09-25: 15
+  differing keys incl. `deep_audit_hard_loss_cap` 500 vs 250, 23 prod-only
+  keys). Diff and sync before a baseline, or the baseline is not the live book.
+  Skip side-effect keys (`trade_review_*`, `*github*`, `options_marks_*`).
+- The worker logs `clientDisconnected` ~40s into a day when the VM's connection
+  drops (the cloud VM pauses while the agent idles); curl then sat 10–27 minutes
+  on the dead socket. The runner now passes `--keepalive-time 15`. Wait on a
+  running shell job (a `sleep 60` progress loop) rather than an idle sleep so
+  the VM stays up. Days retried this way did not duplicate trades.
+- Extending the replay window: copy `ticker_candles` prod → preprod per ticker
+  and tf with PK-range reads, one daily bar per date (prefer midnight UTC), plus
+  `daily_market_snapshots` / `market_events` for the window.
+
 ### Sanity-check your epoch years
 
 Two separate analyses here went wrong by using a 2025 epoch for a 2026

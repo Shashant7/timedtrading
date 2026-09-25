@@ -686,6 +686,12 @@ import {
   CHART_SYMBOL_BLOCKLIST,
 } from "./chart-candle-calendar.js";
 import { runPriceFeedCron, runFeedStreamKeepAlives } from "./feed/price-feed-cron.js";
+import {
+  holdsToStructure as _convHoldsToStructure,
+  trailConfigFor as _convTrailConfigFor,
+  staleRunnerHoursFor as _convStaleRunnerHours,
+  hardLossCapDollarFor as _convHardLossCapDollar,
+} from "./conviction-management.js";
 import { computeFeedWindow } from "./feed/feed-window.js";
 import {
   enrichLiveOpenPositionContext,
@@ -2982,10 +2988,10 @@ function _minsSinceNyOpen(now = new Date()) {
 async function d1LoadTradeExcursions(env, tradeId) {
   const db = env?.DB;
   const id = String(tradeId || "").trim();
-  if (!db || !id) return { mfe: null, mae: null, setup_name: null, entry_path: null };
+  if (!db || !id) return { mfe: null, mae: null, setup_name: null, entry_path: null, setup_grade: null };
   try {
     const row = await db.prepare(
-      `SELECT max_favorable_excursion, max_adverse_excursion, setup_name, entry_path
+      `SELECT max_favorable_excursion, max_adverse_excursion, setup_name, entry_path, setup_grade
          FROM trades WHERE trade_id = ?1`,
     ).bind(id).first();
     return {
@@ -2993,9 +2999,11 @@ async function d1LoadTradeExcursions(env, tradeId) {
       mae: row?.max_adverse_excursion != null ? Number(row.max_adverse_excursion) : null,
       setup_name: row?.setup_name != null ? String(row.setup_name) : null,
       entry_path: row?.entry_path != null ? String(row.entry_path) : null,
+      // Conviction-aware management keys on the entry grade.
+      setup_grade: row?.setup_grade != null ? String(row.setup_grade) : null,
     };
   } catch (_) {
-    return { mfe: null, mae: null, setup_name: null, entry_path: null };
+    return { mfe: null, mae: null, setup_name: null, entry_path: null, setup_grade: null };
   }
 }
 
@@ -10853,7 +10861,9 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         const _v13MaxPnlFloor = Number(
           tickerData?._env?._deepAuditConfig?.deep_audit_v13_max_pnl_floor_pct ?? -4.5
         );
-        if (Number.isFinite(pnlPct) && pnlPct <= _v13MaxPnlFloor) {
+        // A held-conviction trade answers to its structural stop, not to a
+        // flat percentage (worker/conviction-management.js).
+        if (Number.isFinite(pnlPct) && pnlPct <= _v13MaxPnlFloor && !_convHoldsToStructure(openPosition, tickerData?._env?._deepAuditConfig || {}, { direction, entryPrice })) {
           tickerData.__exit_reason = "v13_hard_pnl_floor";
           tickerData.__exit_family = "safety";
           tickerData.__exit_meta = { live_pnl_pct: pnlPct, floor: _v13MaxPnlFloor };
@@ -11022,7 +11032,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         }
       }
 
-      if (pnlPct <= _earlyMaxLossPct) {
+      if (pnlPct <= _earlyMaxLossPct && !_convHoldsToStructure(openPosition, tickerData?._env?._deepAuditConfig || {}, { direction, entryPrice })) {
         const _earlyMaxLossReason = (_earlyPdzToleranceActive && !_earlyPdzWindowOpen)
           ? "max_loss_pdz_window_expired"
           : (_momBufApplied ? "max_loss_momentum_buffered" : "max_loss");
@@ -11052,7 +11062,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
       // Disable via deep_audit_time_scaled_max_loss_enabled=false.
       {
         const _tsMaxLossEnabled = String(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_enabled ?? "true") === "true";
-        if (_tsMaxLossEnabled && !_earlyPdzToleranceActive) {
+        if (_tsMaxLossEnabled && !_earlyPdzToleranceActive && !_convHoldsToStructure(openPosition, tickerData?._env?._deepAuditConfig || {}, { direction, entryPrice })) {
           const _agMin = positionAgeMarketMin;
           let _tsFloor4h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_4h_pct) || -2.5;
           let _tsFloor12h = Number(tickerData?._env?._deepAuditConfig?.deep_audit_time_scaled_max_loss_12h_pct) || -2.0;
@@ -11175,7 +11185,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         const _ratchet = evaluateMfeRatchet({
           pnlPct,
           position: openPosition,
-          daCfg: tickerData?._env?._deepAuditConfig || {},
+          daCfg: _convTrailConfigFor(openPosition, tickerData?._env?._deepAuditConfig || {}),
         });
         tickerData.__mfe_ratchet_diag = {
           armed: _ratchet.armed,
@@ -12363,10 +12373,10 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
               // Skip — daily EMA12 holding; let peak_lock own exit timing.
             } else {
             const _r6Ratio = _r6MfePct >= 10.0
-              ? (Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_trail_ratio_high) || 0.75)
+              ? (Number(_convTrailConfigFor(openPosition, tickerData?._env?._deepAuditConfig || {}).deep_audit_mfe_trail_ratio_high) || 0.75)
               : _r6MfePct >= 6.0
-                ? (Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_trail_ratio_mid) || 0.60)
-                : (Number(tickerData?._env?._deepAuditConfig?.deep_audit_mfe_trail_ratio_low) || 0.40);
+                ? (Number(_convTrailConfigFor(openPosition, tickerData?._env?._deepAuditConfig || {}).deep_audit_mfe_trail_ratio_mid) || 0.60)
+                : (Number(_convTrailConfigFor(openPosition, tickerData?._env?._deepAuditConfig || {}).deep_audit_mfe_trail_ratio_low) || 0.40);
             const _r6StopPct = _r6Ratio * _r6MfePct;
             if (pnlPct <= _r6StopPct) {
               tickerData.__exit_reason = "mfe_proportional_trail";
@@ -13338,7 +13348,7 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const _pdzToleranceActive = _inFavorableZone && _regimeConfirms;
     const _pdzWindowOpen = positionAgeMarketMin < _pdzWindowMin;
     const maxLossPct = (_pdzToleranceActive && _pdzWindowOpen) ? _pdzMaxLossPct : _normalMaxLossPct;
-    if (pnlPct <= maxLossPct) {
+    if (pnlPct <= maxLossPct && !_convHoldsToStructure(openPosition, tickerData?._env?._deepAuditConfig || {}, { direction, entryPrice })) {
       const _lateMaxLossReason = (_pdzToleranceActive && !_pdzWindowOpen)
         ? "max_loss_pdz_window_expired"
         : "max_loss";
@@ -19914,6 +19924,7 @@ async function processTradeSimulation(
           entry_path: openTrade.entry_path || openTrade.entryPath || null,
           setup_name: openTrade.setup_name || openTrade.setupName || null,
           setupName: openTrade.setup_name || openTrade.setupName || null,
+          setup_grade: openTrade.setup_grade || openTrade.setupGrade || null,
           slice_family: openTrade.slice_family || openTrade.entry_family || null,
           __tradeRef: openTrade,
         };
@@ -23882,10 +23893,16 @@ async function processTradeSimulation(
           const _hlcActiveShares = _hlcShares * _hlcRemainingPct;
           const _hlcPnl = (pxNow - _hlcEntry) * _hlcSign * _hlcActiveShares;
           const _hlcPnlPct = _hlcEntry > 0 ? ((pxNow - _hlcEntry) * _hlcSign / _hlcEntry) * 100 : 0;
-          const _hlcTriggered = (_hlcCapDollar > 0 && _hlcPnl <= -_hlcCapDollar) || (_hlcCapPct > 0 && _hlcPnlPct <= -_hlcCapPct);
+          // The percent leg stands down for a held-conviction trade (its
+          // structural stop is the risk); the dollar leg never does.
+          const _hlcPctHeld = _convHoldsToStructure(openTrade, tickerData?._env?._deepAuditConfig || {}, { direction: _hlcDir, entryPrice: _hlcEntry });
+          const _hlcCapDollarEff = _convHardLossCapDollar(openTrade, tickerData?._env?._deepAuditConfig || {}, _hlcCapDollar,
+            { direction: _hlcDir, entryPrice: _hlcEntry, activeShares: _hlcActiveShares });
+          const _hlcTriggered = (_hlcCapDollarEff > 0 && _hlcPnl <= -_hlcCapDollarEff)
+            || (_hlcCapPct > 0 && _hlcPnlPct <= -_hlcCapPct && !_hlcPctHeld);
           if (_hlcTriggered) {
             const _hlcReason = "HARD_LOSS_CAP";
-            console.log(`[HARD_LOSS_CAP] ${sym} P&L $${_hlcPnl.toFixed(0)} / ${_hlcPnlPct.toFixed(1)}% breaches cap ($${_hlcCapDollar} / ${_hlcCapPct}%) → closing`);
+            console.log(`[HARD_LOSS_CAP] ${sym} P&L $${_hlcPnl.toFixed(0)} / ${_hlcPnlPct.toFixed(1)}% breaches cap ($${_hlcCapDollarEff.toFixed(0)} / ${_hlcCapPct}%) → closing`);
             tickerData.__exit_reason = _hlcReason;
             await closeTradeAtPrice(openTrade, pxNow, _hlcReason);
             const _hlcExec = { ...execState, lastExitMs: now };
@@ -24145,7 +24162,11 @@ async function processTradeSimulation(
           if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, execState);
           else if (!isReplay) await kvPutJSON(KV, execKey, execState);
         }
-        const _rsfcBaseH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_stale_force_close_hours) || 120;
+        const _rsfcBaseH = _convStaleRunnerHours(
+          openTrade,
+          tickerData?._env?._deepAuditConfig || {},
+          Number(tickerData?._env?._deepAuditConfig?.deep_audit_runner_stale_force_close_hours) || 120,
+        );
         if (_rsfcBaseH > 0) {
           const _rsfcAnchorMs = runnerStaleAnchorMs(execState, openTrade);
           const _rsfcHoldH = _rsfcAnchorMs > 0 ? computeMarketHoursMinutes(_rsfcAnchorMs, now) / 60 : 0;
@@ -45885,6 +45906,7 @@ async function getOpenPositionAsTrade(env, ticker, direction) {
     maxAdverseExcursion: Number.isFinite(_exc.mae) ? _exc.mae : undefined,
     max_adverse_excursion: Number.isFinite(_exc.mae) ? _exc.mae : undefined,
     setup_name: _exc.setup_name || undefined,
+    setup_grade: _exc.setup_grade || undefined,
     setupName: _exc.setup_name || undefined,
     entry_path: _exc.entry_path || undefined,
     entryPath: _exc.entry_path || undefined,

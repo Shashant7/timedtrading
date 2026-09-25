@@ -12,7 +12,7 @@
 // stop wins; a trade that hits none within the window is marked to market.
 // Compared with what the trade actually booked (every exit rule included).
 //
-//   node scripts/replay-max-loss-r-floor.mjs [--k 0.5] [--days 10]
+//   node scripts/replay-max-loss-r-floor.mjs [--k 0.5] [--days 10] [--grade Prime]
 //
 // Reads production D1 through wrangler (CLOUDFLARE_API_TOKEN).
 
@@ -22,6 +22,8 @@ const args = process.argv.slice(2);
 const argv = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
 const DAYS = Number(argv("--days", 10));
 const KS = String(argv("--k", "0.4,0.5,0.6")).split(",").map(Number);
+// --grade Prime: only trades entered at that setup grade (K=1 = hold to the plan stop).
+const GRADE = argv("--grade", null);
 
 function d1(sql) {
   const raw = execFileSync("../node_modules/.bin/wrangler", [
@@ -44,6 +46,7 @@ const trades = d1(`
     FROM trades t JOIN positions p ON p.position_id = t.trade_id
    WHERE t.exit_reason LIKE 'max_loss%' AND t.exit_ts IS NOT NULL
      AND p.stop_loss > 0 AND p.take_profit > 0
+     ${GRADE ? `AND t.setup_grade = '${GRADE.replace(/'/g, "''")}'` : ""}
    ORDER BY t.exit_ts`);
 
 const barsByTrade = new Map();

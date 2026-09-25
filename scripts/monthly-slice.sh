@@ -537,7 +537,10 @@ replay_day() {
     # TCP keepalive bytes kept the connection "alive". Wrap with coreutils
     # `timeout` which hard-kills the whole process once $WATCHDOG_SECONDS
     # elapses regardless of what curl thinks.
-    resp=$(timeout --kill-after=10s "${WATCHDOG_SECONDS}s" curl -sS -m "$WATCHDOG_SECONDS" --connect-timeout 30 -X POST "$url" -H "Content-Type: application/json" -H "X-API-Key: $API_KEY" -d '{}' -w "\n__HTTP_STATUS__:%{http_code}" 2>&1) && rc=$? || rc=$?
+    # --keepalive-time 15: a connection the network silently drops mid-day
+    # (the worker logs clientDisconnected after ~40s and stops) is otherwise
+    # only noticed after the default 60s x 9 keepalive probes, 10-25 min.
+    resp=$(timeout --kill-after=10s "${WATCHDOG_SECONDS}s" curl -sS -m "$WATCHDOG_SECONDS" --connect-timeout 30 --keepalive-time 15 -X POST "$url" -H "Content-Type: application/json" -H "X-API-Key: $API_KEY" -d '{}' -w "\n__HTTP_STATUS__:%{http_code}" 2>&1) && rc=$? || rc=$?
     t1=$(date -u +%s)
     local elapsed=$((t1 - t0))
 

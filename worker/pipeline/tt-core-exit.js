@@ -3,6 +3,7 @@
 // Combined management for the primary engine.
 
 import { evaluateMfeRatchet, MFE_RATCHET_EXIT_REASON } from "./mfe-ratchet.js";
+import { holdsToStructure, trailConfigFor } from "../conviction-management.js";
 
 export function evaluateExit(ctx, position) {
   const d = ctx.raw;
@@ -92,7 +93,10 @@ export function evaluateExit(ctx, position) {
   const pdzToleranceActive = inFavorable && regimeConfirms;
   const pdzWindowOpen = positionAgeMin < pdzWindowMin;
   const maxLossPct = (pdzToleranceActive && pdzWindowOpen) ? pdzMaxLossPct : normalMaxLossPct;
-  if (pnlPct <= maxLossPct) {
+  // Must agree with classifyKanbanStage: a held-conviction trade answers to
+  // its structural stop (checked above), not to the flat floor.
+  const convictionHold = holdsToStructure(position, ctx.config.deepAudit || {}, { direction, entryPrice });
+  if (pnlPct <= maxLossPct && !convictionHold) {
     const reason = (pdzToleranceActive && !pdzWindowOpen)
       ? "max_loss_pdz_window_expired"
       : "max_loss";
@@ -108,7 +112,7 @@ export function evaluateExit(ctx, position) {
     const ratchet = evaluateMfeRatchet({
       pnlPct,
       position,
-      daCfg: ctx.config.deepAudit || {},
+      daCfg: trailConfigFor(position, ctx.config.deepAudit || {}),
     });
     if (ratchet.fire) {
       return result("exit", MFE_RATCHET_EXIT_REASON, "profit_management");
@@ -129,11 +133,12 @@ export function evaluateExit(ctx, position) {
       const r6MinCfg = Number(ctx.config.deepAudit?.deep_audit_mfe_trail_min_pct);
       const r6Min = Number.isFinite(r6MinCfg) && r6MinCfg > 0 ? r6MinCfg : 3.0;
       if (mfePct >= r6Min) {
+        const trailCfg = trailConfigFor(position, ctx.config.deepAudit || {});
         const ratio = mfePct >= 10.0
-          ? (Number(ctx.config.deepAudit?.deep_audit_mfe_trail_ratio_high) || 0.75)
+          ? (Number(trailCfg.deep_audit_mfe_trail_ratio_high) || 0.75)
           : mfePct >= 6.0
-            ? (Number(ctx.config.deepAudit?.deep_audit_mfe_trail_ratio_mid) || 0.60)
-            : (Number(ctx.config.deepAudit?.deep_audit_mfe_trail_ratio_low) || 0.40);
+            ? (Number(trailCfg.deep_audit_mfe_trail_ratio_mid) || 0.60)
+            : (Number(trailCfg.deep_audit_mfe_trail_ratio_low) || 0.40);
         const stopPct = ratio * mfePct;
         if (pnlPct <= stopPct) {
           return result("exit", "mfe_proportional_trail", "safety");

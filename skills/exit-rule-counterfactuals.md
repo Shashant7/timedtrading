@@ -15,6 +15,8 @@ ticker is one wrangler call.
 | Should a stopped trade re-enter when price reclaims the entry? | `node scripts/replay-max-loss-reclaim-reentry.mjs --window 1,2,3` |
 | Would a profit lock (floor = entry + LOCK × peak once up ARM%) stop green-to-red losses? | `node scripts/replay-st-profit-lock.mjs --arm 1.5,2,3 --lock 0,0.25,0.5` |
 | What would the signals have made as options? (MODEL — no single-stock marks are stored) | `node scripts/model-st-signals-as-options.mjs` |
+| Would Prime trades do better held to their plan stop? (live trades) | `node scripts/replay-max-loss-r-floor.mjs --k 1 --grade Prime` |
+| Same question through the full engine (cascade included) | preprod replay with `deep_audit_conviction_*` (`worker/conviction-management.js`), see below |
 
 ## Traps
 
@@ -47,3 +49,36 @@ Prompted by P: a Prime Cloud Pivot stopped at −2.7% (`max_loss_time_scaled`, a
 - As modelled 30-DTE ATM options the same signals lose 3–14% per trade: theta and
   spread outweigh a +0.15% average move. Options multiply an edge; they do not
   create one.
+
+## Conviction-aware management (2026-09-25) — negative, stays off
+
+Question: should Prime trades get more room (hold to the structural stop, trail
+wider)? Live counterfactual (`--k 1 --grade Prime`, 28 floor-cut Prime trades):
++5.4 pts total, but 18 of 28 ride to the full stop and 5 reach target — the gain
+is a handful of trades. The full-engine replay decides it.
+
+Preprod arms, Jul 1 – Sep 24 2026, 24 tickers incl. P / INTC / LITE, 10m, batch
+24, model_config synced to prod (grade sizing already on). Realized dollars:
+
+| Arm | Trades | Realized | vs base |
+|---|---|---|---|
+| base (live rules) | 92 | $6,089 | — |
+| floors off for Prime + wider trail + 2x stale clock | 92 | $5,709 | −$381 |
+| floors off for Prime + dollar cap raised to planned risk, live trail | 91 | $4,681 | −$1,408 |
+
+- **The percentage floors never bind on Prime.** `HARD_LOSS_CAP`'s $250 leg cuts
+  a $23k Prime position at −1.1% first, so turning the floors off alone did
+  nothing; only raising the dollar cap to the trade's planned risk
+  (`deep_audit_conviction_hlc_to_plan`) holds a trade to structure.
+- **Wider trail: every changed trade gave back more from the same peak** (7
+  trades, none ran further). The peak was the peak.
+- **Holding to plan risk nets ~−$50 directly** (P 9/21 −$315 → +$122, INTC 8/12
+  −$260 → +$53, LITE 7/14 −$259 → −$1,049) but costs the rest of the book: after
+  LITE's −$1,049 no entries fired for the rest of that session, and the Jul 15
+  cluster of winners was missed. Prime realized +$641, everything else −$2,049.
+- **The recovered holds were cut small anyway** — P and INTC came back and then
+  exited at +0.2–0.7% on the 1.5% ratchet arm / post-trim entry floor. If more
+  room is ever worth testing again, it is on the upside (post-trim floor and
+  ratchet activation for Prime), not the loss side.
+- Run ids `cv-base-2026{07,08,09}`, `cv-conv-*`, `cv-hlc-*` in preprod
+  `backtest_run_trades`.

@@ -732,6 +732,17 @@ export const REPLAY_DA_KEYS = [
   //     "chop_size_haircut_factor":     0.5
   //   }
   "gates",
+  // 2026-09-25 — conviction-aware management (worker/conviction-management.js).
+  "deep_audit_conviction_mgmt_enabled",
+  "deep_audit_conviction_mgmt_grades",
+  "deep_audit_conviction_mfe_lock_frac",
+  "deep_audit_conviction_mfe_hi_lock_frac",
+  "deep_audit_conviction_mfe_runner_lock_frac",
+  "deep_audit_conviction_r6_ratio_low",
+  "deep_audit_conviction_r6_ratio_mid",
+  "deep_audit_conviction_r6_ratio_high",
+  "deep_audit_conviction_stale_hours_mult",
+  "deep_audit_conviction_hlc_to_plan",
 ];
 
 const REPLAY_CFG_KEYS = [
