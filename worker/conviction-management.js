@@ -17,7 +17,8 @@
 //   - the percentage floors (max_loss, max_loss_time_scaled, the v13 hard
 //     pnl floor, HARD_LOSS_CAP's percent leg) stand down, provided the trade
 //     has a structural stop on the protective side of entry — that stop, the
-//     dollar caps and every thesis exit stay armed;
+//     dollar cap and every thesis exit stay armed (the dollar cap can be
+//     raised to the trade's planned risk with its own knob);
 //   - the MFE ratchet gives back more before it locks;
 //   - the stale-runner force close waits longer.
 //
@@ -39,7 +40,14 @@ export const CONVICTION_DEFAULTS = Object.freeze({
   r6RatioHigh: 0.60,
   // Multiplier on the stale-runner force-close clock.
   staleHoursMult: 2,
+  // HARD_LOSS_CAP's dollar leg ($250) sits far inside a Prime trade's stop:
+  // Prime sizes to 2% risk, so a $23k LITE/INTC position hits $250 at -1.1%
+  // on an ~8% stop. When on, a held trade's dollar leg rises to what its own
+  // sizing planned to lose at the stop (x 1.1 so it never front-runs it).
+  hlcToPlan: false,
 });
+
+const HLC_PLAN_BUFFER = 1.1;
 
 function cfgVal(daCfg, key) {
   const v = daCfg?.[key];
@@ -68,6 +76,7 @@ export function loadConvictionMgmtConfig(daCfg = {}) {
     r6RatioMid: numOr(cfgVal(daCfg, "deep_audit_conviction_r6_ratio_mid"), d.r6RatioMid),
     r6RatioHigh: numOr(cfgVal(daCfg, "deep_audit_conviction_r6_ratio_high"), d.r6RatioHigh),
     staleHoursMult: Math.max(1, numOr(cfgVal(daCfg, "deep_audit_conviction_stale_hours_mult"), d.staleHoursMult)),
+    hlcToPlan: String(cfgVal(daCfg, "deep_audit_conviction_hlc_to_plan") ?? d.hlcToPlan).toLowerCase() === "true",
   };
 }
 
@@ -135,6 +144,21 @@ export function staleRunnerHoursFor(pos, daCfg, baseHours) {
   return isGradeHeld(pos, cfg) ? base * cfg.staleHoursMult : base;
 }
 
+/**
+ * HARD_LOSS_CAP dollar leg for this trade: `baseCap` unless the plan-risk
+ * knob is on and the trade is held to structure, in which case the cap is
+ * the planned loss to the stop on the shares still open.
+ */
+export function hardLossCapDollarFor(pos, daCfg, baseCap, { direction = null, entryPrice = null, activeShares = null } = {}) {
+  const cfg = loadConvictionMgmtConfig(daCfg);
+  if (!cfg.hlcToPlan || !holdsToStructure(pos, daCfg, { direction, entryPrice })) return baseCap;
+  const sl = Number(pos?.sl ?? pos?.stop_loss ?? pos?.__tradeRef?.sl);
+  const entry = Number(entryPrice ?? pos?.entryPrice ?? pos?.avgEntry);
+  const shares = Number(activeShares ?? pos?.shares);
+  const planned = Math.abs(entry - sl) * shares * HLC_PLAN_BUFFER;
+  return Number.isFinite(planned) && planned > baseCap ? planned : baseCap;
+}
+
 /** Keys for the replay allowlist (`REPLAY_DA_KEYS`). */
 export const CONVICTION_DA_KEYS = [
   "deep_audit_conviction_mgmt_enabled",
@@ -146,4 +170,5 @@ export const CONVICTION_DA_KEYS = [
   "deep_audit_conviction_r6_ratio_mid",
   "deep_audit_conviction_r6_ratio_high",
   "deep_audit_conviction_stale_hours_mult",
+  "deep_audit_conviction_hlc_to_plan",
 ];

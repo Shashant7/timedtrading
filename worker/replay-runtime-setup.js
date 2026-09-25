@@ -742,6 +742,7 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_conviction_r6_ratio_mid",
   "deep_audit_conviction_r6_ratio_high",
   "deep_audit_conviction_stale_hours_mult",
+  "deep_audit_conviction_hlc_to_plan",
 ];
 
 const REPLAY_CFG_KEYS = [

@@ -690,6 +690,7 @@ import {
   holdsToStructure as _convHoldsToStructure,
   trailConfigFor as _convTrailConfigFor,
   staleRunnerHoursFor as _convStaleRunnerHours,
+  hardLossCapDollarFor as _convHardLossCapDollar,
 } from "./conviction-management.js";
 import { computeFeedWindow } from "./feed/feed-window.js";
 import {
@@ -23895,11 +23896,13 @@ async function processTradeSimulation(
           // The percent leg stands down for a held-conviction trade (its
           // structural stop is the risk); the dollar leg never does.
           const _hlcPctHeld = _convHoldsToStructure(openTrade, tickerData?._env?._deepAuditConfig || {}, { direction: _hlcDir, entryPrice: _hlcEntry });
-          const _hlcTriggered = (_hlcCapDollar > 0 && _hlcPnl <= -_hlcCapDollar)
+          const _hlcCapDollarEff = _convHardLossCapDollar(openTrade, tickerData?._env?._deepAuditConfig || {}, _hlcCapDollar,
+            { direction: _hlcDir, entryPrice: _hlcEntry, activeShares: _hlcActiveShares });
+          const _hlcTriggered = (_hlcCapDollarEff > 0 && _hlcPnl <= -_hlcCapDollarEff)
             || (_hlcCapPct > 0 && _hlcPnlPct <= -_hlcCapPct && !_hlcPctHeld);
           if (_hlcTriggered) {
             const _hlcReason = "HARD_LOSS_CAP";
-            console.log(`[HARD_LOSS_CAP] ${sym} P&L $${_hlcPnl.toFixed(0)} / ${_hlcPnlPct.toFixed(1)}% breaches cap ($${_hlcCapDollar} / ${_hlcCapPct}%) → closing`);
+            console.log(`[HARD_LOSS_CAP] ${sym} P&L $${_hlcPnl.toFixed(0)} / ${_hlcPnlPct.toFixed(1)}% breaches cap ($${_hlcCapDollarEff.toFixed(0)} / ${_hlcCapPct}%) → closing`);
             tickerData.__exit_reason = _hlcReason;
             await closeTradeAtPrice(openTrade, pxNow, _hlcReason);
             const _hlcExec = { ...execState, lastExitMs: now };

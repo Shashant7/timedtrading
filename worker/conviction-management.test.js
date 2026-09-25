@@ -7,6 +7,7 @@ import {
   holdsToStructure,
   trailConfigFor,
   staleRunnerHoursFor,
+  hardLossCapDollarFor,
   CONVICTION_DA_KEYS,
 } from "./conviction-management.js";
 import { REPLAY_DA_KEYS } from "./replay-runtime-setup.js";
@@ -102,6 +103,28 @@ describe("staleRunnerHoursFor", () => {
     expect(staleRunnerHoursFor(P, ON, 120)).toBe(240);
     expect(staleRunnerHoursFor({ ...P, setup_grade: "Confirmed" }, ON, 120)).toBe(120);
     expect(staleRunnerHoursFor(P, {}, 120)).toBe(120);
+  });
+});
+
+describe("hardLossCapDollarFor", () => {
+  // LITE-like: $23k Prime position, stop 8% away. $250 is -1.1%.
+  const pos = { direction: "LONG", entryPrice: 100, sl: 92, shares: 230, setup_grade: "Prime" };
+  const HLC = { ...ON, deep_audit_conviction_hlc_to_plan: "true" };
+
+  it("keeps the base cap unless the plan-risk knob is on", () => {
+    expect(hardLossCapDollarFor(pos, {}, 250)).toBe(250);
+    expect(hardLossCapDollarFor(pos, ON, 250)).toBe(250);
+  });
+
+  it("raises a held trade's cap to its planned loss at the stop", () => {
+    expect(hardLossCapDollarFor(pos, HLC, 250)).toBeCloseTo(8 * 230 * 1.1, 6);
+    expect(hardLossCapDollarFor(pos, HLC, 250, { activeShares: 115 })).toBeCloseTo(8 * 115 * 1.1, 6);
+  });
+
+  it("never lowers the cap and never applies to non-held trades", () => {
+    expect(hardLossCapDollarFor({ ...pos, shares: 10 }, HLC, 250)).toBe(250);
+    expect(hardLossCapDollarFor({ ...pos, setup_grade: "Confirmed" }, HLC, 250)).toBe(250);
+    expect(hardLossCapDollarFor({ ...pos, sl: null }, HLC, 250)).toBe(250);
   });
 });
 
