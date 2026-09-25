@@ -164,6 +164,36 @@ export function timingFromM5Candles(candles) {
 }
 
 /**
+ * Does a lean-driven ticket's reason still hold?
+ *
+ * Only for books opened on the day lean (entry lean SHORT for a put, LONG for
+ * a call). `red` is the underlying vs the entry spot — option marks are too
+ * sparse to key off. `lean_off`: the lean has left the entry side.
+ * `reclaimed`: the ticket was opened through an opening-range level and price
+ * is back inside it. 2026-09-25: SPY 763P / QQQ 737P were bought on 0.07 /
+ * 0.06 ATR OR breaks; the lean went NEUTRAL and the OR low was reclaimed
+ * within 20 minutes, and the books rode to the -50% premium stop.
+ * Returns null when the rule does not apply.
+ */
+export function evaluateDayTradeThesis({ isPut, spot, lean, entryThesis } = {}) {
+  const et = entryThesis || null;
+  const side = isPut ? "SHORT" : "LONG";
+  const px = num(spot);
+  const entrySpot = num(et?.spot);
+  if (!et || String(et.lean || "").toUpperCase() !== side || px == null || entrySpot == null) return null;
+  const orLo = num(et.or_low), orHi = num(et.or_high);
+  const broken = isPut
+    ? (orLo != null && entrySpot < orLo ? orLo : null)
+    : (orHi != null && entrySpot > orHi ? orHi : null);
+  return {
+    red: isPut ? px > entrySpot : px < entrySpot,
+    lean_off: String(lean || "").toUpperCase() !== side,
+    reclaimed: broken != null && (isPut ? px > broken : px < broken),
+    broken_level: broken,
+  };
+}
+
+/**
  * Fair-market premium from the expected close (game-plan target) plus
  * a shrinking time cushion. A 763P with an expected pin at 762.50 is
  * worth ~$0.50 at the close — that pin is the buy ceiling. Live
@@ -463,6 +493,7 @@ export function buildExecutionClock({
   marks = [],
   todStudy = null,
   openBook = null,
+  thesisExit = true,
 } = {}) {
   const sym = String(ticker || "").toUpperCase();
   const flav = String(flavor || "").toLowerCase() === "put" ? "put" : "call";
@@ -762,6 +793,20 @@ export function buildExecutionClock({
 
   const displayAction = action === "SELL" ? "FLAT" : action;
 
+  // Why this ticket exists, stamped on the book at BUY (entry_thesis), and
+  // whether that reason still holds for an open book. classifyPaperEvent
+  // decides how long "no longer holds" must persist before it exits.
+  const thesis = {
+    lean: gp.lean || null,
+    lean_conviction: gp.lean_conviction || null,
+    spot: px,
+    or_low: num(gp.or_low),
+    or_high: num(gp.or_high),
+  };
+  const thesisCheck = thesisExit && hasLiveBook && !carryOvernight && px != null
+    ? evaluateDayTradeThesis({ isPut, spot: px, lean: gp.lean, entryThesis: openBook?.entry_thesis })
+    : null;
+
   return {
     action,
     display_action: displayAction,
@@ -798,6 +843,8 @@ export function buildExecutionClock({
     },
     zone,
     rr,
+    thesis,
+    thesis_check: thesisCheck,
     hold_overnight: holdOvernight,
     carry_overnight: carryOvernight,
     contract: {

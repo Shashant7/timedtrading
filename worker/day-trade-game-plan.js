@@ -26,6 +26,14 @@ export const SATY_FIBS = [0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.236, 1.618];
 
 const OR_WINDOW_MINUTES = 30;
 
+/**
+ * An opening-range break must clear the level by this much of a day ATR to
+ * count. The OR term is worth 1.5 of the lean — enough to flip it alone — and
+ * 2026-09-25's SPY/QQQ puts came from breaks of 0.07 / 0.06 ATR that were
+ * reclaimed within 20 minutes.
+ */
+export const OR_BREAK_BUFFER_ATR = 0.1;
+
 function rnd(v) {
   return Math.round(Number(v) * 100) / 100;
 }
@@ -317,6 +325,7 @@ export function computeDayLean({
   openingRange = null,
   trendBias = 0,
   researchBias = 0,
+  orBreakBufferAtr = OR_BREAK_BUFFER_ATR,
 } = {}) {
   const px = Number(curPrice);
   const anc = Number(anchor);
@@ -344,8 +353,9 @@ export function computeDayLean({
   if (openingRange && openingRange.resolved) {
     const orHi = Number(openingRange.high);
     const orLo = Number(openingRange.low);
-    if (Number.isFinite(orLo) && px < orLo) { score -= 1.5; reasons.push("broke the opening range low"); }
-    else if (Number.isFinite(orHi) && px > orHi) { score += 1.5; reasons.push("broke the opening range high"); }
+    const buf = atr > 0 ? Math.max(0, Number(orBreakBufferAtr) || 0) * atr : 0;
+    if (Number.isFinite(orLo) && px < orLo - buf) { score -= 1.5; reasons.push("broke the opening range low"); }
+    else if (Number.isFinite(orHi) && px > orHi + buf) { score += 1.5; reasons.push("broke the opening range high"); }
   }
 
   const tb = Math.max(-1, Math.min(1, Number(trendBias) || 0));

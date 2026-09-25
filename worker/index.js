@@ -96216,6 +96216,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     marks: _occMarks,
                     todStudy: _dtTodStudy,
                     openBook: _dtOpenBook,
+                    thesisExit: String(env?.DT_THESIS_EXIT ?? "true").toLowerCase() !== "false",
                   });
                   if (_dtExecution && _dtExecution.premium_band && (_clockBid > 0 || _clockAsk > 0)) {
                     _dtExecution = {

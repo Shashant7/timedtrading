@@ -2718,7 +2718,12 @@ export function summarizeDayTradeGamePlan(gamePlan) {
   const orResolved = gamePlan.or_resolved ?? gamePlan.orResolved;
   const ovMid = Number(gamePlan.overnight_mid ?? gamePlan.overnightMid);
   const prevClose = Number(gamePlan.prev_close ?? gamePlan.prevClose);
+  const orng = gamePlan.opening_range || gamePlan.openingRange || null;
+  const orHigh = orng?.resolved ? Number(orng.high) : NaN;
+  const orLow = orng?.resolved ? Number(orng.low) : NaN;
   return {
+    or_high: Number.isFinite(orHigh) ? orHigh : null,
+    or_low: Number.isFinite(orLow) ? orLow : null,
     lean,
     lean_conviction: gamePlan.lean_conviction || gamePlan.leanConviction || null,
     bull_trigger: Number(gamePlan.bull_trigger ?? gamePlan.bullTrigger) || null,
