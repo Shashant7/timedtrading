@@ -35,6 +35,22 @@ describe("loadMfeRatchetConfig", () => {
     expect(cfg.activationPct).toBe(2.0);
     expect(cfg.lockFrac).toBe(0.40);
   });
+
+  it("arms later and keeps more of peak for Prime", () => {
+    const cfg = loadMfeRatchetConfig({}, { setupGrade: "Prime" });
+    expect(cfg.prime).toBe(true);
+    expect(cfg.activationPct).toBe(3.0);
+    expect(cfg.lockFrac).toBe(0.50);
+  });
+
+  it("honours explicit Prime knobs", () => {
+    const cfg = loadMfeRatchetConfig({
+      deep_audit_mfe_ratchet_prime_activation_pct: 2.5,
+      deep_audit_mfe_ratchet_prime_lock_frac: 0.55,
+    }, { setupGrade: "Prime" });
+    expect(cfg.activationPct).toBe(2.5);
+    expect(cfg.lockFrac).toBe(0.55);
+  });
 });
 
 describe("resolveRatchetPeak", () => {
@@ -100,6 +116,27 @@ describe("evaluateMfeRatchet", () => {
     });
     expect(r.armed).toBe(false);
     expect(r.fire).toBe(false);
+  });
+
+  it("reads setup_grade off the position for Prime upside", () => {
+    const r = evaluateMfeRatchet({
+      pnlPct: 2.5,
+      position: { setup_grade: "Prime", maxFavorableExcursion: 2.5 },
+      daCfg: {},
+    });
+    // 2.5 < Prime arm 3.0 → not armed yet
+    expect(r.armed).toBe(false);
+    expect(r.prime).toBe(true);
+    expect(r.activationPct).toBe(3.0);
+
+    const armed = evaluateMfeRatchet({
+      pnlPct: 3.2,
+      position: { setupGrade: "Prime", maxFavorableExcursion: 4.0 },
+      daCfg: {},
+    });
+    expect(armed.armed).toBe(true);
+    expect(armed.lockFrac).toBe(0.50);
+    expect(armed.floorPct).toBeCloseTo(2.0, 5);
   });
 
   it("honors custom activation and mid lock knobs (peak in mid tier)", () => {
