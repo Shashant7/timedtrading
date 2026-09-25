@@ -56,6 +56,18 @@ done
 # then, per script: git log --oneline --since=<its date> origin/main -- <its sources>
 ```
 
+Two ways CI stopped shipping (both fixed 2026-09-25):
+
+- The deploy workflows install with `--ignore-scripts`, which skips
+  `better-sqlite3`'s native build. From #1499 (9/24) the mirror-kernel tests
+  load it through `worker/test-support/d1-sqlite.js`, so the test gate failed
+  and every worker/engine/research deploy since was red. They now run
+  `npm rebuild better-sqlite3` first.
+- `deploy-feed.yml` only watched `worker/feed/**`, but tt-feed bundles ~40
+  modules from `worker/`. Four data-provider fixes from 9/23 sat undeployed
+  on tt-feed until a hand deploy. List a worker's real inputs with
+  `npx esbuild worker-feed/feed-index.js --bundle --metafile=m.json --outfile=/dev/null`.
+
 On 2026-09-14 that showed `tt-feed` last deployed 09-12 and
 `tt-broker-bridge` 09-11 — both fine, because neither
 `worker-feed/**` + `worker/feed/**` nor `worker-bridge/**` had changed
