@@ -21,6 +21,20 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+## Active — Conviction-aware management for Short Term (2026-09-25)
+
+Prime trades held to their structural stop and trailed wider
+(`worker/conviction-management.js`, all `deep_audit_conviction_*`, default
+OFF). Replay first: two live cases (P, INTC) cannot validate it.
+
+- [x] Policy module + inline (`classifyKanbanStage`) and pipeline
+      (`tt-core-exit`) wiring; grade carried onto live + replay positions
+- [x] Unit tests; keys in `REPLAY_DA_KEYS`
+- [x] Preprod: model_config synced to prod, candles to 2026-09-24
+- [ ] Arms `cv-base-2026{07,08,09}` vs `cv-conv-2026{07,08,09}` (24 tickers,
+      10m, batch 24); realized dollars + trade-set diff
+- [ ] Decide enable / tune / drop; record the result
+
 ## Active — Broker mirroring buttoned up for scale (2026-09-24)
 
 Design: `docs/entangled-mirror-design.md` (PR #1498). Operator decisions:
