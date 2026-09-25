@@ -17,6 +17,7 @@ import {
   profitLockThreshold,
   profitLockFloor,
   HARD_STOP_PCT,
+  REENTRY_COOLDOWN_MS,
 } from "./option-day-trade-plan.js";
 
 const ET = "-04:00";
@@ -303,6 +304,53 @@ describe("isOptionsSellWindowEt", () => {
   });
   it("is closed on weekends even during the 09:30-16:15 window", () => {
     expect(isOptionsSellWindowEt(ts(`2026-08-23T16:12:00${ET}`))).toBe(false);
+  });
+});
+
+describe("classifyPaperEvent — re-entry cooldown per underlying", () => {
+  // 2026-09-23/24: all 12 re-entries fired within 10 minutes of the previous
+  // close on the same underlying lost; the winners came later.
+  const buy = (lastUnderlyingCloseTs, extra = {}) => classifyPaperEvent({
+    clock: clockBuy,
+    book: null,
+    premium: 0.38,
+    size: { label: "medium", contracts: 2 },
+    now: RTH_NOW,
+    lastUnderlyingCloseTs,
+    ...extra,
+  });
+
+  it("refuses a BUY one minute after a round on the underlying closed", () => {
+    const out = buy(RTH_NOW - 60_000);
+    expect(out.event).toBeNull();
+    expect(out.blocked).toBe("reentry_cooldown");
+  });
+
+  it("allows the BUY once the cooldown has passed", () => {
+    expect(REENTRY_COOLDOWN_MS).toBe(10 * 60 * 1000);
+    expect(buy(RTH_NOW - REENTRY_COOLDOWN_MS).event).toBe("BUY");
+    expect(buy(RTH_NOW - 13 * 60_000).event).toBe("BUY");
+  });
+
+  it("does nothing when no round has closed on the underlying today", () => {
+    expect(buy(null).event).toBe("BUY");
+  });
+
+  it("honours an overridden window", () => {
+    expect(buy(RTH_NOW - 3 * 60_000, { reentryCooldownMs: 2 * 60_000 }).event).toBe("BUY");
+  });
+
+  it("never blocks a SELL on an open book", () => {
+    const out = classifyPaperEvent({
+      clock: { ...clockBuy, action: "SELL" },
+      book: { status: "open", entry_premium: 0.4, contracts: 2, contracts_remaining: 2 },
+      premium: 0.2,
+      size: { label: "medium", contracts: 2 },
+      now: RTH_NOW,
+      lastUnderlyingCloseTs: RTH_NOW - 60_000,
+    });
+    expect(out.blocked).toBeUndefined();
+    expect(out.event).not.toBe("BUY");
   });
 });
 

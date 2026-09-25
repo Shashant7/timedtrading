@@ -59,6 +59,23 @@ export function dayTradeCarryKey(ticker) {
   return `timed:opt-dt-carry:${String(ticker || "").toUpperCase()}`;
 }
 
+/**
+ * When the last day-trade round on an underlying closed, whatever its strike
+ * or side. The re-entry cooldown is per UNDERLYING: a re-entry is usually a
+ * different contract (QQQ 742C stopped, 731P bought a minute later), so a
+ * per-book stamp would never see it.
+ */
+export function dayTradeLastCloseKey(ticker) {
+  return `timed:opt-dt:last-close:${String(ticker || "").toUpperCase()}`;
+}
+
+async function readLastUnderlyingClose(KV, ticker) {
+  try {
+    const ts = Number(await KV.get(dayTradeLastCloseKey(ticker)));
+    return ts > 0 ? ts : null;
+  } catch (_) { return null; }
+}
+
 function parseJson(raw) {
   if (!raw) return null;
   try { return typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return null; }
@@ -190,6 +207,7 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     premium: payload.premium ?? payload.execution?.premium_band?.premium,
     now: payload.now || Date.now(),
     size,
+    lastUnderlyingCloseTs: await readLastUnderlyingClose(KV, payload.ticker),
   });
 
   if (decision.nextBook) {
@@ -202,7 +220,15 @@ export async function maybeNotifyDayTradePaperEvent(env, payload = {}) {
     });
   }
   if (!decision.event) {
-    return { ok: true, event: null, plan, size, book: decision.nextBook || book, fromCarry: !!loaded.fromCarry };
+    return {
+      ok: true, event: null, plan, size, book: decision.nextBook || book, fromCarry: !!loaded.fromCarry,
+      ...(decision.blocked ? { blocked: decision.blocked } : {}),
+    };
+  }
+  if ((decision.event === "STOP" || decision.event === "EXIT") && payload.ticker) {
+    try {
+      await KV.put(dayTradeLastCloseKey(payload.ticker), String(payload.now || Date.now()), { expirationTtl: 86400 });
+    } catch (_) { /* a missing stamp only loses one cooldown, never an order */ }
   }
 
   // 2026-09-23 — the broker goes first, ahead of Discord.

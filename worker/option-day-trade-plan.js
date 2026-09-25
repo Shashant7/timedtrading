@@ -658,12 +658,27 @@ function inferSellKind(clock) {
  * Paper-execution event from clock + open book.
  * BUY / TRIM / EXIT / STOP only — WAIT never fires a Discord.
  */
+/**
+ * No new entry on an underlying for this long after a round on it closed.
+ *
+ * Measured over every closed round of 2026-09-23/24: the 12 re-entries fired
+ * within 10 minutes of the previous close all lost (-178% combined), while
+ * the ones after it included the only two winners (SPY +111% at 13 min,
+ * +6.7% at 27). Index scores refresh about every 10.5 minutes, so an entry
+ * inside the window is decided on the same snapshot that just failed — QQQ
+ * bought 731P one minute after 742C stopped, then 733P one minute after
+ * that. Longer windows started blocking the winners.
+ */
+export const REENTRY_COOLDOWN_MS = 10 * 60 * 1000;
+
 export function classifyPaperEvent({
   clock,
   book = null,
   premium,
   now = Date.now(),
   size = null,
+  lastUnderlyingCloseTs = null,
+  reentryCooldownMs = REENTRY_COOLDOWN_MS,
 } = {}) {
   const action = String(clock?.action || "WAIT").toUpperCase();
   const status = String(book?.status || "flat");
@@ -695,6 +710,11 @@ export function classifyPaperEvent({
   const canEnter = status === "flat" || (status === "closed" && !book?.needs_wait);
   if (canEnter && action === "BUY" && !isOptionsBuyWindowEt(now)) {
     return { event: null, nextBook: null };
+  }
+  const sinceClose = now - (num(lastUnderlyingCloseTs) || 0);
+  if (canEnter && action === "BUY" && num(lastUnderlyingCloseTs) > 0
+    && sinceClose >= 0 && sinceClose < (num(reentryCooldownMs) ?? REENTRY_COOLDOWN_MS)) {
+    return { event: null, nextBook: null, blocked: "reentry_cooldown" };
   }
   if (canEnter && action === "BUY") {
     const rr = clock?.rr?.trim != null
