@@ -35,8 +35,10 @@
 //  Config (model_config, hot-reload; registered in the deep-audit lazy-load
 //  list and REPLAY_DA_KEYS):
 //    deep_audit_mfe_ratchet_enabled        default "true"
-//    deep_audit_mfe_ratchet_activation_pct default 2.0  (peak MFE to arm)
-//    deep_audit_mfe_ratchet_lock_frac      default 0.40 (fraction of peak kept)
+  //    deep_audit_mfe_ratchet_activation_pct default 2.0  (peak MFE to arm)
+  //    deep_audit_mfe_ratchet_lock_frac      default 0.40 (fraction of peak kept)
+  //    deep_audit_mfe_ratchet_prime_activation_pct  default 3.0 (Prime only)
+  //    deep_audit_mfe_ratchet_prime_lock_frac       default 0.50 (Prime only)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const MFE_RATCHET_EXIT_REASON = "mfe_ratchet_giveback";
@@ -60,7 +62,7 @@ export function isMfeRatchetExit(reason) {
   return String(reason || "").toLowerCase() === MFE_RATCHET_EXIT_REASON;
 }
 
-export function loadMfeRatchetConfig(daCfg) {
+export function loadMfeRatchetConfig(daCfg, { setupGrade = null } = {}) {
   const cfg = daCfg || {};
   const enabledRaw = cfg.deep_audit_mfe_ratchet_enabled;
   const enabled = enabledRaw == null
@@ -85,14 +87,30 @@ export function loadMfeRatchetConfig(daCfg) {
   const runnerActivationPct = Number.isFinite(runActRaw) && runActRaw > 0 ? runActRaw : 10.0;
   const runLockRaw = Number(cfg.deep_audit_mfe_ratchet_runner_lock_frac);
   const runnerLockFrac = Number.isFinite(runLockRaw) && runLockRaw > 0 && runLockRaw < 1 ? runLockRaw : 0.80;
+
+  // 2026-09-25 — Prime upside only. Loss-side conviction management stayed
+  // OFF (negative A/B). For Prime, arm later (3% vs 2%) and keep more of
+  // peak (50% vs 40%) so LEFT_MONEY scratches on small Cloud Pivot peaks
+  // have room; hi/runner tiers unchanged.
+  const isPrime = String(setupGrade || "").toLowerCase() === "prime";
+  let effActivation = activationPct;
+  let effLock = lockFrac;
+  if (isPrime) {
+    const pAct = Number(cfg.deep_audit_mfe_ratchet_prime_activation_pct);
+    const pLock = Number(cfg.deep_audit_mfe_ratchet_prime_lock_frac);
+    effActivation = Number.isFinite(pAct) && pAct > 0 ? pAct : Math.max(activationPct, 3.0);
+    effLock = Number.isFinite(pLock) && pLock > 0 && pLock < 1 ? pLock : Math.max(lockFrac, 0.50);
+  }
+
   return {
     enabled,
-    activationPct,
-    lockFrac,
+    activationPct: effActivation,
+    lockFrac: effLock,
     hiActivationPct,
     hiLockFrac,
     runnerActivationPct,
     runnerLockFrac,
+    prime: isPrime,
   };
 }
 
@@ -138,6 +156,9 @@ export function resolveRatchetPeak(position, pnlPct) {
  *             lockFrac:number, activationPct:number, enabled:boolean }}
  */
 export function evaluateMfeRatchet({ pnlPct, position, daCfg }) {
+  const grade = position?.setup_grade || position?.setupGrade
+    || position?.__tradeRef?.setup_grade || position?.__tradeRef?.setupGrade
+    || null;
   const {
     enabled,
     activationPct,
@@ -146,7 +167,8 @@ export function evaluateMfeRatchet({ pnlPct, position, daCfg }) {
     hiLockFrac,
     runnerActivationPct,
     runnerLockFrac,
-  } = loadMfeRatchetConfig(daCfg);
+    prime,
+  } = loadMfeRatchetConfig(daCfg, { setupGrade: grade });
   const peakPct = resolveRatchetPeak(position, pnlPct);
   const armed = enabled && peakPct >= activationPct;
   let effLockFrac = lockFrac;
@@ -174,5 +196,6 @@ export function evaluateMfeRatchet({ pnlPct, position, daCfg }) {
     runnerLockFrac,
     tier: armed ? tier : "unarmed",
     enabled,
+    prime: !!prime,
   };
 }

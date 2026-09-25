@@ -456,6 +456,7 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_ja_expected_move_min_atr_pct",
   "deep_audit_ja_default_deny",
   "deep_audit_ja_post_trim_floor",
+  "deep_audit_ja_post_trim_floor_prime",                 // default true — Prime only
   "deep_audit_ja_post_trim_floor_buffer_pct",
   "deep_audit_ja_grade_wildcard",
   "deep_audit_ja_htf_reclaim_entry",
@@ -621,6 +622,8 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_mfe_ratchet_runner_release_pct",           // default 10.0 (release to trend-hold)
   "deep_audit_mfe_ratchet_activation_pct",               // default 2.0
   "deep_audit_mfe_ratchet_lock_frac",                    // default 0.40
+  "deep_audit_mfe_ratchet_prime_activation_pct",         // default 3.0 (Prime upside)
+  "deep_audit_mfe_ratchet_prime_lock_frac",              // default 0.50 (Prime upside)
   // 2026-09-20 — Cloud Pivot loss cap (worker/foundation/tt-cloud-pivot.js).
   // Mirror of the family profit lock for a trade that never armed it, so a
   // missing 10m 5/12 print can no longer let an unproven loser reach -6%.

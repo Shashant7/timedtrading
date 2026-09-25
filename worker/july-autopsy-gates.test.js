@@ -194,8 +194,10 @@ describe("admitSetup wildcard grade fallback (P8 fix)", () => {
   });
 
   it("restricted plays fail closed when wildcard is on and no row matches", () => {
+    // ATH Breakout is catalog-PAUSED (2026-09-25); use a still-RESTRICTED
+    // play so this pin covers the missing-wildcard fail-closed path.
     const out = admitSetup({
-      setup: "tt_ath_breakout", grade: "", direction: "LONG",
+      setup: "tt_n_test_resistance", grade: "", direction: "SHORT",
       regime: "STRONG_BULL", rr: 3, conviction: 4, allowWildcard: true,
     }, {});
     expect(out.allow).toBe(false);

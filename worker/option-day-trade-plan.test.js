@@ -362,6 +362,48 @@ describe("classifyPaperEvent — re-entry cooldown per underlying", () => {
   it("still enters when under the session stop cap", () => {
     expect(buy(null, { sessionStopCount: 2 }).event).toBe("BUY");
   });
+
+  it("blocks a second put the same day when lean is unchanged", () => {
+    const blocked = classifyPaperEvent({
+      clock: { ...clockBuy, thesis: { lean: "bear" } },
+      book: null,
+      premium: 0.38,
+      size: { label: "medium", contracts: 2 },
+      now: RTH_NOW,
+      sessionRounds: [{ side: "put", lean: "bear" }],
+    });
+    expect(blocked.event).toBeNull();
+    expect(blocked.blocked).toBe("one_round_per_side_today");
+  });
+
+  it("allows a second put when lean flipped", () => {
+    const out = classifyPaperEvent({
+      clock: { ...clockBuy, thesis: { lean: "bull" } },
+      book: null,
+      premium: 0.38,
+      size: { label: "medium", contracts: 2 },
+      now: RTH_NOW,
+      sessionRounds: [{ side: "put", lean: "bear" }],
+    });
+    expect(out.event).toBe("BUY");
+  });
+
+  it("blocks BUY after a green profit_lock_stop the same session", () => {
+    const out = classifyPaperEvent({
+      clock: clockBuy,
+      book: null,
+      premium: 0.38,
+      size: { label: "medium", contracts: 2 },
+      now: RTH_NOW,
+      lastClose: {
+        ts: RTH_NOW - 30 * 60_000,
+        reason: "profit_lock_stop",
+        green: true,
+      },
+    });
+    expect(out.event).toBeNull();
+    expect(out.blocked).toBe("post_profit_lock_no_rebuy");
+  });
 });
 
 describe("classifyPaperEvent", () => {

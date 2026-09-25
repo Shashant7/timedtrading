@@ -23595,8 +23595,14 @@ async function processTradeSimulation(
       // protection-stage gate that let BRK-B ride +2.3% back below entry
       // and PPG's runner ride a +2.2% trim to a max_loss exit.
       // See tasks/2026-08-15-july-st-autopsy-feedback.md (P5).
+      // 2026-09-25 — also ON for Prime when deep_audit_ja_post_trim_floor_prime
+      // is true (default): upside-only room for the grade that LEFT_MONEY
+      // this week; loss-side conviction stays OFF.
       if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
-        const _jaFloorOn = String(tickerData?._env?._deepAuditConfig?.deep_audit_ja_post_trim_floor ?? "false") === "true";
+        const _jaFloorFlag = String(tickerData?._env?._deepAuditConfig?.deep_audit_ja_post_trim_floor ?? "false") === "true";
+        const _jaPrimeFlag = String(tickerData?._env?._deepAuditConfig?.deep_audit_ja_post_trim_floor_prime ?? "true") !== "false";
+        const _jaGrade = String(openTrade.setup_grade || openTrade.setupGrade || "").toLowerCase();
+        const _jaFloorOn = _jaFloorFlag || (_jaPrimeFlag && _jaGrade === "prime");
         const _jaTrimmedPct = clamp(Number(openTrade?.trimmedPct ?? openTrade?.trimmed_pct ?? 0), 0, 1);
         if (_jaFloorOn && _jaTrimmedPct >= 0.25) {
           const _jaEntry = Number(openTrade.entryPrice);
@@ -23608,7 +23614,7 @@ async function processTradeSimulation(
               : ((_jaEntry - pxNow) / _jaEntry) * 100;
             if (_jaPnlPct <= -_jaFloorBufPct) {
               const _jaReason = "POST_TRIM_ENTRY_FLOOR";
-              console.log(`[POST_TRIM_ENTRY_FLOOR] ${sym} trimmed=${(_jaTrimmedPct * 100).toFixed(0)}% pnl=${_jaPnlPct.toFixed(2)}% <= -${_jaFloorBufPct}% → close remainder at entry floor`);
+              console.log(`[POST_TRIM_ENTRY_FLOOR] ${sym} trimmed=${(_jaTrimmedPct * 100).toFixed(0)}% pnl=${_jaPnlPct.toFixed(2)}% <= -${_jaFloorBufPct}% grade=${_jaGrade || "n/a"} → close remainder at entry floor`);
               tickerData.__exit_reason = _jaReason;
               await closeTradeAtPrice(openTrade, pxNow, _jaReason);
               const _jaExec = { ...execState, lastExitMs: now };

@@ -90,9 +90,18 @@ describe("trailConfigFor", () => {
 
   it("gives a held trade more room in the real MFE ratchet", () => {
     // Peak +3%, now +1.0%: the live 40% lock (+1.2%) fires; 25% (+0.75%) does not.
+    // Isolate conviction trail widen from Prime upside floor (max(lock, 0.50)).
     const pos = { ...P, maxFavorableExcursion: 3.0 };
     const live = evaluateMfeRatchet({ pnlPct: 1.0, position: pos, daCfg: {} });
-    const held = evaluateMfeRatchet({ pnlPct: 1.0, position: pos, daCfg: trailConfigFor(pos, ON) });
+    const held = evaluateMfeRatchet({
+      pnlPct: 1.0,
+      position: pos,
+      daCfg: {
+        ...trailConfigFor(pos, ON),
+        deep_audit_mfe_ratchet_prime_lock_frac: 0.25,
+        deep_audit_mfe_ratchet_prime_activation_pct: 2.0,
+      },
+    });
     expect(live.fire).toBe(true);
     expect(held.fire).toBe(false);
   });

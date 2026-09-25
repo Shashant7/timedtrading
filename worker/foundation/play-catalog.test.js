@@ -33,14 +33,17 @@ describe("play catalog", () => {
     expect(canonicalPlayId("(unstamped)", "ATH Breakout")).toBe("tt_ath_breakout");
   });
 
-  it("pauses range reversal and support bounce and keeps the workhorse live", () => {
+  it("pauses range reversal, support bounce, and ATH breakout; keeps the workhorse live", () => {
     expect(isPlayPaused("tt_range_reversal_long")).toBe(true);
     expect(isPlayPaused("Range Reversal (Long)")).toBe(true);
     expect(isPlayPaused("tt_n_test_support")).toBe(true);
     expect(isPlayPaused("Support Bounce")).toBe(true);
+    expect(isPlayPaused("tt_ath_breakout")).toBe(true);
+    expect(isPlayPaused("ATH Breakout")).toBe(true);
+    expect(isPlayPaused("tt_atl_breakdown")).toBe(true);
     expect(isPlayRestricted("tt_n_test_support")).toBe(false);
     expect(isPlayPaused("tt_gap_reversal_long")).toBe(false);
-    expect(isPlayRestricted("tt_ath_breakout")).toBe(true);
+    expect(isPlayRestricted("tt_ath_breakout")).toBe(false);
     expect(isPlayRestricted("tt_cloud_pivot")).toBe(true);
     expect(isPlayRestricted("TT Cloud Pivot")).toBe(true);
     expect(isPlayRestricted("tt_index_etf_swing")).toBe(true);

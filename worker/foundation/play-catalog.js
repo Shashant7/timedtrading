@@ -119,7 +119,10 @@ export const CORE_PLAYS = Object.freeze([
     id: "tt_ath_breakout",
     label: "ATH Breakout",
     direction: "LONG",
-    status: PLAY_STATUS.RESTRICTED,
+    // Week ending 2026-09-25 execution card: ATH Breakout / Range Reversal /
+    // Support Bounce drag the family book; Support Bounce + Range already
+    // paused. Pause ATH so Cloud Pivot / Pullback / Gap Reversal carry ST.
+    status: PLAY_STATUS.PAUSED,
     demotion_label: "TT ATH Breakout",
     aliases: [
       "ath breakout",
@@ -131,7 +134,9 @@ export const CORE_PLAYS = Object.freeze([
     id: "tt_atl_breakdown",
     label: "ATL Breakdown",
     direction: "SHORT",
-    status: PLAY_STATUS.RESTRICTED,
+    // Bear sibling of ATH Breakout — pause with it so the short path cannot
+    // reopen the same bleeder shape under another name.
+    status: PLAY_STATUS.PAUSED,
     demotion_label: "TT ATL Breakdown",
     aliases: [
       "atl breakdown",
