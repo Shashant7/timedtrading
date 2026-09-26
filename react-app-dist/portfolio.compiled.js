@@ -404,84 +404,41 @@ function EquityCurveCard({
   }, sub), h("div", {
     className: "eq-title"
   }, title)), h("div", {
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      color: "var(--tt-text-muted)",
-      fontSize: 11
-    }
+    className: "eq-range"
   }, points.length > 0 ? `${fmtDate(points[0].date)} → ${fmtDate(points[points.length - 1].date)}` : "—")), h("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(5, 1fr)",
-      gap: 8,
-      margin: "10px 0 14px"
-    }
+    className: "eq-kpi-strip"
   }, h("div", {
-    className: "eq-stat",
-    style: {
-      padding: "8px 10px"
-    }
+    className: "eq-stat"
   }, h("div", {
     className: "eq-stat-label"
   }, "Account"), h("div", {
-    className: "eq-stat-value",
-    style: {
-      fontSize: 16
-    }
+    className: "eq-stat-value eq-stat-value--sm"
   }, fmtUsdK(account))), h("div", {
-    className: "eq-stat",
-    style: {
-      padding: "8px 10px"
-    }
+    className: "eq-stat"
   }, h("div", {
     className: "eq-stat-label"
   }, "Total P&L"), h("div", {
-    className: `eq-stat-value ${totalPnl >= 0 ? "up" : "dn"}`,
-    style: {
-      fontSize: 16
-    }
+    className: `eq-stat-value eq-stat-value--sm ${totalPnl >= 0 ? "up" : "dn"}`
   }, fmtUsdSigned(totalPnl))), h("div", {
-    className: "eq-stat",
-    style: {
-      padding: "8px 10px"
-    }
+    className: "eq-stat"
   }, h("div", {
     className: "eq-stat-label"
   }, "Open P&L"), h("div", {
-    className: `eq-stat-value ${openPnl == null ? "" : openPnl >= 0 ? "up" : "dn"}`,
-    style: {
-      fontSize: 16
-    }
+    className: `eq-stat-value eq-stat-value--sm ${openPnl == null ? "" : openPnl >= 0 ? "up" : "dn"}`
   }, openPnl == null ? "—" : fmtUsdSigned(openPnl))), h("div", {
-    className: "eq-stat",
-    style: {
-      padding: "8px 10px"
-    }
+    className: "eq-stat"
   }, h("div", {
     className: "eq-stat-label"
   }, "Closed"), h("div", {
-    className: "eq-stat-value",
-    style: {
-      fontSize: 16
-    }
+    className: "eq-stat-value eq-stat-value--sm"
   }, String(closedCount), h("span", {
-    style: {
-      color: "var(--tt-text-faint)",
-      fontSize: 11,
-      marginLeft: 6
-    }
+    className: "eq-stat-meta"
   }, `${winLoss.wins}W / ${winLoss.losses}L`))), h("div", {
-    className: "eq-stat",
-    style: {
-      padding: "8px 10px"
-    }
+    className: "eq-stat"
   }, h("div", {
     className: "eq-stat-label"
   }, "Realized"), h("div", {
-    className: `eq-stat-value ${realized >= 0 ? "up" : "dn"}`,
-    style: {
-      fontSize: 16
-    }
+    className: `eq-stat-value eq-stat-value--sm ${realized >= 0 ? "up" : "dn"}`
   }, fmtUsdSigned(realized)))), h("div", {
     className: "eq-stats"
   }, h("div", {
@@ -956,6 +913,11 @@ function laneMeta(lane) {
     pill: "lane-trader"
   };
 }
+const tradeLane = typeof window !== "undefined" && window.TimedPortfolioBookUtils?.tradeLane ? window.TimedPortfolioBookUtils.tradeLane : t => String(t?._lane || t?._paper_lane || "").trim();
+const tradeMatchesLane = typeof window !== "undefined" && window.TimedPortfolioBookUtils?.tradeMatchesLane ? window.TimedPortfolioBookUtils.tradeMatchesLane : (t, laneFilter) => {
+  if (!laneFilter || laneFilter === "all") return true;
+  return tradeLane(t) === laneFilter;
+};
 function TradeHistory({
   trades,
   laneFilter,
@@ -966,10 +928,10 @@ function TradeHistory({
     if (!Array.isArray(trades)) return [];
     return trades.filter(t => {
       const s = String(t?.status || "").toUpperCase();
-      const closed = s === "WIN" || s === "LOSS" || s === "FLAT" || s === "CLOSED" || !!(t?.exit_ts ?? t?.exitTs);
+      const hasExit = !!(t?.exit_ts ?? t?.exitTs) || Number.isFinite(Number(t?.exit_price ?? t?.exitPrice));
+      const closed = hasExit && (s === "WIN" || s === "LOSS" || s === "FLAT" || s === "CLOSED" || !!(t?.exit_ts ?? t?.exitTs));
       if (!closed) return false;
-      if (!laneFilter || laneFilter === "all") return true;
-      return String(t?._lane || "") === laneFilter;
+      return tradeMatchesLane(t, laneFilter);
     }).sort((a, b) => Number(b?.exit_ts || b?.exitTs || 0) - Number(a?.exit_ts || a?.exitTs || 0));
   }, [trades, laneFilter]);
   return h("section", {
@@ -993,7 +955,7 @@ function TradeHistory({
     const realized = Number(t?.realized_pnl ?? t?.realizedPnl ?? t?.pnl);
     const realizedPct = Number(t?.realized_pct ?? t?.realizedPct ?? t?.pct_return);
     const result = String(t?.status || "").toUpperCase() || (realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "FLAT");
-    const meta = laneMeta(t?._lane);
+    const meta = laneMeta(tradeLane(t) || t?._lane);
     const openTicker = () => {
       if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
     };
@@ -1244,19 +1206,22 @@ function PortfolioApp() {
   const dayTradeOpenPl = useMemo(() => paperPositions == null ? null : sumOpenPl(dayTradeRows), [paperPositions, dayTradeRows]);
   const dayTradeHistory = useMemo(() => {
     if (!Array.isArray(paperHistory)) return paperHistory;
-    return paperHistory.filter(t => String(t?._lane || t?._paper_lane || "") === "index_day_trade");
+    return paperHistory.filter(t => tradeMatchesLane(t, "index_day_trade")).map(t => ({
+      ...t,
+      _lane: tradeLane(t) || "index_day_trade",
+      _lane_label: t._lane_label || laneMeta("index_day_trade").label
+    }));
   }, [paperHistory]);
-  const allHistory = useMemo(() => {
+  const bookHistory = useMemo(() => {
     const tag = (arr, lane) => (Array.isArray(arr) ? arr : []).map(t => ({
       ...t,
-      _lane: t._lane || lane,
+      _lane: tradeLane(t) || lane,
       _lane_label: t._lane_label || laneMeta(lane).label
     }));
-    return [...tag(traderHistory, "trader"), ...tag(investorHistory, "investor"), ...tag(paperHistory, null).map(t => ({
-      ...t,
-      _lane: t._lane || t._paper_lane || "index_day_trade"
-    }))];
-  }, [traderHistory, investorHistory, paperHistory]);
+    if (activeBook === "investor") return tag(investorHistory, "investor");
+    if (activeBook === "day_trade") return Array.isArray(dayTradeHistory) ? dayTradeHistory : [];
+    return tag(traderHistory, "trader");
+  }, [activeBook, traderHistory, investorHistory, dayTradeHistory]);
   const [verdictMap, setVerdictMap] = useState({});
   useEffect(() => {
     if (!window._ttIsPro || !window.TimedVerdictUI?.fetchVerdict) return;
@@ -1381,14 +1346,7 @@ function PortfolioApp() {
   })), h("section", {
     className: "tt-row"
   }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      flexWrap: "wrap",
-      gap: 10,
-      marginBottom: 10
-    }
+    className: "acct-head"
   }, h("div", null, h("div", {
     className: "tt-sec-title"
   }, "ACCOUNT VALUE"), h("div", {
@@ -1485,7 +1443,7 @@ function PortfolioApp() {
     investorOpenPl,
     dayTradeOpenPl
   })), traderHistory || investorHistory || paperHistory ? h(TradeHistory, {
-    trades: allHistory,
+    trades: bookHistory,
     laneFilter: book.historyLane,
     onSelectTicker,
     title: `${book.label} — closed trades`
@@ -1522,6 +1480,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1790381278404:823896390
+// cache-bust:1790384013513:513595761
 
-// cache-bust:1790381278404:823896390
+// cache-bust:1790384013513:513595761

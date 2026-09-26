@@ -19,11 +19,48 @@
     return Number.isFinite(ret) ? ret : null;
   }
 
-  var api = { bookTotalPnlPct: bookTotalPnlPct };
+  /**
+   * Canonical book lane from mixed ledger / paper payloads.
+   * Investor lots stamp `_source_mode` (not `_lane`); paper stamps `_paper_lane`.
+   */
+  function tradeLane(t) {
+    if (!t || typeof t !== "object") return "";
+    var raw = String(t._lane || t._paper_lane || "").trim();
+    if (raw) return raw;
+    var src = String(t._source_mode || t.mode || "").trim().toLowerCase();
+    if (src === "investor") return "investor";
+    if (src === "day_trade" || src === "index_day_trade" || src === "index_dt") return "index_day_trade";
+    if (src === "index_swing") return "index_swing";
+    if (src === "trader") return "trader";
+    return "";
+  }
+
+  /**
+   * Whether a trade belongs in the Trade History for `laneFilter`.
+   * Day Trader is fail-closed: investor equity lots (e.g. CF) never match.
+   */
+  function tradeMatchesLane(t, laneFilter) {
+    if (!laneFilter || laneFilter === "all") return true;
+    var lane = tradeLane(t);
+    if (laneFilter === "index_day_trade") {
+      if (String(t && t._source_mode || "").toLowerCase() === "investor") return false;
+      if (lane === "investor" || lane === "trader" || lane === "index_swing") return false;
+      return lane === "index_day_trade" || lane === "day_trade" || lane === "index_dt";
+    }
+    if (laneFilter === "investor") return lane === "investor";
+    if (laneFilter === "trader") return lane === "trader" || lane === "";
+    return lane === laneFilter;
+  }
+
+  var api = {
+    bookTotalPnlPct: bookTotalPnlPct,
+    tradeLane: tradeLane,
+    tradeMatchesLane: tradeMatchesLane,
+  };
   root.TimedPortfolioBookUtils = api;
   if (typeof module !== "undefined" && module.exports) {
     module.exports = api;
   }
 })(typeof globalThis !== "undefined" ? globalThis : window);
 
-// cache-bust:1790381278404:823896390
+// cache-bust:1790384013513:513595761
