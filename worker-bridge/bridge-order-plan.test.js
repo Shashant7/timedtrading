@@ -131,6 +131,13 @@ describe("planBrokerOrder — respects each broker's order-type support", () => 
 
   it("rejects an unknown broker", () => {
     const plan = planBrokerOrder("etrade", entryIntent);
+    expect(plan.ok).toBe(true);
+    expect(plan.broker).toBe("etrade");
+    expect(plan.primary.order_type).toBe("market");
+  });
+
+  it("rejects truly unknown brokers", () => {
+    const plan = planBrokerOrder("schwab", entryIntent);
     expect(plan.ok).toBe(false);
     expect(plan.reject_reason).toBe("unknown_broker");
   });
