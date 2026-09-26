@@ -211,6 +211,15 @@ action has a live broker mirror (mirrored / not / rejected).
 - [x] Reuse day-actions / coverage join; do not invent a second truth
       (equity = manifest sleeves; DT/Index = lane mirror logs)
 
+## Active — Portfolio mobile + Day Trader history leak (2026-09-26)
+
+Operator: Portfolio is not phone-friendly (book tabs wrap, KPI strip
+clips). Also CF (Long Term) showed under Day Trader closed trades.
+
+- [x] Book tabs 3-col grid; KPI strip 2-col; tf-chips full width; table scroll
+- [x] Book-scoped TradeHistory + fail-closed day-trade lane match (CF out)
+- [x] Build frontend, phone screenshot, PR
+
 ## Active — Ops desk: briefs / discovery / calibration (2026-09-25)
 
 - [x] Double evening brief: claim lock + email date dedupe (17:00 still

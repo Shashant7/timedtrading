@@ -17,38 +17,38 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1790381278404" />
-    <script defer src="/vendor/react.production.min.js?v=1790381278404"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1790381278404"></script>
-    <script defer src="shared-verdict-ui.js?v=1790381278404"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1790381278404" />
-<script defer src="auth-gate.js?v=1790381278404"></script>
-    <script defer src="tt-fetch-cache.js?v=1790381278404"></script>
-    <script src="tt-bottom-nav.js?v=1790381278404" defer></script>
-    <script defer src="investor-nav-badge.js?v=1790381278404"></script>
-    <script src="tt-nav-extras.js?v=1790381278404" defer></script>
-    <script src="tt-global-search.js?v=1790381278404" defer></script>
-    <script src="tt-rail-bridge.js?v=1790381278404" defer></script>
-    <script defer src="shared-price-utils.js?v=1790381278404"></script>
-    <script defer src="portfolio-book-utils.js?v=1790381278404"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1790384013513" />
+    <script defer src="/vendor/react.production.min.js?v=1790384013513"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1790384013513"></script>
+    <script defer src="shared-verdict-ui.js?v=1790384013513"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1790384013513" />
+<script defer src="auth-gate.js?v=1790384013513"></script>
+    <script defer src="tt-fetch-cache.js?v=1790384013513"></script>
+    <script src="tt-bottom-nav.js?v=1790384013513" defer></script>
+    <script defer src="investor-nav-badge.js?v=1790384013513"></script>
+    <script src="tt-nav-extras.js?v=1790384013513" defer></script>
+    <script src="tt-global-search.js?v=1790384013513" defer></script>
+    <script src="tt-rail-bridge.js?v=1790384013513" defer></script>
+    <script defer src="shared-price-utils.js?v=1790384013513"></script>
+    <script defer src="portfolio-book-utils.js?v=1790384013513"></script>
     <!-- TradesPerformance — same component the legacy /simulation-dashboard
          uses. Provides the P&L calendar + monthly perf table + setup
          breakdown. Loaded via window.TradesPerformanceFactory(deps). -->
-    <script defer src="trades-performance.js?v=1790381278404"></script>
+    <script defer src="trades-performance.js?v=1790384013513"></script>
     <!-- Right rail factory + helpers + bootstrap so positions / history
          rows open the same ticker-detail panel /index-react.html uses.
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
-    <script defer src="tt-bubble-map-0714m.compiled.js?v=1790381278404"></script>
-    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1790381278404"></script>
-    <script defer src="shared-list-presets.js?v=1790381278404"></script>
-    <script defer src="shared-mtf-chips.js?v=1790381278404"></script>
-    <script defer src="shared-rail-helpers.js?v=1790381278404"></script>
-    <script defer src="tt-cycle-intel.js?v=1790381278404"></script>
-    <script defer src="tt-harmonic-chart.js?v=1790381278404"></script>
-    <script defer src="shared-right-rail.compiled.js?v=1790381278404"></script>
-    <script defer src="ticker-spider-chart.js?v=1790381278404"></script>
-    <script defer src="shared-rail-bootstrap.js?v=1790381278404"></script>
+    <script defer src="tt-bubble-map-0714m.compiled.js?v=1790384013513"></script>
+    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1790384013513"></script>
+    <script defer src="shared-list-presets.js?v=1790384013513"></script>
+    <script defer src="shared-mtf-chips.js?v=1790384013513"></script>
+    <script defer src="shared-rail-helpers.js?v=1790384013513"></script>
+    <script defer src="tt-cycle-intel.js?v=1790384013513"></script>
+    <script defer src="tt-harmonic-chart.js?v=1790384013513"></script>
+    <script defer src="shared-right-rail.compiled.js?v=1790384013513"></script>
+    <script defer src="ticker-spider-chart.js?v=1790384013513"></script>
+    <script defer src="shared-rail-bootstrap.js?v=1790384013513"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -146,15 +146,18 @@
 
       /* Book tabs — Short Term / Long Term / Day Trader */
       .book-tabs {
-        display: flex; gap: 8px; flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
         margin-bottom: 18px;
       }
       .book-tab {
         appearance: none; border: 1px solid var(--tt-border);
         background: var(--tt-bg-surface); color: var(--tt-text-muted);
         font-size: 13px; font-weight: 700; letter-spacing: -0.01em;
-        padding: 10px 16px; border-radius: 10px; cursor: pointer;
-        display: inline-flex; align-items: baseline; gap: 8px;
+        padding: 10px 14px; border-radius: 10px; cursor: pointer;
+        display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
+        min-width: 0;
         transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
       }
       .book-tab:hover { color: var(--tt-text); border-color: var(--tt-border-hi); }
@@ -164,12 +167,19 @@
       }
       .book-tab.active.book-lt { background: var(--tt-violet); border-color: var(--tt-violet); }
       .book-tab.active.book-dt { background: var(--tt-cyan); border-color: var(--tt-cyan); }
+      .book-tab-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       .book-tab-pnl {
         font-family: var(--tt-font-mono);
         font-size: 12px;
         font-weight: 700;
         letter-spacing: 0;
         color: var(--tt-text-dim);
+        flex-shrink: 0;
       }
       .book-tab:not(.active) .book-tab-pnl.up { color: var(--tt-up-soft); }
       .book-tab:not(.active) .book-tab-pnl.dn { color: var(--tt-dn-soft); }
@@ -177,6 +187,18 @@
       .book-tab.active .book-tab-pnl.up { color: #065f46; }
       .book-tab.active .book-tab-pnl.dn { color: #9f1239; }
       .book-tab.active .book-tab-pnl:not(.up):not(.dn) { color: rgba(11, 14, 17, 0.55); }
+      @media (max-width: 520px) {
+        .book-tabs { gap: 6px; }
+        .book-tab {
+          flex-direction: column;
+          align-items: flex-start;
+          justify-content: center;
+          gap: 2px;
+          padding: 8px 10px;
+          font-size: 11px;
+        }
+        .book-tab-pnl { font-size: 11px; }
+      }
       .mirror-chip {
         display: inline-block; font-size: 10px; font-weight: 700;
         letter-spacing: 0.04em; text-transform: uppercase;
@@ -215,26 +237,77 @@
         border: 1px solid var(--tt-border);
         border-radius: 14px;
       }
-      .eq-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+      .eq-header {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: 10px; flex-wrap: wrap; margin-bottom: 8px;
+      }
       .eq-title { font-size: 14px; font-weight: 800; color: var(--tt-text); }
       .eq-sub { font-size: 11px; color: var(--tt-text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+      .eq-range {
+        font-family: var(--tt-font-mono); color: var(--tt-text-muted); font-size: 11px;
+        white-space: nowrap;
+      }
+      /* Headline KPI strip — Account · Total · Open · Closed · Realized */
+      .eq-kpi-strip {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        margin: 10px 0 14px;
+      }
       .eq-stats {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 10px;
         margin: 14px 0;
       }
-      @media (max-width: 640px) { .eq-stats { grid-template-columns: 1fr 1fr; } }
       .eq-stat {
         padding: 10px 12px;
         background: var(--tt-bg-elev);
         border: 1px solid var(--tt-border);
         border-radius: 10px;
+        min-width: 0;
       }
       .eq-stat-label { font-size: 10px; color: var(--tt-text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
-      .eq-stat-value { font-size: 18px; font-weight: 700; font-family: var(--tt-font-mono); }
+      .eq-stat-value {
+        font-size: 18px; font-weight: 700; font-family: var(--tt-font-mono);
+        word-break: break-word;
+      }
+      .eq-stat-value.eq-stat-value--sm { font-size: 16px; }
+      .eq-stat-meta {
+        color: var(--tt-text-faint); font-size: 11px; margin-left: 6px;
+        white-space: nowrap;
+      }
       .eq-stat-value.up { color: var(--tt-up-soft); }
       .eq-stat-value.dn { color: var(--tt-dn-soft); }
+      .acct-head {
+        display: flex; align-items: center; justify-content: space-between;
+        flex-wrap: wrap; gap: 10px; margin-bottom: 10px;
+      }
+      @media (max-width: 720px) {
+        .eq-card { padding: 12px 12px; }
+        .eq-kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        /* Odd 5th KPI (Realized) spans full width so it isn't a lonely half-card. */
+        .eq-kpi-strip > .eq-stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+        .eq-stats { grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+        .eq-stat { padding: 8px 10px; }
+        .eq-stat-value { font-size: 15px; }
+        .eq-stat-value.eq-stat-value--sm { font-size: 15px; }
+        .eq-stat-meta { display: block; margin-left: 0; margin-top: 2px; font-size: 10px; }
+        .eq-range { font-size: 10px; white-space: normal; }
+        .eq-chart { height: 200px; }
+        .tf-chips { width: 100%; justify-content: space-between; }
+        .tf-chip { flex: 1 1 0; text-align: center; padding: 6px 4px; }
+        .acct-head { align-items: flex-start; width: 100%; }
+        .acct-head > div:first-child { width: 100%; }
+        /* Tables scroll horizontally instead of blowing the viewport. */
+        .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .tbl { min-width: 640px; }
+        .tbl--condensed { min-width: 520px; }
+      }
+      @media (max-width: 380px) {
+        .eq-kpi-strip { gap: 6px; }
+        .eq-stat-label { font-size: 9px; letter-spacing: 0.06em; }
+      }
       .eq-chart {
         position: relative;
         height: 240px;
@@ -510,7 +583,7 @@
   </head>
   <body class="vf-page">
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1790381278404"></script>
+    <script defer src="shared-nav.js?v=1790384013513"></script>
 
     <div id="root">
       <main>
@@ -518,7 +591,7 @@
       </main>
     </div>
 
-    <script defer src="portfolio.compiled.js?v=1790381278404"></script>
+    <script defer src="portfolio.compiled.js?v=1790384013513"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -526,4 +599,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1790381278404:823896390 -->
+<!-- cache-bust:1790384013513:513595761 -->

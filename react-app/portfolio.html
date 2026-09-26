@@ -24,7 +24,7 @@
     <script src="tt-global-search.js?v=20260610-verda3" defer></script>
     <script src="tt-rail-bridge.js?v=20260528a" defer></script>
     <script src="shared-price-utils.js?v=20260521a"></script>
-    <script src="portfolio-book-utils.js?v=20260925a"></script>
+    <script src="portfolio-book-utils.js?v=20260926a"></script>
     <!-- TradesPerformance — same component the legacy /simulation-dashboard
          uses. Provides the P&L calendar + monthly perf table + setup
          breakdown. Loaded via window.TradesPerformanceFactory(deps). -->
@@ -140,15 +140,18 @@
 
       /* Book tabs — Short Term / Long Term / Day Trader */
       .book-tabs {
-        display: flex; gap: 8px; flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
         margin-bottom: 18px;
       }
       .book-tab {
         appearance: none; border: 1px solid var(--tt-border);
         background: var(--tt-bg-surface); color: var(--tt-text-muted);
         font-size: 13px; font-weight: 700; letter-spacing: -0.01em;
-        padding: 10px 16px; border-radius: 10px; cursor: pointer;
-        display: inline-flex; align-items: baseline; gap: 8px;
+        padding: 10px 14px; border-radius: 10px; cursor: pointer;
+        display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
+        min-width: 0;
         transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
       }
       .book-tab:hover { color: var(--tt-text); border-color: var(--tt-border-hi); }
@@ -158,12 +161,19 @@
       }
       .book-tab.active.book-lt { background: var(--tt-violet); border-color: var(--tt-violet); }
       .book-tab.active.book-dt { background: var(--tt-cyan); border-color: var(--tt-cyan); }
+      .book-tab-label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       .book-tab-pnl {
         font-family: var(--tt-font-mono);
         font-size: 12px;
         font-weight: 700;
         letter-spacing: 0;
         color: var(--tt-text-dim);
+        flex-shrink: 0;
       }
       .book-tab:not(.active) .book-tab-pnl.up { color: var(--tt-up-soft); }
       .book-tab:not(.active) .book-tab-pnl.dn { color: var(--tt-dn-soft); }
@@ -171,6 +181,18 @@
       .book-tab.active .book-tab-pnl.up { color: #065f46; }
       .book-tab.active .book-tab-pnl.dn { color: #9f1239; }
       .book-tab.active .book-tab-pnl:not(.up):not(.dn) { color: rgba(11, 14, 17, 0.55); }
+      @media (max-width: 520px) {
+        .book-tabs { gap: 6px; }
+        .book-tab {
+          flex-direction: column;
+          align-items: flex-start;
+          justify-content: center;
+          gap: 2px;
+          padding: 8px 10px;
+          font-size: 11px;
+        }
+        .book-tab-pnl { font-size: 11px; }
+      }
       .mirror-chip {
         display: inline-block; font-size: 10px; font-weight: 700;
         letter-spacing: 0.04em; text-transform: uppercase;
@@ -209,26 +231,77 @@
         border: 1px solid var(--tt-border);
         border-radius: 14px;
       }
-      .eq-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+      .eq-header {
+        display: flex; justify-content: space-between; align-items: baseline;
+        gap: 10px; flex-wrap: wrap; margin-bottom: 8px;
+      }
       .eq-title { font-size: 14px; font-weight: 800; color: var(--tt-text); }
       .eq-sub { font-size: 11px; color: var(--tt-text-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+      .eq-range {
+        font-family: var(--tt-font-mono); color: var(--tt-text-muted); font-size: 11px;
+        white-space: nowrap;
+      }
+      /* Headline KPI strip — Account · Total · Open · Closed · Realized */
+      .eq-kpi-strip {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+        margin: 10px 0 14px;
+      }
       .eq-stats {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 10px;
         margin: 14px 0;
       }
-      @media (max-width: 640px) { .eq-stats { grid-template-columns: 1fr 1fr; } }
       .eq-stat {
         padding: 10px 12px;
         background: var(--tt-bg-elev);
         border: 1px solid var(--tt-border);
         border-radius: 10px;
+        min-width: 0;
       }
       .eq-stat-label { font-size: 10px; color: var(--tt-text-dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
-      .eq-stat-value { font-size: 18px; font-weight: 700; font-family: var(--tt-font-mono); }
+      .eq-stat-value {
+        font-size: 18px; font-weight: 700; font-family: var(--tt-font-mono);
+        word-break: break-word;
+      }
+      .eq-stat-value.eq-stat-value--sm { font-size: 16px; }
+      .eq-stat-meta {
+        color: var(--tt-text-faint); font-size: 11px; margin-left: 6px;
+        white-space: nowrap;
+      }
       .eq-stat-value.up { color: var(--tt-up-soft); }
       .eq-stat-value.dn { color: var(--tt-dn-soft); }
+      .acct-head {
+        display: flex; align-items: center; justify-content: space-between;
+        flex-wrap: wrap; gap: 10px; margin-bottom: 10px;
+      }
+      @media (max-width: 720px) {
+        .eq-card { padding: 12px 12px; }
+        .eq-kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        /* Odd 5th KPI (Realized) spans full width so it isn't a lonely half-card. */
+        .eq-kpi-strip > .eq-stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+        .eq-stats { grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+        .eq-stat { padding: 8px 10px; }
+        .eq-stat-value { font-size: 15px; }
+        .eq-stat-value.eq-stat-value--sm { font-size: 15px; }
+        .eq-stat-meta { display: block; margin-left: 0; margin-top: 2px; font-size: 10px; }
+        .eq-range { font-size: 10px; white-space: normal; }
+        .eq-chart { height: 200px; }
+        .tf-chips { width: 100%; justify-content: space-between; }
+        .tf-chip { flex: 1 1 0; text-align: center; padding: 6px 4px; }
+        .acct-head { align-items: flex-start; width: 100%; }
+        .acct-head > div:first-child { width: 100%; }
+        /* Tables scroll horizontally instead of blowing the viewport. */
+        .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .tbl { min-width: 640px; }
+        .tbl--condensed { min-width: 520px; }
+      }
+      @media (max-width: 380px) {
+        .eq-kpi-strip { gap: 6px; }
+        .eq-stat-label { font-size: 9px; letter-spacing: 0.06em; }
+      }
       .eq-chart {
         position: relative;
         height: 240px;
@@ -847,49 +920,42 @@
               h("div", { className: "eq-sub" }, sub),
               h("div", { className: "eq-title" }, title),
             ),
-            h("div", { style: { fontFamily: "var(--tt-font-mono)", color: "var(--tt-text-muted)", fontSize: 11 } },
+            h("div", { className: "eq-range" },
               points.length > 0 ? `${fmtDate(points[0].date)} → ${fmtDate(points[points.length - 1].date)}` : "—",
             ),
           ),
           // ── Headline KPI strip (5 cards) — matches /simulation-dashboard
           //    PortfolioColumn exactly: Account · Total P&L · Open P&L ·
-          //    Closed · Realized.
-          h("div", {
-            style: {
-              display: "grid",
-              gridTemplateColumns: "repeat(5, 1fr)",
-              gap: 8,
-              margin: "10px 0 14px",
-            },
-          },
-            h("div", { className: "eq-stat", style: { padding: "8px 10px" } },
+          //    Closed · Realized. Mobile: 2-col grid (no horizontal clip).
+          h("div", { className: "eq-kpi-strip" },
+            h("div", { className: "eq-stat" },
               h("div", { className: "eq-stat-label" }, "Account"),
-              h("div", { className: "eq-stat-value", style: { fontSize: 16 } }, fmtUsdK(account)),
+              h("div", { className: "eq-stat-value eq-stat-value--sm" }, fmtUsdK(account)),
             ),
-            h("div", { className: "eq-stat", style: { padding: "8px 10px" } },
+            h("div", { className: "eq-stat" },
               h("div", { className: "eq-stat-label" }, "Total P&L"),
-              h("div", { className: `eq-stat-value ${totalPnl >= 0 ? "up" : "dn"}`, style: { fontSize: 16 } },
+              h("div", { className: `eq-stat-value eq-stat-value--sm ${totalPnl >= 0 ? "up" : "dn"}` },
                 fmtUsdSigned(totalPnl),
               ),
             ),
-            h("div", { className: "eq-stat", style: { padding: "8px 10px" } },
+            h("div", { className: "eq-stat" },
               h("div", { className: "eq-stat-label" }, "Open P&L"),
-              h("div", { className: `eq-stat-value ${openPnl == null ? "" : openPnl >= 0 ? "up" : "dn"}`, style: { fontSize: 16 } },
+              h("div", { className: `eq-stat-value eq-stat-value--sm ${openPnl == null ? "" : openPnl >= 0 ? "up" : "dn"}` },
                 openPnl == null ? "—" : fmtUsdSigned(openPnl),
               ),
             ),
-            h("div", { className: "eq-stat", style: { padding: "8px 10px" } },
+            h("div", { className: "eq-stat" },
               h("div", { className: "eq-stat-label" }, "Closed"),
-              h("div", { className: "eq-stat-value", style: { fontSize: 16 } },
+              h("div", { className: "eq-stat-value eq-stat-value--sm" },
                 String(closedCount),
-                h("span", { style: { color: "var(--tt-text-faint)", fontSize: 11, marginLeft: 6 } },
+                h("span", { className: "eq-stat-meta" },
                   `${winLoss.wins}W / ${winLoss.losses}L`,
                 ),
               ),
             ),
-            h("div", { className: "eq-stat", style: { padding: "8px 10px" } },
+            h("div", { className: "eq-stat" },
               h("div", { className: "eq-stat-label" }, "Realized"),
-              h("div", { className: `eq-stat-value ${realized >= 0 ? "up" : "dn"}`, style: { fontSize: 16 } },
+              h("div", { className: `eq-stat-value eq-stat-value--sm ${realized >= 0 ? "up" : "dn"}` },
                 fmtUsdSigned(realized),
               ),
             ),
@@ -1324,17 +1390,34 @@
         return LANE_META[lane] || { key: lane || "trader", label: String(lane || "—"), pill: "lane-trader" };
       }
 
-      // ── TradeHistory — closed trades across all lanes (most recent first).
+      const tradeLane = (typeof window !== "undefined" && window.TimedPortfolioBookUtils?.tradeLane)
+        ? window.TimedPortfolioBookUtils.tradeLane
+        : (t) => String(t?._lane || t?._paper_lane || "").trim();
+      const tradeMatchesLane = (typeof window !== "undefined" && window.TimedPortfolioBookUtils?.tradeMatchesLane)
+        ? window.TimedPortfolioBookUtils.tradeMatchesLane
+        : (t, laneFilter) => {
+            if (!laneFilter || laneFilter === "all") return true;
+            return tradeLane(t) === laneFilter;
+          };
+
+      // ── TradeHistory — closed trades for one book (most recent first).
       function TradeHistory({ trades, laneFilter, onSelectTicker, title }) {
         const rows = useMemo(() => {
           if (!Array.isArray(trades)) return [];
           return trades
             .filter((t) => {
               const s = String(t?.status || "").toUpperCase();
-              const closed = s === "WIN" || s === "LOSS" || s === "FLAT" || s === "CLOSED" || !!(t?.exit_ts ?? t?.exitTs);
+              const hasExit = !!(t?.exit_ts ?? t?.exitTs)
+                || Number.isFinite(Number(t?.exit_price ?? t?.exitPrice));
+              // Require a real exit leg. Investor BUY/DCA lots often carry
+              // status CLOSED after the position flatters — they are not
+              // closed-trade history rows.
+              const closed = hasExit && (
+                s === "WIN" || s === "LOSS" || s === "FLAT" || s === "CLOSED"
+                || !!(t?.exit_ts ?? t?.exitTs)
+              );
               if (!closed) return false;
-              if (!laneFilter || laneFilter === "all") return true;
-              return String(t?._lane || "") === laneFilter;
+              return tradeMatchesLane(t, laneFilter);
             })
             .sort((a, b) => Number(b?.exit_ts || b?.exitTs || 0) - Number(a?.exit_ts || a?.exitTs || 0));
         }, [trades, laneFilter]);
@@ -1369,7 +1452,7 @@
                       const realized = Number(t?.realized_pnl ?? t?.realizedPnl ?? t?.pnl);
                       const realizedPct = Number(t?.realized_pct ?? t?.realizedPct ?? t?.pct_return);
                       const result = String(t?.status || "").toUpperCase() || (realized > 0 ? "WIN" : realized < 0 ? "LOSS" : "FLAT");
-                      const meta = laneMeta(t?._lane);
+                      const meta = laneMeta(tradeLane(t) || t?._lane);
                       const openTicker = () => {
                         if (typeof onSelectTicker === "function") onSelectTicker(sym);
                         else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
@@ -1678,24 +1761,28 @@
         );
         const dayTradeHistory = useMemo(() => {
           if (!Array.isArray(paperHistory)) return paperHistory;
-          return paperHistory.filter((t) => String(t?._lane || t?._paper_lane || "") === "index_day_trade");
+          return paperHistory
+            .filter((t) => tradeMatchesLane(t, "index_day_trade"))
+            .map((t) => ({
+              ...t,
+              _lane: tradeLane(t) || "index_day_trade",
+              _lane_label: t._lane_label || laneMeta("index_day_trade").label,
+            }));
         }, [paperHistory]);
 
-        const allHistory = useMemo(() => {
+        // Per-book history for TradeHistory. Do NOT feed a merged
+        // allHistory + client filter — a missing `_lane` on investor
+        // lots (CF) previously failed open into Day Trader.
+        const bookHistory = useMemo(() => {
           const tag = (arr, lane) => (Array.isArray(arr) ? arr : []).map((t) => ({
             ...t,
-            _lane: t._lane || lane,
+            _lane: tradeLane(t) || lane,
             _lane_label: t._lane_label || laneMeta(lane).label,
           }));
-          return [
-            ...tag(traderHistory, "trader"),
-            ...tag(investorHistory, "investor"),
-            ...tag(paperHistory, null).map((t) => ({
-              ...t,
-              _lane: t._lane || t._paper_lane || "index_day_trade",
-            })),
-          ];
-        }, [traderHistory, investorHistory, paperHistory]);
+          if (activeBook === "investor") return tag(investorHistory, "investor");
+          if (activeBook === "day_trade") return Array.isArray(dayTradeHistory) ? dayTradeHistory : [];
+          return tag(traderHistory, "trader");
+        }, [activeBook, traderHistory, investorHistory, dayTradeHistory]);
 
         const [verdictMap, setVerdictMap] = useState({});
         useEffect(() => {
@@ -1869,7 +1956,7 @@
 
             // Equity curve for the selected book
             h("section", { className: "tt-row" },
-              h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 } },
+              h("div", { className: "acct-head" },
                 h("div", null,
                   h("div", { className: "tt-sec-title" }, "ACCOUNT VALUE"),
                   h("div", { className: "tt-sec-h", style: { margin: 0 } }, book.label, " equity"),
@@ -1961,10 +2048,10 @@
               }),
             ),
 
-            // Trade history for the selected book
+            // Trade history for the selected book (book-scoped payload)
             (traderHistory || investorHistory || paperHistory)
               ? h(TradeHistory, {
-                  trades: allHistory,
+                  trades: bookHistory,
                   laneFilter: book.historyLane,
                   onSelectTicker,
                   title: `${book.label} — closed trades`,
