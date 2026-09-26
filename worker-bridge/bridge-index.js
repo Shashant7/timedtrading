@@ -49,6 +49,14 @@ import {
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
 import * as WebullAdapter from "./bridge-webull.js";
+import * as EtradeAdapter from "./bridge-etrade.js";
+import {
+  handleEtradeConnect,
+  handleEtradeOauthStart,
+  handleEtradeOauthCallback,
+  handleEtradeOauthDisconnect,
+} from "./bridge-etrade-auth.js";
+import { etradeConsumerConfigured } from "./bridge-etrade-config.js";
 import { webullAuthMode, webullConnectConfigured, webullCredentialsConfigured, webullPersonalConfigured, isBridgeMockMode } from "./bridge-webull-config.js";
 import {
   usableBuyingPower,
@@ -78,7 +86,7 @@ import {
 import { attachPortfolioOptions } from "./bridge-positions-options.js";
 
 // 2026-05-29 — broker-router. Each user record carries a `broker`
-// field (`"robinhood"` | `"ibkr"` | `"webull"`); the router picks the right
+// field (`"robinhood"` | `"ibkr"` | `"webull"` | `"etrade"`); the router picks the right
 // adapter at order-time. Mock mode + hard caps + audit log work
 // identically for all — the only thing that changes is the actual
 // HTTPS call into the broker's API.
@@ -86,6 +94,7 @@ function brokerAdapterFor(user) {
   const b = String(user?.broker || "robinhood").toLowerCase();
   if (b === "ibkr") return IbkrAdapter;
   if (b === "webull") return WebullAdapter;
+  if (b === "etrade") return EtradeAdapter;
   return RobinhoodAdapter; // default
 }
 // Re-exported tool-call shim for legacy /bridge/test/rh-call path —
@@ -353,6 +362,7 @@ export default {
           webull_credentials_configured: webullCredentialsConfigured(env),
           webull_personal_configured: webullPersonalConfigured(env),
           webull_connect_configured: webullConnectConfigured(env),
+          etrade_consumer_configured: etradeConsumerConfigured(env),
           webull_environment: env?.WEBULL_ENVIRONMENT || "uat",
           fanout_enabled: String(env?.BROKER_FANOUT_ENABLED || "").toLowerCase() === "true",
           manifest_enforce: String(env?.BROKER_MANIFEST_ENFORCE || "on").toLowerCase(),
@@ -490,6 +500,25 @@ export default {
         }
       }
 
+      // 2026-09-26 — E*TRADE scaffold (OAuth 1.0a). Mock connect works
+      // without keys; live request-token exchange is gated 501 until
+      // HMAC-SHA1 signing ships.
+      if (method === "POST" && path === "/bridge/etrade/connect") {
+        if (operatorFail) return operatorFail;
+        return handleEtradeConnect(env, req);
+      }
+      if (method === "POST" && path === "/bridge/etrade/oauth/start") {
+        if (operatorFail) return operatorFail;
+        return handleEtradeOauthStart(env, req);
+      }
+      if (method === "GET" && path === "/bridge/etrade/oauth/callback") {
+        return handleEtradeOauthCallback(env, req);
+      }
+      if (method === "POST" && path === "/bridge/etrade/oauth/disconnect") {
+        if (operatorFail) return operatorFail;
+        return handleEtradeOauthDisconnect(env, req);
+      }
+
       if (method === "GET" && path === "/bridge/status") {
         if (operatorFail) return operatorFail;
         const users = await listConnectedUsers(env);
@@ -502,6 +531,7 @@ export default {
           webull_credentials_configured: webullCredentialsConfigured(env),
           webull_personal_configured: webullPersonalConfigured(env),
           webull_connect_configured: webullConnectConfigured(env),
+          etrade_consumer_configured: etradeConsumerConfigured(env),
           users: users.map(_redactUserForList),
           users_count: users.length,
           ts: Date.now(),
