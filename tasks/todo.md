@@ -184,6 +184,15 @@ the broker, new tables.
       immediately via `POST /timed/admin/index-dt/heal-closes`
 
 ### Active
+## Active — Ops desk: briefs / discovery / calibration (2026-09-25)
+
+- [x] Double evening brief: claim lock + email date dedupe (17:00 still
+      generating when 18:00 catch-up starts)
+- [x] Discovery alert: surface top knob recs (capture 4.9% is expected
+      thin ST overlap — act on Rec A/B, don't raise floor)
+- [x] Calibration BLOCKED: Discord shows WFO SQN numbers; keep fail-closed
+      on WARNING (do not pretend PASS)
+
 ## Active — Daily Brief miss / OOM catch-up (2026-09-24)
 
 - [x] Root cause: tt-research `exceededMemory` at 13:01 UTC on morning slot
