@@ -158,6 +158,11 @@ id = "e48593af3ef74bf986b2592909ed40cb"
 #   WEBULL_CONNECT_CLIENT_ID   Connect partner client id (WEBULL_AUTH_MODE=connect)
 #   WEBULL_CONNECT_CLIENT_SECRET
 #   WEBULL_OAUTH_REDIRECT_URI    Optional override (default: .../bridge/webull/oauth/callback)
+#   ETRADE_CONSUMER_KEY          E*TRADE OAuth 1.0a consumer key (sandbox first)
+#   ETRADE_CONSUMER_SECRET       E*TRADE consumer secret
+#   ETRADE_OAUTH_CALLBACK_URL    Optional override (.../bridge/etrade/oauth/callback)
+#   ETRADE_SANDBOX               "true" (default) → apisb.etrade.com; "false" → api.etrade.com
+#   ETRADE_LIVE_ENABLED          "true" only after OAuth signing + renew cron are proven
 #
 # Dashboard: Workers & Pages → tt-broker-bridge → Settings → Variables → Secrets → Edit
 # Replace placeholder values for WEBULL_APP_KEY / WEBULL_APP_SECRET after first deploy.

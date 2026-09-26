@@ -991,3 +991,21 @@ own broker) is a planned product expansion. Architecture is mostly
 there — see [`../tasks/2026-06-01-byob-broker-connect-plan.md`](../tasks/2026-06-01-byob-broker-connect-plan.md)
 for the 4-phase rollout (Connect-Broker UI → Robinhood OAuth →
 IBKR per-user wizard → compliance + observability).
+
+## E*TRADE (scaffold — 2026-09-26)
+
+Fourth adapter on `tt-broker-bridge`. Mock connect + market equity
+planner work today; live trading is blocked on OAuth 1.0a HMAC-SHA1
+signing and a **midnight-ET / 2h-idle renew cron** (E*TRADE access
+tokens do not behave like Webull refresh tokens).
+
+| Item | Path |
+|---|---|
+| Plan | [`../tasks/2026-09-26-etrade-broker-mirror-plan.md`](../tasks/2026-09-26-etrade-broker-mirror-plan.md) |
+| Registry | `worker-bridge/bridge-brokers.js` → `etrade` |
+| Adapter | `worker-bridge/bridge-etrade.js` |
+| Auth | `worker-bridge/bridge-etrade-auth.js` (`POST /bridge/etrade/connect`) |
+| Secrets | `ETRADE_CONSUMER_KEY`, `ETRADE_CONSUMER_SECRET` (sandbox first) |
+
+Mock smoke: `POST /bridge/etrade/connect` with `{ user_id, etrade_account_id }`
+while `BROKER_BRIDGE_MOCK=true`, then place via `/bridge/order`.

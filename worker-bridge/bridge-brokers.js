@@ -159,6 +159,52 @@ export const BROKER_REGISTRY = {
       },
     },
   },
+  etrade: {
+    id: "etrade",
+    label: "E*TRADE",
+    connectKind: "oauth1a",
+    connectPath: "/bridge/etrade/connect",
+    oauthStartPath: "/bridge/etrade/oauth/start",
+    disconnectPath: "/bridge/etrade/oauth/disconnect",
+    supportsOptions: true,       // API supports equity + option orders (not wired yet)
+    supportsShorts: true,        // API supports sell short (not wired / gated)
+    status: "scaffold",
+    accountField: "etrade_account_id",
+    multiAccount: false,
+    // Access tokens die at midnight ET and after ~2h idle — renew required
+    // before unattended mirror can go live.
+    notes: "OAuth 1.0a scaffold. Mock adapter only until consumer keys + signing + renew cron.",
+    capabilities: {
+      native: {
+        equity: orderKinds({ market: true, limit: true, stop: true, stop_limit: true }),
+        options: orderKinds({ market: true, limit: true }),
+        options_multi_leg: false,
+        bracket: false,
+        oco: false,
+        replace: true,
+        fractional: false,
+        list_accounts: true,
+        read_positions: true,
+        read_fills: true,
+        tif: ["DAY", "GTC", "IOC"],
+      },
+      // Scaffold: mock market equity only. Live kinds flip on when REST is wired.
+      adapter: {
+        equity: orderKinds({ market: true }),
+        options: orderKinds({}),
+        options_multi_leg: false,
+        bracket: false,
+        oco: false,
+        replace: false,
+        fractional: false,
+        list_accounts: false,
+        read_positions: true,
+        read_fills: true,
+        cancel: true,
+        tif: ["DAY"],
+      },
+    },
+  },
 };
 
 export function listBrokers() {
@@ -187,6 +233,7 @@ export function resolveBrokerAccountId(user) {
   const id = user.webull_account_id
     ?? user.ibkr_account_id
     ?? user.rh_account_number
+    ?? user.etrade_account_id
     ?? user.account_id
     ?? user.broker_account_id
     ?? null;
@@ -200,6 +247,7 @@ export function resolveBrokerId(user) {
   if (user.broker) return String(user.broker).toLowerCase();
   if (user.webull_account_id || user.owner_email) return "webull";
   if (user.ibkr_account_id) return "ibkr";
+  if (user.etrade_account_id) return "etrade";
   if (user.rh_account_number) return "robinhood";
   return null;
 }

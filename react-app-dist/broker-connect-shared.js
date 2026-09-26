@@ -26,6 +26,14 @@
       credentialsKey: null,
       comingSoon: true,
     },
+    etrade: {
+      id: "etrade",
+      label: "E*TRADE",
+      blurb: "OAuth 1.0a scaffold — mock connect ready; live trading blocked on consumer keys + daily token renew.",
+      credentialsKey: "etrade_consumer_configured",
+      comingSoon: true,
+      scaffold: true,
+    },
   };
 
   function webullAuthMode(status) {
@@ -62,6 +70,7 @@
     return user.webull_account_id
       || user.ibkr_account_id
       || user.rh_account_number
+      || user.etrade_account_id
       || user.account_id
       || null;
   }

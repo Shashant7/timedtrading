@@ -184,6 +184,16 @@ the broker, new tables.
       immediately via `POST /timed/admin/index-dt/heal-closes`
 
 ### Active
+## Active — E*TRADE broker mirror scaffold (2026-09-26)
+
+Operator clarified: support E*TRADE as a broker mirror (not Portfolio
+mirror chips). Fourth adapter on tt-broker-bridge.
+
+- [x] Registry + mock adapter + connect routes + order-plan
+- [x] Plan doc (OAuth 1.0a + midnight renew constraint)
+- [ ] Live OAuth 1.0a signing + renew cron (blocked on consumer keys)
+- [ ] Sandbox place/cancel/positions; then production
+
 ## Active — Portfolio book-tab PnL % (2026-09-25)
 
 Operator: show Total P&L % next to Short Term / Long Term / Day Trader
