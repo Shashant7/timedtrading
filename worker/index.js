@@ -922,6 +922,7 @@ import {
   filterDayTradeClosedTrades as _filterDayTradeClosedTrades,
 } from "./day-trade-ledger.js";
 import { extraActionFromLedger, modelRowFromDayTradeAction, modelRowFromIndexTrendAction, applyPaperMirrorLog, paperMirrorLogSide } from "./broker-day-actions-join.js";
+import { attachOpenTradeBrokerMirror } from "./open-trade-broker-mirror.js";
 import { maybeAutoMirrorIndexTrendEvent as _itAutoMirror, INDEX_TREND_MIRROR_LOG_KEY, indexTrendShouldCatchUpOpenEntry, indexTrendCatchUpPlaced, indexTrendCloseReadyToFinalize } from "./index-trend-auto-mirror.js";
 import { dcaSweepShouldMarkClean } from "./investor-dca-sweep.js";
 import {
@@ -89286,8 +89287,24 @@ export default {
         if (useD1) {
           if (source === "positions") {
             d1Trades = await d1GetAllPositionsAsTrades(env);
+            if (Array.isArray(d1Trades) && d1Trades.length) {
+              try { d1Trades = await attachOpenTradeBrokerMirror(env, d1Trades, { lane: "equity" }); }
+              catch (_) { /* mirror enrich best-effort */ }
+            }
           } else if (source === "paper") {
             d1Trades = await listOpenPaperLaneTrades(env);
+            if (Array.isArray(d1Trades) && d1Trades.length) {
+              try {
+                const dt = d1Trades.filter((t) => t?._paper_lane === "index_day_trade");
+                const it = d1Trades.filter((t) => t?._paper_lane === "index_swing");
+                const rest = d1Trades.filter((t) => t?._paper_lane !== "index_day_trade" && t?._paper_lane !== "index_swing");
+                const [dtE, itE] = await Promise.all([
+                  attachOpenTradeBrokerMirror(env, dt, { lane: "index_day_trade" }),
+                  attachOpenTradeBrokerMirror(env, it, { lane: "index_swing" }),
+                ]);
+                d1Trades = [...dtE, ...itE, ...rest];
+              } catch (_) { /* mirror enrich best-effort */ }
+            }
           } else if (source === "paper_history") {
             // Closed Day-Trade / Index-Swing rows + raw action tape for Portfolio.
             const hist = await listPaperLaneHistory(env);
@@ -97879,7 +97896,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             enriched.push(item);
           }
 
-          return sendJSON({ ok: true, positions: enriched }, 200, corsHeaders(env, req));
+          let positionsOut = enriched;
+          try {
+            positionsOut = await attachOpenTradeBrokerMirror(env, enriched.map((p) => ({
+              ...p,
+              trade_id: p.id || p.position_id || p.trade_id,
+            })), { lane: "equity" });
+          } catch (_) { /* mirror enrich best-effort */ }
+
+          return sendJSON({ ok: true, positions: positionsOut }, 200, corsHeaders(env, req));
         } catch (err) {
           return sendJSON({ ok: false, error: err.message }, 500, corsHeaders(env, req));
         }
