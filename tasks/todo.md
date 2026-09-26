@@ -2238,6 +2238,21 @@ but WR / PnL% / PnL$ are all 0.
 
 ---
 
+## Active — Mojo ablation weekend (2026-09-26)
+
+Prove list/FSD influence vs technicals vs universe noise on preprod.
+
+Plan: `tasks/2026-09-26-mojo-ablation-weekend.md`
+
+- [x] Parity finding: preprod missing focus_tier_enabled (live ON)
+- [x] Ablation knobs + `scripts/mojo-ablation-arm.mjs` + REPLAY_DA_KEYS
+- [x] Replay defaults: Upticks/Granny OFF (block KV look-ahead)
+- [ ] Deploy branch to preprod + re-sync config after deploy
+- [ ] Run A0→A4 on U24 (Jul 2026), then universe B arms
+- [ ] Realized-$ table + live knob recommendation
+
+---
+
 ## Active — Clear #system-alerts spam (2026-09-26)
 
 Live: `model_broker_coverage` fail = DIA index_dt ENTRY `order_rejected` (unhealable);

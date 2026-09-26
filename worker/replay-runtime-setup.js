@@ -365,6 +365,12 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_focus_tier_b_floor",
   "deep_audit_focus_tier_c_floor",
   "deep_audit_focus_min_entry_conviction",
+  // 2026-09-26 — list/context bonus ablation (mojo weekend)
+  "deep_audit_focus_bonus_tt_selected",
+  "deep_audit_focus_bonus_upticks",
+  "deep_audit_focus_bonus_granny",
+  "deep_audit_focus_bonus_context",
+  "deep_audit_focus_bonus_recent_winner",
   // 2026-06-13 (Part 2/4): dead-knob fix + Tier-C suspension. hard_min is
   // the tunable absolute clamp (default 60) so the floor can be LOWERED,
   // not only raised; suspend_tier_c (default true) blocks the exploratory

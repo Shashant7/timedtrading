@@ -8,6 +8,7 @@ import {
   computeConvictionScore,
   attachFocusListEnv,
   stampFocusConvictionFields,
+  resolveFocusBonusPolicy,
   TT_SELECTED_DEFAULT,
 } from "./focus-tier.js";
 
@@ -95,10 +96,50 @@ describe("conviction overlay lists", () => {
       ttSelected: TT_SELECTED_DEFAULT,
       currentGrannyEtfHoldings: new Set(["NVDA"]),
       currentUpticks: new Set(["DDOG"]),
+      isReplay: false,
     });
     expect(conv.breakdown.bonuses.tt_selected).toBe(15);
     expect(conv.breakdown.bonuses.upticks).toBe(10);
     expect(conv.breakdown.bonuses.granny_etf).toBe(0);
+  });
+
+  it("zeros research list bonuses in replay unless explicitly armed", () => {
+    expect(resolveFocusBonusPolicy({}, { isReplay: true })).toMatchObject({
+      tt_selected: true,
+      upticks: false,
+      granny: false,
+      context: true,
+    });
+    const replay = computeConvictionScore({
+      tickerData: baseTicker({ ticker: "DDOG" }),
+      ctx: {},
+      historyStats: null,
+      ttSelected: TT_SELECTED_DEFAULT,
+      currentGrannyEtfHoldings: new Set(["DDOG"]),
+      currentUpticks: new Set(["DDOG"]),
+      isReplay: true,
+    });
+    expect(replay.breakdown.bonuses.tt_selected).toBe(15);
+    expect(replay.breakdown.bonuses.upticks).toBe(0);
+    expect(replay.breakdown.bonuses.granny_etf).toBe(0);
+
+    const techOnly = computeConvictionScore({
+      tickerData: baseTicker({ ticker: "DDOG" }),
+      ctx: {},
+      historyStats: null,
+      ttSelected: TT_SELECTED_DEFAULT,
+      currentUpticks: new Set(["DDOG"]),
+      daCfg: {
+        deep_audit_focus_bonus_tt_selected: "false",
+        deep_audit_focus_bonus_upticks: "false",
+        deep_audit_focus_bonus_granny: "false",
+        deep_audit_focus_bonus_context: "false",
+      },
+      isReplay: false,
+    });
+    expect(techOnly.breakdown.bonuses.tt_selected).toBe(0);
+    expect(techOnly.breakdown.bonuses.upticks).toBe(0);
+    expect(techOnly.breakdown.context.pts).toBe(0);
   });
 
   it("stamps public + internal focus fields after attachFocusListEnv", () => {
