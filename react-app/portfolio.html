@@ -683,12 +683,28 @@
       // defaults to trader; ?mode=investor returns the investor mode's
       // history. Phase 6 fetches both so the calendar + monthly perf
       // tables can render per mode.
+      // True when investor SELLs are present but every one is FLAT/$0 —
+      // the fingerprint of the D1 bind-overflow lot-replay failure.
+      function investorHistoryLooksZeroed(trades) {
+        if (!Array.isArray(trades) || !trades.length) return false;
+        const sells = trades.filter((t) => String(t?.action || "").toUpperCase() === "SELL");
+        if (sells.length < 5) return false;
+        return sells.every((t) => {
+          const pnl = Number(t?.pnl ?? t?.realized_pnl ?? t?.realizedPnl);
+          const st = String(t?.status || "").toUpperCase();
+          return (!Number.isFinite(pnl) || pnl === 0) && (st === "FLAT" || st === "" || !st);
+        });
+      }
+
       async function fetchHistoryByMode(mode) {
         const pageSize = 1000;
         const maxPages = 20;
         const maxRows = 10000;
         const baseQs = new URLSearchParams();
         baseQs.set("limit", String(pageSize));
+        // Cache-bust: Long Term monthly table stuck on a pre-fix
+        // FLAT/pnl:null page when the tab stayed open across deploy.
+        baseQs.set("_t", String(Date.now()));
         if (mode === "investor") baseQs.set("mode", "investor");
 
         const fetchPage = async (cursor) => {
@@ -1604,10 +1620,32 @@
                 setPaperActions([]);
               }
               if (prices) setPriceMap(prices);
+              // Heal: if the first investor page was a cached pre-fix
+              // FLAT/pnl:null payload, refetch once so Monthly PnL is not $0.
+              if (hi?.ok && investorHistoryLooksZeroed(hi.trades || [])) {
+                fetchHistoryByMode("investor").then((again) => {
+                  if (!alive || !again?.ok) return;
+                  if (!investorHistoryLooksZeroed(again.trades || [])) {
+                    setInvestorHistory(again.trades || []);
+                  }
+                }).catch(() => {});
+              }
             } catch (err) { if (alive) setError(String(err?.message || err)); }
           })();
           return () => { alive = false; };
         }, []);
+
+        // Refetch Long Term history when opening that book so a tab left
+        // open across the lot-replay deploy does not keep $0 months.
+        useEffect(() => {
+          if (activeBook !== "investor") return;
+          let alive = true;
+          fetchHistoryByMode("investor").then((hi) => {
+            if (!alive || !hi?.ok) return;
+            setInvestorHistory(hi.trades || []);
+          }).catch(() => {});
+          return () => { alive = false; };
+        }, [activeBook]);
 
         // Right rail overlay state — Portfolio table rows pop the same
         // ticker-detail panel /index-react.html uses.

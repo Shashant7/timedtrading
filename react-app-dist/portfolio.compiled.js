@@ -96,12 +96,23 @@ async function fetchPriceMap() {
     return null;
   }
 }
+function investorHistoryLooksZeroed(trades) {
+  if (!Array.isArray(trades) || !trades.length) return false;
+  const sells = trades.filter(t => String(t?.action || "").toUpperCase() === "SELL");
+  if (sells.length < 5) return false;
+  return sells.every(t => {
+    const pnl = Number(t?.pnl ?? t?.realized_pnl ?? t?.realizedPnl);
+    const st = String(t?.status || "").toUpperCase();
+    return (!Number.isFinite(pnl) || pnl === 0) && (st === "FLAT" || st === "" || !st);
+  });
+}
 async function fetchHistoryByMode(mode) {
   const pageSize = 1000;
   const maxPages = 20;
   const maxRows = 10000;
   const baseQs = new URLSearchParams();
   baseQs.set("limit", String(pageSize));
+  baseQs.set("_t", String(Date.now()));
   if (mode === "investor") baseQs.set("mode", "investor");
   const fetchPage = async cursor => {
     const qs = new URLSearchParams(baseQs);
@@ -1084,6 +1095,14 @@ function PortfolioApp() {
           setPaperActions([]);
         }
         if (prices) setPriceMap(prices);
+        if (hi?.ok && investorHistoryLooksZeroed(hi.trades || [])) {
+          fetchHistoryByMode("investor").then(again => {
+            if (!alive || !again?.ok) return;
+            if (!investorHistoryLooksZeroed(again.trades || [])) {
+              setInvestorHistory(again.trades || []);
+            }
+          }).catch(() => {});
+        }
       } catch (err) {
         if (alive) setError(String(err?.message || err));
       }
@@ -1092,6 +1111,17 @@ function PortfolioApp() {
       alive = false;
     };
   }, []);
+  useEffect(() => {
+    if (activeBook !== "investor") return;
+    let alive = true;
+    fetchHistoryByMode("investor").then(hi => {
+      if (!alive || !hi?.ok) return;
+      setInvestorHistory(hi.trades || []);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [activeBook]);
   const [railTicker, setRailTicker] = useState(null);
   const [railInitialTab, setRailInitialTab] = useState(null);
   const [highlightTradeId, setHighlightTradeId] = useState(null);
@@ -1480,6 +1510,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1790401404468:773866280
+// cache-bust:1790401994960:571295866
 
-// cache-bust:1790401404468:773866280
+// cache-bust:1790401994960:571295866
