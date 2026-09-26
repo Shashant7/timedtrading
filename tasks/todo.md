@@ -197,8 +197,9 @@ book tabs so books are comparable at a glance.
 Operator: each open trade/history row should show whether the model
 action has a live broker mirror (mirrored / not / rejected).
 
-- [ ] Join mirror status onto Portfolio open positions (+ history if cheap)
-- [ ] Reuse day-actions / coverage join; do not invent a second truth
+- [x] Join mirror status onto Portfolio open positions (+ history if cheap)
+- [x] Reuse day-actions / coverage join; do not invent a second truth
+      (equity = manifest sleeves; DT/Index = lane mirror logs)
 
 ## Active — Ops desk: briefs / discovery / calibration (2026-09-25)
 

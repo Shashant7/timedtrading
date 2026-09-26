@@ -647,6 +647,43 @@ function PerformanceSection({
     hideHeadline: true
   }));
 }
+const MIRROR_CHIP = {
+  mirrored: {
+    label: "Mirrored",
+    cls: "mirrored"
+  },
+  pending: {
+    label: "Pending",
+    cls: "pending"
+  },
+  rejected: {
+    label: "Rejected",
+    cls: "rejected"
+  },
+  skipped: {
+    label: "Skipped",
+    cls: "skipped"
+  },
+  not_mirrored: {
+    label: "No mirror",
+    cls: "not_mirrored"
+  },
+  unknown: {
+    label: "—",
+    cls: "unknown"
+  }
+};
+function MirrorChip({
+  status,
+  reason
+}) {
+  const key = String(status || "unknown").toLowerCase();
+  const meta = MIRROR_CHIP[key] || MIRROR_CHIP.unknown;
+  return h("span", {
+    className: `mirror-chip ${meta.cls}`,
+    title: reason ? `${meta.label}: ${reason}` : meta.label
+  }, meta.label);
+}
 const OPEN_PANE_COPY = {
   trader: {
     title: "SHORT TERM · OPEN POSITIONS",
@@ -709,7 +746,7 @@ function OpenPositionsTable({
     "data-accent": accent || mode || "trader"
   }, h("table", {
     className: "tbl tbl--condensed"
-  }, h("thead", null, h("tr", null, h("th", null, mode === "day_trade" || mode === "index_swing" ? "Vehicle" : "Ticker"), showVerdict && h("th", null, "Verdict"), h("th", null, "Bias"), h("th", {
+  }, h("thead", null, h("tr", null, h("th", null, mode === "day_trade" || mode === "index_swing" ? "Vehicle" : "Ticker"), showVerdict && h("th", null, "Verdict"), h("th", null, "Bias"), h("th", null, "Broker"), h("th", {
     className: "num"
   }, "Entry"), h("th", {
     className: "num"
@@ -717,7 +754,7 @@ function OpenPositionsTable({
     className: "num"
   }, "Open P&L $"), h("th", null, "Entry Date"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
     className: "empty",
-    colSpan: showVerdict ? 7 : 6
+    colSpan: showVerdict ? 8 : 7
   }, emptyLabel)) : rows.map(r => {
     const openTicker = () => {
       const sym = r.railSym || r.sym;
@@ -741,7 +778,10 @@ function OpenPositionsTable({
       size: 10
     }) : "—"), h("td", {
       className: r.dir === "LONG" ? "up" : "dn"
-    }, r.dir), h("td", {
+    }, r.dir), h("td", null, h(MirrorChip, {
+      status: r.brokerMirror,
+      reason: r.brokerMirrorReason
+    })), h("td", {
       className: "num"
     }, fmtUsdDec(r.ep)), h("td", {
       className: `num ${plPctCls}`
@@ -775,7 +815,9 @@ function buildTraderRows(trades, priceMap, onSelect) {
       cur,
       plPct,
       plDollar,
-      status: s || "OPEN"
+      status: s || "OPEN",
+      brokerMirror: t?.broker_mirror || null,
+      brokerMirrorReason: t?.broker_mirror_reason || null
     });
   }
   out.sort((a, b) => {
@@ -820,7 +862,9 @@ function buildInvestorRows(investorPositions, priceMap, onSelect) {
       cur,
       plPct: Number.isFinite(plPct) ? plPct : null,
       plDollar: Number.isFinite(plDollar) ? plDollar : null,
-      status: String(p?.investor_stage || p?.status || "OPEN").toUpperCase()
+      status: String(p?.investor_stage || p?.status || "OPEN").toUpperCase(),
+      brokerMirror: p?.broker_mirror || null,
+      brokerMirrorReason: p?.broker_mirror_reason || null
     });
   }
   out.sort((a, b) => {
@@ -868,7 +912,9 @@ function buildPaperRows(paperTrades, lane, onSelect) {
       cur,
       plPct: Number.isFinite(plPct) ? plPct : null,
       plDollar: Number.isFinite(plDollar) ? plDollar : null,
-      status: s || "OPEN"
+      status: s || "OPEN",
+      brokerMirror: t?.broker_mirror || null,
+      brokerMirrorReason: t?.broker_mirror_reason || null
     });
   }
   out.sort((a, b) => {
@@ -1476,6 +1522,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1790376770157:481949923
+// cache-bust:1790381278404:823896390
 
-// cache-bust:1790376770157:481949923
+// cache-bust:1790381278404:823896390

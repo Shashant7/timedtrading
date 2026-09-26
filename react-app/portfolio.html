@@ -171,6 +171,19 @@
       .book-tab.active .book-tab-pnl.up { color: #065f46; }
       .book-tab.active .book-tab-pnl.dn { color: #9f1239; }
       .book-tab.active .book-tab-pnl:not(.up):not(.dn) { color: rgba(11, 14, 17, 0.55); }
+      .mirror-chip {
+        display: inline-block; font-size: 10px; font-weight: 700;
+        letter-spacing: 0.04em; text-transform: uppercase;
+        padding: 2px 7px; border-radius: 999px;
+        border: 1px solid var(--tt-border); color: var(--tt-text-dim);
+        background: rgba(255,255,255,0.03); white-space: nowrap;
+      }
+      .mirror-chip.mirrored { color: #34d399; border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.10); }
+      .mirror-chip.pending { color: #fbbf24; border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.10); }
+      .mirror-chip.rejected { color: #fb7185; border-color: rgba(251,113,133,0.35); background: rgba(251,113,133,0.10); }
+      .mirror-chip.skipped,
+      .mirror-chip.not_mirrored { color: var(--tt-text-muted); }
+      .mirror-chip.unknown { color: var(--tt-text-faint); }
       .tf-chips {
         display: inline-flex; gap: 4px; flex-wrap: wrap;
         background: var(--tt-bg-elev); border: 1px solid var(--tt-border);
@@ -1027,6 +1040,23 @@
       // / Entry Date. Current price + Status dropped — Current is
       // implicit in the live Open P&L; Status was redundant with the
       // section header.
+      const MIRROR_CHIP = {
+        mirrored: { label: "Mirrored", cls: "mirrored" },
+        pending: { label: "Pending", cls: "pending" },
+        rejected: { label: "Rejected", cls: "rejected" },
+        skipped: { label: "Skipped", cls: "skipped" },
+        not_mirrored: { label: "No mirror", cls: "not_mirrored" },
+        unknown: { label: "—", cls: "unknown" },
+      };
+      function MirrorChip({ status, reason }) {
+        const key = String(status || "unknown").toLowerCase();
+        const meta = MIRROR_CHIP[key] || MIRROR_CHIP.unknown;
+        return h("span", {
+          className: `mirror-chip ${meta.cls}`,
+          title: reason ? `${meta.label}: ${reason}` : meta.label,
+        }, meta.label);
+      }
+
       const OPEN_PANE_COPY = {
         trader: {
           title: "SHORT TERM · OPEN POSITIONS",
@@ -1090,6 +1120,7 @@
                   h("th", null, mode === "day_trade" || mode === "index_swing" ? "Vehicle" : "Ticker"),
                   showVerdict && h("th", null, "Verdict"),
                   h("th", null, "Bias"),
+                  h("th", null, "Broker"),
                   h("th", { className: "num" }, "Entry"),
                   h("th", { className: "num" }, "Open P&L %"),
                   h("th", { className: "num" }, "Open P&L $"),
@@ -1098,7 +1129,7 @@
               ),
               h("tbody", null,
                 rows.length === 0
-                  ? h("tr", null, h("td", { className: "empty", colSpan: showVerdict ? 7 : 6 }, emptyLabel))
+                  ? h("tr", null, h("td", { className: "empty", colSpan: showVerdict ? 8 : 7 }, emptyLabel))
                   : rows.map((r) => {
                       const openTicker = () => {
                         const sym = r.railSym || r.sym;
@@ -1117,6 +1148,10 @@
                             : "—",
                         ),
                         h("td", { className: r.dir === "LONG" ? "up" : "dn" }, r.dir),
+                        h("td", null, h(MirrorChip, {
+                          status: r.brokerMirror,
+                          reason: r.brokerMirrorReason,
+                        })),
                         h("td", { className: "num" }, fmtUsdDec(r.ep)),
                         h("td", { className: `num ${plPctCls}` },
                           Number.isFinite(r.plPct) ? `${r.plPct >= 0 ? "+" : ""}${r.plPct.toFixed(2)}%` : "—",
@@ -1158,6 +1193,8 @@
             entryTs: Number(t?.entry_ts ?? t?.entryTs ?? 0),
             cur, plPct, plDollar,
             status: s || "OPEN",
+            brokerMirror: t?.broker_mirror || null,
+            brokerMirrorReason: t?.broker_mirror_reason || null,
           });
         }
         // Within mode: PnL % return most → least (signed). Missing PnL last.
@@ -1206,6 +1243,8 @@
             plPct: Number.isFinite(plPct) ? plPct : null,
             plDollar: Number.isFinite(plDollar) ? plDollar : null,
             status: String(p?.investor_stage || p?.status || "OPEN").toUpperCase(),
+            brokerMirror: p?.broker_mirror || null,
+            brokerMirrorReason: p?.broker_mirror_reason || null,
           });
         }
         // Within mode: PnL % return most → least (signed). Missing PnL last.
@@ -1259,6 +1298,8 @@
             plPct: Number.isFinite(plPct) ? plPct : null,
             plDollar: Number.isFinite(plDollar) ? plDollar : null,
             status: s || "OPEN",
+            brokerMirror: t?.broker_mirror || null,
+            brokerMirrorReason: t?.broker_mirror_reason || null,
           });
         }
         out.sort((a, b) => {

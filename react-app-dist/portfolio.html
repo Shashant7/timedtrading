@@ -17,38 +17,38 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1790376770157" />
-    <script defer src="/vendor/react.production.min.js?v=1790376770157"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1790376770157"></script>
-    <script defer src="shared-verdict-ui.js?v=1790376770157"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1790376770157" />
-<script defer src="auth-gate.js?v=1790376770157"></script>
-    <script defer src="tt-fetch-cache.js?v=1790376770157"></script>
-    <script src="tt-bottom-nav.js?v=1790376770157" defer></script>
-    <script defer src="investor-nav-badge.js?v=1790376770157"></script>
-    <script src="tt-nav-extras.js?v=1790376770157" defer></script>
-    <script src="tt-global-search.js?v=1790376770157" defer></script>
-    <script src="tt-rail-bridge.js?v=1790376770157" defer></script>
-    <script defer src="shared-price-utils.js?v=1790376770157"></script>
-    <script defer src="portfolio-book-utils.js?v=1790376770157"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1790381278404" />
+    <script defer src="/vendor/react.production.min.js?v=1790381278404"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1790381278404"></script>
+    <script defer src="shared-verdict-ui.js?v=1790381278404"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1790381278404" />
+<script defer src="auth-gate.js?v=1790381278404"></script>
+    <script defer src="tt-fetch-cache.js?v=1790381278404"></script>
+    <script src="tt-bottom-nav.js?v=1790381278404" defer></script>
+    <script defer src="investor-nav-badge.js?v=1790381278404"></script>
+    <script src="tt-nav-extras.js?v=1790381278404" defer></script>
+    <script src="tt-global-search.js?v=1790381278404" defer></script>
+    <script src="tt-rail-bridge.js?v=1790381278404" defer></script>
+    <script defer src="shared-price-utils.js?v=1790381278404"></script>
+    <script defer src="portfolio-book-utils.js?v=1790381278404"></script>
     <!-- TradesPerformance — same component the legacy /simulation-dashboard
          uses. Provides the P&L calendar + monthly perf table + setup
          breakdown. Loaded via window.TradesPerformanceFactory(deps). -->
-    <script defer src="trades-performance.js?v=1790376770157"></script>
+    <script defer src="trades-performance.js?v=1790381278404"></script>
     <!-- Right rail factory + helpers + bootstrap so positions / history
          rows open the same ticker-detail panel /index-react.html uses.
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
-    <script defer src="tt-bubble-map-0714m.compiled.js?v=1790376770157"></script>
-    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1790376770157"></script>
-    <script defer src="shared-list-presets.js?v=1790376770157"></script>
-    <script defer src="shared-mtf-chips.js?v=1790376770157"></script>
-    <script defer src="shared-rail-helpers.js?v=1790376770157"></script>
-    <script defer src="tt-cycle-intel.js?v=1790376770157"></script>
-    <script defer src="tt-harmonic-chart.js?v=1790376770157"></script>
-    <script defer src="shared-right-rail.compiled.js?v=1790376770157"></script>
-    <script defer src="ticker-spider-chart.js?v=1790376770157"></script>
-    <script defer src="shared-rail-bootstrap.js?v=1790376770157"></script>
+    <script defer src="tt-bubble-map-0714m.compiled.js?v=1790381278404"></script>
+    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1790381278404"></script>
+    <script defer src="shared-list-presets.js?v=1790381278404"></script>
+    <script defer src="shared-mtf-chips.js?v=1790381278404"></script>
+    <script defer src="shared-rail-helpers.js?v=1790381278404"></script>
+    <script defer src="tt-cycle-intel.js?v=1790381278404"></script>
+    <script defer src="tt-harmonic-chart.js?v=1790381278404"></script>
+    <script defer src="shared-right-rail.compiled.js?v=1790381278404"></script>
+    <script defer src="ticker-spider-chart.js?v=1790381278404"></script>
+    <script defer src="shared-rail-bootstrap.js?v=1790381278404"></script>
     <style>
       :root {
         --tt-bg-base: #0b0e11;
@@ -177,6 +177,19 @@
       .book-tab.active .book-tab-pnl.up { color: #065f46; }
       .book-tab.active .book-tab-pnl.dn { color: #9f1239; }
       .book-tab.active .book-tab-pnl:not(.up):not(.dn) { color: rgba(11, 14, 17, 0.55); }
+      .mirror-chip {
+        display: inline-block; font-size: 10px; font-weight: 700;
+        letter-spacing: 0.04em; text-transform: uppercase;
+        padding: 2px 7px; border-radius: 999px;
+        border: 1px solid var(--tt-border); color: var(--tt-text-dim);
+        background: rgba(255,255,255,0.03); white-space: nowrap;
+      }
+      .mirror-chip.mirrored { color: #34d399; border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.10); }
+      .mirror-chip.pending { color: #fbbf24; border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.10); }
+      .mirror-chip.rejected { color: #fb7185; border-color: rgba(251,113,133,0.35); background: rgba(251,113,133,0.10); }
+      .mirror-chip.skipped,
+      .mirror-chip.not_mirrored { color: var(--tt-text-muted); }
+      .mirror-chip.unknown { color: var(--tt-text-faint); }
       .tf-chips {
         display: inline-flex; gap: 4px; flex-wrap: wrap;
         background: var(--tt-bg-elev); border: 1px solid var(--tt-border);
@@ -497,7 +510,7 @@
   </head>
   <body class="vf-page">
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1790376770157"></script>
+    <script defer src="shared-nav.js?v=1790381278404"></script>
 
     <div id="root">
       <main>
@@ -505,7 +518,7 @@
       </main>
     </div>
 
-    <script defer src="portfolio.compiled.js?v=1790376770157"></script>
+    <script defer src="portfolio.compiled.js?v=1790381278404"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -513,4 +526,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1790376770157:481949923 -->
+<!-- cache-bust:1790381278404:823896390 -->
