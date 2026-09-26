@@ -208,7 +208,7 @@ clips). Also CF (Long Term) showed under Day Trader closed trades.
 
 - [x] Book tabs 3-col grid; KPI strip 2-col; tf-chips full width; table scroll
 - [x] Book-scoped TradeHistory + fail-closed day-trade lane match (CF out)
-- [ ] Build frontend, phone screenshot, PR
+- [x] Build frontend, phone screenshot, PR
 
 ## Active — Ops desk: briefs / discovery / calibration (2026-09-25)
 
