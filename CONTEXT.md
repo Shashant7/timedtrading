@@ -134,6 +134,13 @@ Single reference for agents. Read this first to avoid context overload.
   Runtime `SECTOR_MAP` is the file map. Hourly
   `registry_alignment` sweep + `GET /timed/admin/registry-alignment`.
   Playbook: `skills/upticks-monthly.md`, `skills/ticker-registry.md`.
+- **TT Selected + FSD Top 5 (2026-09-26):** First Word LC/SMID tables
+  (as-of 8/21) align with GRNY/GRNJ, but TT Selected was only the Sep
+  Upticks sleeve. Folded missing Top 5 Large-Cap / SMID Core Ideas
+  (`ANET`/`BNY`/`JPM`/`LLY`/`CRDO`/`DINO`/`HALO`/`IESC`; `NVDA`/`LITE`
+  already present) into `TT_SELECTED_DEFAULT` + live `timed:admin:upticks`.
+  Full Granny books stay on ETF holdings — do not dump GRNY∪GRNJ into
+  the curated sleeve.
 - **Setup grade (2026-09-10):** fail-closed 0–10 (floor 6) on new core
   **and** paper-family entries (Cloud Pivot / confirm-stack /
   continuation). Index/day-trade stay exempt. Support Bounce is catalog
