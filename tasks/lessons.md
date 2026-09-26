@@ -6,6 +6,18 @@
 
 ---
 
+## TT Selected is not the Granny book [2026-09-26]
+
+First Word reprints the full Large-cap / SMID Core Ideas lists (as of
+8/21). Those line up with GRNY/GRNJ. TT Selected / Upticks is a separate
+curated sleeve (~27 Newton monthly names). Aligning "missing" names
+means folding the **Top 5** Large-Cap / SMID conviction lists into
+`TT_SELECTED_DEFAULT` + `timed:admin:upticks` — not dumping the entire
+ETF holdings book into the +15 curated bonus. Keep code Set and live KV
+equal; rescore every add.
+
+---
+
 ## Long Term Monthly Performance all zeros = D1 100-bind IN (...) [2026-09-26]
 
 Portfolio → Long Term → Monthly Performance showed real trade counts
