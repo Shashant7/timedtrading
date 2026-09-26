@@ -49,11 +49,16 @@ import { resolvePlaySide } from "./ranking/play-side.js";
 // Keep aligned with TT_SELECTED in worker/index.js:~31461.
 export const TT_SELECTED_DEFAULT = new Set([
   // Keep equal to KV timed:admin:upticks after every Newton monthly rotation.
-  // Sep 2026: +DDOG +LITE +NVDA; -IRM -MAR -VLO -VST.
+  // Sep 2026 Upticks: +DDOG +LITE +NVDA; -IRM -MAR -VLO -VST.
+  // 2026-09-26 — also fold in FSD Top 5 Large-Cap / SMID Core Ideas that
+  // were missing from TT Selected (ANET BNY JPM LLY / CRDO DINO HALO IESC;
+  // NVDA + LITE already on the Sep Upticks list). Full GRNY/GRNJ core
+  // books stay on the ETF holdings path, not this curated sleeve.
   // worker/index.js TT_SELECTED is this same Set (do not fork another list).
-  "ALL","AMGN","AMZN","APLD","BA","BABA","BG","BRK-B","CRS","CRWV","CSX",
-  "CVX","DAL","DBA","DDOG","ETHA","GEV","GOOGL","GS","JCI","LITE","MRK",
-  "NVDA","PH","PWR","TSLA","WMT",
+  "ALL","AMGN","AMZN","ANET","APLD","BA","BABA","BG","BNY","BRK-B","CRDO",
+  "CRS","CRWV","CSX","CVX","DAL","DBA","DDOG","DINO","ETHA","GEV","GOOGL",
+  "GS","HALO","IESC","JCI","JPM","LITE","LLY","MRK","NVDA","PH","PWR",
+  "TSLA","WMT",
 ]);
 
 function _f(v, d = 0) {

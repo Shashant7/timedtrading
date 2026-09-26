@@ -13,9 +13,10 @@ import {
 } from "./registry-alignment.js";
 
 const SEP_2026_UPTICKS = [
-  "ALL", "AMGN", "AMZN", "APLD", "BA", "BABA", "BG", "BRK-B", "CRS", "CRWV",
-  "CSX", "CVX", "DAL", "DBA", "DDOG", "ETHA", "GEV", "GOOGL", "GS", "JCI",
-  "LITE", "MRK", "NVDA", "PH", "PWR", "TSLA", "WMT",
+  "ALL", "AMGN", "AMZN", "ANET", "APLD", "BA", "BABA", "BG", "BNY", "BRK-B",
+  "CRDO", "CRS", "CRWV", "CSX", "CVX", "DAL", "DBA", "DDOG", "DINO", "ETHA",
+  "GEV", "GOOGL", "GS", "HALO", "IESC", "JCI", "JPM", "LITE", "LLY", "MRK",
+  "NVDA", "PH", "PWR", "TSLA", "WMT",
 ];
 
 describe("shouldSkipSymbolValidation", () => {

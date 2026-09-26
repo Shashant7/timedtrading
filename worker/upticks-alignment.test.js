@@ -2,11 +2,13 @@ import { describe, it, expect } from "vitest";
 import { TT_SELECTED_DEFAULT } from "./focus-tier.js";
 import { diffUpticksAlignment, normalizeTickerList } from "./upticks-alignment.js";
 
-// Live KV timed:admin:upticks after Upticks – September 2026 (pub 1555299).
+// Live KV timed:admin:upticks after Upticks – September 2026 (pub 1555299)
+// plus FSD Top 5 Large-Cap / SMID Core Ideas missing from that sleeve.
 const SEP_2026_UPTICKS = [
-  "ALL", "AMGN", "AMZN", "APLD", "BA", "BABA", "BG", "BRK-B", "CRS", "CRWV",
-  "CSX", "CVX", "DAL", "DBA", "DDOG", "ETHA", "GEV", "GOOGL", "GS", "JCI",
-  "LITE", "MRK", "NVDA", "PH", "PWR", "TSLA", "WMT",
+  "ALL", "AMGN", "AMZN", "ANET", "APLD", "BA", "BABA", "BG", "BNY", "BRK-B",
+  "CRDO", "CRS", "CRWV", "CSX", "CVX", "DAL", "DBA", "DDOG", "DINO", "ETHA",
+  "GEV", "GOOGL", "GS", "HALO", "IESC", "JCI", "JPM", "LITE", "LLY", "MRK",
+  "NVDA", "PH", "PWR", "TSLA", "WMT",
 ];
 
 describe("upticks alignment", () => {
@@ -14,8 +16,8 @@ describe("upticks alignment", () => {
     const diff = diffUpticksAlignment(SEP_2026_UPTICKS, [...TT_SELECTED_DEFAULT]);
     expect(diff).toEqual({
       aligned: true,
-      live_count: 27,
-      code_count: 27,
+      live_count: 35,
+      code_count: 35,
       missingInCode: [],
       extraInCode: [],
     });
