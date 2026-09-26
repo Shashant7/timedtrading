@@ -493,6 +493,20 @@ export function classifyActionCoverage(action, {
       order_id: null,
     };
   }
+  // 2026-09-26 — DIA index_dt ENTRY sat `unmatched — order_rejected` for the
+  // whole 48h window. The ring already recorded the broker refusal; COO
+  // cannot re-place ENTRIES (they must re-qualify), so the fail re-paged
+  // every coverage cycle and every heal "success". A refused entry is
+  // terminal the same way a declined gate is: the setup is gone.
+  if (isOpenEvent(action.event) && /order_rejected|order_cancelled/i.test(unmatchedReason)) {
+    return {
+      status: "rejected_terminal",
+      reason: String(unmatchedReason).slice(0, 160),
+      known_why: true,
+      broker_qty: 0,
+      order_id: null,
+    };
+  }
   const DEFECT_REDUCE_LANES = new Set(["index_dt", "trader", "index_trend"]);
   const defectReason = (DEFECT_REDUCE_LANES.has(String(action.lane || ""))
     && isReduceEvent(action.event)

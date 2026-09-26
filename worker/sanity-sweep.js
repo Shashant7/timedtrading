@@ -517,9 +517,17 @@ export function diagnoseCronTick({ lastTickMs, lastScoringMs, scoringMeta, nowMs
   }
 
   const lagMin = (now - lastScoring) / 60000;
-  const severity = isMarketHours
-    ? (lagMin > CRON_COMPLETION_FAIL_MIN ? "fail" : lagMin > CRON_COMPLETION_WARN_MIN ? "warn" : "ok")
-    : (lagMin > CRON_OFFHOURS_WARN_MIN ? "warn" : "ok");
+  // Off-hours (nights + weekends) the scoring tail is idle on purpose —
+  // only the heartbeat keeps ticking. A fresh tick + aged
+  // `timed:scoring:last_run` is the normal Friday→Sunday shape, not an
+  // outage. 2026-09-26: weekend lag of 1028min kept `cron_tick_alive`
+  // open and re-paged #system-alerts every fingerprint flip. Only page
+  // completion lag during market hours; off-hours still page a dead tick
+  // (handled above).
+  if (!isMarketHours) return [];
+  const severity = lagMin > CRON_COMPLETION_FAIL_MIN ? "fail"
+    : lagMin > CRON_COMPLETION_WARN_MIN ? "warn"
+    : "ok";
   if (severity === "ok") return [];
 
   const scored = Number(scoringMeta?.scored);
@@ -1586,20 +1594,25 @@ export async function sanitySweepCron(env, ctx, kind = "full") {
     const { syncIncidentsFromSweep, formatIncidentActionLines } = await import("./sanity-incidents.js");
     const incidentSummary = await syncIncidentsFromSweep(env, sweep, healResult);
 
-    // Cooldown gate: same anomaly fingerprint within 4h → skip Discord.
+    // Cooldown gate: same open-anomaly fingerprint → skip Discord.
+    // Do NOT fold heal success into the fingerprint. `_healModelBrokerCoverage`
+    // answers ok:true when every lane ran (or is on cooldown) even while an
+    // unhealable unmatched ENTRY remains — so `heal:model_broker_coverage`
+    // flipped the fingerprint every 4h and re-paged the same DIA reject.
+    // Actions still report heal results in the Discord body when we do page.
     const healedIds = (healResult?.healed || []).map((h) => h.check).filter(Boolean).sort();
     const fingerprint = [
       ...failing.map(c => `fail:${c.id}`),
       ...warning.map(c => `warn:${c.id}:${(c.anomalies?.[0]?.ticker || "x")}`),
       ...(incidentSummary.escalated_count > 0 ? [`esc:${incidentSummary.escalated_count}`] : []),
-      ...(healedIds.length ? [`heal:${healedIds.join(",")}`] : []),
     ].sort().join("|");
     if (!fingerprint) return { ...sweep, incidents: incidentSummary, heal: healResult };
 
     const last = await env.KV_TIMED.get("sanity_sweep:last_alert_fingerprint");
+    // Page on open fails / heavy warn clusters / escalations — not on a
+    // heal that left the same fail set in place.
     const shouldDiscord = failing.length > 0 || warning.length >= 3
-      || incidentSummary.escalated_count > 0
-      || healedIds.length > 0;
+      || incidentSummary.escalated_count > 0;
 
     if (shouldDiscord && last !== fingerprint) {
       const lines = [];

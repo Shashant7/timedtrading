@@ -337,6 +337,36 @@ describe("classifyActionCoverage — index-trend / index DT / convexity", () => 
     expect(classifyActionCoverage(a, { ring: [], nowMs: NOW }).status).toBe("unmatched");
   });
 
+  it("index DT ENTRY order_rejected is terminal (nothing to heal)", () => {
+    // 2026-09-26 — DIA P511 sat unmatched for the full 48h window and
+    // re-paged #system-alerts every cycle. Broker already refused; ENTRIES
+    // must re-qualify, so unmatched forever is spam.
+    const a = modelActionFromIndexDt({
+      event: "BUY",
+      signal_id: "dt:DIA:2026-09-25:2026-09-28:P:511",
+      ticker: "DIA",
+      contracts: 2,
+      ts: OLD,
+    });
+    const cov = classifyActionCoverage(a, {
+      ring: [{
+        ticker: "DIA",
+        side: "buy",
+        trade_id: "dt:DIA:2026-09-25:2026-09-28:P:511",
+        ts: OLD + 1000,
+        status: "error",
+        reject_reason: "order_rejected",
+      }],
+      nowMs: NOW,
+    });
+    expect(cov).toMatchObject({
+      status: "rejected_terminal",
+      reason: "order_rejected",
+      known_why: true,
+    });
+    expect(healForCoverageRow({ ...a, ...cov })).toBeNull();
+  });
+
   it("index DT EXIT no_held_position is known-why external_reduction", () => {
     const a = modelActionFromIndexDt({
       event: "STOP",

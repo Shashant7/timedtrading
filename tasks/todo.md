@@ -2235,3 +2235,18 @@ but WR / PnL% / PnL$ are all 0.
    status, not deleted (they remain useful reference).
 4. When a task ships AND is fully validated by the user, mark it `[x]`
    then move to the Strategic-plans table on the next session sweep.
+
+---
+
+## Active — Clear #system-alerts spam (2026-09-26)
+
+Live: `model_broker_coverage` fail = DIA index_dt ENTRY `order_rejected` (unhealable);
+EMR/LLY TRIM warns (historical cash-suppressed sleeve); `cron_tick_alive` weekend
+scoring lag (tick fresh). Heal returns ok every 4h and Discord fingerprint includes
+`heal:` so the same fail re-pages.
+
+- [x] Classify ENTRY `order_rejected` as `rejected_terminal`
+- [x] Off-hours: fresh tick + stale scoring = quiet (scoring idle by design)
+- [x] Drop `heal:` from sanity Discord fingerprint (body still shows Actions)
+- [x] Tests (112 pass) + PR
+
