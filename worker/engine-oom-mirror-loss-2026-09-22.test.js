@@ -40,6 +40,7 @@ import {
   diagnoseCronTick,
   CRON_COMPLETION_WARN_MIN,
   CRON_COMPLETION_FAIL_MIN,
+  CRON_OFFHOURS_WARN_MIN,
 } from "./sanity-sweep.js";
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -169,15 +170,30 @@ describe("a cron tick that fires and never finishes", () => {
     })).toEqual([]);
   });
 
-  it("escalates overnight only at extreme staleness", () => {
+  it("stays quiet overnight even when scoring is hours old (idle by design)", () => {
+    // 2026-09-26: weekend lag of 1028min with a fresh tick kept paging
+    // cron_tick_alive. Scoring is supposed to sleep off-hours; only a dead
+    // tick should wake anyone.
     const now = Date.parse("2026-09-23T02:37:30Z");
-    const out = diagnoseCronTick({
+    expect(diagnoseCronTick({
       nowMs: now,
       lastTickMs: now - 45_000,
       lastScoringMs: now - 300 * 60_000,
       scoringMeta: LIVE_SCORING,
+    })).toEqual([]);
+  });
+
+  it("still pages off-hours when the */5 tick itself goes silent", () => {
+    const now = Date.parse("2026-09-23T02:37:30Z");
+    const out = diagnoseCronTick({
+      nowMs: now,
+      lastTickMs: now - (CRON_OFFHOURS_WARN_MIN + 10) * 60_000,
+      lastScoringMs: now - 300 * 60_000,
+      scoringMeta: LIVE_SCORING,
     });
+    expect(out).toHaveLength(1);
     expect(out[0].severity).toBe("warn");
+    expect(out[0].detail).toContain("last */5 cron tick");
     expect(out[0].detail).toContain("(off-hours)");
   });
 
@@ -200,6 +216,16 @@ describe("a cron tick that fires and never finishes", () => {
     expect(sweep).toMatch(/anomalies\.push\(\.\.\.diagnoseCronTick\(/);
     const remediation = sweep.slice(sweep.indexOf('"cron_tick_alive"'));
     expect(remediation).toMatch(/exceededMemory/);
+  });
+
+  it("Discord fingerprint ignores heal success so sticky fails do not re-page", () => {
+    // 2026-09-26: heal:model_broker_coverage flipped the fingerprint every
+    // 4h while DIA ENTRY order_rejected stayed unmatched.
+    const sweep = readFileSync(join(root, "sanity-sweep.js"), "utf8");
+    const cron = sweep.slice(sweep.indexOf("export async function sanitySweepCron"));
+    const fpBlock = cron.slice(cron.indexOf("const fingerprint = ["), cron.indexOf("].sort().join(\"|\")"));
+    expect(fpBlock).not.toMatch(/heal:\$\{/);
+    expect(fpBlock).toMatch(/fail:\$\{c\.id\}/);
   });
 });
 
