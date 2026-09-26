@@ -1,6 +1,11 @@
 // Replay investor_lots into position cost_basis / per-lot realized P&L.
 // SELL rows reduce cost_basis by proportional cost (not sell proceeds).
 
+/** D1 rejects statements with >100 bound parameters (silent if caught). */
+export const D1_MAX_BOUND_PARAMS = 100;
+/** Leave headroom for other binds in the same statement. */
+export const INVESTOR_LOT_IN_CHUNK = 80;
+
 function lotIdOf(lot) {
   return String(lot?.id || lot?.lot_id || "");
 }
@@ -115,4 +120,58 @@ export function investorTrimSnapshot(costBasis, totalShares, trimShares) {
   const remaining = Math.max(0, total - trim);
   const avgEntry = remaining > 0 ? newCost / remaining : 0;
   return { partialCostBasis, newCost, remaining, avgEntry };
+}
+
+/**
+ * Load all investor_lots for a set of position_ids, chunked under D1's
+ * 100-bind cap. A single IN (...) with 161 ids previously threw
+ * "too many SQL variables", was swallowed by `.catch(() => [])`, and
+ * made every Long Term monthly PnL row show $0 / 0% WR.
+ *
+ * @param {object} db D1 database
+ * @param {string[]} positionIds
+ * @param {{ chunkSize?: number }} [opts]
+ * @returns {Promise<object[]>}
+ */
+export async function fetchInvestorLotsForPositions(db, positionIds, opts = {}) {
+  const ids = [...new Set((positionIds || []).map((x) => String(x || "").trim()).filter(Boolean))];
+  if (!db || !ids.length) return [];
+  const chunkSize = Math.max(1, Math.min(
+    INVESTOR_LOT_IN_CHUNK,
+    Number(opts.chunkSize) || INVESTOR_LOT_IN_CHUNK,
+    D1_MAX_BOUND_PARAMS - 1,
+  ));
+  const out = [];
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const ph = chunk.map(() => "?").join(",");
+    const res = await db.prepare(
+      `SELECT id, position_id, action, shares, price, value, ts
+         FROM investor_lots
+        WHERE position_id IN (${ph})
+        ORDER BY position_id ASC, ts ASC, id ASC`,
+    ).bind(...chunk).all();
+    for (const row of res?.results || []) out.push(row);
+  }
+  return out;
+}
+
+/**
+ * Build replay maps keyed by position_id from a flat lots list.
+ * @param {object[]} lots
+ * @returns {Record<string, ReturnType<typeof replayInvestorLots>>}
+ */
+export function replayInvestorLotsByPosition(lots) {
+  const lotsByPos = {};
+  for (const lot of lots || []) {
+    const pid = String(lot?.position_id || "");
+    if (!pid) continue;
+    if (!lotsByPos[pid]) lotsByPos[pid] = [];
+    lotsByPos[pid].push(lot);
+  }
+  const replayByPos = {};
+  for (const pid of Object.keys(lotsByPos)) {
+    replayByPos[pid] = replayInvestorLots(lotsByPos[pid]);
+  }
+  return replayByPos;
 }

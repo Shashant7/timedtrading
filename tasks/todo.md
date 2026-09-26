@@ -220,6 +220,15 @@ clips). Also CF (Long Term) showed under Day Trader closed trades.
 - [x] Book-scoped TradeHistory + fail-closed day-trade lane match (CF out)
 - [x] Build frontend, phone screenshot, PR
 
+## Active — Long Term monthly PnL all zeros (2026-09-26)
+
+Operator: Portfolio → Long Term → Monthly Performance shows trade counts
+but WR / PnL% / PnL$ are all 0.
+
+- [x] Root cause: D1 100-bind cap on investor lot-replay IN(...) (silent catch)
+- [x] Chunk position_id fetches; fallback avg_entry; harden normalizeInvestorTrades
+- [ ] Tests + PR
+
 ## Active — Ops desk: briefs / discovery / calibration (2026-09-25)
 
 - [x] Double evening brief: claim lock + email date dedupe (17:00 still

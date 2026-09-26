@@ -6,6 +6,24 @@
 
 ---
 
+## Long Term Monthly Performance all zeros = D1 100-bind IN (...) [2026-09-26]
+
+Portfolio → Long Term → Monthly Performance showed real trade counts
+(52, 59, 122…) but WR / PnL% / PnL$ were literally 0 for every month.
+Root cause was not the UI aggregator: `/timed/ledger/trades?mode=investor`
+with `limit=1000` put ~161 `position_id`s into one `WHERE position_id IN
+(?,?,…)` to load lots for replay. D1 caps binds at ~100; the query threw;
+`.catch(() => ({ results: [] }))` wiped the replay; every SELL fell back
+to `entry_price = exit_price = lotPrice` and `pnl: null` → FLAT. Same
+endpoint with `limit=50`/`200` returned correct PnL. Fix: chunk the IN
+list (`fetchInvestorLotsForPositions`, 80/id), log on failure, fall back
+to `avg_entry`, and harden `normalizeInvestorTrades` to derive $ from
+entry/exit/shares when `pnl` is null. Same family as the
+`loadRunConfigSubset` silent-catch lesson — never swallow a D1 bind
+overflow into an empty result that looks like "no lots."
+
+---
+
 ## Portfolio is not positions — options were dropped on the MC path [2026-09-25]
 
 Mission Control Broker Mirror asked `/bridge/portfolio` for the
