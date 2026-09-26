@@ -36958,7 +36958,11 @@ async function runCalibrationAnalysis(env, options = {}) {
     degradation_pct: systemHealth.in_sample.sqn > 0
       ? Math.round((1 - systemHealth.out_sample.sqn / systemHealth.in_sample.sqn) * 100)
       : 0,
-    verdict: systemHealth.out_sample.sqn >= systemHealth.in_sample.sqn * 0.7 ? "PASS" : "WARNING",
+    verdict: systemHealth.out_sample.sqn >= systemHealth.in_sample.sqn * (
+      (Number.isFinite(Number(env?.CALIB_WFO_MIN_RATIO)) && Number(env.CALIB_WFO_MIN_RATIO) > 0 && Number(env.CALIB_WFO_MIN_RATIO) <= 1)
+        ? Number(env.CALIB_WFO_MIN_RATIO)
+        : 0.7
+    ) ? "PASS" : "WARNING",
   };
 
   // ═══════════════════════════════════════════════════════════════════════

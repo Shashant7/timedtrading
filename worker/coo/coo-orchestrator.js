@@ -304,10 +304,21 @@ async function _notifyCalibrationCycle(env, report, outcome) {
       `Report: \`${outcome?.report_id || report?.report_id || "unknown"}\``,
       `Live trades: ${Number(report?.trade_classifications?.total_trades_after_exclusion ?? report?.trade_count) || 0}`,
       `VIX coverage: ${coverageText}`,
-      `Walk-forward: ${String(report?.wfo_summary?.verdict || "missing").toUpperCase()}`,
+      `Walk-forward: ${String(report?.wfo_summary?.verdict || "missing").toUpperCase()}`
+        + (Number.isFinite(Number(report?.wfo_summary?.in_sample_sqn))
+          ? ` · IS SQN ${Number(report.wfo_summary.in_sample_sqn).toFixed(2)} → OS ${Number(report.wfo_summary.out_sample_sqn).toFixed(2)}`
+            + (Number.isFinite(Number(report?.wfo_summary?.degradation_pct))
+              ? ` (${report.wfo_summary.degradation_pct}% deg)`
+              : "")
+          : ""),
       `Result: **${status}**${applied.length ? ` · ${applied.join(", ")}` : ""}`,
     ];
     if (outcome?.error) lines.push(`Reason: \`${String(outcome.error).slice(0, 180)}\``);
+    if (String(outcome?.error || "") === "walk_forward_not_passed") {
+      lines.push(
+        "Auto-apply stays blocked while out-of-sample SQN is below 70% of in-sample — that is intentional, not a stuck cron. Review the report; only apply after the recent book recovers or via a manual Calibration apply after operator review.",
+      );
+    }
     lines.push("Review: System Intelligence → Calibration.");
     await notifyDiscord(env, {
       title: "AI COO · Nightly Calibration",
@@ -1016,7 +1027,7 @@ export async function runMoveDiscoveryCycle(env, options = {}) {
   // The full report on KV has the per-ticker list under `churning`.
 
   if (alerts.length > 0) {
-    await _notifyDiscoveryAlert(env, alerts, result.summary, result.missed_signals);
+    await _notifyDiscoveryAlert(env, alerts, result.summary, result.missed_signals, result.recommendations);
     await recordAction(env, {
       tier: "tier2", kind: "move_discovery_alert", target: "universe",
       applied: false, reason: alerts.join(" · "),
@@ -1033,7 +1044,7 @@ export async function runMoveDiscoveryCycle(env, options = {}) {
   };
 }
 
-async function _notifyDiscoveryAlert(env, alerts, summary, missedSignals) {
+async function _notifyDiscoveryAlert(env, alerts, summary, missedSignals, recommendations = []) {
   // 2026-06-10 — route through notifyDiscord's LANE ROUTER on the
   // "system" lane (#system-alerts). This sender previously did a raw
   // fetch against DISCORD_WEBHOOK_URL — the #trade-signals webhook — so
@@ -1051,8 +1062,16 @@ async function _notifyDiscoveryAlert(env, alerts, summary, missedSignals) {
       lines.push("");
       lines.push(`Biggest misses: ${missedSignals.top_missed.slice(0, 5).map((m) => `${m.ticker} ${m.move_pct}%`).join(", ")}`);
     }
+    const actionable = (recommendations || []).filter((r) => r?.type === "knob_change").slice(0, 3);
+    if (actionable.length) {
+      lines.push("");
+      lines.push("**Suggested levers (approve in Discovery / learning queue — not auto-applied):**");
+      for (const r of actionable) {
+        lines.push(`• ${r.title || r.knob_path}: \`${r.current_value}\` → \`${r.suggested_value}\``);
+      }
+    }
     lines.push("");
-    lines.push("Review in System Intelligence → Discovery tab. Operator can use Calibration → Run Analysis to propose knob changes targeting these patterns.");
+    lines.push("Capture % = (full+partial)/all 3ATR+ moves in a thin ST sleeve — raising the alert floor hides the signal. Improve via universe (screener score) + entry floors on in-universe misses, then re-run Discovery. System Intelligence → Discovery tab.");
     await notifyDiscord(env, {
       title: "AI COO · Move Discovery Alert",
       description: lines.join("\n"),

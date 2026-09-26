@@ -5527,6 +5527,74 @@ export async function findExistingDailyBrief(env, type, dateEt) {
   return null;
 }
 
+/**
+ * Claim exclusive generation for one ET date + type.
+ * Prevents the 17:00 exact tick (still mid-OpenAI) and the 18:00 catch-up
+ * from both finishing a full generate + email (ops: two evening briefs).
+ * Same race pattern as claimInvestorWeeklyDigestLock.
+ */
+export function dailyBriefClaimKey(type, dateEt) {
+  const t = String(type || "morning").toLowerCase() === "evening" ? "evening" : "morning";
+  const d = String(dateEt || getBriefEtDate());
+  return `timed:brief:claim:${d}:${t}`;
+}
+
+export async function claimDailyBriefGeneration(env, type, dateEt, {
+  nowMs = Date.now(),
+  settleMs = 75,
+  ttlSec = 45 * 60,
+} = {}) {
+  const KV = env?.KV_TIMED;
+  const t = String(type || "morning").toLowerCase() === "evening" ? "evening" : "morning";
+  const d = String(dateEt || getBriefEtDate());
+  const lockKey = dailyBriefClaimKey(t, d);
+  if (!KV) return { ok: true, reason: "no_kv", type: t, date: d, lockKey };
+  try {
+    const existing = await KV.get(lockKey);
+    if (existing) {
+      let prior = existing;
+      try { prior = JSON.parse(existing); } catch (_) { /* raw */ }
+      return { ok: false, reason: "already_claimed", type: t, date: d, lockKey, prior };
+    }
+    const claim = JSON.stringify({
+      claimed_at: nowMs,
+      status: "generating",
+      type: t,
+      date: d,
+      nonce: `${nowMs}-${Math.random().toString(36).slice(2, 10)}`,
+    });
+    await KV.put(lockKey, claim, { expirationTtl: ttlSec });
+    if (settleMs > 0) await new Promise((r) => setTimeout(r, settleMs));
+    const winner = await KV.get(lockKey);
+    if (winner && winner !== claim) {
+      return { ok: false, reason: "lost_race", type: t, date: d, lockKey };
+    }
+    return { ok: true, type: t, date: d, lockKey, claim };
+  } catch (e) {
+    // Fail-open so a KV blip does not silence the brief; email date
+    // dedupe below still blocks a second send.
+    return { ok: true, reason: "lock_error", type: t, date: d, lockKey, error: String(e?.message || e).slice(0, 120) };
+  }
+}
+
+/** True when emails for this brief type+date already succeeded once. */
+export async function dailyBriefEmailAlreadySent(env, type, dateEt) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return false;
+  const t = String(type || "morning").toLowerCase() === "evening" ? "evening" : "morning";
+  const d = String(dateEt || "").slice(0, 10);
+  if (!d) return false;
+  try {
+    const raw = await KV.get(`timed:email:daily_brief:lastrun:${t}`);
+    if (!raw) return false;
+    const snap = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!snap || String(snap.date || "").slice(0, 10) !== d) return false;
+    return Number(snap.sent) > 0;
+  } catch (_) {
+    return false;
+  }
+}
+
 /** True when an intraday flash for this ET date + hour slot (11 or 14) already exists. */
 export async function findExistingIntradayFlashSlot(env, dateEt, etHour) {
   const KV = env?.KV_TIMED;
@@ -6553,6 +6621,12 @@ async function dispatchDailyBriefNotifications(env, {
     if (env?.EMAIL_ENABLED !== "true") {
       _emailReport.reason = "email_disabled";
       console.log(`[DAILY BRIEF] ${prefKey} emails skipped — email_disabled`);
+    } else if (await dailyBriefEmailAlreadySent(env, type, data?.today)) {
+      // Second finish of a raced generate (or catch-up after a successful
+      // exact-hour send) must not re-mail the list.
+      _emailReport.reason = "already_sent_today";
+      _emailReport.ok = true;
+      console.log(`[DAILY BRIEF] ${prefKey} emails skipped — already_sent_today (${data?.today})`);
     } else {
     const optedInUsers = await getEmailOptedInUsers(env, prefKey);
     _emailReport.recipients = optedInUsers.length;
@@ -6617,16 +6691,19 @@ async function dispatchDailyBriefNotifications(env, {
     console.warn("[DAILY BRIEF] Email dispatch failed:", String(e?.message || e).slice(0, 150));
   }
   try {
-    const snap = {
-      type,
-      prefKey,
-      date: data?.today || null,
-      finishedAt: Date.now(),
-      ..._emailReport,
-    };
-    await env?.KV_TIMED?.put(`timed:email:daily_brief:lastrun:${type}`, JSON.stringify(snap), {
-      expirationTtl: 30 * 24 * 3600,
-    });
+    // Don't clobber a successful same-day lastrun with an already_sent skip.
+    if (_emailReport.reason !== "already_sent_today") {
+      const snap = {
+        type,
+        prefKey,
+        date: data?.today || null,
+        finishedAt: Date.now(),
+        ..._emailReport,
+      };
+      await env?.KV_TIMED?.put(`timed:email:daily_brief:lastrun:${type}`, JSON.stringify(snap), {
+        expirationTtl: 30 * 24 * 3600,
+      });
+    }
   } catch (e) {
     console.warn("[DAILY BRIEF] failed to persist email lastrun snapshot:", String(e?.message || e).slice(0, 120));
   }
@@ -6695,11 +6772,22 @@ export async function generateDailyBrief(env, type, opts = {}) {
   if (!KV) return { ok: false, error: "no_kv" };
 
   const briefType = String(type || "morning").toLowerCase();
+  const dateEt = opts.dateEt || getBriefEtDate();
   if (opts.skipIfExists && db) {
-    const existing = await findExistingDailyBrief(env, briefType, opts.dateEt || getBriefEtDate());
+    const existing = await findExistingDailyBrief(env, briefType, dateEt);
     if (existing) {
       console.log(`[DAILY BRIEF] Skipping ${briefType} — already generated (${existing.id})`);
       return { ok: true, skipped: "already_generated", id: existing.id, elapsed: 0 };
+    }
+  }
+  // Claim before OpenAI so a catch-up tick cannot start a second full
+  // generate while the exact-hour tick is still mid-flight (no D1 row yet).
+  // Only on skipIfExists paths (cron) — manual regen must stay free.
+  if (opts.skipIfExists === true && opts.skipClaim !== true) {
+    const claim = await claimDailyBriefGeneration(env, briefType, dateEt);
+    if (!claim.ok) {
+      console.log(`[DAILY BRIEF] Skipping ${briefType} — ${claim.reason} (${dateEt})`);
+      return { ok: true, skipped: claim.reason || "already_claimed", date: dateEt, elapsed: 0 };
     }
   }
 

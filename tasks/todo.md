@@ -192,6 +192,14 @@ book tabs so books are comparable at a glance.
 - [x] Render PnL % on each book tab (realized + open / startCash)
 - [x] Style up/dn for active + inactive tabs; build frontend
 
+## Active — Portfolio trade broker-mirror indicator (2026-09-26)
+
+Operator: each open trade/history row should show whether the model
+action has a live broker mirror (mirrored / not / rejected).
+
+- [ ] Join mirror status onto Portfolio open positions (+ history if cheap)
+- [ ] Reuse day-actions / coverage join; do not invent a second truth
+
 ## Active — Ops desk: briefs / discovery / calibration (2026-09-25)
 
 - [x] Double evening brief: claim lock + email date dedupe (17:00 still
