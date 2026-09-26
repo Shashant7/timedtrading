@@ -55743,8 +55743,8 @@
         "event_type": "earnings",
         "event_name": "CTAS Earnings",
         "impact": "high",
-        "surprise_pct": 0.6,
-        "spy_reaction_pct": 0.01,
+        "surprise_pct": 0,
+        "spy_reaction_pct": 0.54,
         "sector_reaction_pct": null
       },
       {
@@ -55797,8 +55797,8 @@
         "event_type": "earnings",
         "event_name": "CBRL Earnings",
         "impact": "high",
-        "surprise_pct": 559.12,
-        "spy_reaction_pct": 0.01,
+        "surprise_pct": 482.35,
+        "spy_reaction_pct": 0.54,
         "sector_reaction_pct": null
       },
       {
@@ -55887,7 +55887,7 @@
         "event_type": "earnings",
         "event_name": "COST Earnings",
         "impact": "high",
-        "surprise_pct": -1.09,
+        "surprise_pct": -0.84,
         "spy_reaction_pct": 0.54,
         "sector_reaction_pct": null
       },
@@ -56493,13 +56493,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 71.3057
+        "sql_duration_ms": 71.1215
       },
-      "duration": 71.3057,
+      "duration": 71.1215,
       "changes": 0,
-      "last_row_id": 50937,
+      "last_row_id": 0,
       "changed_db": false,
-      "size_after": 5365231616,
+      "size_after": 5103210496,
       "rows_read": 6276,
       "rows_written": 0,
       "total_attempts": 1
