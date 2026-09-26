@@ -4719,13 +4719,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 6.9248
+        "sql_duration_ms": 8.064
       },
-      "duration": 6.9248,
+      "duration": 8.064,
       "changes": 0,
-      "last_row_id": 0,
+      "last_row_id": 53680,
       "changed_db": false,
-      "size_after": 5103210496,
+      "size_after": 5103656960,
       "rows_read": 314,
       "rows_written": 0,
       "total_attempts": 1
