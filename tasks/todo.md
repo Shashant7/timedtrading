@@ -228,6 +228,7 @@ but WR / PnL% / PnL$ are all 0.
 - [x] Root cause: D1 100-bind cap on investor lot-replay IN(...) (silent catch)
 - [x] Chunk position_id fetches; fallback avg_entry; harden normalizeInvestorTrades
 - [x] Tests + PR
+- [ ] Follow-up: refetch Long Term history on book switch + no-store (stale tab)
 
 ## Active — Ops desk: briefs / discovery / calibration (2026-09-25)
 

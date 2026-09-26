@@ -62776,6 +62776,8 @@ export default {
                 stage: primaryRow?.investor_stage || null,
               };
             }
+            // no-store: Portfolio Monthly Performance was sticky on a
+            // pre-fix FLAT/pnl:null payload when any layer cached GET.
             return sendJSON({
               ok: true,
               mode: "investor",
@@ -62783,11 +62785,13 @@ export default {
               hasMore,
               trades,
               position: positionSummary,
-            }, 200, corsHeaders(env, req));
+            }, 200, { ...corsHeaders(env, req), "Cache-Control": "private, no-store" });
           } catch (e) {
             const msg = (e?.message || String(e));
             if (msg.includes("no such table")) {
-              return sendJSON({ ok: true, mode: "investor", count: 0, hasMore: false, trades: [] }, 200, corsHeaders(env, req));
+              return sendJSON({ ok: true, mode: "investor", count: 0, hasMore: false, trades: [] }, 200, {
+                ...corsHeaders(env, req), "Cache-Control": "private, no-store",
+              });
             }
             return sendJSON({ ok: false, error: msg }, 500, corsHeaders(env, req));
           }
