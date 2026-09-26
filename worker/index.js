@@ -7494,6 +7494,8 @@ function computeConvictionScoreForD(d, sideOverride = null) {
     ttSelected: TT_SELECTED_DEFAULT,
     currentGrannyEtfHoldings: currentGranny,
     currentUpticks,
+    daCfg: env?._deepAuditConfig || d?._env?._deepAuditConfig || null,
+    isReplay: !!(env?._isReplay || d?._env?._isReplay),
   });
 }
 

@@ -14,9 +14,19 @@
 //
 // Plus additive bonuses (capped at 100 total):
 //   +15 — TT_SELECTED hard-coded curation
-//   +10 — current GRNY/GRNJ/GRNI holding  (LIVE ONLY; backtest=0)
-//   +10 — on Mark Newton's Upticks list    (LIVE ONLY; backtest=0)
+//   +10 — current GRNY/GRNJ/GRNI holding  (LIVE ONLY by default; replay=0)
+//   +10 — on Mark Newton's Upticks list    (LIVE ONLY by default; replay=0)
 //   + 5 — recent winner (≥2 wins, net +3% PnL in last 30 days)
+//
+// Ablation knobs (model_config / deep_audit, see resolveFocusBonusPolicy):
+//   deep_audit_focus_bonus_tt_selected     default true
+//   deep_audit_focus_bonus_upticks         default !isReplay
+//   deep_audit_focus_bonus_granny          default !isReplay
+//   deep_audit_focus_bonus_context         default true
+//   deep_audit_focus_bonus_recent_winner   default true
+// Set any to "false" for a clean technical arm. Replay must NOT use wall-
+// clock Upticks/Granny KV (look-ahead); force them on only with an explicit
+// true for a live-parity experiment that accepts that bias.
 //
 // Plus independent context (2026-09-10, cap +18 / −8) — quality /
 // compounder / theme membership / unsigned FV / news / index inclusion.
@@ -875,16 +885,48 @@ function scoreRecentWinner(tickerUpper, historyStats) {
 // ─────────────────────────────────────────────────────────────────────────
 // MAIN — compute score + tier
 // ─────────────────────────────────────────────────────────────────────────
+/**
+ * Resolve which conviction list/context bonuses are armed.
+ * Research lists (Upticks / Granny) default OFF in replay to block
+ * wall-clock KV look-ahead; TT_SELECTED stays on unless ablated.
+ */
+export function resolveFocusBonusPolicy(daCfg = {}, { isReplay = false } = {}) {
+  const flag = (key, defaultOn) => {
+    if (!Object.prototype.hasOwnProperty.call(daCfg || {}, key)) return !!defaultOn;
+    const raw = daCfg[key];
+    if (raw === undefined || raw === null || raw === "") return !!defaultOn;
+    const s = String(raw).trim().toLowerCase();
+    if (s === "false" || s === "0" || s === "off" || s === "no") return false;
+    if (s === "true" || s === "1" || s === "on" || s === "yes") return true;
+    return !!raw;
+  };
+  const researchDefault = !isReplay;
+  return {
+    tt_selected: flag("deep_audit_focus_bonus_tt_selected", true),
+    upticks: flag("deep_audit_focus_bonus_upticks", researchDefault),
+    granny: flag("deep_audit_focus_bonus_granny", researchDefault),
+    context: flag("deep_audit_focus_bonus_context", true),
+    recent_winner: flag("deep_audit_focus_bonus_recent_winner", true),
+  };
+}
+
 export function computeConvictionScore({
   tickerData,
   ctx,
   historyStats,
   ttSelected,
-  // Live-only bonuses (backtest skips by passing empty Sets)
+  // Live-only bonuses (replay defaults them OFF via bonusPolicy)
   currentGrannyEtfHoldings,
   currentUpticks,
+  bonusPolicy = null,
+  isReplay = false,
+  daCfg = null,
 }) {
   const tickerUpper = String(tickerData?.ticker || tickerData?.sym || ctx?.ticker || "").toUpperCase();
+  const policy = bonusPolicy || resolveFocusBonusPolicy(
+    daCfg || tickerData?._env?._deepAuditConfig || {},
+    { isReplay: isReplay || !!tickerData?._env?._isReplay },
+  );
 
   const s1 = scoreLiquidity(tickerData);
   const s2 = scoreVolatility(tickerData);
@@ -908,16 +950,18 @@ export function computeConvictionScore({
 
   let base = s1.pts + s2.pts + s3.pts + s4.pts + s5.pts + s6.pts + s7.pts + s8.pts + s9.pts + s10.pts + s11.pts + s12.pts + s13.pts;
 
-  // Bonuses (capped so total ≤ 100)
-  const ttSelBonus = (ttSelected || TT_SELECTED_DEFAULT).has(tickerUpper) ? 15 : 0;
-  const grannyBonus = (currentGrannyEtfHoldings && currentGrannyEtfHoldings.has(tickerUpper)) ? 10 : 0;
-  const upticksBonus = (currentUpticks && currentUpticks.has(tickerUpper)) ? 10 : 0;
-  const recentBonus = scoreRecentWinner(tickerUpper, historyStats);
+  // Bonuses — each arm is independently ablatable
+  const ttSelBonus = policy.tt_selected && (ttSelected || TT_SELECTED_DEFAULT).has(tickerUpper) ? 15 : 0;
+  const grannyBonus = policy.granny && currentGrannyEtfHoldings && currentGrannyEtfHoldings.has(tickerUpper) ? 10 : 0;
+  const upticksBonus = policy.upticks && currentUpticks && currentUpticks.has(tickerUpper) ? 10 : 0;
+  const recentBonus = policy.recent_winner ? scoreRecentWinner(tickerUpper, historyStats) : 0;
   const contextSide = String(ctx?.direction || ctx?.side || "").toUpperCase() === "SHORT"
     || String(ctx?.direction || ctx?.side || "").toUpperCase() === "LONG"
     ? String(ctx.direction || ctx.side).toUpperCase()
     : (resolvePlaySide(tickerData) || (Number(tickerData?.htf_score) < 0 ? "SHORT" : "LONG"));
-  const context = scoreContextConviction(tickerData, contextSide);
+  const context = policy.context
+    ? scoreContextConviction(tickerData, contextSide)
+    : { pts: 0, parts: [], skipped: "bonus_policy_off" };
 
   // V15 P0.5 (2026-04-26): reverted weights to P0.3 baseline.
   //   liquidity 0-10
@@ -970,6 +1014,7 @@ export function computeConvictionScore({
         upticks: upticksBonus,
         recent_winner: recentBonus,
       },
+      bonus_policy: policy,
       context,
     },
   };

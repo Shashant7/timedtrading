@@ -30,7 +30,7 @@ import { evaluateBreakoutWatch, stampBreakoutWatchOnTicker } from "./breakout-wa
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
 // this version let us know exactly which logic produced them.
-export const SCORING_VERSION = "2.1.11-2026-09-25";
+export const SCORING_VERSION = "2.1.12-2026-09-26";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PRIMITIVE INDICATORS (from OHLCV bar arrays)

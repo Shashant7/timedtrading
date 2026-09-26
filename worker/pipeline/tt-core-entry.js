@@ -1052,6 +1052,8 @@ export function evaluateEntry(ctx) {
           ttSelected: TT_SELECTED_DEFAULT,
           currentGrannyEtfHoldings: currentGranny,
           currentUpticks,
+          daCfg,
+          isReplay: !!(d?._env?._isReplay),
         });
         _focusConviction = conv;
         _focusTier = conv.tier;

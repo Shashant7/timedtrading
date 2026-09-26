@@ -60,6 +60,15 @@ byte-identical to baseline, which looks like "the change did nothing".
 
 Add the key, redeploy preprod, then run.
 
+### List / FSD conviction ablation (2026-09-26)
+
+`deep_audit_focus_bonus_{tt_selected,upticks,granny,context,recent_winner}`
+gate the +15/+10/+10/context points in `resolveFocusBonusPolicy`. Replay
+defaults Upticks/Granny **OFF** (wall-clock KV is look-ahead). Flip arms with
+`scripts/mojo-ablation-arm.mjs` — see
+`tasks/2026-09-26-mojo-ablation-weekend.md`. Always sync
+`deep_audit_focus_tier_enabled` from live before a baseline.
+
 ### Cadence vs the Workers CPU limit
 
 Per-day work is `intervals x tickers`. Around ~1900 scored ticker-intervals
