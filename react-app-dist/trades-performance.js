@@ -448,14 +448,33 @@
           out.push(t);
           continue;
         }
-        const pnl = Number(t?.pnl) || 0;
+        // Prefer API pnl; if missing (legacy / failed lot-replay pages),
+        // derive from exit − entry × shares so Monthly Performance is not
+        // all zeros while trade counts still show.
+        let pnl = Number(t?.pnl ?? t?.realized_pnl ?? t?.realizedPnl);
+        let pnlPct = Number(t?.pnl_pct ?? t?.pnlPct ?? t?.realized_pct ?? t?.realizedPct);
+        const entry = Number(t?.entry_price ?? t?.entryPrice);
+        const exit = Number(t?.exit_price ?? t?.exitPrice);
+        const shares = Number(t?.shares) || 0;
+        if (!Number.isFinite(pnl)) {
+          if (Number.isFinite(entry) && entry > 0 && Number.isFinite(exit) && shares > 0) {
+            pnl = (exit - entry) * shares;
+          } else {
+            pnl = 0;
+          }
+        }
+        if (!Number.isFinite(pnlPct) && Number.isFinite(entry) && entry > 0 && Number.isFinite(exit)) {
+          pnlPct = ((exit - entry) / entry) * 100;
+        }
         const status = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "FLAT";
-        const sellTs = Number(t?.entry_ts || t?.ts || 0);
+        const sellTs = Number(t?.exit_ts || t?.exitTs || t?.entry_ts || t?.ts || 0);
         out.push({
           ...t,
           status,
+          pnl,
+          pnl_pct: Number.isFinite(pnlPct) ? pnlPct : 0,
           exit_ts: sellTs,
-          exit_price: Number(t?.entry_price) || undefined,
+          exit_price: Number.isFinite(exit) && exit > 0 ? exit : (Number.isFinite(entry) ? entry : undefined),
           setup_name: t?.setup_name || t?.entry_path || (t?.reason ? `Investor: ${t.reason}` : "Investor Hold"),
         });
       }
@@ -621,4 +640,4 @@
   };
 })();
 
-// cache-bust:1790384013513:513595761
+// cache-bust:1790401404468:773866280

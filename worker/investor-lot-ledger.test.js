@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { replayInvestorLots, investorTrimSnapshot } from "./investor-lot-ledger.js";
+import {
+  replayInvestorLots,
+  investorTrimSnapshot,
+  fetchInvestorLotsForPositions,
+  replayInvestorLotsByPosition,
+  INVESTOR_LOT_IN_CHUNK,
+  D1_MAX_BOUND_PARAMS,
+} from "./investor-lot-ledger.js";
 
 describe("replayInvestorLots", () => {
   it("uses proportional cost removal on SELL (not sell proceeds)", () => {
@@ -64,5 +71,53 @@ describe("investorTrimSnapshot", () => {
     expect(s.remaining).toBeCloseTo(7, 6);
     expect(s.newCost).toBeCloseTo(700, 6);
     expect(s.avgEntry).toBeCloseTo(100, 6);
+  });
+});
+
+describe("fetchInvestorLotsForPositions", () => {
+  it("chunks IN lists under the D1 100-bind cap", async () => {
+    const binds = [];
+    const db = {
+      prepare(sql) {
+        return {
+          bind(...args) {
+            binds.push({ sql, n: args.length, args });
+            return {
+              async all() {
+                return { results: args.map((id, i) => ({
+                  id: `lot-${id}`,
+                  position_id: id,
+                  action: "BUY",
+                  shares: 1,
+                  price: 10,
+                  value: 10,
+                  ts: i + 1,
+                })) };
+              },
+            };
+          },
+        };
+      },
+    };
+    // 161 ids is the live Long Term book size that previously blew the cap.
+    const ids = Array.from({ length: 161 }, (_, i) => `inv-pos-${i}`);
+    const rows = await fetchInvestorLotsForPositions(db, ids);
+    expect(rows.length).toBe(161);
+    expect(binds.length).toBe(Math.ceil(161 / INVESTOR_LOT_IN_CHUNK));
+    for (const b of binds) {
+      expect(b.n).toBeLessThanOrEqual(D1_MAX_BOUND_PARAMS - 1);
+      expect(b.n).toBeLessThanOrEqual(INVESTOR_LOT_IN_CHUNK);
+    }
+  });
+
+  it("replayInvestorLotsByPosition groups sells with cost basis", () => {
+    const lots = [
+      { id: "b1", position_id: "p1", action: "BUY", shares: 10, price: 100, value: 1000, ts: 1 },
+      { id: "s1", position_id: "p1", action: "SELL", shares: 4, price: 125, value: 500, ts: 2 },
+      { id: "b2", position_id: "p2", action: "BUY", shares: 2, price: 50, value: 100, ts: 1 },
+    ];
+    const by = replayInvestorLotsByPosition(lots);
+    expect(by.p1.byLotId.get("s1").realizedPnl).toBeCloseTo(100, 6);
+    expect(by.p2.totalShares).toBeCloseTo(2, 6);
   });
 });

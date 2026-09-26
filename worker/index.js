@@ -1379,7 +1379,11 @@ import {
   healInvestorPositionPeaks,
   convenienceFieldsFromInvestorScore,
 } from "./investor-positions-repair.js";
-import { replayInvestorLots } from "./investor-lot-ledger.js";
+import {
+  replayInvestorLots,
+  fetchInvestorLotsForPositions,
+  replayInvestorLotsByPosition,
+} from "./investor-lot-ledger.js";
 import { applyInvestorLedgerLeftovers } from "./ledger-leftover-repair.js";
 import {
   gatherSizingMultipliers,
@@ -62628,24 +62632,22 @@ export default {
             const page = results.slice(0, limitVal);
             const hasMore = results.length > limitVal;
 
+            // Chunked under D1's 100-bind cap. A single IN (...) over the
+            // full Long Term book (~161 positions) threw "too many SQL
+            // variables", was swallowed by a bare catch, and every SELL
+            // came back FLAT / pnl:null — Monthly Performance showed $0.
             const positionIds = [...new Set(page.map((r) => r.position_id).filter(Boolean))];
-            const replayByPos = {};
+            let replayByPos = {};
             if (positionIds.length > 0) {
-              const ph = positionIds.map(() => "?").join(",");
-              const allLotsRes = await db.prepare(
-                `SELECT id, position_id, action, shares, price, value, ts
-                   FROM investor_lots
-                  WHERE position_id IN (${ph})
-                  ORDER BY position_id ASC, ts ASC, id ASC`,
-              ).bind(...positionIds).all().catch(() => ({ results: [] }));
-              const lotsByPos = {};
-              for (const lot of allLotsRes?.results || []) {
-                const pid = lot.position_id;
-                if (!lotsByPos[pid]) lotsByPos[pid] = [];
-                lotsByPos[pid].push(lot);
-              }
-              for (const pid of positionIds) {
-                replayByPos[pid] = replayInvestorLots(lotsByPos[pid] || []);
+              try {
+                const allLots = await fetchInvestorLotsForPositions(db, positionIds);
+                replayByPos = replayInvestorLotsByPosition(allLots);
+              } catch (e) {
+                console.warn(
+                  "[ledger/trades investor] lot replay fetch failed:",
+                  String(e?.message || e).slice(0, 200),
+                );
+                replayByPos = {};
               }
             }
 
@@ -62677,10 +62679,15 @@ export default {
               const positionHeldNow = Number.isFinite(Number(posReplay?.totalShares))
                 ? Number(posReplay.totalShares)
                 : (Number(r.total_shares) || 0);
-              const positionAvgEntry = Number.isFinite(Number(posReplay?.avgEntry))
+              const positionAvgEntry = (Number.isFinite(Number(posReplay?.avgEntry))
+                && Number(posReplay.avgEntry) > 0)
                 ? Number(posReplay.avgEntry)
                 : (Number(r.avg_entry) || 0);
-              const avgEntryAtSell = Number(lotReplay?.avgEntryAtSell) || 0;
+              // Prefer per-lot replay cost; fall back to position avg_entry
+              // so a missed replay row still yields non-zero Monthly PnL.
+              const avgEntryAtSell = Number(lotReplay?.avgEntryAtSell) > 0
+                ? Number(lotReplay.avgEntryAtSell)
+                : (Number(r.avg_entry) || 0);
               const realizedPnl = isSell
                 ? (Number.isFinite(Number(lotReplay?.realizedPnl))
                   ? Number(lotReplay.realizedPnl)
